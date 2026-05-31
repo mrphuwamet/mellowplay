@@ -1,0 +1,47 @@
+# IDE, AI and Editor Folders
+.vscode/
+.claude/
+.idea/
+
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Production and Build
+dist/
+build/
+out/
+.next/
+.wrangler/
+
+# Environment Variables (ห้ามนำไฟล์ .env ขึ้น Git เด็ดขาด)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.staging
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.log.*
+
+# Logs and Databases
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

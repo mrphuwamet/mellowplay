@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Force Prompt on everything */
+* {
+  font-family: 'Prompt', sans-serif !important;
+}
+
+b, strong {
+  font-weight: 500 !important;
+}
+
+@layer base {
+  html, body, #root {
+    font-family: 'Prompt', sans-serif !important;
+    font-weight: 300; /* Default to light as per thinnest request */
+    background-color: #fbfaf7;
+    color: #172038;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .mellow-page {
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative;
+    background-color: #fbfaf7;
+  }
+
+  .mellow-card {
+    @apply bg-white border border-[#eef0f5] rounded-[24px] p-5 shadow-[0_10_30px_rgba(22,32,56,0.08)];
+  }
+
+  .mellow-btn-primary {
+    @apply mellow-btn text-white;
+    background: linear-gradient(135deg, #ef4f55, #ff777b);
+    box-shadow: 0 10px 22px rgba(239, 79, 85, 0.24);
+  }
+
+  .mellow-btn {
+    @apply py-4 px-6 rounded-[18px] font-extrabold transition-all active:scale-95 text-center flex items-center justify-center gap-2;
+  }
+
+  .mellow-pill {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[14px] font-black uppercase tracking-wider;
+  }
+}
+
+@layer utilities {
+  .animate-float-slow {
+    animation: float-slow linear infinite;
+  }
+  .animate-float-reverse {
+    animation: float-reverse linear infinite;
+  }
+}
+
+@keyframes float-slow {
+  0% { transform: translateX(-100%) translateY(0); }
+  50% { transform: translateX(250%) translateY(-20px); }
+  100% { transform: translateX(600%) translateY(0); }
+}
+
+@keyframes float-reverse {
+  0% { transform: translateX(100%) translateY(0); }
+  50% { transform: translateX(-250%) translateY(20px); }
+  100% { transform: translateX(-600%) translateY(0); }
+}
+
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}

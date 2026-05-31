@@ -1,0 +1,9 @@
+# Local Development Environment Variables
+# Copy this file to .dev.vars for local development
+# wrangler dev will automatically load variables from .dev.vars
+
+HD_API_KEY=your_local_hd_api_key
+HD_GEOCODE_KEY=your_local_hd_geocode_key
+JWT_SECRET=your_local_jwt_secret
+ENVIRONMENT=development
+# D1 and R2 are handled locally by wrangler automatically
