@@ -30,13 +30,13 @@ JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
 
 [[env.dev.d1_databases]]
 binding = "DB"
-database_name = "mellow_play_db"
-database_id = "3bdbdbe1-f307-45f9-85ea-8630660e9783"
+database_name = "mellow_play_db_dev"
+database_id = "f2dd5404-7402-4fa7-b4c0-9a66bef4af27"
 
 [[env.dev.r2_buckets]]
 binding = "BUCKET"
-bucket_name = "mellow-play-assets"
+bucket_name = "mellow-play-assets-dev"
 
 [[env.dev.kv_namespaces]]
 binding = "OTP_KV"
-id = "719ca37082ed4161b640df49cf8fce3d"
+id = "3b85a45ec6df4e9693e7696133cccf06"
