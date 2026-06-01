@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev src/index.ts",
-    "deploy": "wrangler deploy --minify src/index.ts"
+    "deploy": "wrangler deploy --minify src/index.ts",
+    "deploy:dev": "wrangler deploy --env dev --minify src/index.ts"
   },
   "dependencies": {
     "hono": "^4.0.0",

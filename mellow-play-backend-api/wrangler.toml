@@ -2,8 +2,9 @@ name = "mellow-play-backend-api"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
+# Production (branch: main)
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
 
 [[d1_databases]]
@@ -16,5 +17,26 @@ binding = "BUCKET"
 bucket_name = "mellow-play-assets"
 
 [[kv_namespaces]]
+binding = "OTP_KV"
+id = "719ca37082ed4161b640df49cf8fce3d"
+
+# Development (branch: dev)
+[env.dev]
+name = "mellow-play-backend-api-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "mellow_play_db"
+database_id = "3bdbdbe1-f307-45f9-85ea-8630660e9783"
+
+[[env.dev.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "mellow-play-assets"
+
+[[env.dev.kv_namespaces]]
 binding = "OTP_KV"
 id = "719ca37082ed4161b640df49cf8fce3d"
