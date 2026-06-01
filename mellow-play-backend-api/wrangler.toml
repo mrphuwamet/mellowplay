@@ -16,5 +16,5 @@ binding = "BUCKET"
 bucket_name = "mellow-play-assets"
 
 [[kv_namespaces]]
-"binding": "KV",
-"id": "719ca37082ed4161b640df49cf8fce3d",
+binding = "OTP_KV"
+id = "719ca37082ed4161b640df49cf8fce3d"
