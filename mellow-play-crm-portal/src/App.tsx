@@ -42,6 +42,12 @@ import {
   Store as StoreIcon,
   SwapHoriz as SwitchIcon,
   AccountBalance as FinanceIcon,
+  Inventory2 as PackageIcon,
+  Campaign as CampaignMenuIcon,
+  Storefront as ShopIcon,
+  MiscellaneousServices as ServiceMenuIcon,
+  Inventory as ProductMenuIcon,
+  Warehouse as StockMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -61,6 +67,11 @@ import POSDashboard from './pages/POSDashboard';
 import MyProfile from './pages/MyProfile';
 import RolePermissionManagement from './pages/RolePermissionManagement';
 import SkillsLibraryManagement from './pages/SkillsLibraryManagement';
+import PackageManagement from './pages/PackageManagement';
+import CampaignManagement from './pages/CampaignManagement';
+import ServiceManagement from './pages/ServiceManagement';
+import ProductManagement from './pages/ProductManagement';
+import StockManagement from './pages/StockManagement';
 import {
   canAccessFeature,
   FeatureKey,
@@ -229,17 +240,20 @@ const AppContent = () => {
   const [permissionTick, setPermissionTick] = useState(0);
   const [roleLabelsMap, setRoleLabelsMap] = useState<Record<string, string>>(getRoleLabels());
   const [crmUnlocked, setCrmUnlocked] = useState(false);
-  const financePaths = ['/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout'];
+  const financePaths = ['/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'];
+  const shopPaths   = ['/crm/services', '/crm/products', '/crm/stock'];
   const [financeGroupOpen, setFinanceGroupOpen] = useState(() =>
     financePaths.some((p) => window.location.pathname === p)
+  );
+  const [shopGroupOpen, setShopGroupOpen] = useState(() =>
+    shopPaths.some((p) => window.location.pathname === p)
   );
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (financePaths.some((p) => location.pathname === p)) {
-      setFinanceGroupOpen(true);
-    }
+    if (financePaths.some((p) => location.pathname === p)) setFinanceGroupOpen(true);
+    if (shopPaths.some((p) => location.pathname === p)) setShopGroupOpen(true);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -288,6 +302,7 @@ const AppContent = () => {
       { text: 'ระบบลางาน', icon: <LeaveIcon />, path: '/crm/leave', feature: 'leave_requests' },
       { text: 'เบิกเงินสำรองจ่าย', icon: <ExpenseIcon />, path: '/crm/expense-advance', feature: 'expense_advance' },
       { text: 'ระบบ Payout', icon: <PayoutIcon />, path: '/crm/payout', feature: 'payout' },
+      { text: 'โบนัสแคมเปญ', icon: <CampaignMenuIcon />, path: '/crm/campaign-bonus', feature: 'campaign_bonus' },
     ];
     return all.filter((item) => hasPermission(item.feature));
   }, [permissionTick, currentUser]);
@@ -307,6 +322,7 @@ const AppContent = () => {
       { text: 'จัดการพนักงาน', icon: <BadgeIcon />, path: '/crm/staff', feature: 'crm_users' },
       { text: 'จัดการผู้ใช้งาน', icon: <PeopleIcon />, path: '/crm/parents', feature: 'consumer_users' },
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
+      { text: 'จัดการแพ็คเกจ', icon: <PackageIcon />, path: '/crm/packages', feature: 'packages' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
     ];
 
@@ -325,10 +341,25 @@ const AppContent = () => {
       } as MenuGroupConfig);
     }
 
+    // Shop group
+    const shopChildren: MenuItemConfig[] = [
+      { text: 'จัดการบริการ',        icon: <ServiceMenuIcon />, path: '/crm/services', feature: 'services' },
+      { text: 'จัดการรายการสินค้า',  icon: <ProductMenuIcon />, path: '/crm/products', feature: 'products' },
+      { text: 'จัดการสต๊อก',         icon: <StockMenuIcon />,   path: '/crm/stock',    feature: 'stock'    },
+    ].filter(item => hasPermission(item.feature));
+    if (shopChildren.length > 0) {
+      filtered.push({
+        type: 'group',
+        label: 'สินค้าและบริการ',
+        icon: <ShopIcon />,
+        groupKey: 'shop',
+        children: shopChildren,
+      } as MenuGroupConfig);
+    }
+
     const bottomItems: MenuItemConfig[] = [
       { text: 'ตั้งค่าระบบและสาขา', icon: <SettingsIcon />, path: '/crm/settings', feature: 'settings' },
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
-      { text: 'Skills Library', icon: <SkillsLibIcon />, path: '/crm/skills-library', feature: 'skills_library' },
     ];
     bottomItems.filter((item) => hasPermission(item.feature)).forEach((item) => filtered.push(item));
 
@@ -448,7 +479,10 @@ const AppContent = () => {
                 <React.Fragment key={group.groupKey}>
                   <ListItem disablePadding>
                     <ListItemButton
-                      onClick={() => setFinanceGroupOpen((o) => !o)}
+                      onClick={() => {
+                        if (group.groupKey === 'finance') setFinanceGroupOpen((o) => !o);
+                        else if (group.groupKey === 'shop') setShopGroupOpen((o) => !o);
+                      }}
                       sx={{
                         ml: 0,
                         mr: 1.5,
@@ -465,10 +499,12 @@ const AppContent = () => {
                     >
                       <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>{group.icon}</ListItemIcon>
                       <ListItemText primary={group.label} primaryTypographyProps={{ fontWeight: 600, fontSize: '0.875rem' }} />
-                      {financeGroupOpen ? <ExpandLess sx={{ fontSize: 18 }} /> : <ExpandMore sx={{ fontSize: 18 }} />}
+                      {(group.groupKey === 'finance' ? financeGroupOpen : shopGroupOpen)
+                        ? <ExpandLess sx={{ fontSize: 18 }} />
+                        : <ExpandMore sx={{ fontSize: 18 }} />}
                     </ListItemButton>
                   </ListItem>
-                  <Collapse in={financeGroupOpen} timeout="auto" unmountOnExit>
+                  <Collapse in={group.groupKey === 'finance' ? financeGroupOpen : shopGroupOpen} timeout="auto" unmountOnExit>
                     <List disablePadding>
                       {group.children.map((child) => (
                         <ListItem key={child.text} disablePadding>
@@ -599,35 +635,45 @@ const AppContent = () => {
     return <Routes><Route path="/login" element={<Login />} /></Routes>;
   }
 
+  const needsPin = !isPosMode && !crmUnlocked;
+
   return (
-    <Box sx={{ display: 'flex', bgcolor: isDarkMode ? '#f1f5f9' : '#f8fafc', minHeight: '100vh', transition: 'background-color 0.3s' }}>
-      <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: drawerWidth,
-              borderRight: isDarkMode ? 'none' : '1px solid #f1f3f9',
-              borderRadius: '0 24px 24px 0',
-              boxShadow: isDarkMode ? '10px 0 30px rgba(0,0,0,0.1)' : '5px 0 20px rgba(0,0,0,0.02)',
-            },
-          }}
-          open
-        >
-          {drawer}
-        </Drawer>
-      </Box>
+    <>
+      {/* ── Blurred layout — pointer-events disabled until PIN is confirmed ── */}
+      <Box
+        sx={{
+          display: 'flex',
+          bgcolor: isDarkMode ? '#f1f5f9' : '#f8fafc',
+          minHeight: '100vh',
+          transition: 'filter 0.3s, background-color 0.3s',
+          filter: needsPin ? 'blur(8px)' : 'none',
+          pointerEvents: needsPin ? 'none' : 'auto',
+          userSelect: needsPin ? 'none' : 'auto',
+        }}
+      >
+        <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
+          <Drawer
+            variant="permanent"
+            sx={{
+              display: { xs: 'none', sm: 'block' },
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: drawerWidth,
+                borderRight: isDarkMode ? 'none' : '1px solid #f1f3f9',
+                borderRadius: '0 24px 24px 0',
+                boxShadow: isDarkMode ? '10px 0 30px rgba(0,0,0,0.1)' : '5px 0 20px rgba(0,0,0,0.02)',
+              },
+            }}
+            open
+          >
+            {drawer}
+          </Drawer>
+        </Box>
 
-      <PinDialog
-        open={!isPosMode && !crmUnlocked}
-        onClose={handlePinCancel}
-        onConfirm={handlePinConfirm}
-      />
-
-      <Box component="main" sx={{ flexGrow: 1, p: 4, width: { sm: `calc(100% - ${drawerWidth}px)` } }}>
-        <Container maxWidth={isPosMode ? false : 'xl'}>
+        <Box component="main" sx={{ flexGrow: 1, p: 4, width: { sm: `calc(100% - ${drawerWidth}px)` } }}>
+          <Container maxWidth={isPosMode ? false : 'xl'}>
+            {/* ── Routes only render after PIN unlock — prevents any API calls ── */}
+            {!needsPin && (
           <Routes>
             {/* Root Redirect */}
             <Route path="/" element={<Navigate to={isPosMode ? "/pos" : "/crm"} replace />} />
@@ -640,6 +686,7 @@ const AppContent = () => {
             <Route path="/crm/staff" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
+            <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />
             <Route path="/crm/my-schedule" element={<Navigate to="/crm/bookings" replace />} />
             <Route path="/crm/incentives" element={protect('incentives', <IncentiveTracking />)} />
@@ -647,6 +694,10 @@ const AppContent = () => {
             <Route path="/crm/leave" element={protect('leave_requests', <LeaveManagement canApprove={hasPermission('leave_approval')} isAdmin={hasPermission('settings')} />)} />
             <Route path="/crm/expense-advance" element={protect('expense_advance', <ExpenseAdvance />)} />
             <Route path="/crm/payout" element={protect('payout', <Payout />)} />
+            <Route path="/crm/campaign-bonus" element={protect('campaign_bonus', <CampaignManagement />)} />
+            <Route path="/crm/services" element={protect('services', <ServiceManagement />)} />
+            <Route path="/crm/products" element={protect('products', <ProductManagement />)} />
+            <Route path="/crm/stock"    element={protect('stock',    <StockManagement />)} />
             <Route path="/crm/settings" element={protect('settings', <SystemSettings />)} />
             <Route path="/crm/permissions" element={protect('permissions', <RolePermissionManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/skills-library" element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
@@ -655,9 +706,18 @@ const AppContent = () => {
             <Route path="/login" element={<Login />} />
             <Route path="/profile" element={protect('profile', <MyProfile />)} />
           </Routes>
-        </Container>
+            )}
+          </Container>
+        </Box>
       </Box>
-    </Box>
+
+      {/* ── PIN dialog — renders via portal outside the blurred box ── */}
+      <PinDialog
+        open={needsPin}
+        onClose={handlePinCancel}
+        onConfirm={handlePinConfirm}
+      />
+    </>
   );
 };
 

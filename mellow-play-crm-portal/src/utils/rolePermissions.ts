@@ -17,7 +17,12 @@ export type FeatureKey =
   | 'permissions'
   | 'profile'
   | 'pos_dashboard'
-  | 'skills_library';
+  | 'skills_library'
+  | 'packages'
+  | 'campaign_bonus'
+  | 'services'
+  | 'products'
+  | 'stock';
 
 export type RolePermissionConfig = Record<UserRole, Record<FeatureKey, boolean>>;
 
@@ -42,6 +47,11 @@ const defaultPermissionTemplate: Record<FeatureKey, boolean> = {
   profile: true,
   pos_dashboard: false,
   skills_library: false,
+  packages: false,
+  campaign_bonus: false,
+  services: false,
+  products: false,
+  stock: false,
 };
 
 const defaultPermissions: RolePermissionConfig = {
@@ -63,6 +73,11 @@ const defaultPermissions: RolePermissionConfig = {
     profile: true,
     pos_dashboard: true,
     skills_library: true,
+    packages: true,
+    campaign_bonus: true,
+    services: true,
+    products: true,
+    stock: true,
   },
   operator: {
     dashboard: true,
@@ -82,6 +97,11 @@ const defaultPermissions: RolePermissionConfig = {
     profile: true,
     pos_dashboard: true,
     skills_library: false,
+    packages: false,
+    campaign_bonus: true,
+    services: true,
+    products: true,
+    stock: true,
   },
   play_facilitator: {
     dashboard: true,
@@ -101,6 +121,11 @@ const defaultPermissions: RolePermissionConfig = {
     profile: true,
     pos_dashboard: false,
     skills_library: false,
+    packages: false,
+    campaign_bonus: false,
+    services: false,
+    products: false,
+    stock: false,
   },
 };
 
@@ -128,6 +153,11 @@ export const permissionFeatureLabels: Record<FeatureKey, string> = {
   profile: 'โปรไฟล์ของฉัน',
   pos_dashboard: 'POS Dashboard',
   skills_library: 'จัดการ Skills & ตัวชี้วัด',
+  packages: 'จัดการแพ็คเกจ',
+  campaign_bonus: 'จัดการโบนัสแคมเปญ',
+  services: 'จัดการบริการ',
+  products: 'จัดการรายการสินค้า',
+  stock: 'จัดการสต๊อก',
 };
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));

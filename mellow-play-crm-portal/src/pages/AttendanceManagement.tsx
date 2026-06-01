@@ -1,468 +1,558 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import axios from 'axios';
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
-  Grid,
+  IconButton,
+  LinearProgress,
   Paper,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tabs,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import {
   AccessTime as ClockIcon,
-  CheckCircle as CheckInIcon,
-  Cancel as CheckOutIcon,
-  Add as AddIcon,
-  ThumbUp as ApproveIcon,
-  ThumbDown as RejectIcon,
-  Pending as PendingIcon,
-  Schedule as OTIcon,
-  CalendarToday as DateIcon,
+  ChevronLeft as PrevIcon,
+  ChevronRight as NextIcon,
+  Edit as EditIcon,
+  AddCircleOutline as AddIcon,
 } from '@mui/icons-material';
 
-interface AttendanceRecord {
-  id: number;
-  date: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type AttendanceStatus = 'normal' | 'late' | 'ot' | 'absent' | 'off';
+
+interface DayAttendance {
   checkIn: string;
   checkOut: string;
-  hours: number;
-  otHours: number;
-  status: 'normal' | 'late' | 'ot' | 'absent';
-  note?: string;
+  note: string;
 }
-
-interface OTRequest {
-  id: number;
-  staffName: string;
-  staffRole: string;
-  date: string;
-  hours: number;
-  reason: string;
-  status: 'pending' | 'approved' | 'rejected';
-  approverNote?: string;
-}
-
-const mockAttendance: AttendanceRecord[] = [
-  { id: 1, date: '2026-05-30', checkIn: '09:02', checkOut: '18:30', hours: 9.47, otHours: 0.5, status: 'ot' },
-  { id: 2, date: '2026-05-29', checkIn: '08:55', checkOut: '18:00', hours: 9.08, otHours: 0, status: 'normal' },
-  { id: 3, date: '2026-05-28', checkIn: '09:35', checkOut: '18:00', hours: 8.42, otHours: 0, status: 'late' },
-  { id: 4, date: '2026-05-27', checkIn: '09:00', checkOut: '18:00', hours: 9.0, otHours: 0, status: 'normal' },
-  { id: 5, date: '2026-05-26', checkIn: '09:00', checkOut: '20:00', hours: 11.0, otHours: 2, status: 'ot' },
-];
-
-const mockOTRequests: OTRequest[] = [
-  { id: 1, staffName: 'นายสมชาย ใจดี', staffRole: 'Play Facilitator', date: '2026-05-30', hours: 0.5, reason: 'สอนคลาสพิเศษต่อเนื่อง', status: 'pending' },
-  { id: 2, staffName: 'นางสาวมณี รักดี', staffRole: 'Play Facilitator', date: '2026-05-26', hours: 2, reason: 'จัดกิจกรรมพิเศษ', status: 'approved', approverNote: 'อนุมัติ' },
-  { id: 3, staffName: 'นายประเสริฐ ทำงานดี', staffRole: 'Operator', date: '2026-05-20', hours: 1, reason: 'ประชุมนอกเวลา', status: 'rejected', approverNote: 'ไม่เข้าเงื่อนไข OT' },
-];
-
-const statusLabel: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'info' | 'default' }> = {
-  normal: { label: 'ปกติ', color: 'success' },
-  late: { label: 'สาย', color: 'warning' },
-  ot: { label: 'OT', color: 'info' },
-  absent: { label: 'ขาดงาน', color: 'error' },
-};
-
-const otStatusLabel: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'default' }> = {
-  pending: { label: 'รอพิจารณา', color: 'warning' },
-  approved: { label: 'อนุมัติแล้ว', color: 'success' },
-  rejected: { label: 'ไม่อนุมัติ', color: 'error' },
-};
 
 interface AttendanceManagementProps {
   canApprove?: boolean;
 }
 
-const AttendanceManagement: React.FC<AttendanceManagementProps> = ({ canApprove = false }) => {
-  const [tab, setTab] = useState(0);
-  const [attendance] = useState<AttendanceRecord[]>(mockAttendance);
-  const [otRequests, setOtRequests] = useState<OTRequest[]>(mockOTRequests);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [checkInTime, setCheckInTime] = useState('');
-  const [otDialogOpen, setOtDialogOpen] = useState(false);
-  const [otForm, setOtForm] = useState({ date: '', hours: '', reason: '' });
-  const [otFormError, setOtFormError] = useState('');
-  const [approveDialogId, setApproveDialogId] = useState<number | null>(null);
-  const [approveNote, setApproveNote] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-  const [rejectDialogId, setRejectDialogId] = useState<number | null>(null);
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WEEK_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+const WEEK_DAY_LABELS: Record<string, { full: string }> = {
+  mon: { full: 'จันทร์'    },
+  tue: { full: 'อังคาร'    },
+  wed: { full: 'พุธ'       },
+  thu: { full: 'พฤหัสบดี'  },
+  fri: { full: 'ศุกร์'     },
+  sat: { full: 'เสาร์'     },
+  sun: { full: 'อาทิตย์'   },
+};
+
+// In a real app these values come from the logged-in user's CRM profile
+const EMPLOYEE_SCHEDULE = {
+  work_days: ['mon', 'tue', 'wed', 'thu', 'fri'] as string[],
+  work_start_time: '09:00',
+  work_end_time:   '18:00',
+};
+
+const STATUS_CONFIG: Record<
+  AttendanceStatus,
+  { label: string; color: 'success' | 'warning' | 'error' | 'info' | 'default' }
+> = {
+  normal: { label: 'ปกติ',    color: 'success' },
+  late:   { label: 'สาย',    color: 'warning' },
+  ot:     { label: 'OT',     color: 'info'    },
+  absent: { label: 'ขาดงาน', color: 'error'   },
+  off:    { label: 'หยุด',   color: 'default' },
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getWeekMonday(date: Date): Date {
+  const d = new Date(date);
+  const jsDay = d.getDay();
+  d.setDate(d.getDate() + (jsDay === 0 ? -6 : 1 - jsDay));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function timeToMinutes(t: string): number {
+  if (!t) return 0;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function computeDayResult(
+  checkIn: string,
+  checkOut: string,
+  isWorkDay: boolean,
+  workStart: string,
+  workEnd: string,
+): { status: AttendanceStatus; workedHours: number; otHours: number } {
+  // Off day with no entry → just "off"
+  if (!isWorkDay && !checkIn) return { status: 'off', workedHours: 0, otHours: 0 };
+
+  // Off day with entry → all hours are OT
+  if (!isWorkDay && checkIn) {
+    const worked = checkOut ? (timeToMinutes(checkOut) - timeToMinutes(checkIn)) / 60 : 0;
+    return { status: 'ot', workedHours: worked, otHours: worked };
+  }
+
+  // Working day — no check-in
+  if (!checkIn) return { status: 'absent', workedHours: 0, otHours: 0 };
+
+  const inMin  = timeToMinutes(checkIn);
+  const outMin = checkOut ? timeToMinutes(checkOut) : 0;
+  const endMin = timeToMinutes(workEnd);
+
+  const workedHours = checkOut ? (outMin - inMin) / 60 : 0;
+  const rawOT       = checkOut && outMin > endMin ? (outMin - endMin) / 60 : 0;
+  const otHours     = Math.round(rawOT * 2) / 2; // round to nearest 0.5
+
+  const isLate = inMin > timeToMinutes(workStart) + 5; // 5-min grace
+
+  let status: AttendanceStatus;
+  if (isLate)       status = 'late';
+  else if (otHours) status = 'ot';
+  else              status = 'normal';
+
+  return { status, workedHours, otHours };
+}
+
+const API_BASE = 'http://localhost:8787/api/v1/admin';
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+const AttendanceManagement: React.FC<AttendanceManagementProps> = () => {
+  const [weekStart, setWeekStart]           = useState(() => getWeekMonday(new Date()));
+  const [attendanceData, setAttendanceData] = useState<Record<string, DayAttendance>>({});
+  const [loading, setLoading]               = useState(true);
+  const [successMsg, setSuccessMsg]         = useState('');
+
+  const crmUserId: number | null = (() => {
+    try { return JSON.parse(localStorage.getItem('crm_user') || 'null')?.id ?? null; } catch { return null; }
+  })();
+
+  const selectedYear  = weekStart.getFullYear();
+  const selectedMonth = weekStart.getMonth() + 1;
+
+  // Edit dialog
+  const [editDate, setEditDate]         = useState<string | null>(null);
+  const [editIsOffDay, setEditIsOffDay] = useState(false);
+  const [editForm, setEditForm]         = useState({ checkIn: '', checkOut: '', note: '' });
+
+  const todayStr = toISODate(new Date());
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
-  const handleCheckIn = () => {
-    const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-    setCheckedIn(true);
-    setCheckInTime(now);
-    showSuccess(`บันทึกเวลาเข้างาน ${now} เรียบร้อย`);
-  };
-
-  const handleCheckOut = () => {
-    const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-    setCheckedIn(false);
-    showSuccess(`บันทึกเวลาออกงาน ${now} เรียบร้อย`);
-  };
-
-  const handleOTSubmit = () => {
-    if (!otForm.date || !otForm.hours || !otForm.reason.trim()) {
-      setOtFormError('กรุณากรอกข้อมูลให้ครบ');
-      return;
+  // ── API fetch ──────────────────────────────────────────────────────────────
+  const fetchAttendance = async (year: number, month: number) => {
+    if (!crmUserId) return;
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API_BASE}/attendance`, {
+        params: { userId: crmUserId, year, month },
+      });
+      const map: Record<string, DayAttendance> = {};
+      for (const rec of res.data.records) {
+        map[rec.date] = { checkIn: rec.check_in ?? '', checkOut: rec.check_out ?? '', note: rec.note ?? '' };
+      }
+      setAttendanceData(map);
+    } catch (err) {
+      console.error('fetchAttendance error:', err);
+    } finally {
+      setLoading(false);
     }
-    const hours = parseFloat(otForm.hours);
-    if (isNaN(hours) || hours <= 0) {
-      setOtFormError('จำนวนชั่วโมงไม่ถูกต้อง');
-      return;
+  };
+
+  useEffect(() => {
+    fetchAttendance(selectedYear, selectedMonth);
+  }, [selectedYear, selectedMonth]);
+
+  // ── Week dates ───────────────────────────────────────────────────────────
+  const weekDates = useMemo(() =>
+    WEEK_DAY_KEYS.map((_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      return d;
+    }), [weekStart]);
+
+  const weekLabel = useMemo(() => {
+    const fmt  = (d: Date) => d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+    const year = weekDates[0].getFullYear() + 543;
+    return `${fmt(weekDates[0])} – ${fmt(weekDates[6])} ${year}`;
+  }, [weekDates]);
+
+  const isCurrentWeek = useMemo(() =>
+    toISODate(weekStart) === toISODate(getWeekMonday(new Date())),
+  [weekStart]);
+
+  // ── Week summary ─────────────────────────────────────────────────────────
+  const weekSummary = useMemo(() => {
+    let totalHours = 0, totalOT = 0, lateCount = 0, workDays = 0;
+    weekDates.forEach((d, idx) => {
+      const dateStr = toISODate(d);
+      const isWork  = EMPLOYEE_SCHEDULE.work_days.includes(WEEK_DAY_KEYS[idx]);
+      const data    = attendanceData[dateStr];
+      if (!data?.checkIn) return;
+      const { status, workedHours, otHours } = computeDayResult(
+        data.checkIn, data.checkOut, isWork,
+        EMPLOYEE_SCHEDULE.work_start_time, EMPLOYEE_SCHEDULE.work_end_time,
+      );
+      if (status !== 'off' && status !== 'absent') { totalHours += workedHours; totalOT += otHours; workDays++; }
+      if (status === 'late') lateCount++;
+    });
+    return { totalHours, totalOT, lateCount, workDays };
+  }, [weekDates, attendanceData]);
+
+  // ── Edit dialog preview ──────────────────────────────────────────────────
+  const editPreview = useMemo(() => {
+    if (!editForm.checkIn || !editForm.checkOut) return null;
+    if (editIsOffDay) {
+      const worked = (timeToMinutes(editForm.checkOut) - timeToMinutes(editForm.checkIn)) / 60;
+      return { workedHours: worked, otHours: worked, isLate: false };
     }
-    const newRequest: OTRequest = {
-      id: Date.now(),
-      staffName: 'ฉัน',
-      staffRole: 'Staff',
-      date: otForm.date,
-      hours,
-      reason: otForm.reason.trim(),
-      status: 'pending',
-    };
-    setOtRequests((prev) => [newRequest, ...prev]);
-    setOtForm({ date: '', hours: '', reason: '' });
-    setOtFormError('');
-    setOtDialogOpen(false);
-    showSuccess('ส่งคำขอ OT สำเร็จ รอการอนุมัติจากผู้จัดการ');
-  };
-
-  const handleApprove = (id: number) => {
-    setOtRequests((prev) =>
-      prev.map((r) => r.id === id ? { ...r, status: 'approved', approverNote: approveNote || 'อนุมัติ' } : r)
+    const { workedHours, otHours, status } = computeDayResult(
+      editForm.checkIn, editForm.checkOut, true,
+      EMPLOYEE_SCHEDULE.work_start_time, EMPLOYEE_SCHEDULE.work_end_time,
     );
-    setApproveDialogId(null);
-    setApproveNote('');
-    showSuccess('อนุมัติ OT เรียบร้อย');
+    return { workedHours, otHours, isLate: status === 'late' };
+  }, [editForm.checkIn, editForm.checkOut, editIsOffDay]);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const openEditDay = (dateStr: string, isOffDay: boolean) => {
+    const existing = attendanceData[dateStr];
+    setEditIsOffDay(isOffDay);
+    setEditForm({
+      checkIn:  existing?.checkIn  || (isOffDay ? '' : EMPLOYEE_SCHEDULE.work_start_time),
+      checkOut: existing?.checkOut || (isOffDay ? '' : EMPLOYEE_SCHEDULE.work_end_time),
+      note:     existing?.note     || '',
+    });
+    setEditDate(dateStr);
   };
 
-  const handleReject = (id: number) => {
-    setOtRequests((prev) =>
-      prev.map((r) => r.id === id ? { ...r, status: 'rejected', approverNote: approveNote || 'ไม่อนุมัติ' } : r)
+  const handleSaveDay = async () => {
+    if (!editDate || !crmUserId) return;
+    try {
+      await axios.post(`${API_BASE}/attendance`, {
+        crmUserId,
+        date: editDate,
+        checkIn: editForm.checkIn,
+        checkOut: editForm.checkOut,
+        note: editForm.note,
+      });
+      await fetchAttendance(selectedYear, selectedMonth);
+      setEditDate(null);
+      showSuccess('บันทึกเวลาทำงานเรียบร้อย');
+    } catch (err) {
+      console.error('handleSaveDay error:', err);
+    }
+  };
+
+  const handleClearDay = async () => {
+    if (!editDate || !crmUserId) return;
+    try {
+      await axios.delete(`${API_BASE}/attendance`, {
+        params: { userId: crmUserId, date: editDate },
+      });
+      await fetchAttendance(selectedYear, selectedMonth);
+      setEditDate(null);
+      showSuccess('ลบข้อมูลวันนั้นเรียบร้อย');
+    } catch (err) {
+      console.error('handleClearDay error:', err);
+    }
+  };
+
+  // ── Day card ─────────────────────────────────────────────────────────────
+  const renderDayCard = (date: Date, idx: number) => {
+    const dateStr  = toISODate(date);
+    const dayKey   = WEEK_DAY_KEYS[idx];
+    const dayLabel = WEEK_DAY_LABELS[dayKey];
+    const isWork   = EMPLOYEE_SCHEDULE.work_days.includes(dayKey);
+    const isToday  = dateStr === todayStr;
+    const isPast   = dateStr < todayStr;
+    // All days (including off-days) can be edited if past or today
+    const canEdit  = isPast || isToday;
+
+    const data = attendanceData[dateStr];
+    const { status, workedHours, otHours } = computeDayResult(
+      data?.checkIn || '', data?.checkOut || '', isWork,
+      EMPLOYEE_SCHEDULE.work_start_time, EMPLOYEE_SCHEDULE.work_end_time,
     );
-    setRejectDialogId(null);
-    setApproveNote('');
-    showSuccess('ปฏิเสธ OT เรียบร้อย');
+
+    const hasData      = Boolean(data?.checkIn);
+    const expectedH    = (timeToMinutes(EMPLOYEE_SCHEDULE.work_end_time) - timeToMinutes(EMPLOYEE_SCHEDULE.work_start_time)) / 60;
+    const progressVal  = workedHours > 0 ? Math.min((workedHours / (isWork ? expectedH : workedHours)) * 100, 100) : 0;
+    const statusCfg    = STATUS_CONFIG[status];
+
+    const bgColor = isToday
+      ? 'primary.50'
+      : status === 'ot'
+        ? 'info.50'
+        : status === 'absent'
+          ? 'error.50'
+          : (!isWork && !hasData)
+            ? 'grey.50'
+            : 'background.paper';
+
+    return (
+      <Box key={dateStr} sx={{ flex: '1 0 0', minWidth: 118, maxWidth: 155 }}>
+        <Paper
+          sx={{
+            p: 1.5,
+            borderRadius: 3,
+            height: '100%',
+            border: '2px solid',
+            borderColor: isToday ? 'primary.main' : status === 'absent' ? 'error.light' : !isWork && !hasData ? 'divider' : 'divider',
+            borderStyle: !isWork && !hasData ? 'dashed' : 'solid',
+            bgcolor: bgColor,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0.75,
+            cursor: canEdit ? 'pointer' : 'default',
+            transition: 'box-shadow 0.15s',
+            '&:hover': canEdit ? { boxShadow: 3 } : {},
+          }}
+          onClick={() => canEdit && openEditDay(dateStr, !isWork)}
+        >
+          {/* Header */}
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="caption" fontWeight={800}
+              color={isToday ? 'primary.main' : !isWork ? 'text.disabled' : 'text.secondary'}
+              sx={{ display: 'block', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.4 }}
+            >
+              {dayLabel.full}
+            </Typography>
+            <Typography variant="h6" fontWeight={800}
+              color={isToday ? 'primary.main' : !isWork && !hasData ? 'text.disabled' : 'text.primary'}
+              sx={{ lineHeight: 1.2 }}
+            >
+              {date.getDate()}
+            </Typography>
+            {isToday && (
+              <Chip label="วันนี้" size="small" color="primary" sx={{ height: 16, fontSize: '0.58rem', mt: 0.2 }} />
+            )}
+          </Box>
+
+          <Divider />
+
+          {/* Content */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+            {hasData ? (
+              <>
+                {/* Off-day OT badge */}
+                {!isWork && (
+                  <Chip label="วันหยุด OT" size="small" color="info" variant="outlined"
+                    sx={{ height: 16, fontSize: '0.58rem', fontWeight: 700, alignSelf: 'center', mb: 0.25 }} />
+                )}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="caption" color="text.secondary">เข้า</Typography>
+                  <Typography variant="caption" fontWeight={700} color={status === 'late' ? 'warning.main' : 'success.main'}>
+                    {data!.checkIn}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="caption" color="text.secondary">ออก</Typography>
+                  <Typography variant="caption" fontWeight={700} color={otHours > 0 ? 'info.main' : 'text.primary'}>
+                    {data!.checkOut || '—'}
+                  </Typography>
+                </Box>
+
+                <LinearProgress
+                  variant="determinate" value={progressVal}
+                  color={!isWork ? 'info' : status === 'ot' ? 'info' : status === 'late' ? 'warning' : 'success'}
+                  sx={{ borderRadius: 99, height: 4, my: 0.25 }}
+                />
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">{workedHours.toFixed(1)} ชม.</Typography>
+                  {otHours > 0 && (
+                    <Typography variant="caption" color="info.main" fontWeight={700}>+{otHours.toFixed(1)}h OT</Typography>
+                  )}
+                </Box>
+
+                {/* Status + edit icon */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 'auto' }}>
+                  <Chip label={statusCfg.label} color={statusCfg.color as any} size="small"
+                    sx={{ height: 18, fontSize: '0.58rem', fontWeight: 700 }} />
+                  {canEdit && (
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditDay(dateStr, !isWork); }} sx={{ p: 0.3 }}>
+                      <EditIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  )}
+                </Box>
+              </>
+            ) : (
+              /* No data */
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, py: 1 }}>
+                {!isWork ? (
+                  <>
+                    <Typography variant="caption" color="text.disabled" fontWeight={600}>หยุด</Typography>
+                    {canEdit && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                        <AddIcon sx={{ fontSize: 12, color: 'info.light' }} />
+                        <Typography variant="caption" color="info.light" sx={{ fontSize: '0.6rem' }}>เพิ่ม OT</Typography>
+                      </Box>
+                    )}
+                  </>
+                ) : isPast ? (
+                  <Typography variant="caption" color="error.main" fontWeight={600} sx={{ textAlign: 'center' }}>
+                    ยังไม่บันทึก
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="text.disabled" sx={{ textAlign: 'center' }}>—</Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+        </Paper>
+      </Box>
+    );
   };
 
-  const pendingOTCount = otRequests.filter((r) => r.status === 'pending').length;
-
-  const totalWorkHours = attendance.reduce((s, a) => s + a.hours, 0);
-  const totalOTHours = attendance.reduce((s, a) => s + a.otHours, 0);
-  const lateCount = attendance.filter((a) => a.status === 'late').length;
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+      <CircularProgress />
+    </Box>
+  );
 
   return (
     <Box>
+      {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
         <ClockIcon sx={{ fontSize: 32, color: 'primary.main' }} />
         <Box>
-          <Typography variant="h5" fontWeight={800}>บันทึกวันทำงาน / OT</Typography>
-          <Typography variant="body2" color="text.secondary">ติดตามเวลาเข้า-ออกงาน และการทำงานล่วงเวลา</Typography>
+          <Typography variant="h5" fontWeight={800}>บันทึกวันทำงาน</Typography>
+          <Typography variant="body2" color="text.secondary">
+            กดที่วันใดก็ได้เพื่อบันทึกเวลา — วันหยุดที่มีการทำงานจะนับเป็น OT อัตโนมัติ
+          </Typography>
         </Box>
       </Box>
 
       {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
 
-      {/* Today's check-in card */}
-      <Paper sx={{ p: 2.5, borderRadius: 3, mb: 3, border: '1px solid', borderColor: checkedIn ? 'success.light' : 'divider', bgcolor: checkedIn ? 'success.50' : 'background.paper' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary">วันนี้ — {new Date().toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Typography>
-            <Typography variant="h6" fontWeight={800} color={checkedIn ? 'success.main' : 'text.primary'}>
-              {checkedIn ? `เข้างานแล้ว เมื่อ ${checkInTime}` : 'ยังไม่ได้บันทึกเวลาเข้างาน'}
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            {!checkedIn ? (
-              <Button variant="contained" color="success" startIcon={<CheckInIcon />} onClick={handleCheckIn} sx={{ borderRadius: 3, fontWeight: 700 }}>
-                บันทึกเข้างาน
-              </Button>
-            ) : (
-              <Button variant="outlined" color="error" startIcon={<CheckOutIcon />} onClick={handleCheckOut} sx={{ borderRadius: 3, fontWeight: 700 }}>
-                บันทึกออกงาน
-              </Button>
-            )}
-          </Box>
+      {/* Week navigation */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <IconButton size="small" onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); }}>
+          <PrevIcon />
+        </IconButton>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ flex: 1, textAlign: 'center' }}>
+          {weekLabel}
+        </Typography>
+        <IconButton size="small" onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); }}>
+          <NextIcon />
+        </IconButton>
+        {!isCurrentWeek && (
+          <Button size="small" variant="outlined" onClick={() => setWeekStart(getWeekMonday(new Date()))}
+            sx={{ borderRadius: 2, fontWeight: 700, fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+            สัปดาห์นี้
+          </Button>
+        )}
+      </Box>
+
+      {/* Day cards */}
+      <Box sx={{
+        display: 'flex', gap: 1, overflowX: 'auto', pb: 1,
+        scrollSnapType: 'x mandatory',
+        '& > *': { scrollSnapAlign: 'start' },
+      }}>
+        {weekDates.map((date, idx) => renderDayCard(date, idx))}
+      </Box>
+
+      {/* Week summary */}
+      <Paper sx={{ p: 2, borderRadius: 3, mt: 2, bgcolor: 'grey.50', border: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 1.5 }}>
+          สรุปสัปดาห์
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {[
+            { value: weekSummary.workDays,              label: 'วันทำงาน',     color: 'text.primary'   },
+            { value: weekSummary.totalHours.toFixed(1), label: 'ชั่วโมงทำงาน', color: 'text.primary'   },
+            { value: weekSummary.totalOT.toFixed(1),    label: 'ชั่วโมง OT',   color: 'info.main'      },
+            {
+              value: weekSummary.lateCount,
+              label: 'ครั้งที่สาย',
+              color: weekSummary.lateCount > 0 ? 'warning.main' : 'text.primary',
+            },
+          ].map(({ value, label, color }) => (
+            <Box key={label} sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" fontWeight={800} color={color}>{value}</Typography>
+              <Typography variant="caption" color="text.secondary">{label}</Typography>
+            </Box>
+          ))}
         </Box>
       </Paper>
 
-      {/* Summary cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, borderRadius: 3, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary" fontWeight={600}>ชั่วโมงทำงาน</Typography>
-            <Typography variant="h5" fontWeight={800}>{totalWorkHours.toFixed(1)}</Typography>
-            <Typography variant="caption" color="text.secondary">ชั่วโมง (เดือนนี้)</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, borderRadius: 3, textAlign: 'center', bgcolor: 'info.50', border: '1px solid', borderColor: 'info.light' }}>
-            <Typography variant="body2" color="text.secondary" fontWeight={600}>ชั่วโมง OT</Typography>
-            <Typography variant="h5" fontWeight={800} color="info.main">{totalOTHours.toFixed(1)}</Typography>
-            <Typography variant="caption" color="text.secondary">ชั่วโมง (เดือนนี้)</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, borderRadius: 3, textAlign: 'center', bgcolor: lateCount > 0 ? 'warning.50' : undefined, border: '1px solid', borderColor: lateCount > 0 ? 'warning.light' : 'divider' }}>
-            <Typography variant="body2" color="text.secondary" fontWeight={600}>มาสาย</Typography>
-            <Typography variant="h5" fontWeight={800} color={lateCount > 0 ? 'warning.main' : 'text.primary'}>{lateCount}</Typography>
-            <Typography variant="caption" color="text.secondary">ครั้ง (เดือนนี้)</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, borderRadius: 3, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary" fontWeight={600}>วันทำงาน</Typography>
-            <Typography variant="h5" fontWeight={800}>{attendance.length}</Typography>
-            <Typography variant="caption" color="text.secondary">วัน (เดือนนี้)</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      {/* ── Edit Day Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={editDate !== null} onClose={() => setEditDate(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>
+          บันทึกเวลาทำงาน
+          {editDate && (
+            <Typography variant="body2" color="text.secondary" fontWeight={400}>
+              {new Date(editDate + 'T00:00:00').toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </Typography>
+          )}
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2 }}>
+          {editIsOffDay && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              วันหยุด — ชั่วโมงทำงานทั้งหมดจะนับเป็น <strong>OT</strong>
+            </Alert>
+          )}
 
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-          <Tab label="ประวัติเวลาทำงาน" />
-          <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>คำขอ OT {pendingOTCount > 0 && tab !== 1 && <Chip label={pendingOTCount} size="small" color="warning" sx={{ height: 18, fontSize: '0.65rem' }} />}</Box>} />
-          {canApprove && <Tab label="อนุมัติคำขอ (Manager)" />}
-        </Tabs>
-      </Box>
+          <TextField
+            label="เวลาเข้างาน" type="time" fullWidth InputLabelProps={{ shrink: true }}
+            value={editForm.checkIn}
+            onChange={(e) => setEditForm((p) => ({ ...p, checkIn: e.target.value }))}
+            helperText={!editIsOffDay ? `ค่าปกติ: ${EMPLOYEE_SCHEDULE.work_start_time}` : undefined}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            label="เวลาออกงาน" type="time" fullWidth InputLabelProps={{ shrink: true }}
+            value={editForm.checkOut}
+            onChange={(e) => setEditForm((p) => ({ ...p, checkOut: e.target.value }))}
+            helperText={!editIsOffDay ? `ค่าปกติ: ${EMPLOYEE_SCHEDULE.work_end_time}` : undefined}
+            sx={{ mb: 2 }}
+          />
 
-      {/* Tab 0: Attendance log */}
-      {tab === 0 && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>เวลาเข้า</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>เวลาออก</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="right">รวม (ชม.)</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="right">OT (ชม.)</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {attendance.map((r) => {
-                  const s = statusLabel[r.status];
-                  return (
-                    <TableRow key={r.id} hover>
-                      <TableCell>{r.date}</TableCell>
-                      <TableCell>{r.checkIn}</TableCell>
-                      <TableCell>{r.checkOut}</TableCell>
-                      <TableCell align="right">{r.hours.toFixed(2)}</TableCell>
-                      <TableCell align="right">{r.otHours > 0 ? r.otHours.toFixed(1) : '—'}</TableCell>
-                      <TableCell>
-                        <Chip label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
-      )}
+          {editPreview && (
+            <Alert severity={editPreview.otHours > 0 ? 'info' : 'success'} sx={{ mb: 2 }}>
+              รวม {editPreview.workedHours.toFixed(1)} ชั่วโมง
+              {editPreview.otHours > 0 && ` · OT ${editPreview.otHours.toFixed(1)} ชม.`}
+              {editPreview.isLate && ' · มาสาย'}
+            </Alert>
+          )}
 
-      {/* Tab 1: OT requests */}
-      {tab === 1 && (
-        <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOtDialogOpen(true)} sx={{ borderRadius: 3, fontWeight: 700 }}>
-              ขอ OT ใหม่
+          <TextField
+            label="หมายเหตุ (ถ้ามี)" fullWidth multiline rows={2}
+            value={editForm.note}
+            onChange={(e) => setEditForm((p) => ({ ...p, note: e.target.value }))}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          {attendanceData[editDate ?? ''] && (
+            <Button color="error" onClick={handleClearDay} sx={{ fontWeight: 700, mr: 'auto' }}>
+              ลบข้อมูล
             </Button>
-          </Box>
-          <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'grey.50' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }} align="right">ชั่วโมง OT</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>เหตุผล</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>หมายเหตุจาก Manager</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {otRequests.filter((r) => r.staffName === 'ฉัน' || r.staffName !== 'ฉัน').map((r) => {
-                    const s = otStatusLabel[r.status];
-                    return (
-                      <TableRow key={r.id} hover>
-                        <TableCell>{r.date}</TableCell>
-                        <TableCell align="right">{r.hours} ชม.</TableCell>
-                        <TableCell>{r.reason}</TableCell>
-                        <TableCell>
-                          <Chip label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color="text.secondary">{r.approverNote || '—'}</Typography>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {otRequests.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่มีคำขอ OT</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Box>
-      )}
-
-      {/* Tab 2: Manager approval */}
-      {canApprove && tab === 2 && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>พนักงาน</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="right">ชั่วโมง OT</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>เหตุผล</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="center">การดำเนินการ</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {otRequests.map((r) => {
-                  const s = otStatusLabel[r.status];
-                  return (
-                    <TableRow key={r.id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar sx={{ width: 30, height: 30, fontSize: '0.75rem', bgcolor: 'primary.main' }}>
-                            {r.staffName[2] || 'A'}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" fontWeight={700}>{r.staffName}</Typography>
-                            <Typography variant="caption" color="text.secondary">{r.staffRole}</Typography>
-                          </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>{r.date}</TableCell>
-                      <TableCell align="right">{r.hours} ชม.</TableCell>
-                      <TableCell>{r.reason}</TableCell>
-                      <TableCell>
-                        <Chip label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />
-                      </TableCell>
-                      <TableCell align="center">
-                        {r.status === 'pending' ? (
-                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                            <Tooltip title="อนุมัติ">
-                              <Button size="small" variant="contained" color="success" onClick={() => { setApproveDialogId(r.id); setApproveNote(''); }} sx={{ minWidth: 0, px: 1.5, borderRadius: 2 }}>
-                                <ApproveIcon fontSize="small" />
-                              </Button>
-                            </Tooltip>
-                            <Tooltip title="ปฏิเสธ">
-                              <Button size="small" variant="outlined" color="error" onClick={() => { setRejectDialogId(r.id); setApproveNote(''); }} sx={{ minWidth: 0, px: 1.5, borderRadius: 2 }}>
-                                <RejectIcon fontSize="small" />
-                              </Button>
-                            </Tooltip>
-                          </Box>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">{r.approverNote || '—'}</Typography>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {otRequests.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่มีคำขอที่รอพิจารณา</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
-      )}
-
-      {/* OT Request Dialog */}
-      <Dialog open={otDialogOpen} onClose={() => setOtDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>ขอทำงานล่วงเวลา (OT)</DialogTitle>
-        <Divider />
-        <DialogContent sx={{ pt: 2 }}>
-          {otFormError && <Alert severity="error" sx={{ mb: 2 }}>{otFormError}</Alert>}
-          <TextField
-            label="วันที่ทำ OT"
-            type="date"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-            value={otForm.date}
-            onChange={(e) => setOtForm((p) => ({ ...p, date: e.target.value }))}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="จำนวนชั่วโมง OT"
-            type="number"
-            fullWidth
-            inputProps={{ min: 0.5, step: 0.5 }}
-            value={otForm.hours}
-            onChange={(e) => setOtForm((p) => ({ ...p, hours: e.target.value }))}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="เหตุผล / รายละเอียด"
-            fullWidth
-            multiline
-            rows={3}
-            value={otForm.reason}
-            onChange={(e) => setOtForm((p) => ({ ...p, reason: e.target.value }))}
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => { setOtDialogOpen(false); setOtFormError(''); }} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-          <Button variant="contained" onClick={handleOTSubmit} sx={{ borderRadius: 3, fontWeight: 700 }}>ส่งคำขอ OT</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Approve Dialog */}
-      <Dialog open={approveDialogId !== null} onClose={() => setApproveDialogId(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800, color: 'success.main' }}>ยืนยันอนุมัติ OT</DialogTitle>
-        <Divider />
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField label="หมายเหตุ (ถ้ามี)" fullWidth value={approveNote} onChange={(e) => setApproveNote(e.target.value)} />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setApproveDialogId(null)} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-          <Button variant="contained" color="success" onClick={() => handleApprove(approveDialogId!)} sx={{ borderRadius: 3, fontWeight: 700 }}>อนุมัติ</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Reject Dialog */}
-      <Dialog open={rejectDialogId !== null} onClose={() => setRejectDialogId(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>ยืนยันปฏิเสธ OT</DialogTitle>
-        <Divider />
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField label="เหตุผลที่ปฏิเสธ" fullWidth value={approveNote} onChange={(e) => setApproveNote(e.target.value)} />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setRejectDialogId(null)} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-          <Button variant="contained" color="error" onClick={() => handleReject(rejectDialogId!)} sx={{ borderRadius: 3, fontWeight: 700 }}>ปฏิเสธ</Button>
+          )}
+          <Button onClick={() => setEditDate(null)} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
+          <Button variant="contained" onClick={handleSaveDay} sx={{ borderRadius: 3, fontWeight: 700 }}>
+            บันทึก
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -7,6 +7,8 @@ import { AuthController } from './controllers/authController';
 import { ProfileController } from './controllers/profileController';
 import { JourneyController } from './controllers/journeyController';
 import { AdminController } from './controllers/adminController';
+import { ShopController } from './controllers/shopController';
+import { HRController } from './controllers/hrController';
 import { ConfigService } from './services/configService';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
@@ -14,6 +16,8 @@ const authController = new AuthController();
 const profileController = new ProfileController();
 const journeyController = new JourneyController();
 const adminController = new AdminController();
+const shopController  = new ShopController();
+const hrController    = new HRController();
 
 app.use('*', cors());
 
@@ -238,5 +242,66 @@ app.get('/api/v1/admin/pos/occupancy', (c) => adminController.getSlotOccupancy(c
 app.post('/api/v1/admin/pos/lookup-member', (c) => adminController.posLookupMember(c));
 app.post('/api/v1/admin/pos/topup', (c) => adminController.posProcessTopup(c));
 app.post('/api/v1/admin/pos/process-sale', (c) => adminController.posProcessSale(c));
+
+// ── Shop: Service Categories ───────────────────────────────────────────────
+app.get   ('/api/v1/admin/service-categories',      (c) => shopController.getServiceCategories(c));
+app.post  ('/api/v1/admin/service-categories',      (c) => shopController.createServiceCategory(c));
+app.put   ('/api/v1/admin/service-categories/:id',  (c) => shopController.updateServiceCategory(c));
+app.delete('/api/v1/admin/service-categories/:id',  (c) => shopController.deleteServiceCategory(c));
+
+// ── Shop: Services ─────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/services',     (c) => shopController.getServices(c));
+app.post  ('/api/v1/admin/services',     (c) => shopController.createService(c));
+app.put   ('/api/v1/admin/services/:id', (c) => shopController.updateService(c));
+app.delete('/api/v1/admin/services/:id', (c) => shopController.deleteService(c));
+
+// ── Shop: Product Categories ───────────────────────────────────────────────
+app.get   ('/api/v1/admin/product-categories',      (c) => shopController.getProductCategories(c));
+app.post  ('/api/v1/admin/product-categories',      (c) => shopController.createProductCategory(c));
+app.put   ('/api/v1/admin/product-categories/:id',  (c) => shopController.updateProductCategory(c));
+app.delete('/api/v1/admin/product-categories/:id',  (c) => shopController.deleteProductCategory(c));
+
+// ── Shop: Products ─────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/products',     (c) => shopController.getProducts(c));
+app.post  ('/api/v1/admin/products',     (c) => shopController.createProduct(c));
+app.put   ('/api/v1/admin/products/:id', (c) => shopController.updateProduct(c));
+app.delete('/api/v1/admin/products/:id', (c) => shopController.deleteProduct(c));
+
+// ── Shop: Stock ────────────────────────────────────────────────────────────
+app.get ('/api/v1/admin/stock',              (c) => shopController.getStock(c));
+app.get ('/api/v1/admin/stock/transactions', (c) => shopController.getStockTransactions(c));
+app.post('/api/v1/admin/stock/adjust',       (c) => shopController.adjustStock(c));
+
+// ── HR: Packages ───────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/packages',     (c) => hrController.getPackages(c));
+app.post  ('/api/v1/admin/packages',     (c) => hrController.createPackage(c));
+app.put   ('/api/v1/admin/packages/:id', (c) => hrController.updatePackage(c));
+app.delete('/api/v1/admin/packages/:id', (c) => hrController.deletePackage(c));
+
+// ── HR: Campaign Bonuses ───────────────────────────────────────────────────
+app.get   ('/api/v1/admin/campaign-bonuses',     (c) => hrController.getCampaigns(c));
+app.post  ('/api/v1/admin/campaign-bonuses',     (c) => hrController.createCampaign(c));
+app.put   ('/api/v1/admin/campaign-bonuses/:id', (c) => hrController.updateCampaign(c));
+app.delete('/api/v1/admin/campaign-bonuses/:id', (c) => hrController.deleteCampaign(c));
+
+// ── HR: Diligence Rules ────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/diligence-rules',     (c) => hrController.getDiligenceRules(c));
+app.post  ('/api/v1/admin/diligence-rules',     (c) => hrController.createDiligenceRule(c));
+app.put   ('/api/v1/admin/diligence-rules/:id', (c) => hrController.updateDiligenceRule(c));
+app.delete('/api/v1/admin/diligence-rules/:id', (c) => hrController.deleteDiligenceRule(c));
+
+// ── HR: Attendance ─────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/attendance', (c) => hrController.getAttendance(c));
+app.post  ('/api/v1/admin/attendance', (c) => hrController.upsertAttendance(c));
+app.delete('/api/v1/admin/attendance', (c) => hrController.deleteAttendance(c));
+
+// ── HR: Leave Requests ─────────────────────────────────────────────────────
+app.get ('/api/v1/admin/leave-requests',          (c) => hrController.getLeaveRequests(c));
+app.post('/api/v1/admin/leave-requests',           (c) => hrController.createLeaveRequest(c));
+app.put ('/api/v1/admin/leave-requests/:id/status',(c) => hrController.updateLeaveStatus(c));
+
+// ── HR: Leave Policies ─────────────────────────────────────────────────────
+app.get ('/api/v1/admin/leave-policies', (c) => hrController.getLeavePolicies(c));
+app.post('/api/v1/admin/leave-policies', (c) => hrController.upsertLeavePolicy(c));
 
 export default app;

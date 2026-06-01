@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import SkillsLibraryManagement from './SkillsLibraryManagement';
 import {
   Typography, Box, CircularProgress,
   Grid, Button, Chip,
@@ -7,6 +9,8 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
+  ToggleButton, ToggleButtonGroup,
+  Tab, Tabs,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -27,6 +31,10 @@ import {
   AttachMoney as PriceIcon,
   AccessTime as DurationIcon,
   AutoAwesome as SkillsIcon,
+  Percent as PercentIcon,
+  People as SalesIcon,
+  School as TeacherIcon,
+  AutoStories as SkillsLibIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
@@ -112,6 +120,9 @@ const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string })
 );
 
 const CourseManagement = () => {
+  const navigate = useNavigate();
+  const [pageTab, setPageTab] = useState(0);
+  const currentUserRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role; } catch { return ''; } })();
   const [courses, setCourses] = useState<Course[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,6 +155,10 @@ const CourseManagement = () => {
     images: [] as string[],
     videoUrl: '',
     teacherGuideUrl: '',
+    salesCommissionType: 'percent' as 'percent' | 'fixed',
+    salesCommissionValue: '',
+    teacherCommissionType: 'percent' as 'percent' | 'fixed',
+    teacherCommissionValue: '',
   });
 
   const [categoryFormData, setCategoryFormData] = useState({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
@@ -257,6 +272,10 @@ const CourseManagement = () => {
         images: course.images_json ? JSON.parse(course.images_json) : [],
         videoUrl: course.video_url || '',
         teacherGuideUrl: course.teacher_guide_url || '',
+        salesCommissionType: (course as any).sales_commission_type || 'percent',
+        salesCommissionValue: (course as any).sales_commission_value != null ? String((course as any).sales_commission_value) : '',
+        teacherCommissionType: (course as any).teacher_commission_type || 'percent',
+        teacherCommissionValue: (course as any).teacher_commission_value != null ? String((course as any).teacher_commission_value) : '',
       });
     } else {
       setEditCourse(null);
@@ -265,6 +284,8 @@ const CourseManagement = () => {
         categoryId: categories[0]?.id || 0, ageMin: 3, ageMax: 9,
         duration: '01:00', originalPrice: '', premiumPrice: '', couponRequirements: [],
         skills: [], metrics: [], thumbnailUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
+        salesCommissionType: 'percent', salesCommissionValue: '',
+        teacherCommissionType: 'percent', teacherCommissionValue: '',
       });
     }
     setIsEditing(true);
@@ -317,6 +338,10 @@ const CourseManagement = () => {
         imagesJson:        JSON.stringify(formData.images),
         videoUrl:          formData.videoUrl,
         teacherGuideUrl:   formData.teacherGuideUrl,
+        salesCommissionType:    formData.salesCommissionValue ? formData.salesCommissionType : null,
+        salesCommissionValue:   formData.salesCommissionValue ? parseFloat(formData.salesCommissionValue) : null,
+        teacherCommissionType:  formData.teacherCommissionValue ? formData.teacherCommissionType : null,
+        teacherCommissionValue: formData.teacherCommissionValue ? parseFloat(formData.teacherCommissionValue) : null,
       };
       if (editCourse) await axios.put(`${API_BASE}/courses/${editCourse.id}`, payload);
       else await axios.post(`${API_BASE}/courses`, payload);
@@ -653,6 +678,63 @@ const CourseManagement = () => {
               </Grid>
             </Paper>
 
+            {/* Commission */}
+            <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+              <SectionLabel icon={<PercentIcon />} title="ค่าคอมมิชชัน" />
+              <Grid container spacing={3}>
+                {/* Sales commission */}
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <SalesIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                    <Typography variant="body2" fontWeight={700}>พนักงานขาย</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <ToggleButtonGroup
+                      exclusive size="small"
+                      value={formData.salesCommissionType}
+                      onChange={(_, v) => v && setFormData({ ...formData, salesCommissionType: v })}
+                      sx={{ height: 40 }}
+                    >
+                      <ToggleButton value="percent" sx={{ fontWeight: 700, px: 1.5 }}>%</ToggleButton>
+                      <ToggleButton value="fixed"   sx={{ fontWeight: 700, px: 1.5 }}>฿</ToggleButton>
+                    </ToggleButtonGroup>
+                    <TextField
+                      size="small" type="number" fullWidth
+                      label={formData.salesCommissionType === 'percent' ? 'เปอร์เซ็นต์ (%)' : 'จำนวนเงิน (฿)'}
+                      inputProps={{ min: 0, step: formData.salesCommissionType === 'percent' ? 0.5 : 1 }}
+                      value={formData.salesCommissionValue}
+                      onChange={e => setFormData({ ...formData, salesCommissionValue: e.target.value })}
+                    />
+                  </Box>
+                </Grid>
+                {/* Teacher commission */}
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <TeacherIcon sx={{ fontSize: 18, color: 'secondary.main' }} />
+                    <Typography variant="body2" fontWeight={700}>ครูสอน</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <ToggleButtonGroup
+                      exclusive size="small"
+                      value={formData.teacherCommissionType}
+                      onChange={(_, v) => v && setFormData({ ...formData, teacherCommissionType: v })}
+                      sx={{ height: 40 }}
+                    >
+                      <ToggleButton value="percent" sx={{ fontWeight: 700, px: 1.5 }}>%</ToggleButton>
+                      <ToggleButton value="fixed"   sx={{ fontWeight: 700, px: 1.5 }}>฿</ToggleButton>
+                    </ToggleButtonGroup>
+                    <TextField
+                      size="small" type="number" fullWidth
+                      label={formData.teacherCommissionType === 'percent' ? 'เปอร์เซ็นต์ (%)' : 'จำนวนเงิน (฿)'}
+                      inputProps={{ min: 0, step: formData.teacherCommissionType === 'percent' ? 0.5 : 1 }}
+                      value={formData.teacherCommissionValue}
+                      onChange={e => setFormData({ ...formData, teacherCommissionValue: e.target.value })}
+                    />
+                  </Box>
+                </Grid>
+              </Grid>
+            </Paper>
+
             {/* Skills + Metrics */}
             <Paper sx={{ p: 3, borderRadius: 3 }}>
               <SectionLabel icon={<SkillsIcon />} title="ทักษะและตัวชี้วัด" />
@@ -873,15 +955,41 @@ const CourseManagement = () => {
   // ─── List View ───────────────────────────────────────────────────────────────
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>จัดการคลาสเรียน</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button variant="outlined" startIcon={<CategoryIcon />} onClick={() => setCategoryDialogOpen(true)}>จัดการหมวดหมู่</Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleEditOpen()}>เพิ่มคลาส</Button>
+          {pageTab === 0 && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleEditOpen()} sx={{ borderRadius: 3, fontWeight: 700 }}>
+              เพิ่มคลาส
+            </Button>
+          )}
+          {pageTab === 1 && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => {
+              setEditCategory(null);
+              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
+              setCategoryImagePreview('');
+              setCategoryImagePos({ x: 50, y: 50 });
+              catImgPosRef.current = { x: 50, y: 50 };
+              setCategoryError(null);
+              setCategoryFormDialogOpen(true);
+            }} sx={{ borderRadius: 3, fontWeight: 700 }}>
+              เพิ่มหมวดหมู่
+            </Button>
+          )}
         </Box>
       </Box>
 
-      <Paper sx={{ p: 2.5, mb: 3, bgcolor: '#f9fafb', borderRadius: 2 }}>
+      {/* Page Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)}>
+          <Tab label="รายการคลาส" />
+          <Tab label="หมวดหมู่" icon={<CategoryIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
+          <Tab label="Skills Library" icon={<SkillsLibIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
+        </Tabs>
+      </Box>
+
+      {/* ── Tab 0: Course list ──────────────────────────────────────────────── */}
+      {pageTab === 0 && <><Paper sx={{ p: 2.5, mb: 3, bgcolor: '#f9fafb', borderRadius: 2 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6} md={4}>
             <TextField fullWidth size="small" placeholder="ค้นหาชื่อหรือรหัสคลาส" value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value })} />
@@ -953,6 +1061,72 @@ const CourseManagement = () => {
         </Table>
         <TablePagination component="div" count={filteredCourses.length} rowsPerPage={rowsPerPage} page={page} onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => setRowsPerPage(parseInt(e.target.value, 10))} />
       </TableContainer>
+      </>}
+
+      {/* ── Tab 1: Categories ────────────────────────────────────────────────── */}
+      {pageTab === 1 && (
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          {categories.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
+              <CategoryIcon sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
+              <Typography variant="body2">ยังไม่มีหมวดหมู่ — กด "เพิ่มหมวดหมู่" เพื่อเริ่มต้น</Typography>
+            </Box>
+          ) : (
+            <List disablePadding>
+              {categories.map((cat, idx) => (
+                <ListItem
+                  key={cat.id}
+                  divider={idx < categories.length - 1}
+                  sx={{ py: 1.5, px: 2.5, '&:hover': { bgcolor: '#f8fafc' } }}
+                  secondaryAction={
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <IconButton size="small" onClick={() => {
+                        setEditCategory(cat);
+                        setCategoryFormData({ name: cat.name, description: cat.description || '', color: cat.color || '#7452d6', imageUrl: cat.image_url || '', imagePosition: (cat as any).image_position || '50% 50%' });
+                        setCategoryImagePreview(cat.image_url ? `http://localhost:8787${cat.image_url}` : '');
+                        const parts = ((cat as any).image_position || '50% 50%').split(' ');
+                        const savedPos = { x: parseFloat(parts[0]) || 50, y: parseFloat(parts[1]) || 50 };
+                        setCategoryImagePos(savedPos);
+                        catImgPosRef.current = savedPos;
+                        setCategoryError(null);
+                        setCategoryFormDialogOpen(true);
+                      }}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton size="small" color="error" onClick={() => { setItemToDelete({ id: cat.id, name: cat.name }); setDeleteType('category'); setDeleteDialogOpen(true); }}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  }
+                >
+                  {cat.image_url ? (
+                    <Box sx={{ width: 44, height: 44, borderRadius: 2, overflow: 'hidden', mr: 2, flexShrink: 0, border: '1px solid #e2e8f0' }}>
+                      <img src={`http://localhost:8787${cat.image_url}`} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: (cat as any).image_position || '50% 50%' }} />
+                    </Box>
+                  ) : (
+                    <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: cat.color || '#7452d6', mr: 2, flexShrink: 0, opacity: 0.85 }} />
+                  )}
+                  <ListItemText
+                    primary={<Typography sx={{ fontWeight: 700 }}>{cat.name}</Typography>}
+                    secondary={cat.description || '—'}
+                    secondaryTypographyProps={{ noWrap: true, sx: { fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 400 } }}
+                  />
+                  <Chip
+                    size="small" variant="outlined"
+                    label={`${courses.filter(c => c.category_id === cat.id).length} คลาส`}
+                    sx={{ mr: 8, fontWeight: 700, fontSize: '0.65rem' }}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </Paper>
+      )}
+
+      {/* ── Tab 2: Skills Library ─────────────────────────────────────────────── */}
+      {pageTab === 2 && (
+        <SkillsLibraryManagement currentUserRole={currentUserRole} />
+      )}
 
       {/* Delete dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
@@ -963,86 +1137,6 @@ const CourseManagement = () => {
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setDeleteDialogOpen(false)} variant="outlined">ยกเลิก</Button>
           <Button onClick={confirmDelete} color="error" variant="contained">ลบข้อมูล</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Category LIST dialog */}
-      <Dialog open={categoryDialogOpen} onClose={() => setCategoryDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          จัดการหมวดหมู่
-          <Button
-            variant="contained" size="small" startIcon={<AddIcon />}
-            onClick={() => {
-              setEditCategory(null);
-              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
-              setCategoryImagePreview('');
-              setCategoryImagePos({ x: 50, y: 50 });
-              catImgPosRef.current = { x: 50, y: 50 };
-              setCategoryError(null);
-              setCategoryFormDialogOpen(true);
-            }}
-            sx={{ borderRadius: 3, fontWeight: 800, fontSize: '0.75rem' }}
-          >
-            เพิ่มหมวดหมู่
-          </Button>
-        </DialogTitle>
-        <DialogContent dividers sx={{ p: 0 }}>
-          <List disablePadding>
-            {categories.length === 0 && (
-              <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
-                <Typography variant="body2">ยังไม่มีหมวดหมู่</Typography>
-              </Box>
-            )}
-            {categories.map((cat, idx) => (
-              <ListItem
-                key={cat.id}
-                divider={idx < categories.length - 1}
-                sx={{ py: 1.5, px: 2, '&:hover': { bgcolor: '#f8fafc' } }}
-                secondaryAction={
-                  <Box sx={{ display: 'flex', gap: 0.5 }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setEditCategory(cat);
-                        setCategoryFormData({ name: cat.name, description: cat.description || '', color: cat.color || '#7452d6', imageUrl: cat.image_url || '', imagePosition: (cat as any).image_position || '50% 50%' });
-                        setCategoryImagePreview(cat.image_url ? `http://localhost:8787${cat.image_url}` : '');
-                        const parts = ((cat as any).image_position || '50% 50%').split(' ');
-                        const savedPos = { x: parseFloat(parts[0]) || 50, y: parseFloat(parts[1]) || 50 };
-                        setCategoryImagePos(savedPos);
-                        catImgPosRef.current = savedPos;
-                        setCategoryError(null);
-                        setCategoryFormDialogOpen(true);
-                      }}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small" color="error"
-                      onClick={() => { setItemToDelete({ id: cat.id, name: cat.name }); setDeleteType('category'); setDeleteDialogOpen(true); }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                }
-              >
-                {cat.image_url ? (
-                  <Box sx={{ width: 40, height: 40, borderRadius: 2, overflow: 'hidden', mr: 2, flexShrink: 0, border: '1px solid #e2e8f0' }}>
-                    <img src={`http://localhost:8787${cat.image_url}`} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: (cat as any).image_position || '50% 50%' }} />
-                  </Box>
-                ) : (
-                  <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: cat.color || '#7452d6', mr: 2, flexShrink: 0, opacity: 0.8 }} />
-                )}
-                <ListItemText
-                  primary={<Typography sx={{ fontWeight: 700, fontSize: '0.875rem' }}>{cat.name}</Typography>}
-                  secondary={cat.description || '—'}
-                  secondaryTypographyProps={{ noWrap: true, sx: { fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 } }}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setCategoryDialogOpen(false)} sx={{ fontWeight: 700 }}>ปิด</Button>
         </DialogActions>
       </Dialog>
 

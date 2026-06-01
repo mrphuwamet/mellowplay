@@ -19,10 +19,26 @@ import {
   CheckCircle as CheckIcon,
   Person as PersonIcon,
   Groups as StaffIcon,
+  Inventory2 as PackageIcon,
+  WorkspacePremium as PremiumIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
 const API_BASE = 'http://localhost:8787/api/v1/admin';
+
+const COUPON_TYPES_POS = [
+  { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3', bg: '#e3f2fd' },
+  { id: 'yellow', label: 'คูปองสีเหลือง', color: '#f59e0b', bg: '#fffbeb' },
+  { id: 'red',    label: 'คูปองสีแดง',    color: '#ef4444', bg: '#fef2f2' },
+];
+
+const POS_PACKAGES = [
+  { id: 1, name: 'Starter Pack', description: 'แพ็คเกจเริ่มต้นสำหรับสมาชิกใหม่', price: 1200, coupons: [{ typeId: 'blue', quantity: 5 }, { typeId: 'yellow', quantity: 2 }], premiumDays: 0, sellerCommission: { type: 'percent', value: '5' } },
+  { id: 2, name: 'Premium 30 วัน', description: 'สมาชิก Premium 30 วัน พร้อมคูปองมูลค่าสูง', price: 2500, coupons: [{ typeId: 'blue', quantity: 8 }, { typeId: 'red', quantity: 3 }], premiumDays: 30, sellerCommission: { type: 'fixed', value: '150' } },
+  { id: 3, name: 'Family Bundle', description: 'แพ็คเกจครอบครัว ครอบคลุมทุกคลาส', price: 4500, coupons: [{ typeId: 'blue', quantity: 15 }, { typeId: 'yellow', quantity: 5 }, { typeId: 'red', quantity: 5 }], premiumDays: 90, sellerCommission: { type: 'percent', value: '8' } },
+];
+
+const PKG_STEPS = ['เลือกแพ็คเกจ', 'ข้อมูลลูกค้า', 'ชำระเงิน'];
 
 const CATEGORY_PALETTE = [
   { bg: '#ede9fe', border: '#7c3aed', text: '#7c3aed', avatar: '#7c3aed' },
@@ -123,6 +139,12 @@ const POSDashboard = () => {
   const [payNow, setPayNow] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'credit_card'>('cash');
 
+  // Package sale
+  const [pkgSaleOpen, setPkgSaleOpen] = useState(false);
+  const [pkgStep, setPkgStep] = useState(0);
+  const [selectedPkg, setSelectedPkg] = useState<(typeof POS_PACKAGES)[number] | null>(null);
+  const [pkgProcessing, setPkgProcessing] = useState(false);
+
   useEffect(() => {
     const fetchInitial = async () => {
       setDataLoading(true);
@@ -210,6 +232,37 @@ const POSDashboard = () => {
     finally { setProcessing(false); }
   };
 
+  const openPkgSale = () => {
+    setSelectedPkg(null);
+    setPkgStep(0);
+    setIsGuest(false);
+    setMember(null);
+    setSearchPhone('');
+    setSelectedChildId('');
+    setSalesStaffId('');
+    setPayNow(true);
+    setPaymentMethod('cash');
+    setPkgSaleOpen(true);
+  };
+
+  const handleConfirmPkgSale = async () => {
+    if (!selectedPkg) return;
+    setPkgProcessing(true);
+    try {
+      await axios.post(`${API_BASE}/pos/process-package-sale`, {
+        packageId: selectedPkg.id,
+        userId: member?.id || null,
+        branchId,
+        isGuest,
+        paymentMethod: payNow ? paymentMethod : 'later',
+        salesStaffId: salesStaffId || null,
+      });
+      alert(`บันทึกการซื้อแพ็คเกจ "${selectedPkg.name}" สำเร็จ`);
+      setPkgSaleOpen(false);
+    } catch (e: any) { alert(e.response?.data?.message || 'เกิดข้อผิดพลาด'); }
+    finally { setPkgProcessing(false); }
+  };
+
   const canGoNext = () => {
     if (bookingStep === 0) return !!selectedDate && !!selectedTime;
     if (bookingStep === 1) return isGuest || (!!member && !!selectedChildId);
@@ -223,9 +276,32 @@ const POSDashboard = () => {
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
         POS & Booking{branchName ? ` — ${branchName}` : ''}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         เลือกหมวดหมู่สินค้า / คลาสเรียน
       </Typography>
+
+      {/* Package sale shortcut */}
+      <Card
+        onClick={openPkgSale}
+        sx={{
+          cursor: 'pointer', borderRadius: 3, mb: 4,
+          background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
+          color: 'white', border: 'none',
+          transition: 'transform 0.15s, box-shadow 0.15s',
+          '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 8px 24px rgba(124,58,237,0.35)' },
+        }}
+      >
+        <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: '16px !important' }}>
+          <PackageIcon sx={{ fontSize: 36 }} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={800}>ซื้อแพ็คเกจ</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.85 }}>
+              {POS_PACKAGES.length} แพ็คเกจ — คูปอง + สมาชิก Premium
+            </Typography>
+          </Box>
+          <NextIcon />
+        </CardContent>
+      </Card>
 
       {dataLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
@@ -575,6 +651,160 @@ const POSDashboard = () => {
               sx={{ borderRadius: 3, fontWeight: 800, px: 3 }}
             >
               ยืนยันการจอง
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* PACKAGE SALE DIALOG */}
+      <Dialog open={pkgSaleOpen} onClose={() => setPkgSaleOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>ซื้อแพ็คเกจ</DialogTitle>
+        <DialogContent dividers sx={{ pt: 3 }}>
+          {/* PKG step indicator — separate from STEPS constant */}
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            {PKG_STEPS.map((label, i) => (
+              <React.Fragment key={i}>
+                <Box sx={{ textAlign: 'center', minWidth: 56 }}>
+                  <Box sx={{ width: 32, height: 32, borderRadius: '50%', mx: 'auto', mb: 0.5, bgcolor: i < pkgStep ? 'success.main' : i === pkgStep ? 'primary.main' : '#e2e8f0', color: i <= pkgStep ? 'white' : 'text.disabled', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 800, transition: 'all 0.2s' }}>
+                    {i < pkgStep ? <CheckIcon sx={{ fontSize: 16 }} /> : i + 1}
+                  </Box>
+                  <Typography variant="caption" sx={{ fontSize: '9px', fontWeight: i === pkgStep ? 800 : 500, color: i === pkgStep ? 'primary.main' : 'text.secondary', display: 'block' }}>
+                    {label}
+                  </Typography>
+                </Box>
+                {i < PKG_STEPS.length - 1 && <Box sx={{ flex: 1, height: 2, bgcolor: i < pkgStep ? 'success.main' : '#e2e8f0', mx: 0.5, mt: -2, transition: 'all 0.2s' }} />}
+              </React.Fragment>
+            ))}
+          </Box>
+
+          {/* Step 0: Package selection */}
+          {pkgStep === 0 && (
+            <Stack spacing={2}>
+              {POS_PACKAGES.map((pkg) => (
+                <Card
+                  key={pkg.id}
+                  onClick={() => setSelectedPkg(pkg)}
+                  variant="outlined"
+                  sx={{
+                    cursor: 'pointer', borderRadius: 3, p: 0,
+                    border: '2px solid',
+                    borderColor: selectedPkg?.id === pkg.id ? 'primary.main' : 'divider',
+                    bgcolor: selectedPkg?.id === pkg.id ? 'primary.50' : 'background.paper',
+                    transition: 'all 0.15s',
+                    '&:hover': { borderColor: 'primary.light' },
+                  }}
+                >
+                  <CardContent sx={{ pb: '12px !important' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={800}>{pkg.name}</Typography>
+                      <Typography variant="h6" fontWeight={900} color="primary.main">฿{pkg.price.toLocaleString()}</Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{pkg.description}</Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {pkg.coupons.filter((c) => c.quantity > 0).map((c) => {
+                        const ct = COUPON_TYPES_POS.find((t) => t.id === c.typeId)!;
+                        return (
+                          <Chip key={c.typeId} size="small" label={`${ct.label} ×${c.quantity}`}
+                            sx={{ fontWeight: 700, fontSize: '0.68rem', bgcolor: ct.bg, color: ct.color, border: `1px solid ${ct.color}` }} />
+                        );
+                      })}
+                      {pkg.premiumDays > 0 && (
+                        <Chip size="small" icon={<PremiumIcon sx={{ fontSize: 14, color: '#f59e0b !important' }} />}
+                          label={`Premium ${pkg.premiumDays} วัน`}
+                          sx={{ fontWeight: 700, fontSize: '0.68rem', bgcolor: '#fffbeb', color: '#b45309', border: '1px solid #f59e0b' }} />
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          )}
+
+          {/* Step 1: Customer lookup (reuse booking logic) */}
+          {pkgStep === 1 && renderStep()}
+
+          {/* Step 2: Payment */}
+          {pkgStep === 2 && selectedPkg && (
+            <Stack spacing={3}>
+              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: '#f8fafc' }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1.5 }}>สรุปการซื้อ</Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">แพ็คเกจ</Typography>
+                  <Typography variant="body2" fontWeight={800}>{selectedPkg.name}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">ลูกค้า</Typography>
+                  <Typography variant="body2" fontWeight={800}>
+                    {isGuest ? 'Guest' : `${member?.first_name} ${member?.last_name}`}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="body2" color="text.secondary">ราคา</Typography>
+                  <Typography variant="h6" fontWeight={900} color="primary.main">฿{selectedPkg.price.toLocaleString()}</Typography>
+                </Box>
+                {selectedPkg.premiumDays > 0 && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                    <PremiumIcon sx={{ fontSize: 14, color: '#f59e0b' }} />
+                    <Typography variant="caption" fontWeight={700} color="#b45309">ลูกค้าจะได้รับ Premium {selectedPkg.premiumDays} วัน</Typography>
+                  </Box>
+                )}
+              </Paper>
+              <FormControl>
+                <FormLabel sx={{ fontWeight: 800, mb: 1 }}>การชำระเงิน</FormLabel>
+                <RadioGroup value={payNow ? 'now' : 'later'} onChange={e => setPayNow(e.target.value === 'now')}>
+                  <FormControlLabel value="now" control={<Radio />} label={<Typography sx={{ fontWeight: 700 }}>ชำระเงินทันที</Typography>} />
+                  <FormControlLabel value="later" control={<Radio />} label={<Typography sx={{ fontWeight: 700 }}>ชำระภายหลัง</Typography>} />
+                </RadioGroup>
+              </FormControl>
+              {payNow && (
+                <FormControl fullWidth>
+                  <InputLabel>วิธีชำระเงิน</InputLabel>
+                  <Select value={paymentMethod} label="วิธีชำระเงิน" onChange={e => setPaymentMethod(e.target.value as any)}>
+                    <MenuItem value="cash">เงินสด</MenuItem>
+                    <MenuItem value="transfer">โอนเงิน (Mobile Banking)</MenuItem>
+                    <MenuItem value="credit_card">บัตรเครดิต (EDC)</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+              <FormControl fullWidth>
+                <InputLabel>พนักงานขาย (ถ้ามี)</InputLabel>
+                <Select value={salesStaffId} label="พนักงานขาย (ถ้ามี)" onChange={e => setSalesStaffId(e.target.value)}>
+                  <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
+                  {staffList.map((s: any) => <MenuItem key={s.id} value={s.id}>{s.first_name} {s.last_name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, gap: 1 }}>
+          <Button startIcon={<PrevIcon />} onClick={() => setPkgStep(s => s - 1)} disabled={pkgStep === 0} variant="outlined" sx={{ borderRadius: 3, fontWeight: 700 }}>
+            ย้อนกลับ
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          {pkgStep < PKG_STEPS.length - 1 ? (
+            <Button
+              variant="contained" endIcon={<NextIcon />}
+              disabled={pkgStep === 0 ? !selectedPkg : (pkgStep === 1 ? !(isGuest || (!!member && !!selectedChildId)) : false)}
+              onClick={() => {
+                if (pkgStep === 1) {
+                  // skip child requirement for package sale — just need member or guest
+                  if (!isGuest && !member) return;
+                }
+                setPkgStep(s => s + 1);
+              }}
+              sx={{ borderRadius: 3, fontWeight: 800, px: 3 }}
+            >
+              ถัดไป
+            </Button>
+          ) : (
+            <Button
+              variant="contained" color="success"
+              endIcon={pkgProcessing ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
+              disabled={pkgProcessing}
+              onClick={handleConfirmPkgSale}
+              sx={{ borderRadius: 3, fontWeight: 800, px: 3 }}
+            >
+              ยืนยันการซื้อ
             </Button>
           )}
         </DialogActions>

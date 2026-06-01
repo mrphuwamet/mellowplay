@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import {
   Alert,
   Avatar,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -35,6 +37,8 @@ import {
   ThumbDown as RejectIcon,
   EventNote as LeaveIcon,
   Settings as PolicyIcon,
+  BusinessCenter as MonthlyIcon,
+  AccessTime as DailyIcon,
 } from '@mui/icons-material';
 
 type LeaveType = 'annual' | 'sick' | 'personal';
@@ -54,10 +58,15 @@ interface LeaveRequest {
   isPaid: boolean;
 }
 
-interface LeavePolicy {
+interface EmployeeTypePolicy {
   annual: number;
   sick: number;
   personal: number;
+}
+
+interface LeavePolicy {
+  monthly: EmployeeTypePolicy;
+  daily: EmployeeTypePolicy;
 }
 
 interface LeaveBalance {
@@ -66,16 +75,25 @@ interface LeaveBalance {
   personal: { used: number; total: number };
 }
 
-const defaultPolicy: LeavePolicy = { annual: 10, sick: 30, personal: 3 };
+const defaultPolicy: LeavePolicy = {
+  monthly: { annual: 10, sick: 30, personal: 3 },
+  daily:   { annual: 6,  sick: 30, personal: 3 },
+};
 
-const mockRequests: LeaveRequest[] = [
-  { id: 1, staffName: 'ฉัน', staffRole: 'Play Facilitator', type: 'annual', startDate: '2026-06-10', endDate: '2026-06-12', days: 3, reason: 'เดินทางพักผ่อน', status: 'approved', isPaid: false },
-  { id: 2, staffName: 'ฉัน', staffRole: 'Play Facilitator', type: 'sick', startDate: '2026-05-15', endDate: '2026-05-15', days: 1, reason: 'ป่วยไข้', status: 'approved', isPaid: false },
-  { id: 3, staffName: 'ฉัน', staffRole: 'Play Facilitator', type: 'personal', startDate: '2026-05-01', endDate: '2026-05-01', days: 1, reason: 'ธุระส่วนตัว', status: 'pending', isPaid: false },
-  { id: 4, staffName: 'นายสมชาย ใจดี', staffRole: 'Play Facilitator', type: 'annual', startDate: '2026-06-20', endDate: '2026-06-21', days: 2, reason: 'พักผ่อน', status: 'pending', isPaid: false },
-  { id: 5, staffName: 'นางสาวมณี รักดี', staffRole: 'Play Facilitator', type: 'sick', startDate: '2026-05-28', endDate: '2026-05-28', days: 1, reason: 'ป่วย', status: 'approved', isPaid: false },
-  { id: 6, staffName: 'นายประเสริฐ ทำงานดี', staffRole: 'Operator', type: 'personal', startDate: '2026-06-05', endDate: '2026-06-05', days: 1, reason: 'ธุระด่วน', status: 'pending', isPaid: false },
-];
+interface PolicyEditStr {
+  monthly: { annual: string; sick: string; personal: string };
+  daily:   { annual: string; sick: string; personal: string };
+}
+
+const policyToStr = (p: LeavePolicy): PolicyEditStr => ({
+  monthly: { annual: String(p.monthly.annual), sick: String(p.monthly.sick), personal: String(p.monthly.personal) },
+  daily:   { annual: String(p.daily.annual),   sick: String(p.daily.sick),   personal: String(p.daily.personal)   },
+});
+
+const API_BASE = 'http://localhost:8787/api/v1/admin';
+
+// Mock: in a real app this comes from the logged-in user's CRM profile
+const EMPLOYEE_TYPE: 'monthly' | 'daily' = 'daily';
 
 const leaveTypeConfig: Record<LeaveType, { label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
   annual: { label: 'ลาพักร้อน', icon: <AnnualIcon />, color: '#2196f3', bgColor: '#e3f2fd' },
@@ -102,7 +120,8 @@ interface LeaveManagementProps {
 
 const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, isAdmin = false }) => {
   const [tab, setTab] = useState(0);
-  const [requests, setRequests] = useState<LeaveRequest[]>(mockRequests);
+  const [requests, setRequests] = useState<LeaveRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [policy, setPolicy] = useState<LeavePolicy>(defaultPolicy);
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [form, setForm] = useState({ type: 'annual' as LeaveType, startDate: '', endDate: '', reason: '' });
@@ -111,23 +130,80 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
   const [rejectDialogId, setRejectDialogId] = useState<number | null>(null);
   const [approverNote, setApproverNote] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [policyEdit, setPolicyEdit] = useState<LeavePolicy>(defaultPolicy);
+  const [policyEdit, setPolicyEdit] = useState<PolicyEditStr>(() => policyToStr(defaultPolicy));
+
+  const crmUserId: number | null = (() => {
+    try { return JSON.parse(localStorage.getItem('crm_user') || 'null')?.id ?? null; } catch { return null; }
+  })();
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
-  const myRequests = requests.filter((r) => r.staffName === 'ฉัน');
-  const allStaffRequests = requests.filter((r) => r.staffName !== 'ฉัน');
-
-  const balance: LeaveBalance = {
-    annual: { used: myRequests.filter((r) => r.type === 'annual' && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: policy.annual },
-    sick: { used: myRequests.filter((r) => r.type === 'sick' && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: policy.sick },
-    personal: { used: myRequests.filter((r) => r.type === 'personal' && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: policy.personal },
+  // ── API fetch ──────────────────────────────────────────────────────────────
+  const fetchRequests = async () => {
+    try {
+      const params = canApprove ? {} : { userId: crmUserId };
+      const res = await axios.get(`${API_BASE}/leave-requests`, { params });
+      const data: LeaveRequest[] = res.data.requests.map((r: any) => ({
+        id: r.id,
+        crm_user_id: r.crm_user_id,
+        staffName: r.staff_name ?? '',
+        staffRole: r.staff_role ?? '',
+        type: r.type as LeaveType,
+        startDate: r.start_date,
+        endDate: r.end_date,
+        days: r.days,
+        reason: r.reason,
+        status: r.status as LeaveStatus,
+        approverNote: r.approver_note ?? undefined,
+        isPaid: Boolean(r.is_paid),
+      }));
+      setRequests(data);
+    } catch (err) {
+      console.error('fetchRequests error:', err);
+    }
   };
 
-  const handleRequestSubmit = () => {
+  const fetchPolicies = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/leave-policies`);
+      const monthly = res.data.policies.find((p: any) => p.employee_type === 'monthly');
+      const daily   = res.data.policies.find((p: any) => p.employee_type === 'daily');
+      const newPolicy: LeavePolicy = {
+        monthly: { annual: monthly?.annual_days ?? defaultPolicy.monthly.annual, sick: monthly?.sick_days ?? defaultPolicy.monthly.sick, personal: monthly?.personal_days ?? defaultPolicy.monthly.personal },
+        daily:   { annual: daily?.annual_days   ?? defaultPolicy.daily.annual,   sick: daily?.sick_days   ?? defaultPolicy.daily.sick,   personal: daily?.personal_days   ?? defaultPolicy.daily.personal   },
+      };
+      setPolicy(newPolicy);
+      setPolicyEdit(policyToStr(newPolicy));
+    } catch (err) {
+      console.error('fetchPolicies error:', err);
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([fetchRequests(), fetchPolicies()]);
+      setLoading(false);
+    };
+    init();
+  }, []);
+
+  const myRequests = requests.filter((r: any) => r.crm_user_id === crmUserId);
+  const allStaffRequests = requests.filter((r: any) => r.crm_user_id !== crmUserId);
+
+  const currentPolicy = policy[EMPLOYEE_TYPE];
+  const isPaidEmployee = EMPLOYEE_TYPE === 'monthly';
+
+  const balance: LeaveBalance = {
+    annual:   { used: myRequests.filter((r) => r.type === 'annual'   && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: currentPolicy.annual   },
+    sick:     { used: myRequests.filter((r) => r.type === 'sick'     && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: currentPolicy.sick     },
+    personal: { used: myRequests.filter((r) => r.type === 'personal' && r.status === 'approved').reduce((s, r) => s + r.days, 0), total: currentPolicy.personal },
+  };
+
+  const handleRequestSubmit = async () => {
     if (!form.startDate || !form.endDate || !form.reason.trim()) {
       setFormError('กรุณากรอกข้อมูลให้ครบ');
       return;
@@ -142,42 +218,76 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
       setFormError(`วันลาคงเหลือไม่พอ (เหลือ ${remaining} วัน)`);
       return;
     }
-    const newReq: LeaveRequest = {
-      id: Date.now(),
-      staffName: 'ฉัน',
-      staffRole: 'Staff',
-      type: form.type,
-      startDate: form.startDate,
-      endDate: form.endDate,
-      days,
-      reason: form.reason.trim(),
-      status: 'pending',
-      isPaid: false,
-    };
-    setRequests((prev) => [newReq, ...prev]);
-    setForm({ type: 'annual', startDate: '', endDate: '', reason: '' });
-    setFormError('');
-    setRequestDialogOpen(false);
-    showSuccess(`ส่งคำขอ${leaveTypeConfig[newReq.type].label}สำเร็จ (${days} วัน) รอการอนุมัติ`);
+    try {
+      await axios.post(`${API_BASE}/leave-requests`, {
+        crmUserId,
+        type: form.type,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        days,
+        reason: form.reason.trim(),
+        isPaid: isPaidEmployee,
+      });
+      await fetchRequests();
+      setForm({ type: 'annual', startDate: '', endDate: '', reason: '' });
+      setFormError('');
+      setRequestDialogOpen(false);
+      showSuccess(`ส่งคำขอ${leaveTypeConfig[form.type].label}สำเร็จ (${days} วัน) รอการอนุมัติ`);
+    } catch (err) {
+      console.error('handleRequestSubmit error:', err);
+    }
   };
 
-  const handleApprove = (id: number) => {
-    setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: 'approved', approverNote: approverNote || 'อนุมัติ' } : r));
-    setApproveDialogId(null);
-    setApproverNote('');
-    showSuccess('อนุมัติวันลาเรียบร้อย');
+  const handleApprove = async (id: number) => {
+    try {
+      await axios.put(`${API_BASE}/leave-requests/${id}/status`, {
+        status: 'approved',
+        approverNote: approverNote || 'อนุมัติ',
+      });
+      await fetchRequests();
+      setApproveDialogId(null);
+      setApproverNote('');
+      showSuccess('อนุมัติวันลาเรียบร้อย');
+    } catch (err) {
+      console.error('handleApprove error:', err);
+    }
   };
 
-  const handleReject = (id: number) => {
-    setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: 'rejected', approverNote: approverNote || 'ไม่อนุมัติ' } : r));
-    setRejectDialogId(null);
-    setApproverNote('');
-    showSuccess('ปฏิเสธคำขอวันลาเรียบร้อย');
+  const handleReject = async (id: number) => {
+    try {
+      await axios.put(`${API_BASE}/leave-requests/${id}/status`, {
+        status: 'rejected',
+        approverNote: approverNote || 'ไม่อนุมัติ',
+      });
+      await fetchRequests();
+      setRejectDialogId(null);
+      setApproverNote('');
+      showSuccess('ปฏิเสธคำขอวันลาเรียบร้อย');
+    } catch (err) {
+      console.error('handleReject error:', err);
+    }
   };
 
-  const handleSavePolicy = () => {
-    setPolicy({ ...policyEdit });
-    showSuccess('บันทึกนโยบายวันลาเรียบร้อย');
+  const handleSavePolicy = async () => {
+    const parse = (s: string) => Math.max(0, parseInt(s) || 0);
+    try {
+      await axios.post(`${API_BASE}/leave-policies`, {
+        employeeType: 'monthly',
+        annualDays:   parse(policyEdit.monthly.annual),
+        sickDays:     parse(policyEdit.monthly.sick),
+        personalDays: parse(policyEdit.monthly.personal),
+      });
+      await axios.post(`${API_BASE}/leave-policies`, {
+        employeeType: 'daily',
+        annualDays:   parse(policyEdit.daily.annual),
+        sickDays:     parse(policyEdit.daily.sick),
+        personalDays: parse(policyEdit.daily.personal),
+      });
+      await fetchPolicies();
+      showSuccess('บันทึกนโยบายวันลาเรียบร้อย');
+    } catch (err) {
+      console.error('handleSavePolicy error:', err);
+    }
   };
 
   const pendingApprovalCount = allStaffRequests.filter((r) => r.status === 'pending').length;
@@ -190,6 +300,12 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
 
   const approvalTabIndex = canApprove ? 1 : -1;
   const policyTabIndex = isAdmin ? (canApprove ? 2 : 1) : -1;
+
+  if (loading) return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+      <CircularProgress />
+    </Box>
+  );
 
   return (
     <Box>
@@ -246,10 +362,16 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
         })}
       </Grid>
 
-      <Alert severity="info" sx={{ mb: 2 }}>
-        <Typography variant="body2" fontWeight={600}>หมายเหตุเกี่ยวกับการลา</Typography>
-        <Typography variant="body2">• พนักงานที่ได้รับค่าจ้างรายวัน: <strong>วันที่ลาทุกประเภทจะไม่ได้รับค่าจ้าง</strong></Typography>
-        <Typography variant="body2">• พนักงานรายเดือน: กรุณาตรวจสอบข้อกำหนดในสัญญาจ้าง</Typography>
+      <Alert severity={isPaidEmployee ? 'success' : 'warning'} sx={{ mb: 2 }}>
+        <Typography variant="body2" fontWeight={700} sx={{ mb: 0.25 }}>
+          {isPaidEmployee ? '👔 พนักงานประจำ (รายเดือน)' : '🕐 พนักงานรายวัน'}
+        </Typography>
+        <Typography variant="body2">
+          {isPaidEmployee
+            ? 'วันลาพักร้อนและลากิจ: ได้รับค่าจ้างตามปกติ • ลาป่วย: ได้รับค่าจ้างตามกฎหมาย'
+            : 'วันลาทุกประเภทจะ ไม่ได้รับค่าจ้าง — ยอดหักจะคำนวณในรอบเงินเดือน'
+          }
+        </Typography>
       </Alert>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
@@ -392,46 +514,96 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
 
       {/* Tab: Leave Policy (Admin only) */}
       {isAdmin && tab === policyTabIndex && (
-        <Paper sx={{ p: 3, borderRadius: 3 }}>
+        <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
             <PolicyIcon color="primary" />
-            <Typography variant="h6" fontWeight={800}>กำหนดนโยบายวันลาประจำปี</Typography>
+            <Box>
+              <Typography variant="h6" fontWeight={800}>นโยบายวันลาประจำปี</Typography>
+              <Typography variant="body2" color="text.secondary">กำหนดสิทธิ์วันลาสูงสุดต่อปี แยกตามประเภทพนักงาน</Typography>
+            </Box>
           </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            ตั้งค่าจำนวนวันลาสูงสุดที่พนักงานสามารถใช้ได้ในแต่ละปี แยกตามประเภท
-          </Typography>
-          <Grid container spacing={3}>
-            {(Object.entries(leaveTypeConfig) as [LeaveType, typeof leaveTypeConfig[LeaveType]][]).map(([type, cfg]) => (
-              <Grid item xs={12} sm={4} key={type}>
-                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                    <Box sx={{ color: cfg.color }}>{cfg.icon}</Box>
-                    <Typography fontWeight={700}>{cfg.label}</Typography>
-                  </Box>
-                  <TextField
-                    label="จำนวนวันสูงสุด / ปี"
-                    type="number"
-                    fullWidth
-                    size="small"
-                    inputProps={{ min: 0, step: 1 }}
-                    value={policyEdit[type]}
-                    onChange={(e) => setPolicyEdit((p) => ({ ...p, [type]: parseInt(e.target.value) || 0 }))}
-                  />
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
-          <Alert severity="warning" sx={{ mt: 3 }}>
+
+          {/* Monthly employees */}
+          <Paper sx={{ p: 3, borderRadius: 3, mb: 3, border: '2px solid', borderColor: 'primary.light' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+              <MonthlyIcon color="primary" />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={800} color="primary.main">พนักงานประจำ (รายเดือน)</Typography>
+              </Box>
+              <Chip label="ได้รับค่าจ้างในวันลา" color="success" size="small" sx={{ ml: 'auto', fontWeight: 700 }} />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+              วันลาพักร้อนและลากิจนับเป็นวันทำงาน ได้รับค่าจ้างปกติ
+            </Typography>
+            <Grid container spacing={2}>
+              {(Object.entries(leaveTypeConfig) as [LeaveType, typeof leaveTypeConfig[LeaveType]][]).map(([type, cfg]) => (
+                <Grid item xs={12} sm={4} key={type}>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                      <Box sx={{ color: cfg.color, display: 'flex' }}>{cfg.icon}</Box>
+                      <Typography variant="body2" fontWeight={700}>{cfg.label}</Typography>
+                    </Box>
+                    <TextField
+                      label="วันสูงสุด / ปี"
+                      type="number"
+                      fullWidth
+                      size="small"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={policyEdit.monthly[type]}
+                      onChange={(e) => setPolicyEdit((p) => ({ ...p, monthly: { ...p.monthly, [type]: e.target.value } }))}
+                    />
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </Paper>
+
+          {/* Daily employees */}
+          <Paper sx={{ p: 3, borderRadius: 3, mb: 3, border: '2px solid', borderColor: 'warning.light' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+              <DailyIcon color="warning" />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={800} color="warning.dark">พนักงานรายวัน</Typography>
+              </Box>
+              <Chip label="ไม่ได้รับค่าจ้างในวันลา" color="warning" size="small" sx={{ ml: 'auto', fontWeight: 700 }} />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+              วันที่ลาทุกประเภทจะหักค่าจ้างตามจำนวนวันที่ขาด — ระบุสิทธิ์วันลาสูงสุดที่อนุญาต
+            </Typography>
+            <Grid container spacing={2}>
+              {(Object.entries(leaveTypeConfig) as [LeaveType, typeof leaveTypeConfig[LeaveType]][]).map(([type, cfg]) => (
+                <Grid item xs={12} sm={4} key={type}>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                      <Box sx={{ color: cfg.color, display: 'flex' }}>{cfg.icon}</Box>
+                      <Typography variant="body2" fontWeight={700}>{cfg.label}</Typography>
+                    </Box>
+                    <TextField
+                      label="วันสูงสุด / ปี"
+                      type="number"
+                      fullWidth
+                      size="small"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={policyEdit.daily[type]}
+                      onChange={(e) => setPolicyEdit((p) => ({ ...p, daily: { ...p.daily, [type]: e.target.value } }))}
+                    />
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </Paper>
+
+          <Alert severity="warning" sx={{ mb: 2 }}>
             <Typography variant="body2">
-              <strong>หมายเหตุ:</strong> การเปลี่ยนแปลงนโยบายวันลาจะมีผลกับพนักงานทุกคน สิทธิ์วันลาที่ใช้ไปแล้วจะไม่เปลี่ยนแปลง
+              <strong>หมายเหตุ:</strong> การเปลี่ยนแปลงนโยบายจะมีผลกับพนักงานทุกคนในกลุ่มนั้น สิทธิ์วันลาที่ใช้ไปแล้วจะไม่เปลี่ยนแปลง
             </Typography>
           </Alert>
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button variant="contained" onClick={handleSavePolicy} sx={{ borderRadius: 3, fontWeight: 700 }}>
               บันทึกนโยบาย
             </Button>
           </Box>
-        </Paper>
+        </Box>
       )}
 
       {/* Request Leave Dialog */}
@@ -484,9 +656,13 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({ canApprove = false, i
             </Grid>
           </Grid>
           {form.startDate && form.endDate && (
-            <Alert severity="info" sx={{ mb: 2 }}>
+            <Alert severity={isPaidEmployee ? 'success' : 'warning'} sx={{ mb: 2 }}>
               จำนวนวันลา: <strong>{diffDays(form.startDate, form.endDate)} วัน</strong>
-              {' '}— วันลาประเภทนี้จะ<strong>ไม่ได้รับค่าจ้าง</strong> (สำหรับพนักงานรายวัน)
+              {' '}—{' '}
+              {isPaidEmployee
+                ? 'ได้รับค่าจ้างตามปกติ'
+                : <><strong>ไม่ได้รับค่าจ้าง</strong> (พนักงานรายวัน)</>
+              }
             </Alert>
           )}
           <TextField
