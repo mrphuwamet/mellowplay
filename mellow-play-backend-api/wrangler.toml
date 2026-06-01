@@ -4,12 +4,12 @@ compatibility_date = "2024-01-01"
 
 [vars]
 ENVIRONMENT = "development"
-JWT_SECRET = "mellow-play-secret-key-12345"
+JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "mellow_play_db"
-database_id = "your-database-id-here"
+database_id = "3bdbdbe1-f307-45f9-85ea-8630660e9783"
 
 [[r2_buckets]]
 binding = "BUCKET"
