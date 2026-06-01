@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, IconButton, Stack,
@@ -51,7 +52,7 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
   useEffect(() => {
     const fetchSkills = async () => {
       try {
-        const response = await axios.get('http://localhost:8787/api/v1/admin/skills-library');
+        const response = await axios.get(`${API_URL}/api/v1/admin/skills-library`);
         if (response.data.success) {
           setSkills(response.data.skills);
         }
@@ -99,13 +100,13 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
       };
 
       if (editItem) {
-        await axios.put(`http://localhost:8787/api/v1/admin/skills-library/${editItem.id}`, payload);
+        await axios.put(`${API_URL}/api/v1/admin/skills-library/${editItem.id}`, payload);
       } else {
-        await axios.post('http://localhost:8787/api/v1/admin/skills-library', payload);
+        await axios.post(`${API_URL}/api/v1/admin/skills-library`, payload);
       }
 
       // Refresh list
-      const response = await axios.get('http://localhost:8787/api/v1/admin/skills-library');
+      const response = await axios.get(`${API_URL}/api/v1/admin/skills-library`);
       if (response.data.success) {
         setSkills(response.data.skills);
       }
@@ -127,10 +128,10 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await axios.delete(`http://localhost:8787/api/v1/admin/skills-library/${deleteTarget.id}`);
+      await axios.delete(`${API_URL}/api/v1/admin/skills-library/${deleteTarget.id}`);
       
       // Refresh list
-      const response = await axios.get('http://localhost:8787/api/v1/admin/skills-library');
+      const response = await axios.get(`${API_URL}/api/v1/admin/skills-library`);
       if (response.data.success) {
         setSkills(response.data.skills);
       }

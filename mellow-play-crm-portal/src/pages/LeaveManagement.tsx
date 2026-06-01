@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -90,7 +91,7 @@ const policyToStr = (p: LeavePolicy): PolicyEditStr => ({
   daily:   { annual: String(p.daily.annual),   sick: String(p.daily.sick),   personal: String(p.daily.personal)   },
 });
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 // Mock: in a real app this comes from the logged-in user's CRM profile
 const EMPLOYEE_TYPE: 'monthly' | 'daily' = 'daily';

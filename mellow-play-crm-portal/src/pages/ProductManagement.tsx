@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -34,7 +35,7 @@ interface ProductCategory {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const UNITS = ['ชิ้น', 'กล่อง', 'ขวด', 'แพ็ค', 'หลอด', 'ถุง', 'อัน', 'ชุด'];
 const CAT_COLORS = ['#7c3aed','#0284c7','#059669','#d97706','#dc2626','#db2777'];

@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -82,7 +83,7 @@ const OPERATOR_LABEL: Record<DiligenceOperator, string> = {
   eq:  '= เท่ากับ',
 };
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const EMPTY_DILIGENCE_FORM: Omit<DiligenceRule, 'id'> = {
   name: '', description: '',

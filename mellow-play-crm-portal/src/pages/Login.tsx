@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState } from 'react';
 import { 
   Box, Paper, TextField, Button, Typography, 
@@ -13,7 +14,7 @@ import {
 import axios from 'axios';
 import logo from '../assets/logo.svg';
 
-const API_BASE = 'http://localhost:8787/api/v1/auth/admin';
+const API_BASE = `${API_URL}/api/v1/auth/admin`;
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');

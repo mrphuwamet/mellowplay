@@ -1,7 +1,8 @@
+import { API_URL } from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 import {
   Alert,
   Box,

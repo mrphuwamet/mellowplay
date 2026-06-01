@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useState, useRef } from 'react';
 import { 
   Typography, Box, CircularProgress, 
@@ -18,7 +19,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1';
+const API_BASE = `${API_URL}/api/v1`;
 
 interface RecordMilestoneProps {
   booking: any;

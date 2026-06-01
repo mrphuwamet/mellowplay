@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, Grid, Button, IconButton,
@@ -15,7 +16,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 interface Branch {
   id: string;

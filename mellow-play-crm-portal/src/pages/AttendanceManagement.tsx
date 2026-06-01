@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -128,7 +129,7 @@ function computeDayResult(
   return { status, workedHours, otHours };
 }
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 

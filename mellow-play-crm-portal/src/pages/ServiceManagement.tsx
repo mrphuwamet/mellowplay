@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -35,7 +36,7 @@ interface ServiceCategory {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const EMPTY_FORM: Omit<Service, 'id'> = {
   name: '', categoryId: 1, description: '', price: 0,

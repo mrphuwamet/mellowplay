@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Paper, Typography, Box, CircularProgress,
@@ -34,7 +35,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 const COVER_GRADIENT = 'linear-gradient(135deg, #1a237e 0%, #1565c0 50%, #0288d1 100%)';
 
 interface Child {

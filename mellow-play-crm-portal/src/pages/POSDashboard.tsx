@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Box, Typography, Grid, TextField, Button,
@@ -24,7 +25,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const COUPON_TYPES_POS = [
   { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3', bg: '#e3f2fd' },

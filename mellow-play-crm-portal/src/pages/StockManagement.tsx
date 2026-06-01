@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -45,7 +46,7 @@ interface StockTxn {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const TXN_CONFIG: Record<TxnType, { label: string; color: 'success' | 'error' | 'warning'; sign: string }> = {
   in:     { label: 'รับเข้า',   color: 'success', sign: '+' },

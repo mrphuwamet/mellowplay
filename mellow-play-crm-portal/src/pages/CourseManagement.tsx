@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SkillsLibraryManagement from './SkillsLibraryManagement';
@@ -39,7 +40,7 @@ import {
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 interface Course {
   id: number;
@@ -1083,7 +1084,7 @@ const CourseManagement = () => {
                       <IconButton size="small" onClick={() => {
                         setEditCategory(cat);
                         setCategoryFormData({ name: cat.name, description: cat.description || '', color: cat.color || '#7452d6', imageUrl: cat.image_url || '', imagePosition: (cat as any).image_position || '50% 50%' });
-                        setCategoryImagePreview(cat.image_url ? `http://localhost:8787${cat.image_url}` : '');
+                        setCategoryImagePreview(cat.image_url ? `${API_URL}${cat.image_url}` : '');
                         const parts = ((cat as any).image_position || '50% 50%').split(' ');
                         const savedPos = { x: parseFloat(parts[0]) || 50, y: parseFloat(parts[1]) || 50 };
                         setCategoryImagePos(savedPos);
@@ -1101,7 +1102,7 @@ const CourseManagement = () => {
                 >
                   {cat.image_url ? (
                     <Box sx={{ width: 44, height: 44, borderRadius: 2, overflow: 'hidden', mr: 2, flexShrink: 0, border: '1px solid #e2e8f0' }}>
-                      <img src={`http://localhost:8787${cat.image_url}`} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: (cat as any).image_position || '50% 50%' }} />
+                      <img src={`${API_URL}${cat.image_url}`} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: (cat as any).image_position || '50% 50%' }} />
                     </Box>
                   ) : (
                     <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: cat.color || '#7452d6', mr: 2, flexShrink: 0, opacity: 0.85 }} />

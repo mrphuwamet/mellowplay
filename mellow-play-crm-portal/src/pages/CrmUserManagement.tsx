@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paper, Typography, Box, CircularProgress,
@@ -28,7 +29,7 @@ import {
 import { Checkbox, FormGroup, FormControlLabel as FCL2, Divider as MuiDivider } from '@mui/material';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 interface CrmUser {
   id: number;

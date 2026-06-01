@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Box, Typography, Paper, Chip, Button, IconButton,
@@ -15,7 +16,7 @@ import {
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 
-const API_BASE = 'http://localhost:8787/api/v1/admin';
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
