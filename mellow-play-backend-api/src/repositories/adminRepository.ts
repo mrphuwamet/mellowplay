@@ -70,13 +70,18 @@ export class AdminRepository {
     await this.db.prepare(`
       UPDATE Users SET
         first_name = ?, last_name = ?, phone = ?, email = ?,
-        membership_type = ?, membership_expires_at = ?
+        membership_type = ?, membership_expires_at = ?,
+        relationship = ?, line_id = ?,
+        pdpa_consent = ?, marketing_consent = ?,
+        application_date = ?, profile_image_url = ?
       WHERE id = ?
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
       data.phone ?? null, data.email ?? null,
-      data.membershipType ?? null,
-      data.membershipExpiresAt ?? null,
+      data.membershipType ?? null, data.membershipExpiresAt ?? null,
+      data.relationship ?? null, data.lineId ?? null,
+      data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
+      data.applicationDate ?? null, data.profileImageUrl ?? null,
       id
     ).run();
 
@@ -119,12 +124,13 @@ export class AdminRepository {
     await this.db.prepare('DELETE FROM User_Coupons WHERE id = ?').bind(id).run();
   }
 
-  async getAllBookings(params?: { branchId?: string; startDate?: string; endDate?: string }): Promise<any[]> {
+  async getAllBookings(params?: { branchId?: string; startDate?: string; endDate?: string; pendingPayment?: boolean }): Promise<any[]> {
     let query = `
       SELECT
-        b.id, b.child_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
+        b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
+        b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
-        co.name as course_name,
+        co.name as course_name, co.original_price,
         br.name as branch_name
       FROM Bookings b
       LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
@@ -147,6 +153,14 @@ export class AdminRepository {
       query += ` AND date(b.scheduled_at) <= ?`;
       sqlParams.push(params.endDate);
     }
+    if (params?.pendingPayment) {
+      query += ` AND b.status NOT IN ('cancelled')
+        AND (b.payment_status IS NULL OR b.payment_status NOT IN ('prepaid'))
+        AND NOT EXISTS (
+          SELECT 1 FROM Transactions t
+          WHERE t.booking_id = b.id AND t.is_voided = 0 AND t.payment_method != 'later'
+        )`;
+    }
 
     query += ` ORDER BY b.scheduled_at ASC`;
 
@@ -162,11 +176,22 @@ export class AdminRepository {
     scheduledAt: string;
     ageGroup: string;
     status: string;
+    calendarId?: number;
+    slotDate?: string;
+    slotStartTime?: string;
+    paymentStatus?: string;
+    notes?: string;
   }): Promise<number> {
     const result = await this.db.prepare(`
-      INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup).run();
+      INSERT INTO Bookings
+        (child_id, course_id, branch_id, scheduled_at, status, age_group,
+         calendar_id, slot_date, slot_start_time, payment_status, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup,
+      data.calendarId ?? null, data.slotDate ?? null, data.slotStartTime ?? null,
+      data.paymentStatus ?? 'prepaid', data.notes ?? null
+    ).run();
     return result.meta.last_row_id;
   }
 
@@ -249,6 +274,34 @@ export class AdminRepository {
 
   async getBranchById(id: number): Promise<any | null> {
     return await this.db.prepare('SELECT * FROM Branches WHERE id = ?').bind(id).first();
+  }
+
+  async createBranch(d: { name: string; address?: string; phone?: string; email?: string; openTime?: string; closeTime?: string }): Promise<number> {
+    const r = await this.db.prepare(`
+      INSERT INTO Branches (name, address, phone, email, open_time, close_time)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(d.name, d.address ?? null, d.phone ?? null, d.email ?? null, d.openTime ?? null, d.closeTime ?? null).run();
+    return r.meta.last_row_id as number;
+  }
+
+  async updateBranch(id: number, d: { name?: string; address?: string; phone?: string; email?: string; openTime?: string; closeTime?: string; isActive?: boolean }): Promise<void> {
+    await this.db.prepare(`
+      UPDATE Branches SET
+        name = COALESCE(?, name),
+        address = ?,
+        phone = ?,
+        email = ?,
+        open_time = ?,
+        close_time = ?,
+        is_active = COALESCE(?, is_active)
+      WHERE id = ?
+    `).bind(d.name ?? null, d.address ?? null, d.phone ?? null, d.email ?? null,
+            d.openTime ?? null, d.closeTime ?? null,
+            d.isActive != null ? (d.isActive ? 1 : 0) : null, id).run();
+  }
+
+  async deleteBranch(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Branches WHERE id=?').bind(id).run();
   }
 
   // --- Branch Default Slots CRUD ---
@@ -507,19 +560,27 @@ export class AdminRepository {
   }
 
   async getFacilitatorBookings(email: string): Promise<any[]> {
+    const facilitator = await this.db.prepare('SELECT id FROM CRM_Users WHERE email=?').bind(email).first() as any;
+    if (!facilitator) return [];
     const { results } = await this.db.prepare(`
-      SELECT 
-        b.id, b.scheduled_at, b.status,
-        c.name as child_name,
+      SELECT
+        b.id, b.scheduled_at, b.status, b.slot_date, b.slot_start_time, b.payment_status,
+        COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         co.name as course_name,
         br.name as branch_name
       FROM Bookings b
-      JOIN Children ch ON b.child_id = ch.id
-      JOIN HD_Profiles c ON ch.hd_profile_id = c.id
+      LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
+      LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
       JOIN Courses co ON b.course_id = co.id
       JOIN Branches br ON b.branch_id = br.id
+      WHERE b.teaching_staff_id = ?
       ORDER BY b.scheduled_at DESC
-    `).all();
+      LIMIT 200
+    `).bind(facilitator.id).all();
     return results;
+  }
+
+  async deleteBooking(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Bookings WHERE id=?').bind(id).run();
   }
 }

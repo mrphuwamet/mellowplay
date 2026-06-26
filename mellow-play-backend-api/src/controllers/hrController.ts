@@ -141,6 +141,65 @@ export class HRController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  // ── Expense Advances ───────────────────────────────────────────────────────
+  async getExpenseAdvances(c: C) {
+    try {
+      const { userId } = c.req.query();
+      const advances = await this.repo(c).getExpenseAdvances(userId ? parseInt(userId) : undefined);
+      return c.json({ success: true, advances });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async createExpenseAdvance(c: C) {
+    try {
+      const d = await c.req.json();
+      if (!d.crmUserId || !d.date || !d.amount || !d.category || !d.description)
+        return c.json({ success: false, message: 'missing required fields' }, 400);
+      const id = await this.repo(c).createExpenseAdvance(d);
+      return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async updateExpenseStatus(c: C) {
+    try {
+      const id = parseInt(c.req.param('id'));
+      const { status, note } = await c.req.json();
+      if (!status) return c.json({ success: false, message: 'status required' }, 400);
+      await this.repo(c).updateExpenseStatus(id, status, note);
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── Payouts ────────────────────────────────────────────────────────────────
+  async getPayouts(c: C) {
+    try {
+      const { period } = c.req.query();
+      const payouts = await this.repo(c).getPayouts(period);
+      return c.json({ success: true, payouts });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async createPayout(c: C) {
+    try {
+      const d = await c.req.json();
+      if (!d.crmUserId || !d.period) return c.json({ success: false, message: 'crmUserId and period required' }, 400);
+      const id = await this.repo(c).createPayout(d);
+      return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async markPayoutPaid(c: C) {
+    try {
+      await this.repo(c).markPayoutPaid(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async generatePayout(c: C) {
+    try {
+      const { crmUserId, period, month, year } = await c.req.json();
+      if (!crmUserId || !period || !month || !year)
+        return c.json({ success: false, message: 'crmUserId, period, month, year required' }, 400);
+      const id = await this.repo(c).generatePayout(crmUserId, period, month, year);
+      return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // ── Leave Policies ─────────────────────────────────────────────────────────
   async getLeavePolicies(c: C) {
     try { return c.json({ success: true, policies: await this.repo(c).getLeavePolicies() }); }

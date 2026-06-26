@@ -9,6 +9,11 @@ import { JourneyController } from './controllers/journeyController';
 import { AdminController } from './controllers/adminController';
 import { ShopController } from './controllers/shopController';
 import { HRController } from './controllers/hrController';
+import { CalendarController } from './controllers/calendarController';
+import { QueueController } from './controllers/queueController';
+import { OrderController } from './controllers/orderController';
+import { CourseMaterialController } from './controllers/courseMaterialController';
+import { ReportController } from './controllers/reportController';
 import { ConfigService } from './services/configService';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
@@ -16,8 +21,13 @@ const authController = new AuthController();
 const profileController = new ProfileController();
 const journeyController = new JourneyController();
 const adminController = new AdminController();
-const shopController  = new ShopController();
-const hrController    = new HRController();
+const shopController     = new ShopController();
+const hrController       = new HRController();
+const calendarController      = new CalendarController();
+const queueController         = new QueueController();
+const orderController         = new OrderController();
+const courseMaterialController = new CourseMaterialController();
+const reportController         = new ReportController();
 
 app.use('*', cors());
 
@@ -193,8 +203,9 @@ app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
 app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.updateUserCoupon(c));
 app.delete('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.deleteUserCoupon(c));
-app.get('/api/v1/admin/bookings', (c) => adminController.getBookings(c));
-app.post('/api/v1/admin/bookings', (c) => adminController.createBooking(c));
+app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
+app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));
+app.delete('/api/v1/admin/bookings/:id', (c) => adminController.deleteBooking(c));
 app.get('/api/v1/admin/crm-users', (c) => adminController.getCrmUsers(c));
 app.post('/api/v1/admin/crm-users', (c) => adminController.createCrmUser(c));
 app.put('/api/v1/admin/crm-users/:id', (c) => adminController.updateCrmUser(c));
@@ -223,10 +234,13 @@ app.delete('/api/v1/admin/skills-library/:id', (c) => adminController.deleteSkil
 app.get('/api/v1/admin/settings', (c) => adminController.getSystemSettings(c));
 app.post('/api/v1/admin/settings', (c) => adminController.updateSystemSetting(c));
 
-app.get('/api/v1/admin/branches', (c) => adminController.getBranches(c));
-app.get('/api/v1/admin/branches/:id', (c) => adminController.getBranchById(c));
-app.get('/api/v1/admin/branches/:id/settings', (c) => adminController.getBranchSettings(c));
-app.put('/api/v1/admin/branches/:id/settings', (c) => adminController.updateBranchSettings(c));
+app.get   ('/api/v1/admin/branches',              (c) => adminController.getBranches(c));
+app.post  ('/api/v1/admin/branches',              (c) => adminController.createBranch(c));
+app.get   ('/api/v1/admin/branches/:id',          (c) => adminController.getBranchById(c));
+app.put   ('/api/v1/admin/branches/:id',          (c) => adminController.updateBranch(c));
+app.delete('/api/v1/admin/branches/:id',          (c) => adminController.deleteBranch(c));
+app.get   ('/api/v1/admin/branches/:id/settings', (c) => adminController.getBranchSettings(c));
+app.put   ('/api/v1/admin/branches/:id/settings', (c) => adminController.updateBranchSettings(c));
 
 app.get('/api/v1/admin/branch-default-slots', (c) => adminController.getBranchDefaultSlots(c));
 app.post('/api/v1/admin/branch-default-slots', (c) => adminController.createBranchDefaultSlot(c));
@@ -241,7 +255,8 @@ app.delete('/api/v1/admin/time-slots/:id', (c) => adminController.deleteTimeSlot
 app.get('/api/v1/admin/pos/occupancy', (c) => adminController.getSlotOccupancy(c));
 app.post('/api/v1/admin/pos/lookup-member', (c) => adminController.posLookupMember(c));
 app.post('/api/v1/admin/pos/topup', (c) => adminController.posProcessTopup(c));
-app.post('/api/v1/admin/pos/process-sale', (c) => adminController.posProcessSale(c));
+app.post('/api/v1/admin/pos/process-sale',         (c) => adminController.posProcessSale(c));
+app.post('/api/v1/admin/pos/process-package-sale', (c) => adminController.posProcessPackageSale(c));
 
 // ── Shop: Service Categories ───────────────────────────────────────────────
 app.get   ('/api/v1/admin/service-categories',      (c) => shopController.getServiceCategories(c));
@@ -303,5 +318,62 @@ app.put ('/api/v1/admin/leave-requests/:id/status',(c) => hrController.updateLea
 // ── HR: Leave Policies ─────────────────────────────────────────────────────
 app.get ('/api/v1/admin/leave-policies', (c) => hrController.getLeavePolicies(c));
 app.post('/api/v1/admin/leave-policies', (c) => hrController.upsertLeavePolicy(c));
+
+// ── HR: Expense Advances ────────────────────────────────────────────────────
+app.get('/api/v1/admin/expense-advances',            (c) => hrController.getExpenseAdvances(c));
+app.post('/api/v1/admin/expense-advances',           (c) => hrController.createExpenseAdvance(c));
+app.put('/api/v1/admin/expense-advances/:id/status', (c) => hrController.updateExpenseStatus(c));
+
+// ── HR: Payouts ─────────────────────────────────────────────────────────────
+app.get('/api/v1/admin/payouts',         (c) => hrController.getPayouts(c));
+app.post('/api/v1/admin/payouts',        (c) => hrController.createPayout(c));
+app.put('/api/v1/admin/payouts/:id/pay',    (c) => hrController.markPayoutPaid(c));
+app.post('/api/v1/admin/payouts/generate', (c) => hrController.generatePayout(c));
+
+// ── Calendars ───────────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/calendars',              (c) => calendarController.getCalendars(c));
+app.post  ('/api/v1/admin/calendars',              (c) => calendarController.createCalendar(c));
+app.put   ('/api/v1/admin/calendars/:id',          (c) => calendarController.updateCalendar(c));
+app.delete('/api/v1/admin/calendars/:id',          (c) => calendarController.deleteCalendar(c));
+app.get   ('/api/v1/admin/calendar-slot-rules',    (c) => calendarController.getSlotRules(c));
+app.post  ('/api/v1/admin/calendar-slot-rules',    (c) => calendarController.createSlotRule(c));
+app.put   ('/api/v1/admin/calendar-slot-rules/:id',(c) => calendarController.updateSlotRule(c));
+app.delete('/api/v1/admin/calendar-slot-rules/:id',(c) => calendarController.deleteSlotRule(c));
+app.get   ('/api/v1/admin/calendar-slots/available',(c) => calendarController.getAvailableSlots(c));
+
+// ── Service Queue ───────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/queue',              (c) => queueController.getQueue(c));
+app.post  ('/api/v1/admin/queue',              (c) => queueController.createQueueItem(c));
+app.put   ('/api/v1/admin/queue/:id/status',   (c) => queueController.updateQueueStatus(c));
+app.put   ('/api/v1/admin/queue/:id/staff',    (c) => queueController.assignStaff(c));
+app.patch ('/api/v1/admin/queue/:id',          (c) => queueController.updateQueueItem(c));
+app.delete('/api/v1/admin/queue/:id',          (c) => queueController.deleteQueueItem(c));
+
+// ── Orders (POS) ────────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/orders',            (c) => orderController.getOrders(c));
+app.post  ('/api/v1/admin/orders',            (c) => orderController.createOrder(c));
+app.get   ('/api/v1/admin/orders/:id',        (c) => orderController.getOrderById(c));
+app.put   ('/api/v1/admin/orders/:id/pay',    (c) => orderController.updatePaymentStatus(c));
+app.post  ('/api/v1/admin/orders/:id/cancel', (c) => orderController.cancelOrder(c));
+app.delete('/api/v1/admin/orders/:id',        (c) => orderController.deleteOrder(c));
+
+// ── Course Materials ────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/courses/:courseId/materials',   (c) => courseMaterialController.getMaterials(c));
+app.post  ('/api/v1/admin/courses/:courseId/materials',   (c) => courseMaterialController.upsertMaterial(c));
+app.delete('/api/v1/admin/course-materials/:id',          (c) => courseMaterialController.deleteMaterial(c));
+app.post  ('/api/v1/admin/bookings/:bookingId/complete',  (c) => courseMaterialController.completeClass(c));
+app.post  ('/api/v1/admin/bookings/:bookingId/cancel',    (c) => courseMaterialController.cancelBooking(c));
+app.patch ('/api/v1/admin/bookings/:id/status',           (c) => adminController.updateBookingStatus(c));
+app.get   ('/api/v1/admin/bookings/:id/transactions',     (c) => adminController.getBookingTransactions(c));
+app.post  ('/api/v1/admin/bookings/:id/pay',              (c) => adminController.payBooking(c));
+app.post  ('/api/v1/admin/transactions/:id/void',         (c) => adminController.voidTransaction(c));
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+app.get('/api/v1/admin/reports/transactions',   (c) => reportController.getTransactions(c));
+app.get('/api/v1/admin/reports/daily-sales',    (c) => reportController.getDailySales(c));
+app.get('/api/v1/admin/reports/monthly-sales',  (c) => reportController.getMonthlySales(c));
+app.get('/api/v1/admin/reports/best-sellers',   (c) => reportController.getBestSellers(c));
+app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusiestDays(c));
+app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
 
 export default app;

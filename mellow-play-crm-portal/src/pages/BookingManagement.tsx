@@ -12,6 +12,8 @@ import {
   Add as AddIcon,
   Search as SearchIcon,
   HistoryEdu as ReportIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -111,9 +113,15 @@ const STATUS_FILTERS = [
 
 // ─── BookingItem (row in list) ───────────────────────────────────────────────
 
-const BookingItem = ({ booking, onReport }: { booking: Booking; onReport: (b: Booking) => void }) => {
+const BookingItem = ({ booking, onReport, onComplete, onCancel }: {
+  booking: Booking;
+  onReport: (b: Booking) => void;
+  onComplete: (id: number) => void;
+  onCancel: (id: number) => void;
+}) => {
   const si = getStatusInfo(booking.status);
   const time = new Date(booking.scheduled_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  const isActive = ['confirmed', 'confirmed_paid'].includes(booking.status);
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 2, p: 1.5,
@@ -132,6 +140,20 @@ const BookingItem = ({ booking, onReport }: { booking: Booking; onReport: (b: Bo
         </Typography>
       </Box>
       <Chip label={si.label} size="small" sx={{ fontWeight: 700, flexShrink: 0, bgcolor: si.bgColor, color: si.fgColor, border: 'none' }} variant="outlined" />
+      {isActive && (
+        <>
+          <Tooltip title="เรียนเสร็จ — ตัดสต็อก">
+            <IconButton size="small" color="success" onClick={() => onComplete(booking.id)}>
+              <CheckCircleIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="ยกเลิก — คืนสต็อก">
+            <IconButton size="small" color="error" onClick={() => onCancel(booking.id)}>
+              <CancelIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </>
+      )}
       {booking.status === 'completed' && (
         <Tooltip title="กรอกรายงาน">
           <IconButton size="small" color="success" onClick={() => onReport(booking)}>
@@ -145,7 +167,7 @@ const BookingItem = ({ booking, onReport }: { booking: Booking; onReport: (b: Bo
 
 // ─── Day View ────────────────────────────────────────────────────────────────
 
-const DayView = ({ bookings, date, onReport }: { bookings: Booking[]; date: Date; onReport: (b: Booking) => void }) => {
+const DayView = ({ bookings, date, onReport, onComplete, onCancel }: { bookings: Booking[]; date: Date; onReport: (b: Booking) => void; onComplete: (id: number) => void; onCancel: (id: number) => void }) => {
   const dayStr = toISODate(date);
   const dayBookings = bookings.filter(b => b.scheduled_at.startsWith(dayStr));
   if (dayBookings.length === 0) {
@@ -158,7 +180,7 @@ const DayView = ({ bookings, date, onReport }: { bookings: Booking[]; date: Date
   return (
     <Paper sx={{ borderRadius: 3, p: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
       <Stack spacing={1}>
-        {dayBookings.map(b => <BookingItem key={b.id} booking={b} onReport={onReport} />)}
+        {dayBookings.map(b => <BookingItem key={b.id} booking={b} onReport={onReport} onComplete={onComplete} onCancel={onCancel} />)}
       </Stack>
     </Paper>
   );
@@ -714,6 +736,22 @@ const BookingManagement = () => {
 
   useEffect(() => { fetchBookings(); }, [fetchBookings]);
 
+  const handleComplete = async (bookingId: number) => {
+    if (!confirm('ยืนยันว่าเรียนเสร็จสิ้น? ระบบจะตัดสต็อกวัสดุที่ใช้')) return;
+    try {
+      await axios.post(`${API_BASE}/bookings/${bookingId}/complete`);
+      fetchBookings();
+    } catch (e: any) { alert(e.response?.data?.message || 'เกิดข้อผิดพลาด'); }
+  };
+
+  const handleCancel = async (bookingId: number) => {
+    if (!confirm('ยืนยันการยกเลิก? ระบบจะคืนสต็อกวัสดุที่จองไว้')) return;
+    try {
+      await axios.post(`${API_BASE}/bookings/${bookingId}/cancel`);
+      fetchBookings();
+    } catch (e: any) { alert(e.response?.data?.message || 'เกิดข้อผิดพลาด'); }
+  };
+
   // ── filter ───────────────────────────────────────────────────────────────
   const filteredBookings = useMemo(
     () => statusFilter === 'all' ? bookings : bookings.filter(b => b.status === statusFilter),
@@ -840,7 +878,7 @@ const BookingManagement = () => {
           <CircularProgress />
         </Box>
       ) : viewMode === 'day' ? (
-        <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
+        <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} />
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
       ) : (

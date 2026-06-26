@@ -29,17 +29,25 @@ export class ShopRepository {
     return results;
   }
   async createService(d: any): Promise<number> {
+    const categoryId = d.category_id ?? d.categoryId ?? null;
+    const durationMin = d.duration_min ?? d.durationMin ?? 30;
+    const commissionType = d.commission_type ?? d.commissionType ?? 'percent';
+    const commissionValue = d.commission_value ?? d.commissionValue ?? '';
     const r = await this.db.prepare(`
       INSERT INTO Services (name, category_id, description, price, duration_min, commission_type, commission_value, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(d.name, d.categoryId ?? null, d.description ?? null, d.price, d.durationMin, d.commissionType, d.commissionValue ?? '', d.active ? 1 : 0).run();
+    `).bind(d.name, categoryId, d.description ?? null, d.price ?? 0, durationMin, commissionType, commissionValue, d.active ? 1 : 0).run();
     return r.meta.last_row_id as number;
   }
   async updateService(id: number, d: any): Promise<void> {
+    const categoryId = d.category_id ?? d.categoryId ?? null;
+    const durationMin = d.duration_min ?? d.durationMin ?? 30;
+    const commissionType = d.commission_type ?? d.commissionType ?? 'percent';
+    const commissionValue = d.commission_value ?? d.commissionValue ?? '';
     await this.db.prepare(`
       UPDATE Services SET name=?, category_id=?, description=?, price=?, duration_min=?, commission_type=?, commission_value=?, active=?
       WHERE id=?
-    `).bind(d.name, d.categoryId ?? null, d.description ?? null, d.price, d.durationMin, d.commissionType, d.commissionValue ?? '', d.active ? 1 : 0, id).run();
+    `).bind(d.name, categoryId, d.description ?? null, d.price ?? 0, durationMin, commissionType, commissionValue, d.active ? 1 : 0, id).run();
   }
   async deleteService(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Services WHERE id=?').bind(id).run();
@@ -91,8 +99,12 @@ export class ShopRepository {
   // ── Stock ──────────────────────────────────────────────────────────────────
   async getStock(): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT p.id AS product_id, p.sku, p.name, p.unit, p.current_stock AS current_qty, p.min_stock AS min_qty
-      FROM Products p WHERE p.active = 1 ORDER BY p.name
+      SELECT p.id AS product_id, p.sku, p.name, p.unit,
+             p.current_stock AS current_qty, p.min_stock AS min_qty,
+             pc.name AS category_name
+      FROM Products p
+      LEFT JOIN Product_Categories pc ON p.category_id = pc.id
+      WHERE p.active = 1 ORDER BY p.name
     `).all();
     return results;
   }

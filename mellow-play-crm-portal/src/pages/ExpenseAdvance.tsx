@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import { API_URL } from '../config';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -28,6 +30,9 @@ import {
   Cancel as RejectIcon,
   HourglassEmpty as PendingIcon,
 } from '@mui/icons-material';
+import axios from 'axios';
+
+const API_BASE = `${API_URL}/api/v1/admin`;
 
 interface ExpenseRecord {
   id: number;
@@ -36,7 +41,7 @@ interface ExpenseRecord {
   category: string;
   description: string;
   status: 'pending' | 'approved' | 'rejected';
-  submittedBy: string;
+  submitted_by: string;
   note?: string;
 }
 
@@ -48,12 +53,6 @@ const CATEGORIES = [
   'อื่น ๆ',
 ];
 
-const mockData: ExpenseRecord[] = [
-  { id: 1, date: '2026-05-27', amount: 500, category: 'ค่าเดินทาง', description: 'เดินทางไปสาขาบางนา', status: 'approved', submittedBy: 'นายสมชาย ใจดี' },
-  { id: 2, date: '2026-05-22', amount: 1200, category: 'ค่าอุปกรณ์การสอน', description: 'ซื้อกระดาษ A4 และปากกา', status: 'pending', submittedBy: 'นายสมชาย ใจดี' },
-  { id: 3, date: '2026-05-15', amount: 300, category: 'ค่าอาหาร/เครื่องดื่ม', description: 'อาหารกลางวันประชุมทีม', status: 'rejected', submittedBy: 'นายสมชาย ใจดี', note: 'เกินวงเงินที่กำหนด' },
-];
-
 const statusConfig = {
   pending: { label: 'รอพิจารณา', color: 'warning' as const, icon: <PendingIcon fontSize="small" /> },
   approved: { label: 'อนุมัติแล้ว', color: 'success' as const, icon: <ApproveIcon fontSize="small" /> },
@@ -63,17 +62,40 @@ const statusConfig = {
 const formatBaht = (amount: number) =>
   amount.toLocaleString('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0 });
 
+const getCurrentUserId = (): number | null => {
+  try { return JSON.parse(localStorage.getItem('crm_user') || 'null')?.id ?? null; } catch { return null; }
+};
+
 const ExpenseAdvance: React.FC = () => {
-  const [records, setRecords] = useState<ExpenseRecord[]>(mockData);
+  const [records, setRecords] = useState<ExpenseRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({ date: '', amount: '', category: '', description: '' });
   const [formError, setFormError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const userId = getCurrentUserId();
+
+  const fetchRecords = async () => {
+    try {
+      setLoading(true);
+      const params = userId ? `?userId=${userId}` : '';
+      const res = await axios.get(`${API_BASE}/expense-advances${params}`);
+      setRecords(res.data.advances ?? []);
+    } catch {
+      setError('ไม่สามารถโหลดข้อมูลได้');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchRecords(); }, []);
 
   const totalApproved = records.filter((r) => r.status === 'approved').reduce((s, r) => s + r.amount, 0);
   const totalPending = records.filter((r) => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.date || !form.amount || !form.category || !form.description.trim()) {
       setFormError('กรุณากรอกข้อมูลให้ครบทุกช่อง');
       return;
@@ -83,21 +105,23 @@ const ExpenseAdvance: React.FC = () => {
       setFormError('จำนวนเงินไม่ถูกต้อง');
       return;
     }
-    const newRecord: ExpenseRecord = {
-      id: Date.now(),
-      date: form.date,
-      amount,
-      category: form.category,
-      description: form.description.trim(),
-      status: 'pending',
-      submittedBy: 'ฉัน',
-    };
-    setRecords((prev) => [newRecord, ...prev]);
-    setForm({ date: '', amount: '', category: '', description: '' });
-    setFormError('');
-    setDialogOpen(false);
-    setSuccessMsg('ส่งคำขอเบิกเงินสำรองจ่ายสำเร็จ รอการอนุมัติ');
-    setTimeout(() => setSuccessMsg(''), 4000);
+    try {
+      await axios.post(`${API_BASE}/expense-advances`, {
+        crmUserId: userId,
+        date: form.date,
+        amount,
+        category: form.category,
+        description: form.description.trim(),
+      });
+      setForm({ date: '', amount: '', category: '', description: '' });
+      setFormError('');
+      setDialogOpen(false);
+      setSuccessMsg('ส่งคำขอเบิกเงินสำรองจ่ายสำเร็จ รอการอนุมัติ');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      fetchRecords();
+    } catch {
+      setFormError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    }
   };
 
   return (
@@ -116,6 +140,7 @@ const ExpenseAdvance: React.FC = () => {
       </Box>
 
       {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={4}>
@@ -139,44 +164,48 @@ const ExpenseAdvance: React.FC = () => {
       </Grid>
 
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow sx={{ bgcolor: 'grey.50' }}>
-                <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>จำนวนเงิน</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>หมวดหมู่</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>รายละเอียด</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>หมายเหตุ</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {records.map((r) => {
-                const s = statusConfig[r.status];
-                return (
-                  <TableRow key={r.id} hover>
-                    <TableCell>{r.date}</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>{formatBaht(r.amount)}</TableCell>
-                    <TableCell>{r.category}</TableCell>
-                    <TableCell>{r.description}</TableCell>
-                    <TableCell>
-                      <Chip icon={s.icon} label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">{r.note || '—'}</Typography>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {records.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>ยังไม่มีรายการเบิกเงิน</TableCell>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
+        ) : (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>จำนวนเงิน</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>หมวดหมู่</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>รายละเอียด</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>หมายเหตุ</TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {records.map((r) => {
+                  const s = statusConfig[r.status];
+                  return (
+                    <TableRow key={r.id} hover>
+                      <TableCell>{r.date}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{formatBaht(r.amount)}</TableCell>
+                      <TableCell>{r.category}</TableCell>
+                      <TableCell>{r.description}</TableCell>
+                      <TableCell>
+                        <Chip icon={s.icon} label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{r.note || '—'}</Typography>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {records.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>ยังไม่มีรายการเบิกเงิน</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>

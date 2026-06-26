@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { AdminRepository } from '../repositories/adminRepository';
 import { ConfigService } from '../services/configService';
+import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -141,7 +142,8 @@ export class AdminController {
       const branchId = c.req.query('branchId');
       const startDate = c.req.query('startDate');
       const endDate = c.req.query('endDate');
-      const bookings = await adminRepo.getAllBookings({ branchId, startDate, endDate });
+      const pendingPayment = c.req.query('pendingPayment') === '1';
+      const bookings = await adminRepo.getAllBookings({ branchId, startDate, endDate, pendingPayment });
       return c.json({ success: true, bookings });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -152,14 +154,22 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const { childId, courseId, branchId, scheduledAt, isGuest, status } = await c.req.json();
+      const { childId, courseId, branchId, scheduledAt, isGuest, status,
+              calendarId, slotDate, slotStartTime, paymentStatus, notes, ageGroup } = await c.req.json();
+      if (!courseId || !branchId || !scheduledAt)
+        return c.json({ success: false, message: 'courseId, branchId, scheduledAt required' }, 400);
       const id = await adminRepo.createBooking({
         childId: isGuest ? 0 : (parseInt(childId) || 0),
         courseId: parseInt(courseId),
         branchId: parseInt(branchId),
         scheduledAt,
-        ageGroup: '',
+        ageGroup: ageGroup || 'junior',
         status: status || 'confirmed_paid',
+        calendarId: calendarId ? parseInt(calendarId) : undefined,
+        slotDate: slotDate ?? undefined,
+        slotStartTime: slotStartTime ?? undefined,
+        paymentStatus: paymentStatus ?? undefined,
+        notes: notes ?? undefined,
       });
       return c.json({ success: true, id });
     } catch (error: any) {
@@ -247,6 +257,42 @@ export class AdminController {
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
+  }
+
+  async createBranch(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const d = await c.req.json();
+      if (!d.name) return c.json({ success: false, message: 'name required' }, 400);
+      const id = await new AdminRepository(config.db).createBranch(d);
+      return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async updateBranch(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const d  = await c.req.json();
+      await new AdminRepository(config.db).updateBranch(id, d);
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deleteBranch(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      await new AdminRepository(config.db).deleteBranch(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deleteBooking(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      await new AdminRepository(config.db).deleteBooking(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
   async createCourse(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -646,41 +692,163 @@ export class AdminController {
   async posProcessSale(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { userId, childId, branchId, date, timeSlotId, courseId, ageGroup, isGuest, amount, paymentMethod } = await c.req.json();
-      
-      const scheduledAt = `${date} ${timeSlotId}`;
+      const { userId, childId, branchId, date, startTime, courseId, ageGroup, isGuest, paymentMethod, salesStaffId, teachingStaffId, calendarId, notes } = await c.req.json();
+
+      const scheduledAt = `${date} ${startTime || '00:00'}`;
+      const course = await config.db.prepare('SELECT original_price FROM Courses WHERE id=?').bind(courseId).first() as any;
+      const coursePrice = course?.original_price ?? 0;
+
+      const materialRepo = new CourseMaterialRepository(config.db);
 
       if (isGuest) {
-        await config.db.batch([
-          config.db.prepare(`
-            INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group)
-            VALUES (0, ?, ?, ?, 'confirmed_paid', ?)
-          `).bind(courseId, branchId, scheduledAt, ageGroup),
-          config.db.prepare(`
-            INSERT INTO Transactions (branch_id, type, amount, payment_method, item_type)
-            VALUES (?, 'guest_sale', ?, ?, ?)
-          `).bind(branchId, amount || 0, paymentMethod || 'cash', ageGroup)
-        ]);
-        
+        await config.db.prepare(`
+          INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group, calendar_id, slot_date, slot_start_time, payment_status, notes, teaching_staff_id)
+          VALUES (0, ?, ?, ?, 'confirmed_paid', ?, ?, ?, ?, 'prepaid', ?, ?)
+        `).bind(courseId, branchId, scheduledAt, ageGroup, calendarId ?? null, date ?? null, startTime ?? null, notes ?? null, teachingStaffId ?? null).run();
+        const booking = await config.db.prepare(
+          'SELECT id FROM Bookings WHERE course_id=? AND branch_id=? AND scheduled_at=? ORDER BY id DESC LIMIT 1'
+        ).bind(courseId, branchId, scheduledAt).first() as any;
+        await config.db.prepare(`
+          INSERT INTO Transactions (branch_id, type, amount, payment_method, item_type, course_id, sales_staff_id, teaching_staff_id, booking_id)
+          VALUES (?, 'guest_sale', ?, ?, ?, ?, ?, ?, ?)
+        `).bind(branchId, coursePrice, paymentMethod || 'cash', ageGroup, courseId, salesStaffId ?? null, teachingStaffId ?? null, booking?.id ?? null).run();
+        if (booking) await materialRepo.reserveStock(booking.id, courseId);
         return c.json({ success: true });
       }
 
-      // Member: Deduct coupon
       const couponColumn = ageGroup === 'little_junior' ? 'little_junior_balance' : 'junior_balance';
       const balance = await config.db.prepare(`SELECT ${couponColumn} FROM Member_Coupons WHERE child_id = ?`).bind(childId).first();
-      
+
       if (!balance || (balance[couponColumn] as number) <= 0) {
         return c.json({ success: false, message: 'Insufficient coupons for this child' }, 400);
       }
 
-      await config.db.batch([
-        config.db.prepare(`UPDATE Member_Coupons SET ${couponColumn} = ${couponColumn} - 1, updated_at = CURRENT_TIMESTAMP WHERE child_id = ?`).bind(childId),
-        config.db.prepare(`
-          INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group)
-          VALUES (?, ?, ?, ?, 'confirmed', ?)
-        `).bind(childId, courseId, branchId, scheduledAt, ageGroup)
-      ]);
+      await config.db.prepare(`UPDATE Member_Coupons SET ${couponColumn} = ${couponColumn} - 1, updated_at = CURRENT_TIMESTAMP WHERE child_id = ?`).bind(childId).run();
+      await config.db.prepare(`
+        INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group, calendar_id, slot_date, slot_start_time, payment_status, notes, teaching_staff_id)
+        VALUES (?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, 'prepaid', ?, ?)
+      `).bind(childId, courseId, branchId, scheduledAt, ageGroup, calendarId ?? null, date ?? null, startTime ?? null, notes ?? null, teachingStaffId ?? null).run();
+      const booking = await config.db.prepare(
+        'SELECT id FROM Bookings WHERE course_id=? AND branch_id=? AND scheduled_at=? ORDER BY id DESC LIMIT 1'
+      ).bind(courseId, branchId, scheduledAt).first() as any;
+      await config.db.prepare(`
+        INSERT INTO Transactions (branch_id, user_id, child_id, type, amount, payment_method, item_type, course_id, sales_staff_id, teaching_staff_id, booking_id)
+        VALUES (?, ?, ?, 'class_booking', ?, 'coupon', ?, ?, ?, ?, ?)
+      `).bind(branchId, userId ?? null, childId, coursePrice, ageGroup, courseId, salesStaffId ?? null, teachingStaffId ?? null, booking?.id ?? null).run();
+      if (booking) await materialRepo.reserveStock(booking.id, courseId);
 
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async updateBookingStatus(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { status } = await c.req.json();
+      const allowed = ['pending','confirmed','confirmed_paid','completed','cancelled'];
+      if (!allowed.includes(status)) return c.json({ success: false, message: 'invalid status' }, 400);
+      await config.db.prepare('UPDATE Bookings SET status=? WHERE id=?').bind(status, id).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async getBookingTransactions(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { results } = await config.db.prepare(`
+        SELECT t.*, b.name AS branch_name, cu.full_name AS staff_name, co.name AS course_name
+        FROM Transactions t
+        LEFT JOIN Branches b   ON t.branch_id = b.id
+        LEFT JOIN CRM_Users cu ON t.sales_staff_id = cu.id
+        LEFT JOIN Courses co   ON t.course_id = co.id
+        WHERE t.booking_id = ?
+        ORDER BY t.created_at DESC
+      `).bind(id).all();
+      return c.json({ success: true, transactions: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async payBooking(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { paymentMethod, salesStaffId } = await c.req.json();
+      if (!paymentMethod) return c.json({ success: false, message: 'paymentMethod required' }, 400);
+
+      const booking = await config.db.prepare(`
+        SELECT b.*, co.original_price, co.name AS course_name
+        FROM Bookings b
+        JOIN Courses co ON b.course_id = co.id
+        WHERE b.id = ?
+      `).bind(id).first() as any;
+      if (!booking) return c.json({ success: false, message: 'Booking not found' }, 404);
+
+      const existing = await config.db.prepare(
+        'SELECT id FROM Transactions WHERE booking_id=? AND is_voided=0 LIMIT 1'
+      ).bind(id).first();
+      if (existing) return c.json({ success: false, message: 'Booking already has an active transaction' }, 409);
+
+      await config.db.prepare(`
+        INSERT INTO Transactions (branch_id, type, amount, payment_method, item_type, course_id, sales_staff_id, booking_id)
+        VALUES (?, 'guest_sale', ?, ?, ?, ?, ?, ?)
+      `).bind(booking.branch_id, booking.original_price ?? 0, paymentMethod, booking.age_group ?? 'junior',
+              booking.course_id, salesStaffId ?? null, id).run();
+
+      await config.db.prepare(
+        `UPDATE Bookings SET payment_status='prepaid', status=CASE WHEN status='pending' THEN 'confirmed_paid' ELSE status END WHERE id=?`
+      ).bind(id).run();
+
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async voidTransaction(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { reason } = await c.req.json();
+      if (!reason?.trim()) return c.json({ success: false, message: 'reason required' }, 400);
+      await config.db.prepare(
+        'UPDATE Transactions SET is_voided=1, void_reason=?, voided_at=CURRENT_TIMESTAMP WHERE id=?'
+      ).bind(reason.trim(), id).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async posProcessPackageSale(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { packageId, userId, branchId, isGuest, paymentMethod, salesStaffId } = await c.req.json();
+
+      const pkg = await config.db.prepare('SELECT * FROM Packages WHERE id=?').bind(packageId).first() as any;
+      if (!pkg) return c.json({ success: false, message: 'Package not found' }, 404);
+
+      const coupons: { typeId: string; quantity: number }[] = JSON.parse(pkg.coupons_json || '[]');
+      const expiresAt = new Date(Date.now() + (pkg.premium_days || 30) * 86400000).toISOString().slice(0, 10);
+
+      const stmts: any[] = [
+        config.db.prepare(`
+          INSERT INTO Transactions (branch_id, user_id, type, amount, payment_method, package_id, sales_staff_id)
+          VALUES (?, ?, 'package_sale', ?, ?, ?, ?)
+        `).bind(branchId, userId ?? null, pkg.price, paymentMethod || 'cash', packageId, salesStaffId ?? null),
+      ];
+
+      if (!isGuest && userId) {
+        for (const coupon of coupons) {
+          stmts.push(
+            config.db.prepare(`
+              INSERT INTO User_Coupons (user_id, type_id, label, count, expires_at)
+              VALUES (?, ?, ?, ?, ?)
+            `).bind(userId, coupon.typeId, pkg.name, coupon.quantity, expiresAt)
+          );
+        }
+      }
+
+      await config.db.batch(stmts);
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);

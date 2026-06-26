@@ -45,6 +45,7 @@ import {
   Inventory2 as PackageIcon,
   Campaign as CampaignMenuIcon,
   Storefront as ShopIcon,
+  QueuePlayNext as QueueMenuIcon,
   MiscellaneousServices as ServiceMenuIcon,
   Inventory as ProductMenuIcon,
   Warehouse as StockMenuIcon,
@@ -72,6 +73,13 @@ import CampaignManagement from './pages/CampaignManagement';
 import ServiceManagement from './pages/ServiceManagement';
 import ProductManagement from './pages/ProductManagement';
 import StockManagement from './pages/StockManagement';
+import CalendarManagement from './pages/CalendarManagement';
+import Reports from './pages/Reports';
+import ClassBooking from './pages/ClassBooking';
+import ServiceQueueBoard from './pages/ServiceQueueBoard';
+import POSNew from './pages/POSNew';
+import POSBookingView from './pages/POSBookingView';
+import POSSalesHistory from './pages/POSSalesHistory';
 import {
   canAccessFeature,
   FeatureKey,
@@ -311,8 +319,11 @@ const AppContent = () => {
     if (!currentUser) return [];
     if (isPosMode) {
       const posItems: MenuItemConfig[] = [
-        { text: 'ขายสินค้า/จองคลาส', icon: <PosIcon />, path: '/pos', feature: 'pos_dashboard' },
-        { text: 'ประวัติการขาย', icon: <ReportIcon />, path: '/pos/history', feature: 'pos_dashboard' },
+        { text: 'ระบบขาย (POS)',     icon: <PosIcon />,       path: '/pos',               feature: 'pos_dashboard' },
+        { text: 'จองคลาสเรียน',      icon: <BookingIcon />,   path: '/pos/class-booking', feature: 'pos_dashboard' },
+        { text: 'จองคิวบริการ',       icon: <QueueMenuIcon />, path: '/pos/service-queue', feature: 'pos_dashboard' },
+        { text: 'ดูรายการจอง',        icon: <ScheduleIcon />,  path: '/pos/bookings',      feature: 'pos_dashboard' },
+        { text: 'ประวัติการขาย',      icon: <StoreIcon />,     path: '/pos/sales-history', feature: 'pos_dashboard' },
       ];
       return posItems.filter((item) => hasPermission(item.feature));
     }
@@ -324,22 +335,13 @@ const AppContent = () => {
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
       { text: 'จัดการแพ็คเกจ', icon: <PackageIcon />, path: '/crm/packages', feature: 'packages' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'จัดการปฏิทิน',        icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
     ];
 
     const filtered = flatItems.filter((e) => {
       const item = e as MenuItemConfig;
       return hasPermission(item.feature);
     });
-
-    if (financeChildren.length > 0) {
-      filtered.push({
-        type: 'group',
-        label: 'การเงิน',
-        icon: <FinanceIcon />,
-        groupKey: 'finance',
-        children: financeChildren,
-      } as MenuGroupConfig);
-    }
 
     // Shop group
     const shopChildren: MenuItemConfig[] = [
@@ -357,7 +359,18 @@ const AppContent = () => {
       } as MenuGroupConfig);
     }
 
+    if (financeChildren.length > 0) {
+      filtered.push({
+        type: 'group',
+        label: 'การเงิน',
+        icon: <FinanceIcon />,
+        groupKey: 'finance',
+        children: financeChildren,
+      } as MenuGroupConfig);
+    }
+
     const bottomItems: MenuItemConfig[] = [
+      { text: 'รายงาน', icon: <ReportIcon />, path: '/crm/reports', feature: 'dashboard' },
       { text: 'ตั้งค่าระบบและสาขา', icon: <SettingsIcon />, path: '/crm/settings', feature: 'settings' },
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
     ];
@@ -679,7 +692,11 @@ const AppContent = () => {
             <Route path="/" element={<Navigate to={isPosMode ? "/pos" : "/crm"} replace />} />
             
             {/* POS Routes */}
-            <Route path="/pos" element={protect('pos_dashboard', <POSDashboard />)} />
+            <Route path="/pos"                element={protect('pos_dashboard', <POSNew />)} />
+            <Route path="/pos/class-booking"  element={protect('pos_dashboard', <ClassBooking />)} />
+            <Route path="/pos/service-queue"  element={protect('pos_dashboard', <ServiceQueueBoard />)} />
+            <Route path="/pos/bookings"        element={protect('pos_dashboard', <POSBookingView />)} />
+            <Route path="/pos/sales-history"   element={protect('pos_dashboard', <POSSalesHistory />)} />
             
             {/* CRM Routes */}
             <Route path="/crm" element={protect('dashboard', <Dashboard />)} />
@@ -689,6 +706,8 @@ const AppContent = () => {
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />
             <Route path="/crm/my-schedule" element={<Navigate to="/crm/bookings" replace />} />
+            <Route path="/crm/class-booking" element={<Navigate to="/pos/class-booking" replace />} />
+            <Route path="/crm/service-queue" element={<Navigate to="/pos/service-queue" replace />} />
             <Route path="/crm/incentives" element={protect('incentives', <IncentiveTracking />)} />
             <Route path="/crm/attendance" element={protect('attendance', <AttendanceManagement canApprove={hasPermission('leave_approval')} />)} />
             <Route path="/crm/leave" element={protect('leave_requests', <LeaveManagement canApprove={hasPermission('leave_approval')} isAdmin={hasPermission('settings')} />)} />
@@ -700,7 +719,11 @@ const AppContent = () => {
             <Route path="/crm/stock"    element={protect('stock',    <StockManagement />)} />
             <Route path="/crm/settings" element={protect('settings', <SystemSettings />)} />
             <Route path="/crm/permissions" element={protect('permissions', <RolePermissionManagement currentUserRole={currentUser?.role} />)} />
-            <Route path="/crm/skills-library" element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
+            <Route path="/crm/skills-library"  element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
+            <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
+            <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
+            <Route path="/crm/class-booking"   element={protect('bookings', <ClassBooking />)} />
+            <Route path="/crm/service-queue"   element={protect('services', <ServiceQueueBoard />)} />
             
             {/* Shared Routes */}
             <Route path="/login" element={<Login />} />

@@ -131,6 +131,123 @@ export class HRRepository {
       .bind(status, approverNote ?? null, id).run();
   }
 
+  // ── Expense Advances ───────────────────────────────────────────────────────
+  async getExpenseAdvances(crmUserId?: number): Promise<any[]> {
+    let sql = `SELECT ea.*, cu.full_name AS submitted_by
+               FROM Expense_Advances ea
+               JOIN CRM_Users cu ON ea.crm_user_id = cu.id
+               WHERE 1=1`;
+    const params: any[] = [];
+    if (crmUserId) { sql += ' AND ea.crm_user_id=?'; params.push(crmUserId); }
+    sql += ' ORDER BY ea.created_at DESC';
+    const { results } = await this.db.prepare(sql).bind(...params).all();
+    return results;
+  }
+  async createExpenseAdvance(d: any): Promise<number> {
+    const r = await this.db.prepare(`
+      INSERT INTO Expense_Advances (crm_user_id, date, amount, category, description)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(d.crmUserId, d.date, d.amount, d.category, d.description).run();
+    return r.meta.last_row_id as number;
+  }
+  async updateExpenseStatus(id: number, status: string, note?: string): Promise<void> {
+    await this.db.prepare('UPDATE Expense_Advances SET status=?, note=? WHERE id=?')
+      .bind(status, note ?? null, id).run();
+  }
+
+  // ── Payouts ────────────────────────────────────────────────────────────────
+  async getPayouts(period?: string): Promise<any[]> {
+    let sql = `SELECT p.*, cu.full_name AS staff_name, cu.role AS staff_role
+               FROM Payouts p
+               JOIN CRM_Users cu ON p.crm_user_id = cu.id
+               WHERE 1=1`;
+    const params: any[] = [];
+    if (period) { sql += ' AND p.period=?'; params.push(period); }
+    sql += ' ORDER BY p.created_at DESC';
+    const { results } = await this.db.prepare(sql).bind(...params).all();
+    return results;
+  }
+  async createPayout(d: any): Promise<number> {
+    const total = (d.incentive ?? 0) + (d.otHours ?? 0) * (d.otRate ?? 150) + (d.expense ?? 0);
+    const r = await this.db.prepare(`
+      INSERT INTO Payouts (crm_user_id, period, incentive, ot_hours, ot_rate, expense, total)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(d.crmUserId, d.period, d.incentive ?? 0, d.otHours ?? 0, d.otRate ?? 150, d.expense ?? 0, total).run();
+    return r.meta.last_row_id as number;
+  }
+  async markPayoutPaid(id: number): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    await this.db.prepare('UPDATE Payouts SET status=?, paid_at=? WHERE id=?')
+      .bind('paid', today, id).run();
+  }
+  async generatePayout(crmUserId: number, period: string, month: number, year: number): Promise<number> {
+    const dateStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const dateEnd   = `${year}-${String(month).padStart(2, '0')}-31`;
+
+    // ค่าปฏิบัติงาน: transactions where this staff was teaching
+    const { results: teachTx } = await this.db.prepare(`
+      SELECT t.amount, t.course_id FROM Transactions t
+      WHERE t.teaching_staff_id=? AND DATE(t.created_at) BETWEEN ? AND ?
+        AND t.type IN ('guest_sale','class_booking')
+    `).bind(crmUserId, dateStart, dateEnd).all();
+
+    const feeSetting = await this.db.prepare("SELECT key, value FROM System_Settings WHERE key IN ('operational_fee_type','operational_fee_value')").all();
+    const feeMap: Record<string, string> = {};
+    for (const r of feeSetting.results as any[]) feeMap[r.key] = r.value;
+    const feeType = feeMap['operational_fee_type'] ?? 'percent';
+    const feeValue = parseFloat(feeMap['operational_fee_value'] ?? '10');
+
+    let incentive = 0;
+    for (const tx of teachTx as any[]) {
+      incentive += feeType === 'percent' ? (tx.amount * feeValue) / 100 : feeValue;
+    }
+
+    // Package commission
+    const { results: pkgTx } = await this.db.prepare(`
+      SELECT t.amount, p.seller_commission_type, p.seller_commission_value
+      FROM Transactions t JOIN Packages p ON t.package_id=p.id
+      WHERE t.sales_staff_id=? AND t.type='package_sale' AND DATE(t.created_at) BETWEEN ? AND ?
+    `).bind(crmUserId, dateStart, dateEnd).all();
+
+    for (const tx of pkgTx as any[]) {
+      const v = parseFloat(tx.seller_commission_value ?? 0);
+      incentive += tx.seller_commission_type === 'percent' ? (tx.amount * v) / 100 : v;
+    }
+
+    // Service commission
+    const { results: svcTx } = await this.db.prepare(`
+      SELECT t.amount, s.commission_type, s.commission_value
+      FROM Transactions t JOIN Services s ON t.service_id=s.id
+      WHERE t.sales_staff_id=? AND t.type='service_sale' AND DATE(t.created_at) BETWEEN ? AND ?
+    `).bind(crmUserId, dateStart, dateEnd).all();
+
+    for (const tx of svcTx as any[]) {
+      const v = parseFloat(tx.commission_value ?? 0);
+      incentive += tx.commission_type === 'percent' ? (tx.amount * v) / 100 : v;
+    }
+
+    // Approved expense advances
+    const expRow = await this.db.prepare(`
+      SELECT COALESCE(SUM(amount),0) AS total FROM Expense_Advances
+      WHERE crm_user_id=? AND status='approved' AND date BETWEEN ? AND ?
+    `).bind(crmUserId, dateStart, dateEnd).first() as any;
+    const expense = expRow?.total ?? 0;
+
+    const total = Math.round(incentive + expense);
+
+    const existing = await this.db.prepare('SELECT id FROM Payouts WHERE crm_user_id=? AND period=?').bind(crmUserId, period).first() as any;
+    if (existing) {
+      await this.db.prepare('UPDATE Payouts SET incentive=?, expense=?, total=?, status=? WHERE id=?')
+        .bind(Math.round(incentive), expense, total, 'pending', existing.id).run();
+      return existing.id;
+    }
+    const r = await this.db.prepare(`
+      INSERT INTO Payouts (crm_user_id, period, incentive, ot_hours, ot_rate, expense, total)
+      VALUES (?, ?, ?, 0, 0, ?, ?)
+    `).bind(crmUserId, period, Math.round(incentive), expense, total).run();
+    return r.meta.last_row_id as number;
+  }
+
   // ── Leave Policies ─────────────────────────────────────────────────────────
   async getLeavePolicies(): Promise<any[]> {
     const { results } = await this.db.prepare('SELECT * FROM Leave_Policies ORDER BY employee_type').all();

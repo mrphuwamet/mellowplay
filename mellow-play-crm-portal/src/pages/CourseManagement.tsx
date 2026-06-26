@@ -2,6 +2,7 @@ import { API_URL } from '../config';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SkillsLibraryManagement from './SkillsLibraryManagement';
+import CourseMaterialsTab from '../components/CourseMaterialsTab';
 import {
   Typography, Box, CircularProgress,
   Grid, Button, Chip,
@@ -24,6 +25,7 @@ import {
   Image as ImageIcon,
   Movie as VideoIcon,
   Close as ClearIcon,
+  Close as CloseIcon,
   PlayCircle as PlayIcon,
   MenuBook as GuideIcon,
   Visibility as PreviewIcon,
@@ -113,6 +115,94 @@ const formatAgeRange = (min?: number, max?: number) => {
   return `${min} – ${max} ปี`;
 };
 
+// Bilingual tag input with Modal
+const SkillTagInput = ({ label, values, onChange, color = 'primary' }: {
+  label: string;
+  values: { th: string; en: string }[];
+  onChange: (v: { th: string; en: string }[]) => void;
+  color?: 'primary' | 'secondary';
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const [th, setTh] = React.useState('');
+  const [en, setEn] = React.useState('');
+
+  const accentColor = color === 'primary' ? '#7c3aed' : '#0284c7';
+  const bgColor     = color === 'primary' ? '#f5f3ff' : '#eff6ff';
+
+  const handleAdd = () => {
+    if (!th.trim() && !en.trim()) return;
+    onChange([...values, { th: th.trim(), en: en.trim() }]);
+    setTh(''); setEn('');
+    setOpen(false);
+  };
+
+  const handleClose = () => { setTh(''); setEn(''); setOpen(false); };
+
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+        <Typography variant="subtitle2" fontWeight={800} sx={{ color: accentColor }}>
+          {label}
+        </Typography>
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setOpen(true)}
+          sx={{ borderRadius: 2, fontWeight: 700, borderColor: accentColor, color: accentColor,
+            '&:hover': { borderColor: accentColor, bgcolor: bgColor } }}>
+          เพิ่มรายการ
+        </Button>
+      </Box>
+
+      {/* List */}
+      {values.length === 0
+        ? <Typography variant="caption" color="text.disabled">ยังไม่มีรายการ — กด "เพิ่มรายการ"</Typography>
+        : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            {values.map((v, i) => (
+              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5,
+                px: 2, py: 1.25, borderRadius: 2, bgcolor: bgColor,
+                border: '1px solid', borderColor: `${accentColor}30` }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {v.th && <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.5 }}>{v.th}</Typography>}
+                  {v.en && <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5, display: 'block' }}>{v.en}</Typography>}
+                </Box>
+                <IconButton size="small" onClick={() => onChange(values.filter((_, j) => j !== i))}
+                  sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            ))}
+          </Box>
+        )}
+
+      {/* Modal */}
+      <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>
+          {label.split('—')[0].trim()}
+          <Typography variant="body2" color="text.secondary" fontWeight={400}>กรอกทั้ง 2 ภาษา อย่างน้อย 1 ภาษา</Typography>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField autoFocus fullWidth label="ภาษาไทย" placeholder="เช่น ความคิดสร้างสรรค์"
+            value={th} onChange={(e) => setTh(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('skill-en-input')?.focus(); } }}
+            InputProps={{ sx: { borderRadius: 2 } }} />
+          <TextField id="skill-en-input" fullWidth label="English" placeholder="e.g. Creative Thinking"
+            value={en} onChange={(e) => setEn(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+            InputProps={{ sx: { borderRadius: 2 } }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button onClick={handleClose} sx={{ fontWeight: 700, borderRadius: 2 }}>ยกเลิก</Button>
+          <Button variant="contained" onClick={handleAdd} disabled={!th.trim() && !en.trim()}
+            disableElevation sx={{ fontWeight: 700, borderRadius: 2,
+              bgcolor: accentColor, '&:hover': { bgcolor: accentColor, opacity: 0.9 } }}>
+            เพิ่มรายการ
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
 const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
     <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
@@ -150,8 +240,8 @@ const CourseManagement = () => {
     originalPrice: '',
     premiumPrice: '',
     couponRequirements: [] as CouponRequirement[],
-    skills: [] as string[],
-    metrics: [] as string[],
+    skills: [] as { th: string; en: string }[],
+    metrics: [] as { th: string; en: string }[],
     thumbnailUrl: '',
     images: [] as string[],
     videoUrl: '',
@@ -239,16 +329,19 @@ const CourseManagement = () => {
       const ageMax = course.age_max ?? (course.is_junior_enabled ? 9 : 5);
       const originalPrice = course.original_price ?? course.original_price_little_junior ?? 0;
       const premiumPrice = course.premium_price ?? course.premium_price_little_junior ?? 0;
-      const skills = course.achievement_skills_json
-        ? JSON.parse(course.achievement_skills_json)
-        : course.achievement_skills_little_junior_json
-          ? JSON.parse(course.achievement_skills_little_junior_json)
-          : [];
-      const metrics = course.metrics_json
-        ? JSON.parse(course.metrics_json)
-        : course.metrics_little_junior_json
-          ? JSON.parse(course.metrics_little_junior_json)
-          : [];
+      const normalizeTags = (raw: any[]): { th: string; en: string }[] =>
+        raw.map(item => typeof item === 'string' ? { th: item, en: '' } : item);
+
+      const skills = normalizeTags(
+        course.achievement_skills_json ? JSON.parse(course.achievement_skills_json)
+        : course.achievement_skills_little_junior_json ? JSON.parse(course.achievement_skills_little_junior_json)
+        : []
+      );
+      const metrics = normalizeTags(
+        course.metrics_json ? JSON.parse(course.metrics_json)
+        : course.metrics_little_junior_json ? JSON.parse(course.metrics_little_junior_json)
+        : []
+      );
       setFormData({
         id: course.id,
         code: course.code || '',
@@ -284,7 +377,7 @@ const CourseManagement = () => {
         id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '',
         categoryId: categories[0]?.id || 0, ageMin: 3, ageMax: 9,
         duration: '01:00', originalPrice: '', premiumPrice: '', couponRequirements: [],
-        skills: [], metrics: [], thumbnailUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
+        skills: [] as { th: string; en: string }[], metrics: [] as { th: string; en: string }[], thumbnailUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
         salesCommissionType: 'percent', salesCommissionValue: '',
         teacherCommissionType: 'percent', teacherCommissionValue: '',
       });
@@ -736,37 +829,24 @@ const CourseManagement = () => {
               </Grid>
             </Paper>
 
-            {/* Skills + Metrics */}
+            {/* Skills + Achievement */}
             <Paper sx={{ p: 3, borderRadius: 3 }}>
               <SectionLabel icon={<SkillsIcon />} title="ทักษะและตัวชี้วัด" />
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Button variant="outlined" fullWidth startIcon={<AddIcon />} onClick={() => setPickerState({ open: true, field: 'skills', type: 'achievement' })} sx={{ mb: 2, borderRadius: 2 }}>
-                    เลือกทักษะ (Achievement)
-                  </Button>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, minHeight: 36 }}>
-                    {formData.skills.length === 0
-                      ? <Typography variant="caption" color="text.disabled">ยังไม่ได้เลือกทักษะ</Typography>
-                      : formData.skills.map(s => {
-                          const item = libraryItems.find(i => i.name === s);
-                          return <Chip key={s} icon={item ? renderSkillIcon(item.icon, { fontSize: 'small' }) : undefined} label={s} size="small" onDelete={() => setFormData({ ...formData, skills: formData.skills.filter(x => x !== s) })} />;
-                        })}
-                  </Box>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Button variant="outlined" color="secondary" fullWidth startIcon={<AddIcon />} onClick={() => setPickerState({ open: true, field: 'metrics', type: 'indicator' })} sx={{ mb: 2, borderRadius: 2 }}>
-                    เลือกตัวชี้วัด (Indicator)
-                  </Button>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, minHeight: 36 }}>
-                    {formData.metrics.length === 0
-                      ? <Typography variant="caption" color="text.disabled">ยังไม่ได้เลือกตัวชี้วัด</Typography>
-                      : formData.metrics.map(m => {
-                          const item = libraryItems.find(i => i.name === m);
-                          return <Chip key={m} icon={item ? renderSkillIcon(item.icon, { fontSize: 'small' }) : undefined} label={m} size="small" color="secondary" variant="outlined" onDelete={() => setFormData({ ...formData, metrics: formData.metrics.filter(x => x !== m) })} />;
-                        })}
-                  </Box>
-                </Grid>
-              </Grid>
+              <SkillTagInput
+                label="Skills — ทักษะที่ได้รับในคลาสนี้"
+                values={formData.skills}
+                onChange={(v) => setFormData({ ...formData, skills: v })}
+                color="primary"
+              />
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ mt: 2 }}>
+                <SkillTagInput
+                  label="Achievement — ตัวชี้วัดความสำเร็จ"
+                  values={formData.metrics}
+                  onChange={(v) => setFormData({ ...formData, metrics: v })}
+                  color="secondary"
+                />
+              </Box>
             </Paper>
           </Grid>
 
@@ -986,6 +1066,7 @@ const CourseManagement = () => {
           <Tab label="รายการคลาส" />
           <Tab label="หมวดหมู่" icon={<CategoryIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
           <Tab label="Skills Library" icon={<SkillsLibIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
+          <Tab label="วัสดุ/อุปกรณ์" />
         </Tabs>
       </Box>
 
@@ -1127,6 +1208,11 @@ const CourseManagement = () => {
       {/* ── Tab 2: Skills Library ─────────────────────────────────────────────── */}
       {pageTab === 2 && (
         <SkillsLibraryManagement currentUserRole={currentUserRole} />
+      )}
+
+      {/* ── Tab 3: Course Materials ────────────────────────────────────────────── */}
+      {pageTab === 3 && (
+        <CourseMaterialsTab courses={courses} apiBase={`${API_URL}/api/v1/admin`} />
       )}
 
       {/* Delete dialog */}
