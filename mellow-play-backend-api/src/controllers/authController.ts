@@ -29,9 +29,10 @@ export class AuthController {
       }
 
       const otp = AuthService.generateOTP();
+      const ref = AuthService.generateRefCode();
       
-      // Store OTP in KV with 5-min expiry
-      await config.kv.put(`otp:${phone}`, otp, { expirationTtl: 300 });
+      // Store OTP and Ref in KV with 5-min expiry
+      await config.kv.put(`otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
       
       // Check if real OTP is enabled in database
       const otpEnabled = await settingsRepo.isOtpEnabled();
@@ -40,9 +41,9 @@ export class AuthController {
       if (otpEnabled) {
         // Send SMS via ThaiBulkSMS
         const smsService = new SmsService(config.smsApiKey, config.smsApiSecret);
-        sent = await smsService.sendOtp(phone, otp);
+        sent = await smsService.sendOtp(phone, otp, ref);
       } else {
-        console.log(`[TEST MODE] OTP for ${phone}: ${otp}`);
+        console.log(`[TEST MODE] OTP for ${phone}: ${otp} (Ref: ${ref})`);
       }
       
       if (otpEnabled && !sent && !config.isDev) {
@@ -52,6 +53,7 @@ export class AuthController {
       return c.json({ 
         success: true, 
         message: otpEnabled ? 'OTP sent via SMS' : 'OTP generated (Test Mode)',
+        ref,
         ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {})
       });
     } catch (error: any) {
@@ -63,9 +65,18 @@ export class AuthController {
     try {
       const config = new ConfigService(c.env);
       const { phone, otp } = await c.req.json();
-      const storedOtp = await config.kv.get(`otp:${phone}`);
+      const storedOtpData = await config.kv.get(`otp:${phone}`);
       
-      if (!storedOtp) return c.json({ success: false, message: 'OTP expired' }, 400);
+      if (!storedOtpData) return c.json({ success: false, message: 'OTP expired' }, 400);
+      
+      let storedOtp = storedOtpData;
+      try {
+        const parsed = JSON.parse(storedOtpData);
+        storedOtp = parsed.otp;
+      } catch (e) {
+        // Fallback if it's stored as plain text
+      }
+
       if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
 
       return c.json({ success: true });
@@ -78,12 +89,7 @@ export class AuthController {
     try {
       const config = new ConfigService(c.env);
       const { phone, otp, password, firstName, lastName, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
-      const storedOtp = await config.kv.get(`otp:${phone}`);
       
-      if (otp !== storedOtp) {
-        return c.json({ success: false, message: 'Invalid or expired OTP' }, 400);
-      }
-
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
@@ -264,16 +270,19 @@ export class AuthController {
       await config.kv.put(limitKey, JSON.stringify(limitData), { expirationTtl: 3600 });
       
       const otp = AuthService.generateOTP();
-      await config.kv.put(`forgot_pw_otp:${phone}`, otp, { expirationTtl: 300 });
+      const ref = AuthService.generateRefCode();
+      
+      // Store OTP and Ref in KV
+      await config.kv.put(`forgot_pw_otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
       
       const otpEnabled = await settingsRepo.isOtpEnabled();
       let sent = false;
 
       if (otpEnabled) {
         const smsService = new SmsService(config.smsApiKey, config.smsApiSecret);
-        sent = await smsService.sendOtp(phone, otp);
+        sent = await smsService.sendOtp(phone, otp, ref);
       } else {
-        console.log(`[TEST MODE] Forgot PW OTP for ${phone}: ${otp}`);
+        console.log(`[TEST MODE] Forgot PW OTP for ${phone}: ${otp} (Ref: ${ref})`);
       }
       
       if (otpEnabled && !sent && !config.isDev) {
@@ -283,6 +292,7 @@ export class AuthController {
       return c.json({ 
         success: true, 
         message: otpEnabled ? 'OTP sent via SMS' : 'OTP generated (Test Mode)',
+        ref,
         ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {})
       });
     } catch (error: any) {
@@ -296,9 +306,18 @@ export class AuthController {
       const config = new ConfigService(c.env);
       const { phone, otp, newPassword } = await c.req.json();
       
-      const storedOtp = await config.kv.get(`forgot_pw_otp:${phone}`);
+      const storedOtpData = await config.kv.get(`forgot_pw_otp:${phone}`);
       
-      if (!storedOtp) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
+      if (!storedOtpData) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
+      
+      let storedOtp = storedOtpData;
+      try {
+        const parsed = JSON.parse(storedOtpData);
+        storedOtp = parsed.otp;
+      } catch (e) {
+        // Fallback for simple string format
+      }
+
       if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
       
       const userRepository = new UserRepository(config.db);

@@ -31,7 +31,7 @@ const Home = () => {
   const [selectedBooking, setSelectedBooking] = React.useState<any | null>(null);
   const [isCancelling, setIsCancelling] = React.useState<number | null>(null);
   const [cancelBookingId, setCancelBookingId] = React.useState<number | null>(null);
-  
+
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
@@ -57,13 +57,13 @@ const Home = () => {
         const progressReq = (!isGuest && currentChild?.id) ? apiClient.get(`/journey/progress/${currentChild.id}`) : Promise.resolve({ data: { success: false } });
         const pendingReq = (!isGuest && user?.id) ? apiClient.get(`/profiles/bookings/pending?userId=${user.id}`) : Promise.resolve({ data: { success: false } });
         const upcomingReq = (!isGuest && user?.id) ? apiClient.get(`/profiles/bookings/upcoming?userId=${user.id}`) : Promise.resolve({ data: { success: false } });
-        
+
         const [coursesRes, progressRes, pendingRes, upcomingRes] = await Promise.all([coursesReq, progressReq, pendingReq, upcomingReq]);
-        
+
         if (coursesRes.data.success) {
           setRecommendedCourses(coursesRes.data.courses.filter((c: any) => c.is_recommended === 1 || c.is_recommended === true));
         }
-        
+
         if (progressRes.data.success && progressRes.data.progressData?.records?.length > 0) {
           setLatestClass(progressRes.data.progressData.records[0]);
         }
@@ -98,7 +98,7 @@ const Home = () => {
         <Lock size={20} className="text-mellow-purple" />
       </div>
       <p className="text-[14px] font-black text-mellow-ink uppercase tracking-tight mb-3 px-4">{message}</p>
-      <button 
+      <button
         onClick={action}
         className="px-4 py-2 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all"
       >
@@ -171,7 +171,7 @@ const Home = () => {
       {isProfileSwitcherOpen && renderProfileSwitcherModal()}
       <AnimatedClouds />
       <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.95),_rgba(255,255,255,0))]" />
-      {isMenuOpen && <div className="fixed inset-0 z-20" onClick={() => setIsMenuOpen(false)} />}
+      {isMenuOpen && <div className="fixed inset-0 z-20 bg-black/20 backdrop-blur-sm transition-all" onClick={() => setIsMenuOpen(false)} />}
 
       <header className="px-5 pt-5 pb-4 relative z-30">
         <div className="flex items-start justify-between gap-3">
@@ -204,10 +204,10 @@ const Home = () => {
                   <div className="px-4 py-2 mb-2 border-b border-slate-100">
                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.home.menuTitle}</h3>
                   </div>
-                  
+
                   {isGuest ? (
                     <>
-                      <button 
+                      <button
                         onClick={() => {
                           setIsMenuOpen(false);
                           navigate('/login');
@@ -219,7 +219,7 @@ const Home = () => {
                         </div>
                         <span className="font-bold text-sm">{t.common.login}</span>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           setIsMenuOpen(false);
                           navigate('/register');
@@ -234,10 +234,10 @@ const Home = () => {
                     </>
                   ) : (
                     <>
-                      <button 
+                      <button
                         onClick={() => {
                           setIsMenuOpen(false);
-                          navigate('/settings');
+                          navigate('/settings/profile');
                         }}
                         className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
                       >
@@ -246,7 +246,49 @@ const Home = () => {
                         </div>
                         <span className="font-bold text-sm">{t.common.settings}</span>
                       </button>
-                      <button 
+                      <button
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          setIsAddChildOpen(true);
+                        }}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                          <User size={16} />
+                        </div>
+                        <span className="font-bold text-sm">{lang === 'en' ? 'Add Child' : 'เพิ่มข้อมูลเด็ก'}</span>
+                      </button>
+                      <div className="mx-4 my-1 border-t border-slate-100" />
+                      <a
+                        href="https://lin.ee/vC0dDzn"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setIsMenuOpen(false)}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 2C6.48 2 2 6.05 2 11.05C2 15.55 5.74 19.3 10.82 20.01L11.5 20.11V17.63C8.35 17.33 6 15.4 6 13.05C6 10.46 8.69 8.36 12 8.36C15.31 8.36 18 10.46 18 13.05C18 14.47 17.19 15.78 15.88 16.69L15 17.28V14.05H13V20.1L13.67 19.99C18.4 19.12 22 15.42 22 11.05C22 6.05 17.52 2 12 2Z" fill="#06C755" />
+                          </svg>
+                        </div>
+                        <span className="font-bold text-sm">LINE OA</span>
+                      </a>
+                      <a
+                        href="https://www.facebook.com/mellowplayxmilk"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setIsMenuOpen(false)}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2" />
+                          </svg>
+                        </div>
+                        <span className="font-bold text-sm">Facebook</span>
+                      </a>
+                      <div className="mx-4 my-1 border-t border-slate-100" />
+                      <button
                         onClick={() => {
                           setIsMenuOpen(false);
                           localStorage.removeItem('mellow_token');
@@ -273,7 +315,7 @@ const Home = () => {
       <main className="px-5 pb-6 relative z-10">
         <div className="rounded-[32px] p-6 mb-6 shadow-[0_30px_60px_-35px_rgba(15,23,42,0.5)] relative overflow-hidden border border-white/60 bg-white/75 backdrop-blur-xl">
           <div className="absolute inset-0 bg-gradient-to-br from-white/80 via-white/35 to-sky-100/80" />
-          
+
           {/* Top Right Actions */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
             {isGuest ? (
@@ -283,7 +325,7 @@ const Home = () => {
             ) : (
               <>
                 {currentChild && (
-                  <button 
+                  <button
                     onClick={() => setIsEditChildOpen(true)}
                     className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95"
                   >
@@ -309,7 +351,7 @@ const Home = () => {
                   <img src={defaultAvatar} alt="Guest" className="w-12 h-12 opacity-60 grayscale brightness-50" />
                 </div>
               ) : (
-                <button 
+                <button
                   onClick={() => currentChild ? setIsAvatarPickerOpen(true) : setIsAddChildOpen(true)}
                   className={`relative block transition-transform active:scale-95`}
                 >
@@ -328,13 +370,13 @@ const Home = () => {
                     <h2 className="text-[22px] leading-none font-black text-slate-800 mb-2">Explorer</h2>
                   ) : (
                     <div className="flex flex-col gap-1.5">
-                      <button 
+                      <button
                         onClick={() => !currentChild && setIsAddChildOpen(true)}
                         className={`text-[18px] leading-tight font-black text-slate-800 text-left transition-opacity ${!currentChild ? 'hover:opacity-70 text-mellow-purple underline decoration-2 underline-offset-4' : ''}`}
                       >
                         {currentChild ? `${currentChild.name} ${currentChild.nickname ? `(${currentChild.nickname})` : ''}` : (lang === 'th' ? 'เพิ่มข้อมูลเด็ก' : 'Add My Child')}
                       </button>
-                      
+
                       {currentChild && (
                         <div className="flex flex-wrap items-center gap-2">
                           {currentChild.dob && (
@@ -367,7 +409,7 @@ const Home = () => {
                     <p className="font-bold text-sm text-slate-800">{booking.course_name}</p>
                     <p className="text-xs text-slate-500">{new Date(booking.scheduled_at).toLocaleDateString()}</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setCancelBookingId(booking.id)}
                     className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg"
                   >
@@ -385,12 +427,12 @@ const Home = () => {
           <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest flex items-center justify-between">
             {lang === 'en' ? 'Upcoming Classes' : 'คลาสที่กำลังจะมาถึง'}
           </h3>
-          
+
           {upcomingClasses.length > 0 ? (
             <div className="space-y-3">
               {upcomingClasses.map(booking => (
-                <div 
-                  key={booking.id} 
+                <div
+                  key={booking.id}
                   onClick={() => setSelectedBooking(booking)}
                   className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 relative cursor-pointer hover:shadow-md transition-all active:scale-[0.98]"
                 >
@@ -405,7 +447,7 @@ const Home = () => {
                     <div>
                       <h4 className="font-bold text-slate-800 line-clamp-1">{booking.course_name}</h4>
                       <p className="text-xs font-medium text-slate-500 mt-0.5">
-                        {new Date(booking.scheduled_at).toLocaleDateString()} • {new Date(booking.scheduled_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        {new Date(booking.scheduled_at).toLocaleDateString()} • {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                       <div className="flex items-center gap-1.5 mt-1">
                         <MapPin size={12} className="text-mellow-purple" />
@@ -424,7 +466,7 @@ const Home = () => {
               <p className="text-[14px] font-bold text-slate-600 mb-4">
                 {lang === 'en' ? 'No upcoming classes' : 'ยังไม่มีคลาสที่จองไว้'}
               </p>
-              <button 
+              <button
                 onClick={() => navigate('/booking')}
                 className="px-6 py-2.5 bg-slate-900 text-white text-[13px] font-black rounded-xl uppercase tracking-widest shadow-md active:scale-95 transition-all w-full max-w-[200px]"
               >
@@ -449,48 +491,48 @@ const Home = () => {
 
         <h3 className="text-sm font-black text-slate-700 mb-4 px-2">{t.home.latestClass || 'ประวัติการเรียนล่าสุด'}</h3>
         <div className="mb-6 relative">
-           {isGuest && renderLockedOverlay(
+          {isGuest && renderLockedOverlay(
             t.home.joinToSeeSkills,
-             t.home.registerBtn,
-             () => navigate('/register')
-           )}
+            t.home.registerBtn,
+            () => navigate('/register')
+          )}
           <div className={`mellow-card bg-white/85 border border-white p-6 shadow-sm relative overflow-hidden transition-all ${isGuest ? 'blur-[2px]' : ''}`}>
-             {latestClass ? (
-               <div className="flex items-center gap-4">
-                 <div className="w-14 h-14 rounded-2xl bg-mellow-blue/10 flex items-center justify-center text-mellow-blue flex-shrink-0">
-                   <Medal size={28} />
-                 </div>
-                 <div>
-                   <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1">{latestClass.node_name || 'คลาสเรียน'}</h4>
-                   <p className="text-xs text-slate-500 font-bold mb-2">
-                     {new Date(latestClass.achieved_at).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
-                       year: 'numeric', month: 'long', day: 'numeric'
-                     })}
-                   </p>
-                   <button onClick={() => navigate('/roadmap')} className="text-xs font-black text-mellow-blue uppercase tracking-widest flex items-center gap-1 active:scale-95 transition-transform">
-                     ดูความสำเร็จทั้งหมด <ChevronRight size={14} />
-                   </button>
-                 </div>
-               </div>
-             ) : (
-               <div className="text-center py-4">
-                 <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
-                   <Medal size={24} />
-                 </div>
-                 <h4 className="font-black text-sm text-slate-700 mb-1">ยังไม่มีประวัติการเรียน</h4>
-                 <p className="text-xs text-slate-400 font-bold">เข้าเรียนคลาสแรกเพื่อเริ่มต้นสะสมความสำเร็จ</p>
-                 <button onClick={() => navigate('/explore')} className="mt-4 text-xs font-black text-mellow-purple bg-mellow-purple/10 px-4 py-2 rounded-xl uppercase tracking-widest active:scale-95 transition-transform">
-                   ค้นหาคลาสเรียน
-                 </button>
-               </div>
-             )}
+            {latestClass ? (
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-mellow-blue/10 flex items-center justify-center text-mellow-blue flex-shrink-0">
+                  <Medal size={28} />
+                </div>
+                <div>
+                  <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1">{latestClass.node_name || 'คลาสเรียน'}</h4>
+                  <p className="text-xs text-slate-500 font-bold mb-2">
+                    {new Date(latestClass.achieved_at).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
+                      year: 'numeric', month: 'long', day: 'numeric'
+                    })}
+                  </p>
+                  <button onClick={() => navigate('/roadmap')} className="text-xs font-black text-mellow-blue uppercase tracking-widest flex items-center gap-1 active:scale-95 transition-transform">
+                    ดูความสำเร็จทั้งหมด <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                  <Medal size={24} />
+                </div>
+                <h4 className="font-black text-sm text-slate-700 mb-1">ยังไม่มีประวัติการเรียน</h4>
+                <p className="text-xs text-slate-400 font-bold">เข้าเรียนคลาสแรกเพื่อเริ่มต้นสะสมความสำเร็จ</p>
+                <button onClick={() => navigate('/explore')} className="mt-4 text-xs font-black text-mellow-purple bg-mellow-purple/10 px-4 py-2 rounded-xl uppercase tracking-widest active:scale-95 transition-transform">
+                  ค้นหาคลาสเรียน
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </main>
 
-      <AddChildModal 
-        isOpen={isAddChildOpen} 
-        onClose={() => setIsAddChildOpen(false)} 
+      <AddChildModal
+        isOpen={isAddChildOpen}
+        onClose={() => setIsAddChildOpen(false)}
       />
 
       <EditChildModal
@@ -506,14 +548,20 @@ const Home = () => {
         } : undefined}
       />
 
-      <AvatarPickerModal 
-        isOpen={isAvatarPickerOpen} 
-        onClose={() => setIsAvatarPickerOpen(false)} 
-        childId={currentChild?.id || 0}
+      <AvatarPickerModal
+        isOpen={isAvatarPickerOpen}
+        onClose={() => setIsAvatarPickerOpen(false)}
+        currentAvatar={currentChild?.avatar || ''}
+        childId={typeof currentChild?.id === 'number' ? currentChild.id : undefined}
+        onSelect={async (avatarId: string) => {
+          if (!currentChild || currentChild.id === 'guest' || typeof currentChild.id !== 'number') return;
+          const { updateAvatar } = useChildStore.getState();
+          await updateAvatar(currentChild.id, avatarId);
+        }}
       />
 
       {selectedBooking && (
-        <BookingDetailModal 
+        <BookingDetailModal
           isOpen={!!selectedBooking}
           onClose={() => setSelectedBooking(null)}
           booking={selectedBooking}

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { 
   Box, Paper, TextField, Button, Typography, 
   Alert, CircularProgress, InputAdornment, IconButton,
-  MenuItem, Stack
+  MenuItem, Stack, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
 import { 
   Email as EmailIcon, 
@@ -22,6 +22,7 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
   
   const [step, setStep] = useState(1); // 1: Credentials, 2: Branch Selection
   const [branches, setBranches] = useState<any[]>([]);
@@ -59,6 +60,7 @@ const Login: React.FC = () => {
     } catch (err: any) {
       console.error('Login failed:', err);
       setError(err.response?.data?.message || 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+      setShowErrorModal(true);
     } finally {
       setLoading(false);
     }
@@ -225,6 +227,35 @@ const Login: React.FC = () => {
           </Typography>
         </Paper>
       </Container>
+      <Dialog 
+        open={showErrorModal} 
+        onClose={() => setShowErrorModal(false)}
+        PaperProps={{
+          sx: { borderRadius: 4, p: 2, maxWidth: 320 }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', fontWeight: 800, px: 2, pb: 1 }}>
+          เข้าสู่ระบบไม่สำเร็จ
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', px: 2, pb: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            {error || 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบข้อมูลและลองใหม่อีกครั้ง'}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 1, px: 2 }}>
+          <Button 
+            fullWidth 
+            variant="contained" 
+            onClick={() => {
+              setShowErrorModal(false);
+              setPassword('');
+            }}
+            sx={{ borderRadius: 3, fontWeight: 700 }}
+          >
+            ลองอีกครั้ง
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

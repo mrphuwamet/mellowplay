@@ -35,9 +35,13 @@ CREATE TABLE Users (
     last_name TEXT,
     phone_verified INTEGER DEFAULT 0,
     membership_expires_at DATETIME,
+    membership_type TEXT DEFAULT 'standard',
+    relationship TEXT,
     line_id TEXT,
     pdpa_consent BOOLEAN DEFAULT 0,
     marketing_consent BOOLEAN DEFAULT 0,
+    application_date DATETIME,
+    profile_image_url TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -111,6 +115,7 @@ CREATE TABLE Children (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER NOT NULL,
     hd_profile_id INTEGER UNIQUE NOT NULL,
+    avatar TEXT,
     current_level INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (parent_id) REFERENCES Users(id),

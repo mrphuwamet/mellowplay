@@ -11,7 +11,7 @@ type Step = 'phone' | 'otp' | 'pin';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
@@ -22,6 +22,7 @@ const ForgotPassword = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [otpRef, setOtpRef] = useState('');
 
   const handleRequestOtp = async () => {
     if (!phone.trim()) {
@@ -37,6 +38,7 @@ const ForgotPassword = () => {
       
       if (res.data.success) {
         setSuccessMessage(t.login.otpSent || 'OTP sent successfully');
+        setOtpRef(res.data.ref || '');
         if (res.data.debug_otp) {
           // Dev mode
           setOtp(res.data.debug_otp);
@@ -170,6 +172,11 @@ const ForgotPassword = () => {
                 onChange={(val) => setOtp(val)} 
               />
             </div>
+            {otpRef && (
+              <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl my-4">
+                {language === 'th' ? `รหัสอ้างอิง (Ref): ${otpRef}` : `Reference Code: ${otpRef}`}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleVerifyOtp}

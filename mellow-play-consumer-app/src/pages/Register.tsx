@@ -21,7 +21,7 @@ const Register = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   
   // Form State
   const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'children' | 'summary'>('consent');
@@ -48,6 +48,7 @@ const Register = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [debugOtp, setDebugOtp] = useState('');
+  const [otpRef, setOtpRef] = useState('');
   
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pinStep, setPinStep] = useState<'create' | 'confirm'>('create');
@@ -82,6 +83,7 @@ const Register = () => {
       const response = await apiClient.post('/auth/request-otp', { phone: formData.phone, email: formData.email });
       if (response.data.success) {
         setFormData(prev => ({ ...prev, otp: '' }));
+        setOtpRef(response.data.ref || '');
         setStep('otp');
         setResendTimer(60);
         if (response.data.debug_otp) {
@@ -171,9 +173,9 @@ const Register = () => {
 
     const payload = {
       ...formData,
-      children: children.filter(c => c.firstName && c.lastName && c.dob).map(c => ({
+      children: children.filter(c => c.firstName && c.dob).map(c => ({
         ...c,
-        name: `${cleanNamePrefix(c.firstName)} ${cleanNamePrefix(c.lastName)}`.trim(),
+        name: `${cleanNamePrefix(c.firstName)} ${c.lastName ? cleanNamePrefix(c.lastName) : ''}`.trim(),
         relation: c.relation === 'Other' && c.customRelation ? c.customRelation : c.relation
       }))
     };
@@ -205,7 +207,7 @@ const Register = () => {
                 placeholder={t.register.firstName}
               value={formData.firstName}
               onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-              className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+              className="w-full pl-11 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
               required
             />
           </div>
@@ -217,7 +219,7 @@ const Register = () => {
               placeholder={t.register.lastName}
               value={formData.lastName}
               onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+              className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
               required
             />
          </div>
@@ -234,7 +236,7 @@ const Register = () => {
             placeholder={t.register.phone}
             value={formData.phone}
             onChange={(e) => setFormData({...formData, phone: e.target.value})}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
             required
           />
         </div>
@@ -251,7 +253,7 @@ const Register = () => {
             placeholder={t.register.email}
             value={formData.email}
             onChange={(e) => setFormData({...formData, email: e.target.value})}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
             required
           />
         </div>
@@ -268,7 +270,7 @@ const Register = () => {
             placeholder={t.register.lineId}
             value={formData.lineId}
             onChange={(e) => setFormData({...formData, lineId: e.target.value})}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
           />
         </div>
       </div>
@@ -279,7 +281,7 @@ const Register = () => {
           placeholder={t.register.addressPlaceholder}
           value={formData.address}
           onChange={(e) => setFormData({...formData, address: e.target.value})}
-          className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none resize-none"
+          className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none resize-none"
           rows={3}
         />
       </div>
@@ -302,6 +304,12 @@ const Register = () => {
           type="text"
         />
       </div>
+
+      {otpRef && (
+        <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl">
+          {language === 'th' ? `รหัสอ้างอิง (Ref): ${otpRef}` : `Reference Code: ${otpRef}`}
+        </div>
+      )}
 
       {debugOtp && (
         <div className="p-3 bg-blue-50 text-blue-600 rounded-xl text-center text-[14px] font-black uppercase tracking-widest">
@@ -415,7 +423,7 @@ const Register = () => {
                       placeholder={t.register.firstName}
                       value={child.firstName}
                       onChange={(e) => handleChildChange(index, 'firstName', e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                     />
                   </div>
                 </div>
@@ -430,7 +438,7 @@ const Register = () => {
                       placeholder={t.register.lastName}
                       value={child.lastName}
                       onChange={(e) => handleChildChange(index, 'lastName', e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                     />
                   </div>
                 </div>
@@ -451,7 +459,7 @@ const Register = () => {
                       placeholder={t.register.nickname}
                       value={child.nickname}
                       onChange={(e) => handleChildChange(index, 'nickname', e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                     />
                   </div>
                 </div>
@@ -460,7 +468,7 @@ const Register = () => {
                   <select
                     value={child.gender}
                     onChange={(e) => handleChildChange(index, 'gender', e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
+                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
                   >
                     <option value="Boy">{t.register.genderBoy}</option>
                     <option value="Girl">{t.register.genderGirl}</option>
@@ -479,7 +487,7 @@ const Register = () => {
                     type="date"
                     value={child.dob}
                     onChange={(e) => handleChildChange(index, 'dob', e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                   />
                 </div>
               </div>
@@ -493,7 +501,7 @@ const Register = () => {
                   <select
                     value={child.relation}
                     onChange={(e) => handleChildChange(index, 'relation', e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
+                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
                   >
                     <option value="Father">{t.register.father}</option>
                     <option value="Mother">{t.register.mother}</option>
@@ -510,7 +518,7 @@ const Register = () => {
                     placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
                     value={child.customRelation || ''}
                     onChange={(e) => handleChildChange(index, 'customRelation', e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                     required
                   />
                 </div>
@@ -523,7 +531,7 @@ const Register = () => {
       <button 
         type="button" 
         onClick={handleAddChild}
-        className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
+        className="w-full py-[14px] border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
       >
         <Plus size={18} /> {t.register.addChild}
       </button>
@@ -586,22 +594,22 @@ const Register = () => {
   const renderStepSummary = () => (
     <div className="flex flex-col flex-1 pb-6 space-y-6">
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{lang === 'th' ? 'ข้อมูลผู้ปกครอง' : 'Parent Info'}</h3>
+        <h3 className="text-sm font-black text-slate-800 mb-3">{language === 'th' ? 'ข้อมูลผู้ปกครอง' : 'Parent Info'}</h3>
         <div className="space-y-2 text-sm">
-          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.firstName} {formData.lastName}</span></p>
-          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
-          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.firstName} {formData.lastName}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
         </div>
       </div>
       
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{lang === 'th' ? 'ข้อมูลลูก' : 'Children Info'}</h3>
+        <h3 className="text-sm font-black text-slate-800 mb-3">{language === 'th' ? 'ข้อมูลลูก' : 'Children Info'}</h3>
         <div className="space-y-4">
           {children.filter(c => c.firstName && c.dob).map((child, i) => (
             <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
-              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{child.firstName} {child.lastName} {child.nickname && `(${child.nickname})`}</span></p>
-              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{child.dob}</span></p>
-              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.relationship}:</span> <span className="font-bold text-slate-800">{child.relation === 'Other' ? child.customRelation : child.relation}</span></p>
+              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{child.firstName} {child.lastName} {child.nickname && `(${child.nickname})`}</span></p>
+              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{child.dob}</span></p>
+              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.relationship}:</span> <span className="font-bold text-slate-800">{child.relation === 'Other' ? child.customRelation : child.relation}</span></p>
             </div>
           ))}
         </div>
@@ -715,7 +723,7 @@ const Register = () => {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCancelModal(false)}
-                className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
+                className="flex-1 py-[14px] rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
               >
                 {t.register.confirmCancelNo}
               </button>
@@ -724,7 +732,7 @@ const Register = () => {
                   setShowCancelModal(false);
                   navigate('/login');
                 }}
-                className="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
+                className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
               >
                 {t.register.confirmCancelYes}
               </button>
@@ -737,3 +745,4 @@ const Register = () => {
 };
 
 export default Register;
+

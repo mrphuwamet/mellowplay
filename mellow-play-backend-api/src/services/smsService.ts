@@ -3,31 +3,29 @@ import { Bindings } from '../types/env';
 export class SmsService {
   private apiKey: string;
   private apiSecret: string;
-  private apiUrl = 'https://api.thaibulksms.com/v2/sms';
+  private apiUrl = 'https://api-v2.thaibulksms.com/sms';
 
   constructor(apiKey: string, apiSecret: string) {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
   }
 
-  async sendOtp(phone: string, otp: string): Promise<boolean> {
-    const message = `รหัส OTP สำหรับ Mellow Play ของคุณคือ ${otp} (อ้างอิง: MLPW)`;
+  async sendOtp(phone: string, otp: string, ref: string): Promise<boolean> {
+    const message = `รหัส OTP สำหรับ Mellow Play ของคุณคือ ${otp} (อ้างอิง: ${ref})`;
     
-    // ThaiBulkSMS requires Basic Auth or API Key in body
-    // This is a simplified version based on their v2 API
     try {
+      const auth = btoa(`${this.apiKey}:${this.apiSecret}`);
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${auth}`,
+          'Accept': 'application/json'
         },
         body: new URLSearchParams({
-          'key': this.apiKey,
-          'secret': this.apiSecret,
           'msisdn': phone,
           'message': message,
-          'sender': 'MellowPlay', // Must be approved by ThaiBulkSMS first
-          'force': 'standard'
+          'sender': 'Demo',
         })
       });
 

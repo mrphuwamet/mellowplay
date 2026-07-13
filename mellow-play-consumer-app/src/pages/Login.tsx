@@ -14,7 +14,7 @@ const Login = () => {
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
   const fetchChildren = useChildStore(state => state.fetchChildren);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -183,9 +183,9 @@ const Login = () => {
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <AlertCircle size={32} />
             </div>
-            <h3 className="text-xl font-black text-slate-800 mb-2">{lang === 'th' ? 'รหัสไม่ถูกต้อง' : 'Incorrect PIN'}</h3>
+            <h3 className="text-xl font-black text-slate-800 mb-2">{language === 'th' ? 'รหัสไม่ถูกต้อง' : 'Incorrect PIN'}</h3>
             <p className="text-sm font-bold text-slate-500 mb-6">
-              {lang === 'th' ? 'กรุณาลองใหม่อีกครั้ง หรือเลือกลืมรหัสผ่าน' : 'Please try again, or click forgot PIN.'}
+              {language === 'th' ? 'กรุณาลองใหม่อีกครั้ง หรือเลือกลืมรหัสผ่าน' : 'Please try again, or click forgot PIN.'}
             </p>
             <div className="flex flex-col gap-3">
               <button

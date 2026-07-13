@@ -6,6 +6,16 @@ export class AuthService {
     return Math.floor(100000 + Math.random() * 900000).toString()
   }
 
+  // Generate a random 4-character uppercase alphanumeric reference code
+  static generateRefCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 4; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
   // Basic password hashing using Web Crypto API (SubtleCrypto)
   static async hashPassword(password: string): Promise<string> {
     const encoder = new TextEncoder()

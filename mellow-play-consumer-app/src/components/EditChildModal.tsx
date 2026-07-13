@@ -37,7 +37,8 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
 
   React.useEffect(() => {
     if (childInfo && isOpen) {
-      const parts = childInfo.name.split(' ');
+      const cleanedFullName = cleanNamePrefix(childInfo.name);
+      const parts = cleanedFullName.split(' ');
       setFormData({
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
