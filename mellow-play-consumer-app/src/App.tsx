@@ -9,6 +9,7 @@ import Explore from './pages/Explore';
 import Rewards from './pages/Rewards';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import Report from './pages/Report';
 import SettingsProfile from './pages/SettingsProfile';
 import Booking from './pages/Booking';
@@ -29,7 +30,7 @@ const AppContent = () => {
     const token = localStorage.getItem('mellow_token');
     const isGuest = localStorage.getItem('mellow_guest') === 'true';
 
-    if (!token && !isGuest && location.pathname !== '/login' && location.pathname !== '/register') {
+    if (!token && !isGuest && location.pathname !== '/login' && location.pathname !== '/register' && location.pathname !== '/forgot-password') {
       navigate('/login');
     }
   }, [location.pathname, navigate]);
@@ -53,6 +54,7 @@ const AppContent = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/" element={<Home />} />
         <Route path="/journey" element={<Roadmap />} />
         <Route path="/know-my-child" element={<Navigate to="/" replace />} />

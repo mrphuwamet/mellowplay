@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2 } from 'lucide-react';
+import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Calendar, Users } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -428,7 +428,7 @@ const Register = () => {
                 </div>
               </div>
               <p className="text-[10px] text-mellow-purple/70 font-bold -mt-2">
-                * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
+                * {t.register.noTitlePrefix}
               </p>
 
               <div className="grid grid-cols-2 gap-3">

@@ -5,7 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Stack, CircularProgress, Divider, List, ListItem, ListItemButton, ListItemText, ListItemAvatar,
-  Avatar, Card, CardContent,
+  Avatar, Card, CardContent, Switch, FormControlLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,16 +39,26 @@ const SystemSettings = () => {
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchForm, setBranchForm] = useState<Partial<Branch>>({});
   const [isEditBranch, setIsEditBranch] = useState(false);
+  const [systemSettings, setSystemSettings] = useState<{ [key: string]: string }>({});
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/branches`);
-      if (res.data.success) {
-        setBranches(res.data.branches);
-        if (res.data.branches.length > 0) {
-          setSelectedBranchId(res.data.branches[0].id);
+      const [branchRes, settingsRes] = await Promise.all([
+        axios.get(`${API_BASE}/branches`),
+        axios.get(`${API_BASE}/system/settings`)
+      ]);
+      
+      if (branchRes.data.success) {
+        setBranches(branchRes.data.branches);
+        if (branchRes.data.branches.length > 0) {
+          setSelectedBranchId(branchRes.data.branches[0].id);
         }
+      }
+      if (settingsRes.data.success) {
+        const settingsMap: { [key: string]: string } = {};
+        settingsRes.data.settings.forEach((s: any) => settingsMap[s.key] = s.value);
+        setSystemSettings(settingsMap);
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -85,6 +95,15 @@ const SystemSettings = () => {
     });
   };
 
+  const handleToggleSetting = async (key: string, value: string) => {
+    try {
+      await axios.put(`${API_BASE}/system/settings`, { key, value });
+      setSystemSettings(prev => ({ ...prev, [key]: value }));
+    } catch (e: any) {
+      alert('Error updating setting: ' + e.message);
+    }
+  };
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
 
   return (
@@ -96,6 +115,34 @@ const SystemSettings = () => {
 
       <Grid container spacing={4}>
         <Grid item xs={12} md={12}>
+          <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SettingsIcon color="primary" /> ตั้งค่าระบบ
+              </Typography>
+            </Box>
+            <Stack spacing={2}>
+              <FormControlLabel
+                control={
+                  <Switch 
+                    checked={systemSettings['otp_enabled'] === '1'} 
+                    onChange={(e) => handleToggleSetting('otp_enabled', e.target.checked ? '1' : '0')}
+                  />
+                }
+                label="เปิดใช้งานการส่ง SMS OTP จริง (ThaiBulkSMS)"
+              />
+              <FormControlLabel
+                control={
+                  <Switch 
+                    checked={systemSettings['payment_enabled'] !== '0'} // default true if undefined
+                    onChange={(e) => handleToggleSetting('payment_enabled', e.target.checked ? '1' : '0')}
+                  />
+                }
+                label="เปิดใช้งานระบบจ่ายเงินจริง (Beam Payment)"
+              />
+            </Stack>
+          </Paper>
+
           <Paper sx={{ p: 3, borderRadius: 4 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>

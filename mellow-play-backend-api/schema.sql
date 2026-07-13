@@ -123,6 +123,7 @@ CREATE TABLE Branches (
     name TEXT NOT NULL,
     location TEXT,
     default_capacity INTEGER DEFAULT 4,
+    is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

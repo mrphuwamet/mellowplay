@@ -20,6 +20,12 @@ export class UserRepository {
       .first();
   }
 
+  async updatePassword(phone: string, passwordHash: string): Promise<void> {
+    await this.db.prepare('UPDATE Users SET password_hash = ? WHERE phone = ?')
+      .bind(passwordHash, phone)
+      .run();
+  }
+
   async getMemberCoupons(childId: number): Promise<any | null> {
     return await this.db.prepare('SELECT * FROM Member_Coupons WHERE child_id = ?').bind(childId).first();
   }

@@ -142,6 +142,15 @@ const Login = () => {
                 onChange={(val) => setPassword(val)} 
               />
             </div>
+            <div className="text-right mt-2">
+              <button 
+                type="button" 
+                onClick={() => navigate('/forgot-password')}
+                className="text-sm font-bold text-mellow-purple hover:underline"
+              >
+                {t.login.forgotPin || 'Forgot PIN?'}
+              </button>
+            </div>
             <button
               type="submit"
               disabled={isLoading}

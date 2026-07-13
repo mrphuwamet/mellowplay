@@ -179,6 +179,8 @@ app.post('/api/v1/auth/verify-otp', (c) => authController.verifyOtp(c));
 app.post('/api/v1/auth/register', (c) => authController.register(c));
 app.post('/api/v1/auth/login', (c) => authController.login(c));
 app.post('/api/v1/auth/admin/login', (c) => authController.adminLogin(c));
+app.post('/api/v1/auth/forgot-password/request-otp', (c) => authController.forgotPasswordRequestOtp(c));
+app.post('/api/v1/auth/forgot-password/reset', (c) => authController.forgotPasswordReset(c));
 
 // --- Protected Routes (Require JWT) ---
 app.use('/api/v1/profiles', async (c, next) => {
@@ -225,6 +227,8 @@ app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.upda
 app.delete('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.deleteUserCoupon(c));
 app.get   ('/api/v1/system/logs',        (c) => adminController.getSystemLogs(c));
 app.delete('/api/v1/system/logs',        (c) => adminController.clearSystemLogs(c));
+app.get   ('/api/v1/admin/system/settings', (c) => adminController.getSystemSettings(c));
+app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemSetting(c));
 
 app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
 app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));

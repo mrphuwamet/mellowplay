@@ -236,4 +236,88 @@ export class AuthController {
       return c.json({ success: false, message: error.message }, 500);
     }
   }
+
+  async forgotPasswordRequestOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+      const { phone } = await c.req.json();
+      
+      const userRepository = new UserRepository(config.db);
+      const user = await userRepository.findByIdentifier(phone);
+      
+      if (!user) {
+        return c.json({ success: false, message: 'User not found' }, 404);
+      }
+      
+      // Rate limit check
+      const limitKey = `forgot_pw_limit:${phone}`;
+      let limitDataStr = await config.kv.get(limitKey);
+      let limitData = limitDataStr ? JSON.parse(limitDataStr) : { count: 0 };
+      
+      if (limitData.count >= 5) {
+        return c.json({ success: false, message: 'Too many requests. Please try again after 1 hour.' }, 429);
+      }
+      
+      // Increment and save rate limit (1 hour expiry)
+      limitData.count += 1;
+      await config.kv.put(limitKey, JSON.stringify(limitData), { expirationTtl: 3600 });
+      
+      const otp = AuthService.generateOTP();
+      await config.kv.put(`forgot_pw_otp:${phone}`, otp, { expirationTtl: 300 });
+      
+      const otpEnabled = await settingsRepo.isOtpEnabled();
+      let sent = false;
+
+      if (otpEnabled) {
+        const smsService = new SmsService(config.smsApiKey, config.smsApiSecret);
+        sent = await smsService.sendOtp(phone, otp);
+      } else {
+        console.log(`[TEST MODE] Forgot PW OTP for ${phone}: ${otp}`);
+      }
+      
+      if (otpEnabled && !sent && !config.isDev) {
+        return c.json({ success: false, message: 'Failed to send SMS' }, 500);
+      }
+      
+      return c.json({ 
+        success: true, 
+        message: otpEnabled ? 'OTP sent via SMS' : 'OTP generated (Test Mode)',
+        ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {})
+      });
+    } catch (error: any) {
+      console.error('forgotPasswordRequestOtp error:', error);
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async forgotPasswordReset(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { phone, otp, newPassword } = await c.req.json();
+      
+      const storedOtp = await config.kv.get(`forgot_pw_otp:${phone}`);
+      
+      if (!storedOtp) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
+      if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
+      
+      const userRepository = new UserRepository(config.db);
+      const user = await userRepository.findByIdentifier(phone);
+      
+      if (!user) {
+        return c.json({ success: false, message: 'User not found' }, 404);
+      }
+      
+      const passwordHash = await AuthService.hashPassword(newPassword);
+      await userRepository.updatePassword(phone, passwordHash);
+      
+      // Delete OTP
+      await config.kv.delete(`forgot_pw_otp:${phone}`);
+      
+      return c.json({ success: true, message: 'Password reset successfully' });
+    } catch (error: any) {
+      console.error('forgotPasswordReset error:', error);
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
 }

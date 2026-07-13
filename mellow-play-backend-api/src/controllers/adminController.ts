@@ -4,6 +4,7 @@ import { AdminRepository } from '../repositories/adminRepository';
 import { ConfigService } from '../services/configService';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
+import { SettingsRepository } from '../repositories/settingsRepository';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -282,9 +283,13 @@ export class AdminController {
       }
 
       const pricePerChild = Math.max(0, priceAfterCampaign - promoDiscountAmount);
+      const settingsRepo = new SettingsRepository(config.db);
+      const paymentEnabled = await settingsRepo.getSetting('payment_enabled') !== '0';
+
       const isFree = pricePerChild === 0 && paymentMethod !== 'coupon';
-      const targetStatus = isFree ? 'confirmed' : (status || 'pending_payment');
-      const targetPaymentStatus = isFree ? 'paid' : (paymentStatus || 'pending');
+      const shouldBypassPayment = isFree || !paymentEnabled;
+      const targetStatus = shouldBypassPayment ? 'confirmed' : (status || 'pending_payment');
+      const targetPaymentStatus = shouldBypassPayment ? 'paid' : (paymentStatus || 'pending');
 
       const bookingIds = [];
       for (const parsedChildId of parsedChildIds) {
@@ -308,7 +313,7 @@ export class AdminController {
       let beamPaymentUrl = '';
       let beamSessionId = '';
 
-      if (!isFree && (!status || status === 'pending_payment')) {
+      if (!shouldBypassPayment && (!status || status === 'pending_payment')) {
         try {
           const BEAM_API_KEY = c.env.BEAM_API_KEY;
           const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
