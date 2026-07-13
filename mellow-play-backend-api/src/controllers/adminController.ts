@@ -448,6 +448,32 @@ export class AdminController {
 
       const now = new Date();
       
+      const getOrigin = (ctx: any) => {
+        const originHeader = ctx.req.header('origin') || '';
+        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
+          return 'http://localhost:8787';
+        }
+        const forwardedHost = ctx.req.header('x-forwarded-host');
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        if (forwardedHost) {
+          return `${forwardedProto}://${forwardedHost}`;
+        }
+        const host = ctx.req.header('host');
+        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
+          return `http://${host}`;
+        }
+        return new URL(ctx.req.url).origin;
+      };
+      
+      const origin = getOrigin(c);
+      const formatUrl = (url?: string) => {
+        if (!url) return url;
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+          return url;
+        }
+        return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+      };
+      
       const processedCourses = courses.map((course: any) => {
         let bestDiscountAmt = 0;
         let bestDiscountPct = 0;
@@ -486,6 +512,9 @@ export class AdminController {
 
         return {
           ...course,
+          thumbnail_url: formatUrl(course.thumbnail_url),
+          video_url: formatUrl(course.video_url),
+          teacher_guide_url: formatUrl(course.teacher_guide_url),
           active_campaign_discount_amount: bestDiscountAmt,
           active_campaign_discount_percent: bestDiscountPct,
           active_campaign_label: bestLabel
@@ -503,7 +532,36 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const categories = await adminRepo.getAllCategories();
-      return c.json({ success: true, categories });
+      
+      const getOrigin = (ctx: any) => {
+        const originHeader = ctx.req.header('origin') || '';
+        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
+          return 'http://localhost:8787';
+        }
+        const forwardedHost = ctx.req.header('x-forwarded-host');
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        if (forwardedHost) {
+          return `${forwardedProto}://${forwardedHost}`;
+        }
+        const host = ctx.req.header('host');
+        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
+          return `http://${host}`;
+        }
+        return new URL(ctx.req.url).origin;
+      };
+      
+      const origin = getOrigin(c);
+      const formattedCategories = categories.map((cat: any) => {
+        if (!cat.image_url) return cat;
+        if (cat.image_url.startsWith('http://') || cat.image_url.startsWith('https://') || cat.image_url.startsWith('blob:')) {
+          return cat;
+        }
+        return {
+          ...cat,
+          image_url: `${origin}${cat.image_url.startsWith('/') ? '' : '/'}${cat.image_url}`
+        };
+      });
+      return c.json({ success: true, categories: formattedCategories });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -647,7 +705,25 @@ export class AdminController {
         httpMetadata: { contentType: file.type || 'image/jpeg' },
       });
 
-      return c.json({ success: true, url: `/api/v1/files/${key}` });
+      const getOrigin = (ctx: any) => {
+        const originHeader = ctx.req.header('origin') || '';
+        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
+          return 'http://localhost:8787';
+        }
+        const forwardedHost = ctx.req.header('x-forwarded-host');
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        if (forwardedHost) {
+          return `${forwardedProto}://${forwardedHost}`;
+        }
+        const host = ctx.req.header('host');
+        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
+          return `http://${host}`;
+        }
+        return new URL(ctx.req.url).origin;
+      };
+      
+      const origin = getOrigin(c);
+      return c.json({ success: true, url: `${origin}/api/v1/files/${key}` });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -655,16 +731,24 @@ export class AdminController {
 
   async serveFile(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
-      const key = c.req.param('key') + (c.req.path.split(`/api/v1/files/`)[1]?.slice(c.req.param('key').length) || '');
       const fullKey = c.req.path.replace('/api/v1/files/', '');
+      console.log('serveFile requesting fullKey:', fullKey);
+      if (!c.env.BUCKET) {
+        console.error('serveFile BUCKET binding is missing!');
+        return c.json({ success: false, message: 'Bucket binding missing' }, 500);
+      }
       const object = await c.env.BUCKET.get(fullKey);
-      if (!object) return c.json({ success: false, message: 'Not found' }, 404);
+      if (!object) {
+        console.warn('serveFile object not found in BUCKET for key:', fullKey);
+        return c.json({ success: false, message: 'Not found' }, 404);
+      }
 
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('cache-control', 'public, max-age=31536000');
       return new Response(object.body as any, { headers });
     } catch (error: any) {
+      console.error('serveFile error:', error);
       return c.json({ success: false, message: error.message }, 500);
     }
   }

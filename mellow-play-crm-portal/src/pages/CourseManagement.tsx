@@ -303,8 +303,10 @@ const CourseManagement = () => {
       fd.append('file', file);
       fd.append('folder', folder);
       const res = await axios.post(`${API_BASE}/upload`, fd);
+      console.log('Upload success response:', res.data);
       return res.data.success ? res.data.url : null;
-    } catch {
+    } catch (err) {
+      console.error('Upload failed error:', err);
       return null;
     }
   };
@@ -313,9 +315,7 @@ const CourseManagement = () => {
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
       return url;
     }
-    // Remove duplication of /api/v1 if backend API path contains it
-    const cleanUrl = url.startsWith('/api/v1') ? url.replace('/api/v1', '') : url;
-    return `${API_URL}${cleanUrl}`;
+    return `${API_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
   const refreshLibrary = useCallback(async () => {
