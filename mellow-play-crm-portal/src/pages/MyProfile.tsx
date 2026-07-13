@@ -140,10 +140,10 @@ const MyProfile = () => {
                 <BadgeIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                 <Typography variant="body2" color="text.secondary">{roleInfo.label}</Typography>
               </Box>
-              {storedUser?.selectedBranchName && (
+              {(storedUser?.role === 'super_admin' || storedUser?.selectedBranchName) && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <StoreIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  <Typography variant="body2" color="text.secondary">{storedUser.selectedBranchName}</Typography>
+                  <Typography variant="body2" color="text.secondary">{storedUser?.role === 'super_admin' ? 'ทุกสาขา' : storedUser?.selectedBranchName}</Typography>
                 </Box>
               )}
               {email && (
@@ -168,7 +168,7 @@ const MyProfile = () => {
                 <InfoRow label="ชื่อ-นามสกุล" value={name} />
                 <InfoRow label="อีเมล" value={email} />
                 <InfoRow label="สิทธิ์การใช้งาน" value={roleInfo.label} />
-                {storedUser?.selectedBranchName && <InfoRow label="สาขา" value={storedUser.selectedBranchName} />}
+                {(storedUser?.role === 'super_admin' || storedUser?.selectedBranchName) && <InfoRow label="สาขา" value={storedUser?.role === 'super_admin' ? 'ทุกสาขา' : storedUser?.selectedBranchName} />}
               </>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>

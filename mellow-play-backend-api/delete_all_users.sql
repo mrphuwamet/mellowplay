@@ -1,0 +1,10 @@
+DELETE FROM Journey_Media;
+DELETE FROM Child_Journey;
+DELETE FROM Bookings;
+DELETE FROM Transactions;
+DELETE FROM Member_Coupons;
+DELETE FROM User_Coupons;
+DELETE FROM Children;
+DELETE FROM HD_Profiles;
+DELETE FROM User_CRM_Children;
+DELETE FROM Users;

@@ -14,6 +14,8 @@ import {
   HistoryEdu as ReportIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
+  Download as DownloadIcon,
+  ViewList as ListIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -32,6 +34,11 @@ interface Booking {
   status: string;
   age_group: string;
   child_name: string;
+  child_nickname?: string;
+  child_birth_date?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  parent_email?: string;
   course_name: string;
   branch_name: string;
 }
@@ -332,6 +339,291 @@ const MonthView = ({ bookings, date, onReport }: { bookings: Booking[]; date: Da
         })}
       </Box>
     </Paper>
+  );
+};
+
+// ─── List View ───────────────────────────────────────────────────────────────
+
+const calculateAge = (birthDateStr: string | undefined) => {
+  if (!birthDateStr) return '-';
+  const birth = new Date(birthDateStr);
+  if (isNaN(birth.getTime())) return '-';
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age >= 0 ? `${age} ปี` : '0 ปี';
+};
+
+const ListView = ({ bookings, onReport, onComplete, onCancel }: {
+  bookings: Booking[];
+  onReport: (b: Booking) => void;
+  onComplete: (id: number) => void;
+  onCancel: (id: number) => void;
+}) => {
+  const [search, setSearch] = useState('');
+  const [groupBy, setGroupBy] = useState<'none' | 'course' | 'date'>('none');
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return bookings;
+    const q = search.toLowerCase();
+    return bookings.filter(b =>
+      b.child_name?.toLowerCase().includes(q) ||
+      b.child_nickname?.toLowerCase().includes(q) ||
+      b.parent_name?.toLowerCase().includes(q) ||
+      b.parent_phone?.toLowerCase().includes(q) ||
+      b.course_name?.toLowerCase().includes(q) ||
+      b.branch_name?.toLowerCase().includes(q) ||
+      String(b.id).includes(q)
+    );
+  }, [bookings, search]);
+
+  const grouped = useMemo(() => {
+    if (groupBy === 'none') return { 'ทั้งหมด': filtered };
+    if (groupBy === 'course') {
+      return filtered.reduce((acc: Record<string, Booking[]>, b) => {
+        const key = b.course_name || 'ไม่ระบุ';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(b);
+        return acc;
+      }, {});
+    }
+    // group by date
+    return filtered.reduce((acc: Record<string, Booking[]>, b) => {
+      const dateStr = b.scheduled_at?.split('T')[0] || b.scheduled_at?.split(' ')[0] || '-';
+      const d = new Date(dateStr);
+      const key = isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(b);
+      return acc;
+    }, {});
+  }, [filtered, groupBy]);
+
+  const exportCSV = () => {
+    const formatPhone = (phoneStr: string | undefined) => {
+      if (!phoneStr) return '-';
+      const clean = phoneStr.replace(/[-\s]/g, '');
+      if (clean.length === 10) {
+        return `${clean.slice(0, 3)}-${clean.slice(3)}`;
+      }
+      return phoneStr;
+    };
+
+    const headers = [
+      'รหัสจอง', 
+      'วันที่', 
+      'เวลา', 
+      'คลาส', 
+      'ชื่อเด็ก', 
+      'ชื่อเล่นเด็ก', 
+      'วันเกิดเด็ก', 
+      'อายุจริง', 
+      'ชื่อผู้ปกครอง', 
+      'เบอร์โทรผู้ปกครอง', 
+      'อีเมลผู้ปกครอง', 
+      'สาขา', 
+      'สถานะ'
+    ];
+    const rows = filtered.map(b => {
+      const dt = new Date(b.scheduled_at);
+      const date = isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH');
+      const time = isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      const status = getStatusInfo(b.status).label;
+      const childBdate = b.child_birth_date ? new Date(b.child_birth_date).toLocaleDateString('th-TH') : '-';
+      const actualAge = calculateAge(b.child_birth_date);
+      return [
+        b.id,
+        `"${date}"`,
+        `"${time}"`,
+        `"${b.course_name || ''}"`,
+        `"${b.child_name || ''}"`,
+        `"${b.child_nickname || '-'}"`,
+        `"${childBdate}"`,
+        `"${actualAge}"`,
+        `"${b.parent_name || '-'}"`,
+        `"${formatPhone(b.parent_phone)}"`,
+        `"${b.parent_email || '-'}"`,
+        `"${b.branch_name || ''}"`,
+        `"${status}"`
+      ].join(',');
+    });
+    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bookings_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Box>
+      {/* Search & Controls */}
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mb={2} alignItems={{ sm: 'center' }}>
+        <TextField
+          size="small"
+          placeholder="ค้นหา ชื่อเด็ก, ชื่อเล่น, ผู้ปกครอง, เบอร์โทร, คลาส..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
+          sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
+        />
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel sx={{ fontWeight: 700 }}>จัดกลุ่มตาม</InputLabel>
+          <Select
+            value={groupBy}
+            onChange={e => setGroupBy(e.target.value as any)}
+            label="จัดกลุ่มตาม"
+            sx={{ borderRadius: 2, fontWeight: 700 }}
+          >
+            <MenuItem value="none" sx={{ fontWeight: 700 }}>ไม่จัดกลุ่ม</MenuItem>
+            <MenuItem value="course" sx={{ fontWeight: 700 }}>ตามคลาส</MenuItem>
+            <MenuItem value="date" sx={{ fontWeight: 700 }}>ตามวันที่</MenuItem>
+          </Select>
+        </FormControl>
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={exportCSV}
+          disabled={filtered.length === 0}
+          sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          Export CSV ({filtered.length})
+        </Button>
+      </Stack>
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+          <Typography color="text.secondary">ไม่พบรายการที่ตรงกับเงื่อนไข</Typography>
+        </Paper>
+      ) : (
+        <Stack spacing={2}>
+          {Object.entries(grouped).map(([groupKey, items]) => (
+            <Box key={groupKey}>
+              {groupBy !== 'none' && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '14px' }}>{groupKey}</Typography>
+                  <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 800, fontSize: '11px', bgcolor: 'slate.200' }} />
+                </Box>
+              )}
+              <Paper sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.04)', border: '1px solid #f1f5f9' }}>
+                {/* Table Header */}
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 110px',
+                  bgcolor: '#f8fafc', px: 3, py: 2,
+                  borderBottom: '1px solid #e2e8f0',
+                }}>
+                  {['รหัส', 'วัน/เวลา', 'รายละเอียดเด็ก & ผู้ปกครอง', 'คลาสเรียน', 'สาขา', 'สถานะ', 'จัดการ'].map(h => (
+                    <Typography key={h} variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px' }}>{h}</Typography>
+                  ))}
+                </Box>
+                {items.map((b, idx) => {
+                  const si = getStatusInfo(b.status);
+                  const dt = new Date(b.scheduled_at);
+                  const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
+                  return (
+                    <Box key={b.id} sx={{
+                      display: 'grid',
+                      gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 110px',
+                      px: 3, py: 2.25, alignItems: 'center',
+                      borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none',
+                      '&:hover': { bgcolor: '#f8fafc/50' },
+                      transition: 'background-color 0.2s',
+                    }}>
+                      <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '13px' }}>
+                        #{b.id}
+                      </Typography>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 800, fontSize: '13px', color: 'slate.700' }}>
+                          {isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                          {isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                          <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '14px' }}>
+                            {b.child_name || '-'}
+                          </Typography>
+                          {b.child_nickname && (
+                            <Chip 
+                              label={b.child_nickname} 
+                              size="small" 
+                              sx={{ 
+                                bgcolor: 'rgba(116, 82, 214, 0.08)', 
+                                color: 'rgb(116, 82, 214)', 
+                                fontWeight: 800, 
+                                fontSize: '10px',
+                                height: 18 
+                              }} 
+                            />
+                          )}
+                        </Stack>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
+                          {b.child_birth_date && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: '11px' }}>
+                              🎂 {new Date(b.child_birth_date).toLocaleDateString('th-TH')} ({calculateAge(b.child_birth_date)})
+                            </Typography>
+                          )}
+                          {b.parent_name && (
+                            <Typography variant="caption" sx={{ color: 'slate.500', fontWeight: 600, fontSize: '11px' }}>
+                              • 👤 {b.parent_name} {b.parent_phone ? `(${b.parent_phone})` : ''}
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Box>
+                      <Typography variant="body2" sx={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13.5px', color: 'slate.800' }}>
+                        {b.course_name || '-'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.branch_name || '-'}
+                      </Typography>
+                      <Box>
+                        <Chip
+                          label={si.label}
+                          size="small"
+                          sx={{ fontWeight: 800, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '11px', px: 1 }}
+                          variant="outlined"
+                        />
+                      </Box>
+                      <Stack direction="row" spacing={0.5}>
+                        {isActive && (
+                          <>
+                            <Tooltip title="เรียนเสร็จ">
+                              <IconButton size="small" color="success" onClick={() => onComplete(b.id)}>
+                                <CheckCircleIcon sx={{ fontSize: 18 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="ยกเลิก">
+                              <IconButton size="small" color="error" onClick={() => onCancel(b.id)}>
+                                <CancelIcon sx={{ fontSize: 18 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
+                        {b.status === 'completed' && (
+                          <Tooltip title="กรอกรายงาน">
+                            <IconButton size="small" color="success" onClick={() => onReport(b)}>
+                              <ReportIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Stack>
+                    </Box>
+                  );
+                })}
+              </Paper>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
   );
 };
 
@@ -676,7 +968,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const BookingManagement = () => {
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week');
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
@@ -842,6 +1134,7 @@ const BookingManagement = () => {
             <ToggleButton value="day"   sx={{ fontWeight: 700, px: 2 }}>วัน</ToggleButton>
             <ToggleButton value="week"  sx={{ fontWeight: 700, px: 2 }}>สัปดาห์</ToggleButton>
             <ToggleButton value="month" sx={{ fontWeight: 700, px: 2 }}>เดือน</ToggleButton>
+            <ToggleButton value="list"  sx={{ fontWeight: 700, px: 2, display: 'flex', gap: 0.5 }}><ListIcon sx={{ fontSize: 16 }} />รายการ</ToggleButton>
           </ToggleButtonGroup>
         </Stack>
 
@@ -881,6 +1174,8 @@ const BookingManagement = () => {
         <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} />
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
+      ) : viewMode === 'list' ? (
+        <ListView bookings={filteredBookings} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
       )}

@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { AdminRepository } from '../repositories/adminRepository';
 import { ConfigService } from '../services/configService';
+import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 
 export class AdminController {
@@ -154,26 +155,230 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const { childId, courseId, branchId, scheduledAt, isGuest, status,
-              calendarId, slotDate, slotStartTime, paymentStatus, notes, ageGroup } = await c.req.json();
+      const { childId, childIds, courseId, branchId, scheduledAt, isGuest, status,
+              calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode } = await c.req.json();
+      
       if (!courseId || !branchId || !scheduledAt)
         return c.json({ success: false, message: 'courseId, branchId, scheduledAt required' }, 400);
-      const id = await adminRepo.createBooking({
-        childId: isGuest ? 0 : (parseInt(childId) || 0),
-        courseId: parseInt(courseId),
-        branchId: parseInt(branchId),
-        scheduledAt,
-        ageGroup: ageGroup || 'junior',
-        status: status || 'confirmed_paid',
-        calendarId: calendarId ? parseInt(calendarId) : undefined,
-        slotDate: slotDate ?? undefined,
-        slotStartTime: slotStartTime ?? undefined,
-        paymentStatus: paymentStatus ?? undefined,
-        notes: notes ?? undefined,
-      });
-      return c.json({ success: true, id });
+
+      let ids = childIds ? childIds : (childId ? [childId] : []);
+      if (isGuest) ids = [0];
+      const parsedChildIds = ids.map((id: any) => parseInt(id) || 0);
+
+      if (parsedChildIds.length === 0) {
+        return c.json({ success: false, message: 'No children selected' }, 400);
+      }
+
+      const db = config.db;
+
+      // Check for duplicates
+      for (const parsedChildId of parsedChildIds) {
+        if (parsedChildId > 0) {
+          
+          // Check 1: Duplicate course registration
+          const { results: existingBookings } = await db.prepare(`
+            SELECT id, status FROM Bookings 
+            WHERE child_id = ? AND course_id = ? 
+              AND status IN ('confirmed', 'completed')
+          `).bind(parsedChildId, parseInt(courseId)).all();
+
+          if (existingBookings.length > 0) {
+            return c.json({ 
+              success: false, 
+              error_code: 'DUPLICATE_BOOKING',
+              message: 'One of the selected children has already registered for this class.',
+              bookingId: existingBookings[0].id
+            }, 400);
+          }
+
+          // Check 2: Extra Class same day restriction
+          const { results: courseDetails } = await db.prepare(`
+            SELECT is_extraclass FROM Courses WHERE id = ?
+          `).bind(parseInt(courseId)).all();
+
+          const isExtraClass = courseDetails[0]?.is_extraclass;
+
+          if (isExtraClass) {
+            const targetDate = scheduledAt.split('T')[0];
+            const { results: sameDayExtraBookings } = await db.prepare(`
+              SELECT b.id FROM Bookings b
+              JOIN Courses c ON b.course_id = c.id
+              WHERE b.child_id = ? 
+                AND c.is_extraclass = 1
+                AND b.scheduled_at LIKE ?
+                AND b.status IN ('confirmed', 'completed')
+            `).bind(parsedChildId, `${targetDate}%`).all();
+
+            if (sameDayExtraBookings.length > 0) {
+              return c.json({ 
+                success: false, 
+                error_code: 'EXTRA_CLASS_LIMIT',
+                message: 'One of the children cannot book multiple extra classes on the same day.',
+                bookingId: sameDayExtraBookings[0].id
+              }, 400);
+            }
+          }
+        }
+      }
+
+      // Calculate price and discount
+      const courseRow = await db.prepare('SELECT id, original_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      const unitPrice: number = courseRow?.original_price ?? 0;
+
+      // Compute active campaign discount (matching getCourses logic)
+      const { results: activeCampaigns } = await db.prepare(
+        "SELECT * FROM Sale_Campaigns WHERE is_active = 1"
+      ).all();
+
+      const now = new Date();
+      let campaignDiscountAmt = 0;
+
+      for (const camp of (activeCampaigns as any[])) {
+        if (camp.valid_from && new Date(camp.valid_from) > now) continue;
+        if (camp.valid_until && new Date(camp.valid_until) < now) continue;
+
+        let itemDiscountAmt = camp.discount_amount || 0;
+        let itemDiscountPct = camp.discount_percent || 0;
+        
+        try {
+          const applicableIds = JSON.parse(camp.applicable_course_ids || '[]');
+          const specificItem = applicableIds.find((i: any) => i.id === courseRow.id);
+          if (specificItem) {
+             itemDiscountAmt = specificItem.discount_amount ?? itemDiscountAmt;
+             itemDiscountPct = specificItem.discount_percent ?? itemDiscountPct;
+          }
+        } catch(e) {}
+
+        let calculatedDiscountAmt = 0;
+        if (itemDiscountPct > 0) {
+          calculatedDiscountAmt = (unitPrice * itemDiscountPct) / 100;
+        } else {
+          calculatedDiscountAmt = itemDiscountAmt;
+        }
+
+        if (calculatedDiscountAmt > campaignDiscountAmt) {
+          campaignDiscountAmt = calculatedDiscountAmt;
+        }
+      }
+
+      const priceAfterCampaign = Math.max(0, unitPrice - campaignDiscountAmt);
+
+      // Apply promo discount if provided
+      let promoDiscountAmount = 0;
+      if (promoCode) {
+        const promo = await db.prepare(`
+          SELECT discount_amount, discount_percent FROM Promotions 
+          WHERE code = ? AND is_active = 1 
+          AND (valid_until IS NULL OR valid_until > datetime('now'))
+          AND (max_uses = 0 OR current_uses < max_uses)
+        `).bind(promoCode).first() as any;
+        if (promo) {
+          if (promo.discount_percent > 0) {
+            promoDiscountAmount = Math.floor(priceAfterCampaign * promo.discount_percent / 100);
+          } else {
+            promoDiscountAmount = promo.discount_amount;
+          }
+        }
+      }
+
+      const pricePerChild = Math.max(0, priceAfterCampaign - promoDiscountAmount);
+      const isFree = pricePerChild === 0 && paymentMethod !== 'coupon';
+      const targetStatus = isFree ? 'confirmed' : (status || 'pending_payment');
+      const targetPaymentStatus = isFree ? 'paid' : (paymentStatus || 'pending');
+
+      const bookingIds = [];
+      for (const parsedChildId of parsedChildIds) {
+        const id = await adminRepo.createBooking({
+          childId: parsedChildId,
+          courseId: parseInt(courseId),
+          branchId: parseInt(branchId),
+          scheduledAt,
+          ageGroup: ageGroup || 'junior',
+          status: targetStatus,
+          calendarId: calendarId ? parseInt(calendarId) : undefined,
+          slotDate: slotDate ?? undefined,
+          slotStartTime: slotStartTime ?? undefined,
+          paymentStatus: targetPaymentStatus,
+          notes: notes ?? undefined,
+        });
+        bookingIds.push(id);
+      }
+
+      const firstId = bookingIds[0];
+      let beamPaymentUrl = '';
+      let beamSessionId = '';
+
+      if (!isFree && (!status || status === 'pending_payment')) {
+        try {
+          const BEAM_API_KEY = c.env.BEAM_API_KEY;
+          const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
+          if (!BEAM_API_KEY || !BEAM_MERCHANT_ID) {
+            throw new Error('Beam credentials not found');
+          }
+
+          const authString = btoa(`${BEAM_MERCHANT_ID}:${BEAM_API_KEY}`);
+          const baseUrl = c.req.header('origin') || 'http://localhost:5173';
+          const redirectUrl = `${baseUrl}/booking-success?bookingId=${firstId}`;
+
+          const isAll = !['credit_card', 'promptpay', 'wallet', 'mobile_banking'].includes(paymentMethod);
+          const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+          const netAmount = Math.round(pricePerChild * parsedChildIds.length * 100); // Beam uses satang
+
+          const payload = {
+            linkSettings: {
+              card: { isEnabled: isAll || paymentMethod === 'credit_card' },
+              qrPromptPay: { isEnabled: isAll || paymentMethod === 'promptpay' },
+              eWallets: { isEnabled: isAll || paymentMethod === 'wallet' },
+              mobileBanking: { isEnabled: isAll || paymentMethod === 'mobile_banking' }
+            },
+            order: {
+              currency: "THB",
+              netAmount: netAmount,
+              description: `Booking IDs: ${bookingIds.join(', ')}`,
+              referenceId: `BK-${firstId}-${Date.now()}`
+            },
+            expiresAt: expiresAt,
+            redirectUrl: redirectUrl
+          };
+
+          const res = await fetch('https://api.beamcheckout.com/api/v1/payment-links', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Basic ${authString}`
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText);
+          }
+
+          const data: any = await res.json();
+          beamPaymentUrl = data.url;
+          beamSessionId = data.id;
+        } catch (e: any) {
+          const logger = new SystemLogger(config.db);
+          await logger.error('beam-payment', e);
+          
+          return c.json({ 
+            success: false, 
+            message: 'ระบบชำระเงินขัดข้อง กรุณาลองใหม่อีกครั้ง หรือติดต่อพนักงาน'
+          }, 500);
+        }
+
+        for (const id of bookingIds) {
+          await config.db.prepare('UPDATE Bookings SET beam_session_id=? WHERE id=?').bind(beamSessionId, id).run();
+        }
+      }
+
+      return c.json({ success: true, id: firstId, bookingIds, paymentUrl: beamPaymentUrl });
     } catch (error: any) {
-      return c.json({ success: false, message: error.message }, 500);
+      const logger = new SystemLogger(c.env.DB ? c.env.DB : (new ConfigService(c.env)).db);
+      await logger.error('create-booking', error);
+      return c.json({ success: false, message: 'ระบบชัดข้อง' }, 500);
     }
   }
 
@@ -231,7 +436,58 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const courses = await adminRepo.getAllCourses();
-      return c.json({ success: true, courses });
+      
+      const { results: activeCampaigns } = await config.db.prepare(
+        "SELECT * FROM Sale_Campaigns WHERE is_active = 1"
+      ).all();
+
+      const now = new Date();
+      
+      const processedCourses = courses.map((course: any) => {
+        let bestDiscountAmt = 0;
+        let bestDiscountPct = 0;
+        let bestLabel = null;
+        let finalOriginalPrice = course.original_price || 0;
+
+        for (const camp of (activeCampaigns as any[])) {
+          if (camp.valid_from && new Date(camp.valid_from) > now) continue;
+          if (camp.valid_until && new Date(camp.valid_until) < now) continue;
+
+          let itemDiscountAmt = camp.discount_amount || 0;
+          let itemDiscountPct = camp.discount_percent || 0;
+          
+          try {
+            const applicableIds = JSON.parse(camp.applicable_course_ids || '[]');
+            const specificItem = applicableIds.find((i: any) => i.id === course.id);
+            if (specificItem) {
+               itemDiscountAmt = specificItem.discount_amount ?? itemDiscountAmt;
+               itemDiscountPct = specificItem.discount_percent ?? itemDiscountPct;
+            }
+          } catch(e) {}
+
+          let calculatedDiscountAmt = 0;
+          if (itemDiscountPct > 0) {
+            calculatedDiscountAmt = (finalOriginalPrice * itemDiscountPct) / 100;
+          } else {
+            calculatedDiscountAmt = itemDiscountAmt;
+          }
+
+          if (calculatedDiscountAmt > bestDiscountAmt) {
+            bestDiscountAmt = calculatedDiscountAmt;
+            bestDiscountPct = itemDiscountPct;
+            bestLabel = camp.consumer_label;
+          }
+        }
+
+        return {
+          ...course,
+          active_campaign_discount_amount: bestDiscountAmt,
+          active_campaign_discount_percent: bestDiscountPct,
+          active_campaign_label: bestLabel
+        };
+      });
+
+      return c.json({ success: true, courses: processedCourses });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -853,5 +1109,165 @@ export class AdminController {
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
+  }
+
+  async getSystemLogs(c: Context<{ Bindings: Bindings }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { results } = await config.db.prepare('SELECT * FROM System_Logs ORDER BY created_at DESC LIMIT 100').all();
+      return c.json({ success: true, logs: results });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  async getPromotions(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { results } = await config.db.prepare(`
+        SELECT * FROM Promotions ORDER BY created_at DESC
+      `).all();
+      return c.json({ success: true, promotions: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async createPromotion(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { code, description, discount_amount, discount_percent, max_uses, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active } = await c.req.json();
+      if (!code) return c.json({ success: false, message: 'Code is required' }, 400);
+      await config.db.prepare(`
+        INSERT INTO Promotions (code, description, discount_amount, discount_percent, max_uses, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        code.toUpperCase().trim(),
+        description || null,
+        discount_amount || 0,
+        discount_percent || 0,
+        max_uses || 0,
+        valid_from || null,
+        valid_until || null,
+        JSON.stringify(applicable_course_ids || []),
+        JSON.stringify(applicable_service_ids || []),
+        consumer_label || null,
+        is_active === false ? 0 : 1
+      ).run();
+      return c.json({ success: true });
+    } catch (e: any) {
+      if (e.message?.includes('UNIQUE')) return c.json({ success: false, message: 'Promo code already exists' }, 400);
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  async updatePromotion(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { code, description, discount_amount, discount_percent, max_uses, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active } = await c.req.json();
+      await config.db.prepare(`
+        UPDATE Promotions SET 
+          code=?, description=?, discount_amount=?, discount_percent=?, max_uses=?,
+          valid_from=?, valid_until=?, applicable_course_ids=?, applicable_service_ids=?, consumer_label=?, is_active=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `).bind(
+        code.toUpperCase().trim(),
+        description || null,
+        discount_amount || 0,
+        discount_percent || 0,
+        max_uses || 0,
+        valid_from || null,
+        valid_until || null,
+        JSON.stringify(applicable_course_ids || []),
+        JSON.stringify(applicable_service_ids || []),
+        consumer_label || null,
+        is_active === false ? 0 : 1,
+        id
+      ).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deletePromotion(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      await config.db.prepare('DELETE FROM Promotions WHERE id=?').bind(id).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  // --- Campaigns (Auto-applied Sales) ---
+  async getCampaigns(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { results } = await config.db.prepare(`
+        SELECT * FROM Sale_Campaigns ORDER BY created_at DESC
+      `).all();
+      return c.json({ success: true, campaigns: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async createCampaign(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { name, description, discount_amount, discount_percent, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active } = await c.req.json();
+      if (!name) return c.json({ success: false, message: 'Name is required' }, 400);
+      
+      await config.db.prepare(`
+        INSERT INTO Sale_Campaigns (name, description, discount_amount, discount_percent, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        name.trim(),
+        description || null,
+        discount_amount || 0,
+        discount_percent || 0,
+        valid_from || null,
+        valid_until || null,
+        JSON.stringify(applicable_course_ids || []),
+        JSON.stringify(applicable_service_ids || []),
+        consumer_label || null,
+        is_active === false ? 0 : 1
+      ).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async updateCampaign(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { name, description, discount_amount, discount_percent, valid_from, valid_until, applicable_course_ids, applicable_service_ids, consumer_label, is_active } = await c.req.json();
+      if (!name) return c.json({ success: false, message: 'Name is required' }, 400);
+
+      await config.db.prepare(`
+        UPDATE Sale_Campaigns SET 
+          name=?, description=?, discount_amount=?, discount_percent=?,
+          valid_from=?, valid_until=?, applicable_course_ids=?, applicable_service_ids=?, consumer_label=?, is_active=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `).bind(
+        name.trim(),
+        description || null,
+        discount_amount || 0,
+        discount_percent || 0,
+        valid_from || null,
+        valid_until || null,
+        JSON.stringify(applicable_course_ids || []),
+        JSON.stringify(applicable_service_ids || []),
+        consumer_label || null,
+        is_active === false ? 0 : 1,
+        id
+      ).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deleteCampaign(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      await config.db.prepare('DELETE FROM Sale_Campaigns WHERE id=?').bind(id).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }

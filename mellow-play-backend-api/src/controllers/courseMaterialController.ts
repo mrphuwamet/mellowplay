@@ -46,6 +46,33 @@ export class CourseMaterialController {
     try {
       const bookingId = parseInt(c.req.param('bookingId'));
       const config = new ConfigService(c.env);
+      
+      const booking = await config.db.prepare(
+        'SELECT child_id, age_group, payment_status, status, branch_id FROM Bookings WHERE id=?'
+      ).bind(bookingId).first() as any;
+
+      if (booking && booking.status !== 'cancelled') {
+        const childId = booking.child_id;
+        if (childId > 0) {
+          const ag = booking.age_group || 'junior';
+          const couponColumn = ag === 'little_junior' ? 'little_junior_balance' : 'junior_balance';
+          
+          await config.db.prepare(`
+            UPDATE Member_Coupons 
+            SET ${couponColumn} = ${couponColumn} + 1, updated_at = CURRENT_TIMESTAMP 
+            WHERE child_id = ?
+          `).bind(childId).run();
+          
+          const userIdQuery = await config.db.prepare('SELECT parent_id FROM Children WHERE id=?').bind(childId).first() as any;
+          const userId = userIdQuery?.parent_id ?? null;
+          
+          await config.db.prepare(`
+            INSERT INTO Transactions (branch_id, user_id, child_id, type, amount, payment_method, item_type, booking_id)
+            VALUES (?, ?, ?, 'refund_booking', 0, 'coupon', ?, ?)
+          `).bind(booking.branch_id || 1, userId, childId, ag, bookingId).run();
+        }
+      }
+
       await this.repo(c).releaseStock(bookingId);
       await config.db.prepare("UPDATE Bookings SET status='cancelled' WHERE id=?").bind(bookingId).run();
       return c.json({ success: true });

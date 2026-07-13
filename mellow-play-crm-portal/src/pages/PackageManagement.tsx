@@ -56,17 +56,13 @@ interface PackageItem {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const COUPON_TYPES = [
-  { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3', bg: '#e3f2fd' },
-  { id: 'yellow', label: 'คูปองสีเหลือง', color: '#f59e0b', bg: '#fffbeb' },
-  { id: 'red',    label: 'คูปองสีแดง',    color: '#ef4444', bg: '#fef2f2' },
-];
+// COUPON_TYPES will be fetched dynamically
 
 const EMPTY_FORM: Omit<PackageItem, 'id'> = {
   name: '',
   description: '',
   price: 0,
-  coupons: COUPON_TYPES.map((t) => ({ typeId: t.id, quantity: 0 })),
+  coupons: [],
   premiumDays: 0,
   sellerCommission: { type: 'percent', value: '' },
   active: true,
@@ -128,6 +124,22 @@ const PackageManagement: React.FC = () => {
   const [formError, setFormError]     = useState('');
   const [deleteId, setDeleteId]       = useState<number | null>(null);
   const [successMsg, setSuccessMsg]   = useState('');
+  const [couponTypes, setCouponTypes] = useState<any[]>([]);
+
+  const fetchCouponTypes = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/coupon-types`);
+      if (res.data.success) {
+        setCouponTypes(res.data.couponTypes.map((c: any) => ({
+          id: String(c.id),
+          label: c.name,
+          color: c.color,
+          icon_url: c.icon_url,
+          bg: `${c.color}20` // simple hex opacity
+        })));
+      }
+    } catch (e) { console.error('Failed to fetch coupon types', e); }
+  };
 
   const fetchPackages = async () => {
     try {
@@ -146,7 +158,7 @@ const PackageManagement: React.FC = () => {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchPackages(); }, []);
+  useEffect(() => { fetchPackages(); fetchCouponTypes(); }, []);
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);
@@ -156,16 +168,19 @@ const PackageManagement: React.FC = () => {
   // ── Open create / edit ───────────────────────────────────────────────────
   const openCreate = () => {
     setEditId(null);
-    setForm({ ...EMPTY_FORM, coupons: COUPON_TYPES.map((t) => ({ typeId: t.id, quantity: 0 })) });
+    setForm({
+      ...EMPTY_FORM,
+      coupons: couponTypes.map(t => ({ typeId: t.id, quantity: 0 }))
+    });
     setFormError('');
     setDialogOpen(true);
   };
 
   const openEdit = (pkg: PackageItem) => {
     setEditId(pkg.id);
-    const coupons = COUPON_TYPES.map((t) => {
-      const existing = pkg.coupons.find((c) => c.typeId === t.id);
-      return { typeId: t.id, quantity: existing?.quantity ?? 0 };
+    const coupons = couponTypes.map(t => {
+      const matched = pkg.coupons.find(c => String(c.typeId) === t.id);
+      return { typeId: t.id, quantity: matched ? matched.quantity : 0 };
     });
     setForm({ ...pkg, coupons });
     setFormError('');
@@ -274,15 +289,16 @@ const PackageManagement: React.FC = () => {
 
               {/* Coupons */}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
-                {pkg.coupons.filter((c) => c.quantity > 0).map((c) => {
-                  const ct = COUPON_TYPES.find((t) => t.id === c.typeId)!;
+                {couponTypes.map(ct => {
+                  const q = pkg.coupons?.find(c => String(c.typeId) === String(ct.id))?.quantity || 0;
+                  if (q === 0) return null;
                   return (
                     <Chip
-                      key={c.typeId}
-                      label={`${c.quantity} ใบ`}
+                      key={ct.id}
                       size="small"
-                      sx={{ fontWeight: 700, bgcolor: ct.bg, color: ct.color, border: `1px solid ${ct.color}`, fontSize: '0.7rem' }}
-                      icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: ct.color, ml: '6px !important' }} />}
+                      icon={ct.icon_url ? <img src={ct.icon_url} alt="icon" style={{width: 14, height: 14, objectFit: 'contain', marginLeft: 4}} /> : undefined}
+                      label={`${ct.label} ${q} ใบ`}
+                      sx={{ bgcolor: ct.bg, color: ct.color, fontWeight: 700, fontSize: '0.75rem' }}
                     />
                   );
                 })}
@@ -385,7 +401,7 @@ const PackageManagement: React.FC = () => {
             คูปองที่ลูกค้าจะได้รับ
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2.5 }}>
-            {COUPON_TYPES.map((ct) => {
+            {couponTypes.map((ct) => {
               const coupon = form.coupons.find((c) => c.typeId === ct.id) ?? { typeId: ct.id, quantity: 0 };
               return (
                 <Box key={ct.id} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

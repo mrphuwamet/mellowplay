@@ -1,0 +1,308 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home } from 'lucide-react';
+import apiClient from '../utils/apiClient';
+import logo from '../assets/ui/logo.svg';
+import { useTranslation, LanguageToggle } from '../LanguageContext';
+
+const CourseDetail = () => {
+  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const { lang, setLang, t } = useTranslation();
+  const [course, setCourse] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [upcomingSlots, setUpcomingSlots] = useState<any[]>([]);
+  const [showAllSlots, setShowAllSlots] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
+
+  useEffect(() => {
+    const fetchCourse = async () => {
+      try {
+        const res = await apiClient.get('/admin/courses');
+        if (res.data.success) {
+          const found = res.data.courses.find((c: any) => c.id === parseInt(id || '0'));
+          setCourse(found);
+          if (found?.calendar_id) {
+            const slotsRes = await apiClient.get(`/admin/calendar-slots/upcoming?calendarId=${found.calendar_id}`);
+            if (slotsRes.data.success) setUpcomingSlots(slotsRes.data.upcoming || []);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCourse();
+  }, [id]);
+
+  if (loading) {
+    return <div className="mellow-page bg-[#fbfaf7] min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-mellow-yellow border-t-transparent rounded-full animate-spin"></div></div>;
+  }
+
+  if (!course) {
+    return (
+      <div className="mellow-page bg-[#fbfaf7] min-h-screen">
+        <header className="h-[64px] px-5 bg-white flex items-center gap-2">
+          <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><ChevronLeft size={24} /></button>
+          <button onClick={() => navigate('/')} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><Home size={20} /></button>
+        </header>
+        <div className="p-10 text-center text-slate-500 font-bold">ไม่พบคลาสเรียน</div>
+      </div>
+    );
+  }
+
+  const formatDuration = (timeStr: string) => {
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':');
+    const hrs = parseInt(h, 10);
+    const mins = parseInt(m, 10);
+    let result = '';
+    if (hrs > 0) result += lang === 'en' ? `${hrs} hr ` : `${hrs} ชม. `;
+    if (mins > 0) result += lang === 'en' ? `${mins} mins` : `${mins} นาที`;
+    return result.trim() || timeStr;
+  };
+
+  const thDateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
+  const enDateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
+
+  return (
+    <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-32">
+      {/* Header Image & Nav */}
+      <div className="relative h-[280px] bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
+        {course.thumbnail_url ? (
+          <img src={course.thumbnail_url} alt={course.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center opacity-30 p-10">
+            <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
+          </div>
+        )}
+        
+        {/* Nav */}
+        <div className="absolute top-0 left-0 w-full h-[64px] px-5 flex items-center justify-between z-30 bg-gradient-to-b from-black/40 to-transparent">
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-90 transition-transform">
+              <ChevronLeft size={24} className="mr-0.5" />
+            </button>
+            <button onClick={() => navigate('/')} className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-90 transition-transform">
+              <Home size={20} />
+            </button>
+          </div>
+
+          <div className="relative flex items-center gap-2">
+            {/* Quick Lang Switch */}
+            <LanguageToggle />
+          </div>
+        </div>
+        
+        {/* Category Tag */}
+        <div className="absolute bottom-5 left-5 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-xl shadow-lg">
+          <span className={`text-[12px] font-black uppercase tracking-wide ${course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+            {course.category_name}
+          </span>
+        </div>
+      </div>
+
+      <main className="px-5 pt-6 space-y-6">
+        {/* Title & Price */}
+        <div>
+          <div className="pt-2">
+            <h1 className="font-black text-3xl text-slate-800 leading-tight mb-3">
+              {lang === 'en' && course.name_en ? course.name_en : course.name}
+            </h1>
+            {lang === 'th' && course.name_en && course.name_en !== course.name && (
+              <h2 className="font-bold text-xl text-slate-500 mb-6">{course.name_en}</h2>
+            )}
+            <p className="text-slate-600 text-[15px] leading-relaxed mb-8 whitespace-pre-wrap">
+              {lang === 'en' && course.short_description_en ? course.short_description_en : (course.short_description || course.description)}
+            </p>
+          </div>
+          <div className="flex flex-col gap-1">
+            {course.active_campaign_discount_amount > 0 && (
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 bg-mellow-red text-white text-[10px] font-black uppercase tracking-wider rounded-md">
+                  {course.active_campaign_label || (lang === 'en' ? 'Special Price' : 'ราคาพิเศษ')}
+                </span>
+                <span className="text-sm text-slate-400 font-bold line-through">
+                  ฿{course.original_price?.toLocaleString() || 0}
+                </span>
+              </div>
+            )}
+            <div className="text-[28px] font-black text-mellow-red tracking-tight leading-none">
+              ฿{Math.max(0, (course.original_price || 0) - (course.active_campaign_discount_amount || 0)).toLocaleString()}
+            </div>
+          </div>
+        </div>
+
+        {/* Info Cards */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-mellow-blue-soft text-mellow-blue-dark flex items-center justify-center">
+              <Users size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Age Range' : 'ช่วงอายุ'}</p>
+              <p className="text-[14px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
+            </div>
+          </div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-mellow-purple-soft text-mellow-purple-dark flex items-center justify-center">
+              <Clock size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Duration' : 'ระยะเวลา'}</p>
+              <p className="text-[14px] font-black text-slate-700">{formatDuration(course.duration)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Location Card */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
+              <MapPin size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
+              <p className="text-[14px] font-black text-slate-700 line-clamp-1">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
+            </div>
+          </div>
+          {(!course.is_extraclass || course.location_link) && (
+            <a 
+              href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition-colors shrink-0"
+            >
+              {lang === 'en' ? 'Map' : 'เส้นทาง'}
+              <ArrowRight size={14} />
+            </a>
+          )}
+        </div>
+
+        {/* Description */}
+        {course.description && (
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+            <p className="text-[14px] text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">
+              {lang === 'en' && course.description_en ? course.description_en : course.description}
+            </p>
+          </div>
+        )}
+
+        {/* Schedule */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-8 h-8 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
+              <CalendarIcon size={16} />
+            </div>
+            <h3 className="text-[16px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
+          </div>
+          
+          {course.calendar_id ? (
+             upcomingSlots.length > 0 ? (
+               <div className="space-y-4">
+                 {(showAllSlots ? upcomingSlots : upcomingSlots.slice(0, 5)).map((day, i) => {
+                   const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', lang === 'en' ? enDateOptions : thDateOptions);
+                   return (
+                     <div key={i} className="py-3 border-b border-slate-100 last:border-0 last:pb-0">
+                       <h4 className="text-[15px] font-bold text-slate-800 mb-3">{displayDate}</h4>
+                       <div className="grid grid-cols-1 gap-2">
+                         {day.slots.map((slot: any, j: number) => {
+                           const isFull = slot.available <= 0;
+                           return (
+                             <div key={j} className={`flex items-center justify-between p-3 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'} `}>
+                               <div className="flex items-center gap-2">
+                                 <Clock size={16} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
+                                 <span className={`text-[14px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                   {slot.startTime} - {slot.endTime}
+                                 </span>
+                               </div>
+                               <div className={`px-2.5 py-1 rounded-lg text-[12px] font-bold ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                                 {isFull ? (lang === 'en' ? 'Full' : 'เต็มแล้ว') : (lang === 'en' ? `${slot.available} spots left` : `ว่าง ${slot.available} ที่`)}
+                               </div>
+                             </div>
+                           );
+                         })}
+                       </div>
+                     </div>
+                   );
+                 })}
+                 
+                 {upcomingSlots.length > 5 && !showAllSlots && (
+                   <button 
+                     onClick={() => setShowAllSlots(true)}
+                     className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-[14px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
+                   >
+                     {lang === 'en' ? 'View more dates' : 'ดูรอบกิจกรรมเพิ่มเติม'}
+                     <ArrowRight size={16} />
+                   </button>
+                 )}
+               </div>
+             ) : (
+               <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
+             )
+          ) : (
+            <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'No linked calendar' : 'ไม่มีการผูกปฏิทิน'}</p>
+          )}
+        </div>
+      </main>
+
+      {/* Register CTA */}
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
+        <button 
+          onClick={() => {
+            const isGuest = localStorage.getItem('mellow_guest') === 'true';
+            if (isGuest) {
+              setShowGuestModal(true);
+            } else {
+              navigate(`/booking?courseId=${course.id}`);
+            }
+          }}
+          className="w-full h-[56px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+        >
+          {lang === 'en' ? 'Register' : 'ลงทะเบียน'}
+          <ArrowRight size={20} />
+        </button>
+      </div>
+
+      {/* Guest Modal */}
+      {showGuestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] p-6 w-full max-w-[340px] shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users size={32} className="text-mellow-yellow-dark" />
+            </div>
+            <h3 className="text-[20px] font-black text-slate-800 mb-2">
+              {lang === 'en' ? 'Please Register First' : 'กรุณาสมัครสมาชิกก่อน'}
+            </h3>
+            <p className="text-[14px] text-slate-500 font-medium mb-6">
+              {lang === 'en' 
+                ? 'Register now to book this class and track your child\'s journey!' 
+                : 'สมัคสมาชิกเพื่อทำการจองคลาสเรียนและติดตามพัฒนาการของน้องๆ'}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => setShowGuestModal(false)}
+                className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+              >
+                {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
+              </button>
+              <button 
+                onClick={() => {
+                  setShowGuestModal(false);
+                  navigate(`/register?redirect=/course/${course.id}`);
+                }}
+                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
+              >
+                {t.common?.register || 'สมัครสมาชิก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CourseDetail;

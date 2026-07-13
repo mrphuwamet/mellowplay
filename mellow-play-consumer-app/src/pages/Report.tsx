@@ -1,38 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, Image, Video } from 'lucide-react';
+import { ChevronLeft, Play, Image, Video, Hammer, Palette, Activity, Smile, Users, Loader2 } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
+import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 
-const mockReportData = [
-  {
-    date: 'today',
-    items: [
-      { id: 1, type: 'video' as const, emoji: '🏗️', color: 'from-orange-300 to-orange-400', activity: 'Block Building', skill: 'Problem Solving', skillColor: 'bg-blue-400', duration: '1:24', note: 'น้องตั้งใจสร้างตึกสูง 10 ชั้น และแก้ปัญหาเมื่อบล็อกล้มได้เองโดยไม่ขอความช่วยเหลือ' },
-      { id: 2, type: 'photo' as const, emoji: '🤸', color: 'from-green-300 to-teal-400', activity: 'Movement Play', skill: 'Creativity', skillColor: 'bg-purple-400', note: 'น้องคิดท่าเต้นใหม่และสอนเพื่อน' },
-    ],
-  },
-  {
-    date: 'yesterday',
-    items: [
-      { id: 3, type: 'photo' as const, emoji: '🎨', color: 'from-pink-300 to-pink-400', activity: 'Color Mixing', skill: 'Creativity', skillColor: 'bg-purple-400', note: 'น้องผสมสีได้สวยงาม และอธิบายผลลัพธ์ให้เพื่อนฟัง' },
-      { id: 4, type: 'video' as const, emoji: '🎭', color: 'from-violet-300 to-violet-400', activity: 'Drama Play', skill: 'Communication', skillColor: 'bg-red-400', duration: '2:05', note: 'น้องเล่นบทบาทสมมติและพูดคุยอย่างมั่นใจ' },
-    ],
-  },
-  {
-    date: '3 days ago',
-    items: [
-      { id: 5, type: 'photo' as const, emoji: '🤝', color: 'from-yellow-300 to-amber-400', activity: 'Team Game', skill: 'Collaboration', skillColor: 'bg-yellow-400', note: 'น้องรอคอยและช่วยเหลือเพื่อนในทีมได้ดี' },
-    ],
-  },
-];
+interface ReportItem {
+  id: number;
+  type: 'photo' | 'video';
+  mediaUrl: string;
+  activity: string;
+  skill: string;
+  allSkills: string[];
+  note: string;
+  date: string;
+  completed_at: string;
+}
+
+interface ReportGroup {
+  date: string;
+  items: ReportItem[];
+}
 
 const Report = () => {
   const navigate = useNavigate();
   const selectedChild = useChildStore(state => state.getSelectedChild());
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [filter, setFilter] = useState<'all' | 'photo' | 'video'>('all');
-  const [selectedItem, setSelectedItem] = useState<typeof mockReportData[0]['items'][0] | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ReportItem | null>(null);
+  const [reportData, setReportData] = useState<ReportGroup[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const filters = [
     { key: 'all' as const, label: t.report.filterAll },
@@ -40,10 +37,119 @@ const Report = () => {
     { key: 'video' as const, label: t.report.filterVideo },
   ];
 
-  const filteredData = mockReportData.map(group => ({
+  useEffect(() => {
+    const fetchReport = async () => {
+      if (!selectedChild) return;
+      setIsLoading(true);
+      try {
+        const response = await apiClient.get(`/journey/progress/${selectedChild.id}`);
+        if (response.data.success) {
+          const groupedByDate: Record<string, ReportItem[]> = {};
+          
+          response.data.progress.forEach((p: any) => {
+            const dateObj = new Date(p.completed_at);
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(today.getDate() - 1);
+            
+            let dateLabel = dateObj.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', {
+              day: 'numeric', month: 'short', year: 'numeric'
+            });
+            
+            if (dateObj.toDateString() === today.toDateString()) {
+              dateLabel = 'today';
+            } else if (dateObj.toDateString() === yesterday.toDateString()) {
+              dateLabel = 'yesterday';
+            }
+            
+            if (!groupedByDate[dateLabel]) {
+              groupedByDate[dateLabel] = [];
+            }
+            
+            const hasVideo = p.media && p.media.some((m: any) => m.type === 'video');
+            const mediaUrl = p.media && p.media.length > 0 ? p.media[0].url : '';
+            
+            let skills: string[] = [];
+            try {
+              if (p.skills_learned) {
+                skills = JSON.parse(p.skills_learned);
+              }
+            } catch (e) {
+              if (Array.isArray(p.skills_learned)) {
+                skills = p.skills_learned;
+              } else if (typeof p.skills_learned === 'string') {
+                skills = [p.skills_learned];
+              }
+            }
+            
+            groupedByDate[dateLabel].push({
+              id: p.id,
+              type: hasVideo ? 'video' : 'photo',
+              mediaUrl,
+              activity: p.node_title || 'Mellow Play Activity',
+              skill: skills.length > 0 ? skills[0] : 'Learning',
+              allSkills: skills,
+              note: p.teacher_comment || 'ไม่มีบันทึกคุณครู',
+              date: dateLabel,
+              completed_at: p.completed_at
+            });
+          });
+          
+          const formatted = Object.keys(groupedByDate).map(dateKey => ({
+            date: dateKey,
+            items: groupedByDate[dateKey]
+          }));
+          
+          setReportData(formatted);
+        }
+      } catch (err) {
+        console.error('Failed to fetch report data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchReport();
+  }, [selectedChild, lang]);
+
+  const getSkillIcon = (skill: string) => {
+    const s = skill.toLowerCase();
+    if (s.includes('problem') || s.includes('solve') || s.includes('แก้ปัญหา')) {
+      return <Hammer size={16} />;
+    }
+    if (s.includes('creative') || s.includes('art') || s.includes('สร้างสรรค์')) {
+      return <Palette size={16} />;
+    }
+    if (s.includes('collab') || s.includes('team') || s.includes('ร่วมมือ')) {
+      return <Users size={16} />;
+    }
+    if (s.includes('communicat') || s.includes('speak') || s.includes('สื่อสาร')) {
+      return <Smile size={16} />;
+    }
+    return <Activity size={16} />;
+  };
+
+  const getSkillColor = (skill: string) => {
+    const s = skill.toLowerCase();
+    if (s.includes('problem') || s.includes('solve') || s.includes('แก้ปัญหา')) return 'bg-blue-400';
+    if (s.includes('creative') || s.includes('art') || s.includes('สร้างสรรค์')) return 'bg-purple-400';
+    if (s.includes('collab') || s.includes('team') || s.includes('ร่วมมือ')) return 'bg-yellow-500';
+    if (s.includes('communicat') || s.includes('speak') || s.includes('สื่อสาร')) return 'bg-red-400';
+    return 'bg-emerald-400';
+  };
+
+  const filteredData = reportData.map(group => ({
     ...group,
     items: group.items.filter(i => filter === 'all' || i.type === filter),
   })).filter(group => group.items.length > 0);
+
+  if (isLoading) {
+    return (
+      <div className="mellow-page flex items-center justify-center">
+        <Loader2 className="animate-spin text-mellow-purple" size={40} />
+      </div>
+    );
+  }
 
   return (
     <div className="mellow-page bg-[#fbfaf7]">
@@ -55,8 +161,15 @@ const Report = () => {
         >
           <div className="flex-1 flex items-center justify-center p-5" onClick={e => e.stopPropagation()}>
             <div className="w-full max-w-[400px] bg-white rounded-[32px] overflow-hidden shadow-2xl">
-              <div className={`relative w-full h-[220px] bg-gradient-to-br ${selectedItem.color} flex items-center justify-center text-7xl`}>
-                <span>{selectedItem.emoji}</span>
+              {/* Media Thumbnail in Modal */}
+              <div className={`relative w-full h-[220px] bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center`}>
+                {selectedItem.mediaUrl ? (
+                  <img src={selectedItem.mediaUrl} alt={selectedItem.activity} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-slate-900/10 flex items-center justify-center text-slate-500">
+                    {getSkillIcon(selectedItem.skill)}
+                  </div>
+                )}
                 {selectedItem.type === 'video' && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                     <div className="w-14 h-14 bg-white/85 rounded-full flex items-center justify-center">
@@ -65,20 +178,24 @@ const Report = () => {
                   </div>
                 )}
               </div>
+              
               <div className="p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`px-2 py-1 ${selectedItem.skillColor} text-white text-[14px] font-black rounded-full`}>
+                  <span className={`px-2 py-1 ${getSkillColor(selectedItem.skill)} text-white text-[14px] font-black rounded-full`}>
                     {selectedItem.skill}
                   </span>
                   <span className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">
                     {selectedItem.date === 'today' ? t.report.today : selectedItem.date === 'yesterday' ? t.report.yesterday : selectedItem.date}
                   </span>
                 </div>
+                
                 <h3 className="text-lg font-black text-mellow-ink mb-3">{selectedItem.activity}</h3>
+                
                 <div className="bg-mellow-purple/5 border border-mellow-purple/10 rounded-2xl p-4">
                   <p className="text-[14px] font-black text-mellow-purple uppercase tracking-widest mb-1">{t.report.facilitatorNote}</p>
                   <p className="text-sm text-slate-600 font-medium leading-relaxed">{selectedItem.note}</p>
                 </div>
+                
                 <button
                   onClick={() => setSelectedItem(null)}
                   className="mt-4 w-full py-3 bg-slate-100 rounded-2xl text-[14px] font-black text-slate-500 uppercase tracking-widest"
@@ -121,60 +238,70 @@ const Report = () => {
       </div>
 
       <main className="px-5 pb-10 space-y-8 pt-4">
-        {filteredData.map((group, gIdx) => (
-          <div key={gIdx}>
-            {/* Date label */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-1.5 h-5 bg-mellow-purple rounded-full" />
-              <span className="text-[14px] font-black text-slate-500 uppercase tracking-widest">
-                {group.date === 'today' ? t.report.today : group.date === 'yesterday' ? t.report.yesterday : group.date}
-              </span>
-            </div>
-
-            {/* Items grid */}
-            <div className="grid grid-cols-2 gap-3">
-              {group.items.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setSelectedItem(item)}
-                  className="rounded-[20px] overflow-hidden shadow-md bg-white active:scale-[0.97] transition-transform text-left"
-                >
-                  {/* Thumbnail */}
-                  <div className={`relative w-full h-[100px] bg-gradient-to-br ${item.color} flex items-center justify-center text-4xl`}>
-                    <span>{item.emoji}</span>
-                    {item.type === 'video' && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <div className="w-9 h-9 bg-white/85 rounded-full flex items-center justify-center">
-                          <Play size={15} className="text-slate-700 fill-slate-700 ml-0.5" />
-                        </div>
-                      </div>
-                    )}
-                    {item.duration && (
-                      <span className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/60 rounded text-[14px] text-white font-bold">
-                        {item.duration}
-                      </span>
-                    )}
-                    <span className="absolute top-2 left-2 flex items-center gap-0.5 px-1.5 py-0.5 bg-white/80 rounded-full text-[14px] font-black text-slate-600">
-                      {item.type === 'video'
-                        ? <><Video size={8} className="shrink-0" /> {t.report.video}</>
-                        : <><Image size={8} className="shrink-0" /> {t.report.photo}</>
-                      }
-                    </span>
-                  </div>
-                  {/* Info */}
-                  <div className="p-2.5">
-                    <p className="text-[14px] font-black text-mellow-ink leading-tight truncate mb-1.5">
-                      {item.activity}
-                    </p>
-                    <span className={`inline-block px-1.5 py-0.5 ${item.skillColor} text-white text-[14px] font-black rounded-full`}>
-                      {item.skill}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
+        {filteredData.length === 0 ? (
+          <div className="text-center py-10">
+            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">{t.report.noLearningData}</p>
           </div>
-        ))}
+        ) : (
+          filteredData.map((group, gIdx) => (
+            <div key={gIdx}>
+              {/* Date label */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-1.5 h-5 bg-mellow-purple rounded-full" />
+                <span className="text-[14px] font-black text-slate-500 uppercase tracking-widest">
+                  {group.date === 'today' ? t.report.today : group.date === 'yesterday' ? t.report.yesterday : group.date}
+                </span>
+              </div>
+
+              {/* Items grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {group.items.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => setSelectedItem(item)}
+                    className="rounded-[20px] overflow-hidden shadow-md bg-white active:scale-[0.97] transition-transform text-left"
+                  >
+                    {/* Thumbnail */}
+                    <div className="relative w-full h-[100px] bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center overflow-hidden">
+                      {item.mediaUrl ? (
+                        <img src={item.mediaUrl} alt={item.activity} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="text-slate-400 p-2 bg-white/60 rounded-full">
+                          {getSkillIcon(item.skill)}
+                        </div>
+                      )}
+                      
+                      {item.type === 'video' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <div className="w-9 h-9 bg-white/85 rounded-full flex items-center justify-center">
+                            <Play size={15} className="text-slate-700 fill-slate-700 ml-0.5" />
+                          </div>
+                        </div>
+                      )}
+                      
+                      <span className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 bg-white/80 rounded-full text-[10px] font-black text-slate-600">
+                        {item.type === 'video'
+                          ? <><Video size={10} className="shrink-0" /> {t.report.video}</>
+                          : <><Image size={10} className="shrink-0" /> {t.report.photo}</>
+                        }
+                      </span>
+                    </div>
+                    
+                    {/* Info */}
+                    <div className="p-2.5">
+                      <p className="text-[13px] font-black text-mellow-ink leading-tight truncate mb-1.5">
+                        {item.activity}
+                      </p>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 ${getSkillColor(item.skill)} text-white text-[10px] font-black rounded-full`}>
+                        {item.skill}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
       </main>
     </div>
   );

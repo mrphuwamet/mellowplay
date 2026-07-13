@@ -27,17 +27,7 @@ import axios from 'axios';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-const COUPON_TYPES_POS = [
-  { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3', bg: '#e3f2fd' },
-  { id: 'yellow', label: 'คูปองสีเหลือง', color: '#f59e0b', bg: '#fffbeb' },
-  { id: 'red',    label: 'คูปองสีแดง',    color: '#ef4444', bg: '#fef2f2' },
-];
-
-const POS_PACKAGES = [
-  { id: 1, name: 'Starter Pack', description: 'แพ็คเกจเริ่มต้นสำหรับสมาชิกใหม่', price: 1200, coupons: [{ typeId: 'blue', quantity: 5 }, { typeId: 'yellow', quantity: 2 }], premiumDays: 0, sellerCommission: { type: 'percent', value: '5' } },
-  { id: 2, name: 'Premium 30 วัน', description: 'สมาชิก Premium 30 วัน พร้อมคูปองมูลค่าสูง', price: 2500, coupons: [{ typeId: 'blue', quantity: 8 }, { typeId: 'red', quantity: 3 }], premiumDays: 30, sellerCommission: { type: 'fixed', value: '150' } },
-  { id: 3, name: 'Family Bundle', description: 'แพ็คเกจครอบครัว ครอบคลุมทุกคลาส', price: 4500, coupons: [{ typeId: 'blue', quantity: 15 }, { typeId: 'yellow', quantity: 5 }, { typeId: 'red', quantity: 5 }], premiumDays: 90, sellerCommission: { type: 'percent', value: '8' } },
-];
+// POS_PACKAGES and COUPON_TYPES_POS will be fetched dynamically
 
 const PKG_STEPS = ['เลือกแพ็คเกจ', 'ข้อมูลลูกค้า', 'ชำระเงิน'];
 
@@ -110,6 +100,8 @@ const POSDashboard = () => {
   // Data
   const [allCourses, setAllCourses] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [couponTypes, setCouponTypes] = useState<any[]>([]);
+  const [packages, setPackages] = useState<any[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   // Course detail
@@ -143,19 +135,42 @@ const POSDashboard = () => {
   // Package sale
   const [pkgSaleOpen, setPkgSaleOpen] = useState(false);
   const [pkgStep, setPkgStep] = useState(0);
-  const [selectedPkg, setSelectedPkg] = useState<(typeof POS_PACKAGES)[number] | null>(null);
+  const [selectedPkg, setSelectedPkg] = useState<any | null>(null);
   const [pkgProcessing, setPkgProcessing] = useState(false);
 
   useEffect(() => {
     const fetchInitial = async () => {
       setDataLoading(true);
       try {
-        const [coursesRes, staffRes] = await Promise.all([
+        const [coursesRes, staffRes, couponTypesRes, packagesRes] = await Promise.all([
           axios.get(`${API_BASE}/courses`),
           axios.get(`${API_BASE}/crm-users`).catch(() => ({ data: { users: [] } })),
+          axios.get(`${API_BASE}/coupon-types`).catch(() => ({ data: { couponTypes: [] } })),
+          axios.get(`${API_BASE}/packages`).catch(() => ({ data: { packages: [] } })),
         ]);
         if (coursesRes.data.success) setAllCourses(coursesRes.data.courses);
         if (staffRes.data.users) setStaffList(staffRes.data.users);
+        if (couponTypesRes.data.success) {
+          setCouponTypes(couponTypesRes.data.couponTypes.map((c: any) => ({
+            id: String(c.id),
+            label: c.name,
+            color: c.color,
+            icon_url: c.icon_url,
+            bg: `${c.color}20` // simple hex opacity
+          })));
+        }
+        if (packagesRes.data.success) {
+          setPackages(packagesRes.data.packages.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description ?? '',
+            price: p.price,
+            coupons: p.coupons ?? [],
+            premiumDays: p.premium_days ?? 0,
+            sellerCommission: { type: p.seller_commission_type ?? 'percent', value: String(p.seller_commission_value ?? '') },
+            active: Boolean(p.active),
+          })).filter((p: any) => p.active));
+        }
       } catch (e) { console.error(e); }
       finally { setDataLoading(false); }
     };
@@ -681,7 +696,7 @@ const POSDashboard = () => {
           {/* Step 0: Package selection */}
           {pkgStep === 0 && (
             <Stack spacing={2}>
-              {POS_PACKAGES.map((pkg) => (
+              {packages.map((pkg) => (
                 <Card
                   key={pkg.id}
                   onClick={() => setSelectedPkg(pkg)}
@@ -702,11 +717,17 @@ const POSDashboard = () => {
                     </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{pkg.description}</Typography>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {pkg.coupons.filter((c) => c.quantity > 0).map((c) => {
-                        const ct = COUPON_TYPES_POS.find((t) => t.id === c.typeId)!;
+                      {pkg.coupons.filter((c: any) => c.quantity > 0).map((c: any) => {
+                        const ct = couponTypes.find((t) => String(t.id) === String(c.typeId));
+                        if (!ct) return null;
                         return (
-                          <Chip key={c.typeId} size="small" label={`${ct.label} ×${c.quantity}`}
-                            sx={{ fontWeight: 700, fontSize: '0.68rem', bgcolor: ct.bg, color: ct.color, border: `1px solid ${ct.color}` }} />
+                          <Chip 
+                            key={c.typeId} 
+                            size="small" 
+                            label={`${ct.label} ×${c.quantity}`}
+                            icon={ct.icon_url ? <img src={ct.icon_url} alt="icon" style={{width: 14, height: 14, objectFit: 'contain', marginLeft: 4}} /> : undefined}
+                            sx={{ fontWeight: 700, fontSize: '0.68rem', bgcolor: ct.bg, color: ct.color, border: `1px solid ${ct.color}` }} 
+                          />
                         );
                       })}
                       {pkg.premiumDays > 0 && (

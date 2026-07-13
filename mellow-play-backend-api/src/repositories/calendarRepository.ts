@@ -52,7 +52,27 @@ export class CalendarRepository {
   }
 
   // ── Available Slots for a date ─────────────────────────────────────────────
+  private async expirePendingBookings() {
+    try {
+      await this.db.prepare(`
+        UPDATE Bookings 
+        SET status = 'cancelled', payment_status = 'expired'
+        WHERE payment_status = 'pending' 
+          AND status != 'cancelled'
+          AND created_at < datetime('now', '-15 minutes')
+      `).run();
+    } catch (e) {
+      console.error('Failed to expire pending bookings:', e);
+    }
+  }
+
   async getAvailableSlots(calendarId: number, date: string, courseDurationMin?: number): Promise<any[]> {
+    await this.expirePendingBookings();
+    
+    // Check if the requested date is a holiday
+    const { results: holidays } = await this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? AND date=?').bind(calendarId, date).all();
+    if (holidays && holidays.length > 0) return [];
+
     const dow = new Date(date).getDay();
     const { results: rules } = await this.db.prepare(`
       SELECT * FROM Calendar_Slot_Rules
@@ -78,9 +98,11 @@ export class CalendarRepository {
 
       for (const { start, end } of subSlotTimes) {
         const { results: bookings } = await this.db.prepare(`
-          SELECT COUNT(*) as cnt FROM Bookings
-          WHERE calendar_id=? AND slot_date=? AND slot_start_time=?
-            AND payment_status != 'cancelled' AND status != 'cancelled'
+          SELECT COUNT(*) as cnt FROM Bookings b
+          JOIN Courses c ON b.course_id = c.id
+          WHERE c.calendar_id=? AND SUBSTR(b.scheduled_at, 1, 10)=? AND SUBSTR(b.scheduled_at, 12, 5)=?
+            AND b.status != 'cancelled'
+            AND (b.payment_status = 'paid' OR (b.payment_status = 'pending' AND (strftime('%s', 'now') - strftime('%s', b.created_at)) < 300))
         `).bind(calendarId, date, start).all();
         const booked = (bookings[0] as any)?.cnt ?? 0;
         slots.push({
@@ -94,5 +116,96 @@ export class CalendarRepository {
       }
     }
     return slots;
+  }
+
+  async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number): Promise<any[]> {
+    await this.expirePendingBookings();
+    
+    const today = new Date();
+    // Use local time for Thai timezone if needed, but we'll just use standard ISO date 
+    // Mellow Play operates in Thailand, so let's adjust by +7 hours to get the local date
+    const localNow = new Date(today.getTime() + 7 * 60 * 60 * 1000);
+    const startDateStr = localNow.toISOString().split('T')[0];
+    
+    const endDate = new Date(localNow.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const bookingsQuery = `
+        SELECT SUBSTR(b.scheduled_at, 1, 10) as slot_date, SUBSTR(b.scheduled_at, 12, 5) as slot_start_time, COUNT(*) as cnt 
+        FROM Bookings b
+        JOIN Courses c ON b.course_id = c.id
+        WHERE c.calendar_id=? ${branchId ? `AND b.branch_id=${branchId}` : ''} 
+          AND SUBSTR(b.scheduled_at, 1, 10) >= ? AND SUBSTR(b.scheduled_at, 1, 10) <= ? 
+          AND b.status != 'cancelled' 
+          AND (b.payment_status = 'paid' OR (b.payment_status = 'pending' AND (strftime('%s', 'now') - strftime('%s', b.created_at)) < 300))
+        GROUP BY SUBSTR(b.scheduled_at, 1, 10), SUBSTR(b.scheduled_at, 12, 5)
+    `;
+
+    const [rulesRes, holidaysRes, bookingsRes] = await this.db.batch([
+      this.db.prepare('SELECT * FROM Calendar_Slot_Rules WHERE calendar_id=? AND is_active=1').bind(calendarId),
+      this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? AND date >= ? AND date <= ?').bind(calendarId, startDateStr, endDateStr),
+      this.db.prepare(bookingsQuery).bind(calendarId, startDateStr, endDateStr)
+    ]);
+
+    const rules = rulesRes.results as any[];
+    const holidays = new Set((holidaysRes.results as any[]).map(h => h.date));
+    const bookingMap = new Map();
+    (bookingsRes.results as any[]).forEach(b => {
+      bookingMap.set(`${b.slot_date}_${b.slot_start_time.substring(0,5)}`, b.cnt);
+    });
+
+    const upcoming = [];
+    
+    for (let i = 0; i < daysAhead; i++) {
+      const current = new Date(localNow.getTime() + i * 24 * 60 * 60 * 1000);
+      const dateStr = current.toISOString().split('T')[0];
+      
+      if (holidays.has(dateStr)) continue;
+
+      const dow = current.getDay();
+      
+      const daySlots = [];
+      for (const rule of rules) {
+        if (rule.valid_from && dateStr < rule.valid_from) continue;
+        if (rule.valid_until && dateStr > rule.valid_until) continue;
+        
+        if (rule.day_of_week !== null && rule.day_of_week !== dow) continue;
+        if (rule.specific_date !== null && rule.specific_date !== dateStr) continue;
+
+        const startTime = rule.start_time.substring(0, 5);
+        const booked = bookingMap.get(`${dateStr}_${startTime}`) || 0;
+        daySlots.push({
+          ruleId: rule.id,
+          startTime: startTime,
+          endTime: rule.end_time.substring(0, 5),
+          maxCapacity: rule.max_capacity,
+          booked,
+          available: Math.max(0, rule.max_capacity - booked),
+        });
+      }
+
+      if (daySlots.length > 0) {
+        daySlots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+        upcoming.push({ date: dateStr, slots: daySlots });
+      }
+    }
+
+    return upcoming;
+  }
+
+  // ── Holidays ───────────────────────────────────────────────────────────────
+  async getHolidays(calendarId: number): Promise<any[]> {
+    const { results } = await this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? ORDER BY date').bind(calendarId).all();
+    return results;
+  }
+  async createHoliday(d: any): Promise<number> {
+    const r = await this.db.prepare(`
+      INSERT INTO Calendar_Holidays (calendar_id, date, description)
+      VALUES (?, ?, ?)
+    `).bind(d.calendarId, d.date, d.description ?? null).run();
+    return r.meta.last_row_id as number;
+  }
+  async deleteHoliday(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Calendar_Holidays WHERE id=?').bind(id).run();
   }
 }

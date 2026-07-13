@@ -100,7 +100,7 @@ const ReportDisplay: React.FC<ReportDisplayProps> = ({ isGuest, isLocked, hasDat
               </div>
 
               {/* Video Thumbnail */}
-              <div className="aspect-square rounded-[24px] overflow-hidden bg-gradient-to-br from-pink-100 to-pink-200 relative group/vid cursor-pointer" onClick={() => navigate('/report/today')}>
+              <div className="aspect-square rounded-[24px] overflow-hidden bg-gradient-to-br from-pink-100 to-pink-200 relative group/vid cursor-pointer" onClick={() => navigate('/report')}>
                  <div className="absolute inset-0 flex items-center justify-center text-4xl">🎨</div>
                  <div className="absolute inset-0 bg-black/10 flex items-center justify-center">
                     <div className="w-10 h-10 bg-white/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg transform group-hover/vid:scale-110 transition-transform">
@@ -119,7 +119,7 @@ const ReportDisplay: React.FC<ReportDisplayProps> = ({ isGuest, isLocked, hasDat
 
             {/* Details Button - Renamed to Full Report */}
             <button 
-              onClick={() => navigate('/report/today')}
+              onClick={() => navigate('/report')}
               className="w-full py-4 bg-slate-900 text-white rounded-[22px] font-black text-[14px] uppercase tracking-[0.15em] flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-all"
             >
               {t.report.viewFullReport}

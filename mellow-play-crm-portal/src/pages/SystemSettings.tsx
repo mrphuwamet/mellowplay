@@ -21,25 +21,24 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 interface Branch {
   id: string;
   name: string;
-  location: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  open_time?: string;
+  close_time?: string;
 }
 
-interface DefaultSlot {
-  id: string;
-  branch_id: string;
-  label: string;
-  start_time: string;
-  end_time: string;
-}
 
 const SystemSettings = () => {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
-  const [defaultSlots, setDefaultSlots] = useState<DefaultSlot[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [slotOpen, setSlotOpen] = useState(false);
-  const [newSlot, setNewSlot] = useState({ label: '', startTime: '10:00', endTime: '13:00' });
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; onConfirm: () => void }>({ open: false, title: '', onConfirm: () => {} });
+
+  const [branchOpen, setBranchOpen] = useState(false);
+  const [branchForm, setBranchForm] = useState<Partial<Branch>>({});
+  const [isEditBranch, setIsEditBranch] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -55,47 +54,35 @@ const SystemSettings = () => {
     finally { setLoading(false); }
   };
 
-  const fetchSlots = async (branchId: string) => {
-    if (!branchId) return;
-    try {
-      const res = await axios.get(`${API_BASE}/branch-default-slots?branchId=${branchId}`);
-      if (res.data.success) setDefaultSlots(res.data.slots);
-    } catch (e) { console.error(e); }
-  };
-
   useEffect(() => { fetchData(); }, []);
-  useEffect(() => { fetchSlots(selectedBranchId); }, [selectedBranchId]);
 
-  const handleAddSlot = async () => {
-    if (!selectedBranchId) {
-      alert('กรุณาเลือกสาขาก่อนเพิ่มช่วงเวลา');
-      return;
-    }
-    if (!newSlot.label || !newSlot.startTime || !newSlot.endTime) {
-      alert('กรุณากรอกข้อมูลให้ครบถ้วน');
-      return;
-    }
-
+  const handleSaveBranch = async () => {
     try {
-      await axios.post(`${API_BASE}/branch-default-slots`, {
-        ...newSlot,
-        branchId: selectedBranchId
-      });
-      setSlotOpen(false);
-      setNewSlot({ label: '', startTime: '10:00', endTime: '13:00' });
-      fetchSlots(selectedBranchId);
-    } catch (e: any) { 
-      console.error(e);
-      alert('Failed to add default slot: ' + (e.response?.data?.message || e.message)); 
+      if (isEditBranch) {
+        await axios.patch(`${API_BASE}/branches/${branchForm.id}`, branchForm);
+      } else {
+        await axios.post(`${API_BASE}/branches`, branchForm);
+      }
+      setBranchOpen(false);
+      fetchData();
+    } catch (e: any) {
+      alert('Failed to save branch: ' + (e.response?.data?.message || e.message));
     }
   };
 
-  const handleDeleteSlot = async (id: string) => {
-    if (!window.confirm('ลบช่วงเวลามาตรฐานนี้?')) return;
-    try {
-      await axios.delete(`${API_BASE}/branch-default-slots/${id}`);
-      fetchSlots(selectedBranchId);
-    } catch (e) { console.error(e); }
+  const handleDeleteBranch = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      open: true,
+      title: 'ลบสาขานี้?',
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        try {
+          await axios.delete(`${API_BASE}/branches/${id}`);
+          fetchData();
+        } catch (e: any) { alert('Error: ' + e.message); }
+      }
+    });
   };
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
@@ -108,11 +95,16 @@ const SystemSettings = () => {
       </Box>
 
       <Grid container spacing={4}>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={12}>
           <Paper sx={{ p: 3, borderRadius: 4 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BranchIcon color="primary" /> เลือกสาขาที่ต้องการตั้งค่า
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <BranchIcon color="primary" /> สาขา
+              </Typography>
+              <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => { setBranchForm({}); setIsEditBranch(false); setBranchOpen(true); }} sx={{ borderRadius: 2 }}>
+                เพิ่ม
+              </Button>
+            </Box>
             <List>
               {branches.map(b => (
                 <ListItem key={b.id} disablePadding sx={{ mb: 1 }}>
@@ -121,99 +113,46 @@ const SystemSettings = () => {
                     onClick={() => setSelectedBranchId(b.id)}
                     sx={{ borderRadius: 2 }}
                   >
-                    <ListItemText primary={b.name} secondary={b.location} primaryTypographyProps={{ fontWeight: 700 }} />
+                    <ListItemText primary={b.name} secondary={b.address || 'ไม่มีข้อมูลที่อยู่'} primaryTypographyProps={{ fontWeight: 700 }} />
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); setBranchForm(b); setIsEditBranch(true); setBranchOpen(true); }}><SettingsIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" color="error" onClick={(e) => handleDeleteBranch(e, b.id)}><DeleteIcon fontSize="small" /></IconButton>
                   </ListItemButton>
                 </ListItem>
               ))}
             </List>
           </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 4, borderRadius: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>ช่วงเวลาเปิดสอนมาตรฐาน (Default Slots)</Typography>
-                <Typography variant="body2" color="text.secondary">ค่าเริ่มต้นสำหรับหน้า "จัดตารางเรียน" ของสาขานี้</Typography>
-              </Box>
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setSlotOpen(true)} sx={{ borderRadius: 3, fontWeight: 800 }}>
-                เพิ่มช่วงเวลา
-              </Button>
-            </Box>
-
-            <Divider sx={{ mb: 3 }} />
-
-            <List>
-              {defaultSlots.map(slot => (
-                <ListItem 
-                  key={slot.id} 
-                  secondaryAction={
-                    <IconButton edge="end" color="error" onClick={() => handleDeleteSlot(slot.id)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  }
-                  sx={{ bgcolor: '#f8fafc', borderRadius: 3, mb: 2, py: 2 }}
-                >
-                  <ListItemAvatar>
-                    <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}>
-                      <TimeIcon />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary={slot.label} 
-                    secondary={`${slot.start_time} - ${slot.end_time}`} 
-                    primaryTypographyProps={{ fontWeight: 800 }}
-                  />
-                </ListItem>
-              ))}
-              {defaultSlots.length === 0 && (
-                <Box sx={{ textAlign: 'center', py: 6, border: '1px dashed #cbd5e1', borderRadius: 4 }}>
-                  <Typography color="text.secondary">ยังไม่มีการตั้งค่าช่วงเวลามาตรฐาน</Typography>
-                  <Button sx={{ mt: 1, fontWeight: 700 }} onClick={() => setSlotOpen(true)}>สร้างตอนนี้</Button>
-                </Box>
-              )}
-            </List>
-          </Paper>
-        </Grid>
+      </Grid>
       </Grid>
 
-      <Dialog open={slotOpen} onClose={() => setSlotOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>เพิ่มช่วงเวลามาตรฐาน</DialogTitle>
+      <Dialog open={branchOpen} onClose={() => setBranchOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>{isEditBranch ? 'แก้ไขสาขา' : 'เพิ่มสาขาใหม่'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={3} sx={{ mt: 1 }}>
-            <TextField 
-              label="ชื่อเรียก (e.g. รอบเช้า)" 
-              fullWidth 
-              value={newSlot.label} 
-              onChange={e => setNewSlot({...newSlot, label: e.target.value})} 
-            />
+            <TextField label="ชื่อสาขา *" fullWidth value={branchForm.name || ''} onChange={e => setBranchForm({...branchForm, name: e.target.value})} />
+            <TextField label="ที่อยู่" fullWidth value={branchForm.address || ''} onChange={e => setBranchForm({...branchForm, address: e.target.value})} />
             <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <TextField 
-                  label="เริ่ม" 
-                  type="time" 
-                  fullWidth 
-                  value={newSlot.startTime} 
-                  onChange={e => setNewSlot({...newSlot, startTime: e.target.value})} 
-                  InputLabelProps={{ shrink: true }} 
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField 
-                  label="สิ้นสุด" 
-                  type="time" 
-                  fullWidth 
-                  value={newSlot.endTime} 
-                  onChange={e => setNewSlot({...newSlot, endTime: e.target.value})} 
-                  InputLabelProps={{ shrink: true }} 
-                />
-              </Grid>
+              <Grid item xs={6}><TextField label="เบอร์โทร" fullWidth value={branchForm.phone || ''} onChange={e => setBranchForm({...branchForm, phone: e.target.value})} /></Grid>
+              <Grid item xs={6}><TextField label="อีเมล" fullWidth value={branchForm.email || ''} onChange={e => setBranchForm({...branchForm, email: e.target.value})} /></Grid>
+              <Grid item xs={6}><TextField label="เวลาเปิด" type="time" InputLabelProps={{ shrink: true }} fullWidth value={branchForm.open_time || ''} onChange={e => setBranchForm({...branchForm, open_time: e.target.value})} /></Grid>
+              <Grid item xs={6}><TextField label="เวลาปิด" type="time" InputLabelProps={{ shrink: true }} fullWidth value={branchForm.close_time || ''} onChange={e => setBranchForm({...branchForm, close_time: e.target.value})} /></Grid>
             </Grid>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setSlotOpen(false)} variant="outlined" sx={{ borderRadius: 3, fontWeight: 700 }}>ยกเลิก</Button>
-          <Button onClick={handleAddSlot} variant="contained" sx={{ borderRadius: 3, fontWeight: 800 }}>บันทึกค่าเริ่มต้น</Button>
+          <Button onClick={() => setBranchOpen(false)}>ยกเลิก</Button>
+          <Button onClick={handleSaveBranch} variant="contained">บันทึก</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Confirm Dialog */}
+      <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยืนยันการลบ</DialogTitle>
+        <DialogContent>
+          <Typography>{confirmDialog.title}</Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>ยกเลิก</Button>
+          <Button variant="contained" color="error" onClick={confirmDialog.onConfirm} sx={{ borderRadius: 3, fontWeight: 700 }}>ลบข้อมูล</Button>
         </DialogActions>
       </Dialog>
     </Box>

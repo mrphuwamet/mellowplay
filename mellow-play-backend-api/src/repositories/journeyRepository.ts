@@ -18,9 +18,10 @@ export class JourneyRepository {
 
   async getChildProgress(childId: number): Promise<JourneyProgress[]> {
     const { results } = await this.db.prepare(`
-      SELECT j.*, m.media_url, m.media_type
+      SELECT j.*, m.media_url, m.media_type, n.title as node_title, n.description as node_desc
       FROM Child_Journey j
       LEFT JOIN Journey_Media m ON j.id = m.journey_id
+      LEFT JOIN Roadmap_Nodes n ON j.node_id = n.id
       WHERE j.child_id = ?
       ORDER BY j.completed_at DESC
     `).bind(childId).all<any>();

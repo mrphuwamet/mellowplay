@@ -41,9 +41,18 @@ export class AdminRepository {
     ).bind(id).first();
     if (!user) return null;
 
-    const { results: children } = await this.db.prepare(
-      'SELECT * FROM User_CRM_Children WHERE user_id = ? ORDER BY created_at ASC'
+    const { results: crmChildren } = await this.db.prepare(
+      'SELECT *, 0 as is_hd FROM User_CRM_Children WHERE user_id = ? ORDER BY created_at ASC'
     ).bind(id).all();
+
+    const { results: hdChildren } = await this.db.prepare(`
+      SELECT c.id, hp.name as full_name, hp.nickname, hp.gender, hp.birth_date as date_of_birth, 1 as is_hd
+      FROM Children c
+      JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
+      WHERE hp.user_id = ?
+    `).bind(id).all();
+
+    const children = [...(crmChildren || []), ...(hdChildren || [])];
 
     const { results: coupons } = await this.db.prepare(
       'SELECT * FROM User_Coupons WHERE user_id = ? ORDER BY expires_at ASC'
@@ -130,11 +139,17 @@ export class AdminRepository {
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
+        hp.nickname as child_nickname,
+        hp.birth_date as child_birth_date,
+        (u.first_name || ' ' || u.last_name) as parent_name,
+        u.phone as parent_phone,
+        u.email as parent_email,
         co.name as course_name, co.original_price,
         br.name as branch_name
       FROM Bookings b
       LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
       LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
+      LEFT JOIN Users u ON ch.parent_id = u.id
       JOIN Courses co ON b.course_id = co.id
       JOIN Branches br ON b.branch_id = br.id
       WHERE 1=1
@@ -254,7 +269,12 @@ export class AdminRepository {
 
   async getAllCourses(): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT c.*, cat.name as category_name
+      SELECT c.*, cat.name as category_name,
+        (
+          SELECT json_group_array(json_object('day_of_week', day_of_week, 'specific_date', specific_date))
+          FROM Calendar_Slot_Rules
+          WHERE calendar_id = c.calendar_id AND is_active = 1
+        ) as calendar_summary_json
       FROM Courses c
       JOIN Course_Categories cat ON c.category_id = cat.id
       ORDER BY cat.name ASC, c.name ASC
@@ -268,7 +288,7 @@ export class AdminRepository {
   }
 
   async getAllBranches(): Promise<any[]> {
-    const { results } = await this.db.prepare('SELECT * FROM Branches ORDER BY name ASC').all();
+    const { results } = await this.db.prepare('SELECT * FROM Branches WHERE is_active = 1 ORDER BY name ASC').all();
     return results;
   }
 
@@ -301,7 +321,7 @@ export class AdminRepository {
   }
 
   async deleteBranch(id: number): Promise<void> {
-    await this.db.prepare('DELETE FROM Branches WHERE id=?').bind(id).run();
+    await this.db.prepare('UPDATE Branches SET is_active = 0 WHERE id=?').bind(id).run();
   }
 
   // --- Branch Default Slots CRUD ---
@@ -317,10 +337,10 @@ export class AdminRepository {
   async createBranchDefaultSlot(data: any): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO Branch_Default_Slots (
-        branch_id, label, start_time, end_time
-      ) VALUES (?, ?, ?, ?)
+        branch_id, label, start_time, end_time, capacity
+      ) VALUES (?, ?, ?, ?, ?)
     `).bind(
-      data.branchId, data.label, data.startTime, data.endTime
+      data.branchId, data.label, data.startTime, data.endTime, data.capacity ?? 20
     ).run();
     return result.meta.last_row_id;
   }
@@ -331,10 +351,13 @@ export class AdminRepository {
 
   async createCourse(data: {
     categoryId: number;
+    calendarId?: number;
     code?: string;
     name: string;
     nameEn?: string;
     description?: string;
+    shortDescription?: string;
+    branchIds?: string;
     descriptionEn?: string;
     ageMin?: number;
     ageMax?: number;
@@ -349,6 +372,11 @@ export class AdminRepository {
     imagesJson?: string;
     videoUrl?: string;
     teacherGuideUrl?: string;
+    isRecommended?: boolean;
+    isExtraclass?: boolean;
+    shortDescriptionEn?: string;
+    location?: string;
+    location_link?: string;
   }): Promise<number> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -360,7 +388,7 @@ export class AdminRepository {
 
     const result = await this.db.prepare(`
       INSERT INTO Courses (
-        category_id, code, name, name_en, description, description_en,
+        category_id, calendar_id, code, name, name_en, description, short_description, branch_ids, description_en,
         age_min, age_max, duration, original_price, premium_price, coupon_count,
         achievement_skills_json, metrics_json, coupon_requirements_json,
         is_little_junior_enabled, duration_little_junior, coupon_little_junior,
@@ -369,28 +397,44 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, images_json, video_url, teacher_guide_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        thumbnail_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass,
+        short_description_en, location, location_link
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        1, ?, ?, ?, ?,
+        1, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?
+      )
     `).bind(
-      data.categoryId, data.code ?? null, data.name, data.nameEn ?? null,
-      data.description ?? null, data.descriptionEn ?? null,
+      data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
+      data.description ?? null, data.shortDescription ?? null, data.branchIds ?? '[]', data.descriptionEn ?? null,
       data.ageMin ?? 3, data.ageMax ?? 9,
       dur, p, v, c, skills, metrics, couponReqs,
       dur, c, p, v,
       dur, c, p, v,
       skills, metrics, skills, metrics,
       data.thumbnailUrl ?? null, data.imagesJson ?? null,
-      data.videoUrl ?? null, data.teacherGuideUrl ?? null
+      data.videoUrl ?? null, data.teacherGuideUrl ?? null,
+      data.isRecommended ? 1 : 0,
+      data.isExtraclass ? 1 : 0,
+      data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null
     ).run();
     return result.meta.last_row_id;
   }
 
   async updateCourse(id: number, data: {
     categoryId: number;
+    calendarId?: number;
     code?: string;
     name: string;
     nameEn?: string;
     description?: string;
+    shortDescription?: string;
+    branchIds?: string;
     descriptionEn?: string;
     ageMin?: number;
     ageMax?: number;
@@ -405,6 +449,11 @@ export class AdminRepository {
     imagesJson?: string;
     videoUrl?: string;
     teacherGuideUrl?: string;
+    isRecommended?: boolean;
+    isExtraclass?: boolean;
+    shortDescriptionEn?: string;
+    location?: string;
+    location_link?: string;
   }): Promise<void> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -416,7 +465,7 @@ export class AdminRepository {
 
     await this.db.prepare(`
       UPDATE Courses SET
-        category_id = ?, code = ?, name = ?, name_en = ?, description = ?, description_en = ?,
+        category_id = ?, calendar_id = ?, code = ?, name = ?, name_en = ?, description = ?, short_description = ?, branch_ids = ?, description_en = ?,
         age_min = ?, age_max = ?, duration = ?, original_price = ?, premium_price = ?, coupon_count = ?,
         achievement_skills_json = ?, metrics_json = ?, coupon_requirements_json = ?,
         duration_little_junior = ?, coupon_little_junior = ?,
@@ -425,11 +474,13 @@ export class AdminRepository {
         original_price_junior = ?, premium_price_junior = ?,
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
-        thumbnail_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?
+        thumbnail_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
+        is_recommended = ?, is_extraclass = ?,
+        short_description_en = ?, location = ?, location_link = ?
       WHERE id = ?
     `).bind(
-      data.categoryId, data.code ?? null, data.name, data.nameEn ?? null,
-      data.description ?? null, data.descriptionEn ?? null,
+      data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
+      data.description ?? null, data.shortDescription ?? null, data.branchIds ?? '[]', data.descriptionEn ?? null,
       data.ageMin ?? 3, data.ageMax ?? 9,
       dur, p, v, c, skills, metrics, couponReqs,
       dur, c, p, v,
@@ -437,11 +488,16 @@ export class AdminRepository {
       skills, metrics, skills, metrics,
       data.thumbnailUrl ?? null, data.imagesJson ?? null,
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
+      data.isRecommended ? 1 : 0,
+      data.isExtraclass ? 1 : 0,
+      data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       id
     ).run();
   }
 
   async deleteCourse(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Daily_Courses WHERE course_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM Bookings WHERE course_id = ?').bind(id).run();
     await this.db.prepare('DELETE FROM Courses WHERE id = ?').bind(id).run();
   }
 
@@ -518,10 +574,10 @@ export class AdminRepository {
   async createTimeSlot(data: any): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO Time_Slots (
-        branch_id, date, label, start_time, end_time
-      ) VALUES (?, ?, ?, ?, ?)
+        branch_id, date, label, start_time, end_time, capacity
+      ) VALUES (?, ?, ?, ?, ?, ?)
     `).bind(
-      data.branchId, data.date, data.label, data.startTime, data.endTime
+      data.branchId, data.date, data.label, data.startTime, data.endTime, data.capacity ?? 20
     ).run();
     return result.meta.last_row_id;
   }
@@ -529,10 +585,10 @@ export class AdminRepository {
   async updateTimeSlot(id: number, data: any): Promise<void> {
     await this.db.prepare(`
       UPDATE Time_Slots SET 
-        branch_id = ?, date = ?, label = ?, start_time = ?, end_time = ?
+        branch_id = ?, date = ?, label = ?, start_time = ?, end_time = ?, capacity = ?
       WHERE id = ?
     `).bind(
-      data.branchId, data.date, data.label, data.startTime, data.endTime,
+      data.branchId, data.date, data.label, data.startTime, data.endTime, data.capacity ?? 20,
       id
     ).run();
   }

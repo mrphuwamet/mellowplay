@@ -12,7 +12,22 @@ export class AuthController {
       const config = new ConfigService(c.env);
       const settingsRepo = new SettingsRepository(config.db);
       
-      const { phone } = await c.req.json();
+      const { phone, email } = await c.req.json();
+      
+      const userRepository = new UserRepository(config.db);
+      
+      const existingPhoneUser = await userRepository.findByIdentifier(phone);
+      if (existingPhoneUser && existingPhoneUser.phone === phone) {
+        return c.json({ success: false, message: 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว (Phone number is already registered)' }, 400);
+      }
+      
+      if (email) {
+         const existingEmailUser = await userRepository.findByIdentifier(email);
+         if (existingEmailUser && existingEmailUser.email === email) {
+           return c.json({ success: false, message: 'อีเมลนี้ถูกใช้งานแล้ว (Email is already registered)' }, 400);
+         }
+      }
+
       const otp = AuthService.generateOTP();
       
       // Store OTP in KV with 5-min expiry
@@ -44,11 +59,25 @@ export class AuthController {
       return c.json({ success: false, message: error.message }, 500);
     }
   }
+  async verifyOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { phone, otp } = await c.req.json();
+      const storedOtp = await config.kv.get(`otp:${phone}`);
+      
+      if (!storedOtp) return c.json({ success: false, message: 'OTP expired' }, 400);
+      if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
+
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
 
   async register(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { phone, otp, password, firstName, lastName, children } = await c.req.json();
+      const { phone, otp, password, firstName, lastName, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
       const storedOtp = await config.kv.get(`otp:${phone}`);
       
       if (otp !== storedOtp) {
@@ -58,11 +87,28 @@ export class AuthController {
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
-      const userId = await userRepository.createWithChildren(phone, passwordHash, firstName, lastName, children || []);
+      const userId = await userRepository.createWithChildren(
+        phone, 
+        passwordHash, 
+        firstName, 
+        lastName, 
+        children || [],
+        email,
+        lineId,
+        pdpaConsent,
+        marketingConsent,
+        address
+      );
       return c.json({ success: true, userId });
     } catch (error: any) {
       console.error('register error:', error);
-      return c.json({ success: false, message: error.message }, 500);
+      let message = error.message;
+      if (message.includes('UNIQUE constraint failed: Users.email')) {
+        message = 'อีเมลนี้ถูกใช้งานแล้ว (Email is already registered)';
+      } else if (message.includes('UNIQUE constraint failed: Users.phone')) {
+        message = 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว (Phone number is already registered)';
+      }
+      return c.json({ success: false, message }, 500);
     }
   }
 

@@ -8,6 +8,8 @@ export interface Bindings {
   ENVIRONMENT: string;
   SMS_API_KEY: string;
   SMS_API_SECRET: string;
+  BEAM_API_KEY: string;
+  BEAM_MERCHANT_ID: string;
 }
 
 export type Variables = {

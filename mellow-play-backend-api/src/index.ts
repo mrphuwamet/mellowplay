@@ -10,10 +10,14 @@ import { AdminController } from './controllers/adminController';
 import { ShopController } from './controllers/shopController';
 import { HRController } from './controllers/hrController';
 import { CalendarController } from './controllers/calendarController';
-import { QueueController } from './controllers/queueController';
-import { OrderController } from './controllers/orderController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
+import { RedemptionController } from './controllers/redemptionController';
+import { QueueController } from './controllers/queueController';
+import { OrderController } from './controllers/orderController';
+import { CouponController } from './controllers/couponController';
+import { WebhookController } from './controllers/webhookController';
+import { RewardsController } from './controllers/rewardsController';
 import { ConfigService } from './services/configService';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
@@ -21,6 +25,7 @@ const authController = new AuthController();
 const profileController = new ProfileController();
 const journeyController = new JourneyController();
 const adminController = new AdminController();
+const couponController = new CouponController();
 const shopController     = new ShopController();
 const hrController       = new HRController();
 const calendarController      = new CalendarController();
@@ -28,12 +33,18 @@ const queueController         = new QueueController();
 const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
+const redemptionController     = new RedemptionController();
+const webhookController        = new WebhookController();
+const rewardsController        = new RewardsController();
 
 app.use('*', cors());
 
 // --- System Routes ---
 app.get('/', (c) => c.text('Mellow Play API is running!'));
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// Webhooks (No JWT required)
+app.post('/api/v1/webhooks/beam', (c) => webhookController.handleBeamWebhook(c));
 
 // Swagger UI - Accessible in development or if ENVIRONMENT is set
 app.use('/swagger', async (c, next) => {
@@ -164,6 +175,7 @@ app.get('/doc', (c) => {
 
 // --- Auth Routes ---
 app.post('/api/v1/auth/request-otp', (c) => authController.requestOtp(c));
+app.post('/api/v1/auth/verify-otp', (c) => authController.verifyOtp(c));
 app.post('/api/v1/auth/register', (c) => authController.register(c));
 app.post('/api/v1/auth/login', (c) => authController.login(c));
 app.post('/api/v1/auth/admin/login', (c) => authController.adminLogin(c));
@@ -186,7 +198,15 @@ app.use('/api/v1/journey/*', async (c, next) => {
 
 app.get('/api/v1/journey/nodes', (c) => journeyController.listNodes(c));
 app.post('/api/v1/profiles/calculate', (c) => profileController.calculate(c));
+app.post('/api/v1/profiles/children', (c) => profileController.addChild(c));
 app.get('/api/v1/profiles', (c) => profileController.listProfiles(c));
+app.put('/api/v1/profiles/children/:childId', (c) => profileController.updateChild(c));
+app.put('/api/v1/profiles/:childId/avatar', (c) => profileController.updateAvatar(c));
+app.post('/api/v1/profiles/:childId/upload-avatar', (c) => profileController.uploadAvatar(c));
+app.get('/api/v1/profiles/bookings/pending', (c) => profileController.getPendingBookings(c));
+app.get('/api/v1/profiles/bookings/upcoming', (c) => profileController.getUpcomingBookings(c));
+app.get('/api/v1/profiles/bookings/history', (c) => profileController.getHistoryBookings(c));
+app.post('/api/v1/profiles/bookings/:id/cancel', (c) => profileController.cancelMyBooking(c));
 app.get('/api/v1/journey/progress/:childId', (c) => journeyController.getChildProgress(c));
 app.get('/api/v1/journey/album/:childId', (c) => journeyController.getAlbum(c));
 
@@ -203,6 +223,9 @@ app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
 app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.updateUserCoupon(c));
 app.delete('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.deleteUserCoupon(c));
+app.get   ('/api/v1/system/logs',        (c) => adminController.getSystemLogs(c));
+app.delete('/api/v1/system/logs',        (c) => adminController.clearSystemLogs(c));
+
 app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
 app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));
 app.delete('/api/v1/admin/bookings/:id', (c) => adminController.deleteBooking(c));
@@ -221,6 +244,29 @@ app.post('/api/v1/admin/categories', (c) => adminController.createCategory(c));
 app.put('/api/v1/admin/categories/:id', (c) => adminController.updateCategory(c));
 app.delete('/api/v1/admin/categories/:id', (c) => adminController.deleteCategory(c));
 
+app.post('/api/v1/coupons/use', (c) => couponController.useCoupons(c));
+app.post('/api/v1/coupons/staff-use', (c) => couponController.staffUseCoupons(c));
+
+// ================= REWARDS & REDEMPTIONS =================
+app.get('/api/v1/rewards', (c) => rewardsController.getAvailableRewards(c));
+app.post('/api/v1/rewards/redeem', (c) => rewardsController.redeemReward(c));
+
+app.get('/api/v1/admin/rewards', (c) => rewardsController.getAllRewards(c));
+app.post('/api/v1/admin/rewards', (c) => rewardsController.createReward(c));
+app.put('/api/v1/admin/rewards/:id', (c) => rewardsController.updateReward(c));
+app.delete('/api/v1/admin/rewards/:id', (c) => rewardsController.deleteReward(c));
+
+app.get('/api/v1/admin/coupon-types', (c) => couponController.getCouponTypes(c));
+app.post('/api/v1/admin/coupon-types', (c) => couponController.createCouponType(c));
+app.put('/api/v1/admin/coupon-types/:id', (c) => couponController.updateCouponType(c));
+app.delete('/api/v1/admin/coupon-types/:id', (c) => couponController.deleteCouponType(c));
+
+app.get('/api/v1/admin/courses/:courseId/coupons', (c) => couponController.getCourseCoupons(c));
+app.put('/api/v1/admin/courses/:courseId/coupons', (c) => couponController.updateCourseCoupons(c));
+
+app.get('/api/v1/admin/children/:childId/coupons', (c) => couponController.getChildCoupons(c));
+app.post('/api/v1/admin/children/:childId/coupons/:couponTypeId/balance', (c) => couponController.updateChildCouponBalance(c));
+
 app.post('/api/v1/admin/upload', (c) => adminController.uploadFile(c));
 app.get('/api/v1/files/*', (c) => adminController.serveFile(c));
 
@@ -237,7 +283,7 @@ app.post('/api/v1/admin/settings', (c) => adminController.updateSystemSetting(c)
 app.get   ('/api/v1/admin/branches',              (c) => adminController.getBranches(c));
 app.post  ('/api/v1/admin/branches',              (c) => adminController.createBranch(c));
 app.get   ('/api/v1/admin/branches/:id',          (c) => adminController.getBranchById(c));
-app.put   ('/api/v1/admin/branches/:id',          (c) => adminController.updateBranch(c));
+app.patch ('/api/v1/admin/branches/:id',          (c) => adminController.updateBranch(c));
 app.delete('/api/v1/admin/branches/:id',          (c) => adminController.deleteBranch(c));
 app.get   ('/api/v1/admin/branches/:id/settings', (c) => adminController.getBranchSettings(c));
 app.put   ('/api/v1/admin/branches/:id/settings', (c) => adminController.updateBranchSettings(c));
@@ -339,6 +385,10 @@ app.get   ('/api/v1/admin/calendar-slot-rules',    (c) => calendarController.get
 app.post  ('/api/v1/admin/calendar-slot-rules',    (c) => calendarController.createSlotRule(c));
 app.put   ('/api/v1/admin/calendar-slot-rules/:id',(c) => calendarController.updateSlotRule(c));
 app.delete('/api/v1/admin/calendar-slot-rules/:id',(c) => calendarController.deleteSlotRule(c));
+app.get   ('/api/v1/admin/calendar-holidays',      (c) => calendarController.getHolidays(c));
+app.post  ('/api/v1/admin/calendar-holidays',      (c) => calendarController.createHoliday(c));
+app.delete('/api/v1/admin/calendar-holidays/:id',  (c) => calendarController.deleteHoliday(c));
+app.get   ('/api/v1/admin/calendar-slots/upcoming', (c) => calendarController.getUpcomingSlots(c));
 app.get   ('/api/v1/admin/calendar-slots/available',(c) => calendarController.getAvailableSlots(c));
 
 // ── Service Queue ───────────────────────────────────────────────────────────
@@ -375,5 +425,28 @@ app.get('/api/v1/admin/reports/monthly-sales',  (c) => reportController.getMonth
 app.get('/api/v1/admin/reports/best-sellers',   (c) => reportController.getBestSellers(c));
 app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusiestDays(c));
 app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
+
+app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
+
+// ── Promotions CRUD ──────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/promotions',          (c) => adminController.getPromotions(c));
+app.post  ('/api/v1/admin/promotions',          (c) => adminController.createPromotion(c));
+app.put   ('/api/v1/admin/promotions/:id',      (c) => adminController.updatePromotion(c));
+app.delete('/api/v1/admin/promotions/:id',      (c) => adminController.deletePromotion(c));
+
+// ── Campaigns CRUD (Auto-applied Sales) ──────────────────────────────────────
+app.get   ('/api/v1/admin/campaigns',           (c) => adminController.getCampaigns(c));
+app.post  ('/api/v1/admin/campaigns',           (c) => adminController.createCampaign(c));
+app.put   ('/api/v1/admin/campaigns/:id',       (c) => adminController.updateCampaign(c));
+app.delete('/api/v1/admin/campaigns/:id',       (c) => adminController.deleteCampaign(c));
+
+// ── Booking Status ───────────────────────────────────────────────────────────
+app.get('/api/v1/bookings/:id/status',         (c) => adminController.getBookingStatus(c));
+
+// ── Redemptions ─────────────────────────────────────────────────────────────
+app.post('/api/v1/redemptions',                    (c) => redemptionController.create(c));
+app.get ('/api/v1/redemptions/child/:childId',     (c) => redemptionController.listByChild(c));
+app.get ('/api/v1/admin/redemptions/pending',      (c) => redemptionController.listPending(c));
+app.post('/api/v1/admin/redemptions/:id/claim',    (c) => redemptionController.claim(c));
 
 export default app;

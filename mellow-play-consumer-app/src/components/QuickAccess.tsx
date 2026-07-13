@@ -8,13 +8,12 @@ const QuickAccess = () => {
   const { t } = useTranslation();
 
   const menuItems = [
-    { label: t.home.quickAccess.album, icon: Camera, path: '/album', color: 'bg-mellow-blue' },
-    { label: t.home.quickAccess.report, icon: FileText, path: '/report', color: 'bg-mellow-purple' },
-    { label: t.home.quickAccess.knowMyChild, icon: Heart, path: '/know-my-child', color: 'bg-mellow-red' },
+    { label: t.home.quickAccess.album, icon: Camera, path: '/album', color: 'bg-mellow-blue', isComingSoon: true },
+    { label: t.home.quickAccess.knowMyChild, icon: Heart, path: '/know-my-child', color: 'bg-mellow-red', isComingSoon: true },
     { label: t.home.quickAccess.explore, icon: Compass, path: '/explore', color: 'bg-mellow-yellow' },
-    { label: t.home.quickAccess.rewards, icon: Star, path: '/rewards', color: 'bg-mellow-green' },
+    { label: t.home.quickAccess.rewards, icon: Star, path: '/rewards', color: 'bg-mellow-green', isComingSoon: true },
     { label: t.home.quickAccess.journey, icon: Map, path: '/journey', color: 'bg-cyan-500' },
-    { label: t.home.quickAccess.booking, icon: Calendar, path: '/explore', color: 'bg-orange-500' },
+    { label: t.home.quickAccess.booking, icon: Calendar, path: '/booking', color: 'bg-orange-500' },
   ];
 
   return (
@@ -28,11 +27,14 @@ const QuickAccess = () => {
           return (
             <button
               key={item.label}
-              onClick={() => navigate(item.path)}
-              className="flex flex-col items-center gap-2.5 group active:scale-95 transition-all"
+              onClick={() => { if (!item.isComingSoon) navigate(item.path); }}
+              className={`flex flex-col items-center gap-2.5 group transition-all relative ${item.isComingSoon ? 'opacity-60 cursor-default' : 'active:scale-95'}`}
             >
-              <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] group-hover:shadow-xl transition-all relative overflow-hidden`}>
-                <div className="absolute inset-0 bg-white/10 group-active:bg-black/10 transition-colors" />
+              {item.isComingSoon && (
+                <div className="absolute -top-2 bg-mellow-red text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-20">Coming Soon</div>
+              )}
+              <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] ${!item.isComingSoon ? 'group-hover:shadow-xl' : ''} transition-all relative overflow-hidden`}>
+                <div className={`absolute inset-0 bg-white/10 ${!item.isComingSoon ? 'group-active:bg-black/10' : ''} transition-colors`} />
                 <Icon size={24} className="relative z-10" />
               </div>
               <span className="text-[12px] font-black text-slate-600 text-center leading-tight px-1">

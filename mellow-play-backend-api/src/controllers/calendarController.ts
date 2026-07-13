@@ -64,7 +64,18 @@ export class CalendarController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
-  // ── Available Slots ────────────────────────────────────────────────────────
+  async getUpcomingSlots(c: C) {
+    try {
+      const calendarId = c.req.query('calendarId');
+      const branchId = c.req.query('branchId');
+      if (!calendarId) return c.json({ success: false, message: 'calendarId required' }, 400);
+      
+      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 30, branchId ? parseInt(branchId) : undefined);
+      return c.json({ success: true, upcoming });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── Available Slots for a date ─────────────────────────────────────────────
   async getAvailableSlots(c: C) {
     try {
       const { calendarId, date, courseDuration } = c.req.query();
@@ -72,6 +83,30 @@ export class CalendarController {
       const durMin = courseDuration ? Math.round(parseFloat(courseDuration) * 60) : undefined;
       const slots = await this.repo(c).getAvailableSlots(parseInt(calendarId), date, durMin);
       return c.json({ success: true, slots });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── Holidays ───────────────────────────────────────────────────────────────
+  async getHolidays(c: C) {
+    try {
+      const { calendarId } = c.req.query();
+      if (!calendarId) return c.json({ success: false, message: 'calendarId required' }, 400);
+      const holidays = await this.repo(c).getHolidays(parseInt(calendarId));
+      return c.json({ success: true, holidays });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async createHoliday(c: C) {
+    try {
+      const d = await c.req.json();
+      if (!d.calendarId || !d.date) return c.json({ success: false, message: 'calendarId and date required' }, 400);
+      const id = await this.repo(c).createHoliday(d);
+      return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async deleteHoliday(c: C) {
+    try {
+      await this.repo(c).deleteHoliday(parseInt(c.req.param('id')));
+      return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }

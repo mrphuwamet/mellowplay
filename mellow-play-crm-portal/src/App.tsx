@@ -49,6 +49,9 @@ import {
   MiscellaneousServices as ServiceMenuIcon,
   Inventory as ProductMenuIcon,
   Warehouse as StockMenuIcon,
+  CardGiftcard as GiftMenuIcon,
+  LocalActivity as TicketIcon,
+  LocalOffer as PromoIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -74,12 +77,18 @@ import ServiceManagement from './pages/ServiceManagement';
 import ProductManagement from './pages/ProductManagement';
 import StockManagement from './pages/StockManagement';
 import CalendarManagement from './pages/CalendarManagement';
+import CouponManagement from './pages/CouponManagement';
+import PromotionManagement from './pages/PromotionManagement';
+import SaleCampaignManagement from './pages/SaleCampaignManagement';
 import Reports from './pages/Reports';
 import ClassBooking from './pages/ClassBooking';
 import ServiceQueueBoard from './pages/ServiceQueueBoard';
 import POSNew from './pages/POSNew';
 import POSBookingView from './pages/POSBookingView';
 import POSSalesHistory from './pages/POSSalesHistory';
+import RedemptionManagement from './pages/RedemptionManagement';
+import RewardsManagement from './pages/RewardsManagement';
+import { SystemLogs } from './pages/SystemLogs';
 import {
   canAccessFeature,
   FeatureKey,
@@ -334,7 +343,12 @@ const AppContent = () => {
       { text: 'จัดการผู้ใช้งาน', icon: <PeopleIcon />, path: '/crm/parents', feature: 'consumer_users' },
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
       { text: 'จัดการแพ็คเกจ', icon: <PackageIcon />, path: '/crm/packages', feature: 'packages' },
+      { text: 'จัดการคูปอง', icon: <TicketIcon />, path: '/crm/coupons', feature: 'packages' },
+      { text: 'จัดการโปรโมชัน', icon: <PromoIcon />, path: '/crm/promotions', feature: 'packages' },
+      { text: 'จัดการแคมเปญลดราคา', icon: <CampaignMenuIcon />, path: '/crm/sale-campaigns', feature: 'packages' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
+      { text: 'จัดการของรางวัล', icon: <GiftMenuIcon />, path: '/crm/rewards', feature: 'bookings' },
       { text: 'จัดการปฏิทิน',        icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
     ];
 
@@ -373,6 +387,7 @@ const AppContent = () => {
       { text: 'รายงาน', icon: <ReportIcon />, path: '/crm/reports', feature: 'dashboard' },
       { text: 'ตั้งค่าระบบและสาขา', icon: <SettingsIcon />, path: '/crm/settings', feature: 'settings' },
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
+      { text: 'System Logs', icon: <SecurityIcon />, path: '/crm/system-logs', feature: 'settings' },
     ];
     bottomItems.filter((item) => hasPermission(item.feature)).forEach((item) => filtered.push(item));
 
@@ -459,9 +474,9 @@ const AppContent = () => {
               size="small"
               sx={{ fontWeight: 700, fontSize: '9px', height: 16, mt: 0.3, '& .MuiChip-label': { px: 0.75 } }}
             />
-            {currentUser?.selectedBranchName && (
+            {(currentUser?.role === 'super_admin' || currentUser?.selectedBranchName) && (
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontWeight: 700, color: 'primary.main' }}>
-                สาขา: {currentUser.selectedBranchName}
+                สาขา: {currentUser?.role === 'super_admin' ? 'ทุกสาขา' : currentUser?.selectedBranchName}
               </Typography>
             )}
           </Box>
@@ -704,6 +719,9 @@ const AppContent = () => {
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
+            <Route path="/crm/users" element={protect('customers', <CrmUserManagement />)} />
+            <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />
+            <Route path="/crm/rewards" element={protect('bookings', <RewardsManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />
             <Route path="/crm/my-schedule" element={<Navigate to="/crm/bookings" replace />} />
             <Route path="/crm/class-booking" element={<Navigate to="/pos/class-booking" replace />} />
@@ -719,9 +737,13 @@ const AppContent = () => {
             <Route path="/crm/stock"    element={protect('stock',    <StockManagement />)} />
             <Route path="/crm/settings" element={protect('settings', <SystemSettings />)} />
             <Route path="/crm/permissions" element={protect('permissions', <RolePermissionManagement currentUserRole={currentUser?.role} />)} />
+            <Route path="/crm/system-logs" element={protect('settings', <SystemLogs />)} />
             <Route path="/crm/skills-library"  element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
+            <Route path="/crm/coupons"         element={protect('packages', <CouponManagement />)} />
+            <Route path="/crm/promotions"      element={protect('packages', <PromotionManagement />)} />
+            <Route path="/crm/sale-campaigns"  element={protect('packages', <SaleCampaignManagement />)} />
             <Route path="/crm/class-booking"   element={protect('bookings', <ClassBooking />)} />
             <Route path="/crm/service-queue"   element={protect('services', <ServiceQueueBoard />)} />
             

@@ -32,10 +32,59 @@ export class HDProfileRepository {
     return result.meta.last_row_id;
   }
 
-  async findByUserId(userId: number): Promise<HDProfile[]> {
-    const { results } = await this.db.prepare('SELECT * FROM HD_Profiles WHERE user_id = ?')
+  async findByUserId(userId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT 
+        h.*,
+        c.id as child_id,
+        c.current_level,
+        c.avatar,
+        COALESCE(mc.little_junior_balance, 0) as little_junior_balance,
+        COALESCE(mc.junior_balance, 0) as junior_balance,
+        (
+          SELECT json_group_array(json_object(
+            'id', ct.id,
+            'name', ct.name,
+            'color', ct.color,
+            'icon_url', ct.icon_url,
+            'balance', cc.balance,
+            'total_earned', cc.total_earned
+          ))
+          FROM ChildCoupons cc
+          JOIN CouponTypes ct ON cc.coupon_type_id = ct.id
+          WHERE cc.child_id = c.id AND (cc.balance > 0 OR cc.total_earned > 0)
+        ) as coupons_json
+      FROM HD_Profiles h
+      LEFT JOIN Children c ON h.id = c.hd_profile_id
+      LEFT JOIN Member_Coupons mc ON c.id = mc.child_id
+      WHERE h.user_id = ?
+    `)
       .bind(userId)
-      .all<HDProfile>();
-    return results;
+      .all<any>();
+      
+    return results.map(r => ({
+      ...r,
+      coupons: r.coupons_json ? JSON.parse(r.coupons_json) : []
+    }));
+  }
+
+  async updateAvatar(childId: number, avatar: string): Promise<boolean> {
+    const result = await this.db.prepare(`
+      UPDATE Children SET avatar = ? WHERE id = ?
+    `).bind(avatar, childId).run();
+    
+    return result.success;
+  }
+
+  async updateChildProfile(childId: number, name: string, nickname: string, birth_date: string, relation: string, gender: string = ""): Promise<boolean> {
+    // First find the hd_profile_id from Children
+    const child = await this.db.prepare(`SELECT hd_profile_id FROM Children WHERE id = ?`).bind(childId).first<{ hd_profile_id: number }>();
+    if (!child) return false;
+
+    const result = await this.db.prepare(`
+      UPDATE HD_Profiles SET name = ?, nickname = ?, birth_date = ?, relation = ?, gender = ? WHERE id = ?
+    `).bind(name, nickname, birth_date, relation, gender, child.hd_profile_id).run();
+    
+    return result.success;
   }
 }

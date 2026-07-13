@@ -11,7 +11,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
-  ToggleButton, ToggleButtonGroup,
+  ToggleButton, ToggleButtonGroup, Switch, FormControlLabel,
   Tab, Tabs,
 } from '@mui/material';
 import {
@@ -62,10 +62,14 @@ interface Course {
   coupon_requirements_json?: string;
   achievement_skills_json?: string;
   metrics_json?: string;
+  short_description?: string;
+  branch_ids?: string;
   thumbnail_url?: string;
   images_json?: string;
   video_url?: string;
   teacher_guide_url?: string;
+  is_recommended?: boolean;
+  is_extraclass?: boolean;
   // Legacy fields — used for migration only
   is_little_junior_enabled?: boolean;
   is_junior_enabled?: boolean;
@@ -73,6 +77,8 @@ interface Course {
   premium_price_little_junior?: number;
   achievement_skills_little_junior_json?: string;
   metrics_little_junior_json?: string;
+  calendar_id?: number;
+  location_link?: string;
 }
 
 interface Category {
@@ -88,11 +94,7 @@ const AGE_PRESETS = [
   { label: '6 – 8 ปี', min: 6, max: 8 },
 ];
 
-const COUPON_TYPES = [
-  { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3' },
-  { id: 'yellow', label: 'คูปองสีเหลือง', color: '#f59e0b' },
-  { id: 'red',    label: 'คูปองสีแดง',    color: '#ef4444' },
-];
+
 
 interface CouponRequirement {
   typeId: string;
@@ -216,6 +218,9 @@ const CourseManagement = () => {
   const currentUserRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role; } catch { return ''; } })();
   const [courses, setCourses] = useState<Course[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [calendars, setCalendars] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [couponTypes, setCouponTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -233,7 +238,13 @@ const CourseManagement = () => {
     nameEn: '',
     description: '',
     descriptionEn: '',
+    shortDescription: '',
+    shortDescriptionEn: '',
+    location: '',
+    locationLink: '',
+    branchIds: [] as string[],
     categoryId: 0,
+    calendarId: 0,
     ageMin: 3,
     ageMax: 9,
     duration: '01:00',
@@ -250,6 +261,8 @@ const CourseManagement = () => {
     salesCommissionValue: '',
     teacherCommissionType: 'percent' as 'percent' | 'fixed',
     teacherCommissionValue: '',
+    isRecommended: false,
+    isExtraclass: false,
   });
 
   const [categoryFormData, setCategoryFormData] = useState({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
@@ -296,12 +309,18 @@ const CourseManagement = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [coursesRes, catsRes] = await Promise.all([
+      const [coursesRes, catsRes, calRes, branchesRes, couponsRes] = await Promise.all([
         axios.get(`${API_BASE}/courses`),
         axios.get(`${API_BASE}/categories`),
+        axios.get(`${API_BASE}/calendars`),
+        axios.get(`${API_BASE}/branches`),
+        axios.get(`${API_BASE}/coupon-types`),
       ]);
       if (coursesRes.data.success) setCourses(coursesRes.data.courses || []);
       if (catsRes.data.success) setCategories(catsRes.data.categories || []);
+      if (calRes.data.success) setCalendars(calRes.data.calendars || []);
+      if (branchesRes.data.success) setBranches(branchesRes.data.branches || []);
+      if (couponsRes.data.success) setCouponTypes(couponsRes.data.couponTypes || []);
     } catch (e) { console.error('Failed to fetch data', e); }
     finally { setLoading(false); }
   };
@@ -320,46 +339,57 @@ const CourseManagement = () => {
     });
   }, [courses, filters]);
 
-  const handleEditOpen = (course: Course | null = null) => {
+  const handleEditOpen = async (course: Course | null = null) => {
     setSaveError(null);
+    setPageTab(0);
     if (course) {
-      setEditCourse(course);
-      // Migrate legacy dual-tier data → new single-tier
-      const ageMin = course.age_min ?? (course.is_little_junior_enabled ? 3 : 6);
-      const ageMax = course.age_max ?? (course.is_junior_enabled ? 9 : 5);
-      const originalPrice = course.original_price ?? course.original_price_little_junior ?? 0;
-      const premiumPrice = course.premium_price ?? course.premium_price_little_junior ?? 0;
-      const normalizeTags = (raw: any[]): { th: string; en: string }[] =>
-        raw.map(item => typeof item === 'string' ? { th: item, en: '' } : item);
+      let reqs: CouponRequirement[] = [];
+      try {
+        const { data } = await axios.get(`${API_BASE}/courses/${course.id}/coupons`);
+        if (data.success && data.courseCoupons && data.courseCoupons.length > 0) {
+          reqs = data.courseCoupons.map((cc: any) => ({
+            typeId: cc.id.toString(),
+            label: cc.name,
+            count: cc.quantity_required
+          }));
+        } else {
+          // fallback to old json
+          reqs = course.coupon_requirements_json
+            ? JSON.parse(course.coupon_requirements_json)
+            : course.coupon_count
+              ? [{ typeId: couponTypes[0]?.id?.toString() || '1', label: couponTypes[0]?.name || 'Coupon', count: course.coupon_count }]
+              : [];
+        }
+      } catch (e) {
+        console.error('Failed to fetch course coupons', e);
+      }
 
-      const skills = normalizeTags(
-        course.achievement_skills_json ? JSON.parse(course.achievement_skills_json)
-        : course.achievement_skills_little_junior_json ? JSON.parse(course.achievement_skills_little_junior_json)
-        : []
-      );
-      const metrics = normalizeTags(
-        course.metrics_json ? JSON.parse(course.metrics_json)
-        : course.metrics_little_junior_json ? JSON.parse(course.metrics_little_junior_json)
-        : []
-      );
+      let skills = [];
+      try { skills = course.achievement_skills_json ? JSON.parse(course.achievement_skills_json) : []; } catch (e) { }
+      let metrics = [];
+      try { metrics = course.metrics_json ? JSON.parse(course.metrics_json) : []; } catch (e) { }
+
+      setEditCourse(course);
       setFormData({
         id: course.id,
-        code: course.code || '',
+        code: course.code,
         name: course.name,
         nameEn: course.name_en || '',
         description: course.description || '',
         descriptionEn: course.description_en || '',
+        shortDescription: course.short_description || '',
+        shortDescriptionEn: (course as any).short_description_en || '',
+        location: (course as any).location || '',
+        locationLink: (course as any).location_link || '',
+        branchIds: course.branch_ids ? JSON.parse(course.branch_ids) : [],
         categoryId: course.category_id,
-        ageMin,
-        ageMax,
+        calendarId: course.calendar_id || 0,
+        ageMin: course.age_min || 3,
+        ageMax: course.age_max || 9,
         duration: course.duration || '01:00',
-        originalPrice: originalPrice.toString(),
-        premiumPrice: premiumPrice.toString(),
-        couponRequirements: course.coupon_requirements_json
-          ? JSON.parse(course.coupon_requirements_json)
-          : course.coupon_count
-            ? [{ typeId: 'blue', label: 'คูปองสีฟ้า', count: course.coupon_count }]
-            : [],
+        originalPrice: course.original_price?.toString() || '',
+        premiumPrice: course.premium_price?.toString() || '',
+        couponRequirements: reqs,
         skills,
         metrics,
         thumbnailUrl: course.thumbnail_url || '',
@@ -370,25 +400,32 @@ const CourseManagement = () => {
         salesCommissionValue: (course as any).sales_commission_value != null ? String((course as any).sales_commission_value) : '',
         teacherCommissionType: (course as any).teacher_commission_type || 'percent',
         teacherCommissionValue: (course as any).teacher_commission_value != null ? String((course as any).teacher_commission_value) : '',
+        isRecommended: !!course.is_recommended,
+        isExtraclass: !!course.is_extraclass,
       });
     } else {
       setEditCourse(null);
       setFormData({
-        id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '',
-        categoryId: categories[0]?.id || 0, ageMin: 3, ageMax: 9,
+        id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '', shortDescription: '', shortDescriptionEn: '', location: '', locationLink: '', branchIds: [],
+        categoryId: categories[0]?.id || 0, calendarId: 0, ageMin: 3, ageMax: 9,
         duration: '01:00', originalPrice: '', premiumPrice: '', couponRequirements: [],
         skills: [] as { th: string; en: string }[], metrics: [] as { th: string; en: string }[], thumbnailUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
         salesCommissionType: 'percent', salesCommissionValue: '',
         teacherCommissionType: 'percent', teacherCommissionValue: '',
+        isRecommended: false,
+        isExtraclass: false,
       });
     }
     setIsEditing(true);
   };
 
-  const addCouponRequirement = () => setFormData({
-    ...formData,
-    couponRequirements: [...formData.couponRequirements, { typeId: 'blue', label: 'คูปองสีฟ้า', count: 1 }],
-  });
+  const addCouponRequirement = () => {
+    if (couponTypes.length === 0) return;
+    setFormData({
+      ...formData,
+      couponRequirements: [...formData.couponRequirements, { typeId: couponTypes[0].id.toString(), label: couponTypes[0].name, count: 1 }],
+    });
+  };
 
   const removeCouponRequirement = (idx: number) => setFormData({
     ...formData,
@@ -399,8 +436,8 @@ const CourseManagement = () => {
     const reqs = formData.couponRequirements.map((r, i) => {
       if (i !== idx) return r;
       if (field === 'typeId') {
-        const type = COUPON_TYPES.find(t => t.id === value);
-        return { ...r, typeId: value as string, label: type?.label ?? String(value) };
+        const type = couponTypes.find(t => t.id.toString() === value.toString());
+        return { ...r, typeId: value as string, label: type?.name ?? String(value) };
       }
       return { ...r, count: Math.max(1, Number(value)) };
     });
@@ -418,7 +455,13 @@ const CourseManagement = () => {
         nameEn:            formData.nameEn,
         description:       formData.description,
         descriptionEn:     formData.descriptionEn,
+        shortDescription:  formData.shortDescription,
+        shortDescriptionEn: formData.shortDescriptionEn,
+        location:          formData.location,
+        location_link:     formData.locationLink,
+        branchIds:         JSON.stringify(formData.branchIds),
         categoryId:        formData.categoryId,
+        calendarId:        formData.calendarId || null,
         ageMin:            formData.ageMin,
         ageMax:            formData.ageMax,
         duration:          formData.duration,
@@ -436,9 +479,26 @@ const CourseManagement = () => {
         salesCommissionValue:   formData.salesCommissionValue ? parseFloat(formData.salesCommissionValue) : null,
         teacherCommissionType:  formData.teacherCommissionValue ? formData.teacherCommissionType : null,
         teacherCommissionValue: formData.teacherCommissionValue ? parseFloat(formData.teacherCommissionValue) : null,
+        isRecommended:          formData.isRecommended,
+        isExtraclass:           formData.isExtraclass,
       };
-      if (editCourse) await axios.put(`${API_BASE}/courses/${editCourse.id}`, payload);
-      else await axios.post(`${API_BASE}/courses`, payload);
+      let courseId = editCourse?.id;
+      if (editCourse) {
+        await axios.put(`${API_BASE}/courses/${editCourse.id}`, payload);
+      } else {
+        const res = await axios.post(`${API_BASE}/courses`, payload);
+        courseId = res.data.id;
+      }
+      
+      if (courseId) {
+        await axios.put(`${API_BASE}/courses/${courseId}/coupons`, {
+          coupons: formData.couponRequirements.map(req => ({
+             coupon_type_id: parseInt(req.typeId),
+             quantity_required: req.count
+          }))
+        });
+      }
+
       setIsEditing(false);
       fetchData();
     } catch (e: any) {
@@ -549,6 +609,29 @@ const CourseManagement = () => {
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>ปฏิทิน (Calendar)</InputLabel>
+                    <Select value={formData.calendarId} label="ปฏิทิน (Calendar)" onChange={e => setFormData({ ...formData, calendarId: Number(e.target.value) })}>
+                      <MenuItem value={0}><em>(ไม่ผูกกับปฏิทิน)</em></MenuItem>
+                      {calendars.map(cal => <MenuItem key={cal.id} value={cal.id}>{cal.name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>สาขา (Branches)</InputLabel>
+                    <Select
+                      multiple
+                      value={formData.branchIds}
+                      label="สาขา (Branches)"
+                      onChange={e => setFormData({ ...formData, branchIds: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}
+                      renderValue={(selected) => selected.map(id => branches.find(b => b.id.toString() === id)?.name).filter(Boolean).join(', ')}
+                    >
+                      {branches.map(b => <MenuItem key={b.id} value={b.id.toString()}>{b.name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <TextField label="รหัสวิชา (Subject Code)" fullWidth value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -556,6 +639,18 @@ const CourseManagement = () => {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField label="🇬🇧 Class Name (English)" fullWidth value={formData.nameEn} onChange={e => setFormData({ ...formData, nameEn: e.target.value })} />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel 
+                    control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />} 
+                    label="โปรโมทเป็นคลาสแนะนำ (Recommended)" 
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel 
+                    control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />} 
+                    label="ตั้งเป็น Extra Class" 
+                  />
                 </Grid>
               </Grid>
             </Paper>
@@ -618,6 +713,12 @@ const CourseManagement = () => {
               <SectionLabel icon={<DurationIcon />} title="รายละเอียดและระยะเวลา" />
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
+                  <TextField label="🇹🇭 รายละเอียดอย่างย่อ (ภาษาไทย) - แสดงบนการ์ด" fullWidth value={formData.shortDescription} onChange={e => setFormData({ ...formData, shortDescription: e.target.value })} />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField label="🇬🇧 รายละเอียดอย่างย่อ (ภาษาอังกฤษ) - แสดงบนการ์ด" fullWidth value={formData.shortDescriptionEn} onChange={e => setFormData({ ...formData, shortDescriptionEn: e.target.value })} />
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <Box sx={{ position: 'relative' }}>
                     <TextField label="🇹🇭 รายละเอียด (ภาษาไทย)" multiline rows={4} fullWidth value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
                     <Tooltip title="ขยาย">
@@ -656,23 +757,32 @@ const CourseManagement = () => {
                       <InputLabel>ชั่วโมง</InputLabel>
                       <Select value={durationHour} label="ชั่วโมง" onChange={e => setFormData({ ...formData, duration: `${e.target.value}:${durationMinute}` })}>
                         {Array.from({ length: 5 }, (_, i) => (
-                          <MenuItem key={i} value={i.toString().padStart(2, '0')}>{i} ชม.</MenuItem>
+                          <MenuItem key={i} value={`0${i}`}>{i}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>ชม.</Typography>
                     <FormControl sx={{ width: 110 }}>
                       <InputLabel>นาที</InputLabel>
                       <Select value={durationMinute} label="นาที" onChange={e => setFormData({ ...formData, duration: `${durationHour}:${e.target.value}` })}>
-                        {Array.from({ length: 12 }, (_, i) => i * 5).map(m => (
-                          <MenuItem key={m} value={m.toString().padStart(2, '0')}>{m} น.</MenuItem>
+                        {['00', '15', '30', '45'].map(m => (
+                          <MenuItem key={m} value={m}>{m}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
-                    {(parseInt(durationHour) > 0 || parseInt(durationMinute) > 0) && (
-                      <Chip label={formatDuration(formData.duration)} color="primary" variant="outlined" size="small" sx={{ fontWeight: 700 }} />
-                    )}
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>นาที</Typography>
                   </Box>
                 </Grid>
+                {formData.isExtraclass && (
+                  <Grid item xs={12}>
+                    <TextField label="📍 สถานที่จัดกิจกรรม (ระบุเมื่อเป็น Extra Class)" fullWidth placeholder="เช่น ลานกิจกรรมชั้น 1 Central Chidlom" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} />
+                  </Grid>
+                )}
+                {formData.isExtraclass && (
+                  <Grid item xs={12}>
+                    <TextField label="🔗 ลิงก์ Google Map (สถานที่จัดกิจกรรม)" fullWidth placeholder="เช่น https://maps.app.goo.gl/..." value={formData.locationLink} onChange={e => setFormData({ ...formData, locationLink: e.target.value })} />
+                  </Grid>
+                )}
               </Grid>
             </Paper>
 
@@ -858,7 +968,9 @@ const CourseManagement = () => {
               <SectionLabel icon={<ImageIcon />} title="สื่อประกอบคลาส" />
 
               {/* Thumbnail */}
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปปก (Thumbnail)</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                รูปปก (Thumbnail) <span style={{ color: '#ef4444', marginLeft: 4 }}>* ขนาดแนะนำ: 800x450 (อัตราส่วน 16:9)</span>
+              </Typography>
               <Box
                 onClick={() => thumbnailInputRef.current?.click()}
                 sx={{

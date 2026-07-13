@@ -34,6 +34,8 @@ import {
   CheckCircle as ActiveIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import ChildCouponManagement from './ChildCouponManagement';
+import { ChildJourneyDialog } from '../components/ChildJourneyDialog';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 const COVER_GRADIENT = 'linear-gradient(135deg, #1a237e 0%, #1565c0 50%, #0288d1 100%)';
@@ -44,6 +46,7 @@ interface Child {
   nickname: string;
   gender: string;
   date_of_birth: string;
+  is_hd?: boolean;
 }
 
 interface User {
@@ -64,12 +67,6 @@ interface User {
   has_pending_reset?: boolean;
   reset_token_expires_at?: string;
 }
-
-const COUPON_TYPES = [
-  { id: 'blue',   label: 'คูปองสีฟ้า',    color: '#2196f3' },
-  { id: 'yellow', label: 'คูปองสีเหลือง', color: '#f59e0b' },
-  { id: 'red',    label: 'คูปองสีแดง',    color: '#ef4444' },
-];
 
 interface UserCoupon {
   id: number;
@@ -170,19 +167,31 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [revoking, setRevoking] = useState(false);
+  const [generatedResetLink, setGeneratedResetLink] = useState('');
 
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [membershipHistory, setMembershipHistory] = useState<MembershipHistoryEntry[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
 
+  const [journeyChildId, setJourneyChildId] = useState<number | null>(null);
+  const [journeyChildName, setJourneyChildName] = useState<string>('');
+  
+  const [couponChildId, setCouponChildId] = useState<number | null>(null);
+  const [couponChildName, setCouponChildName] = useState<string>('');
+
   // Coupon management
   const [coupons, setCoupons] = useState<UserCoupon[]>([]);
   const [couponSaving, setCouponSaving] = useState(false);
   const [showAddCoupon, setShowAddCoupon] = useState(false);
-  const [newCoupon, setNewCoupon] = useState({ typeId: 'blue', count: 1, expiresAt: '', note: '' });
+  const [newCoupon, setNewCoupon] = useState({ typeId: '', count: 1, expiresAt: '', note: '' });
   const [editingCoupon, setEditingCoupon] = useState<UserCoupon | null>(null);
+  
+  const [couponTypes, setCouponTypes] = useState<any[]>([]);
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { 
+    fetchUsers(); 
+    fetchCouponTypes();
+  }, []);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -191,6 +200,18 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       if (res.data.success) setUsers(res.data.users);
     } catch (e) { console.error('Failed to fetch users', e); }
     finally { setLoading(false); }
+  };
+
+  const fetchCouponTypes = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/coupon-types`);
+      if (res.data.success) {
+        setCouponTypes(res.data.couponTypes);
+        if (res.data.couponTypes.length > 0) {
+          setNewCoupon(prev => ({ ...prev, typeId: String(res.data.couponTypes[0].id) }));
+        }
+      }
+    } catch (e) { console.error('Failed to fetch coupon types', e); }
   };
 
   const clearImageState = () => {
@@ -245,6 +266,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         nickname: c.nickname ?? '',
         gender: c.gender ?? '',
         date_of_birth: c.date_of_birth ? c.date_of_birth.substring(0, 10) : '',
+        is_hd: Boolean(c.is_hd),
       })));
     } catch {
       setForm({
@@ -307,7 +329,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         pdpa_consent: Boolean(form.pdpa_consent),
         marketing_consent: form.marketing_consent === '' ? null : form.marketing_consent === 'true',
         membership_expires_at: form.membership_type === 'premium' ? form.membership_expires_at : null,
-        children: children.map(c => ({ ...c, date_of_birth: c.date_of_birth || null })),
+        children: children.filter(c => !c.is_hd).map(c => ({ ...c, date_of_birth: c.date_of_birth || null })),
       };
       await axios.put(`${API_BASE}/users/${editUser!.id}`, payload);
       if (profileImageFile) {
@@ -421,10 +443,17 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       const res = await axios.post(`${API_BASE}/users/${editUser.id}/reset-password`);
       setResetDialogOpen(false);
       const expiresAt = res.data.expires_at;
-      const expiryNote = expiresAt
-        ? ` · ลิงก์หมดอายุ ${new Date(expiresAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
-        : '';
-      setSuccessMsg(`ส่งลิงก์ไปยัง ${editUser.email} แล้ว${expiryNote} — รหัสผ่านเดิมยังใช้งานได้จนกว่าจะรีเซ็ตสำเร็จ`);
+      const resetLink = res.data.reset_link;
+      
+      if (resetLink) {
+        setGeneratedResetLink(resetLink);
+      } else {
+        const expiryNote = expiresAt
+          ? ` · ลิงก์หมดอายุ ${new Date(expiresAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
+          : '';
+        setSuccessMsg(`ส่งลิงก์ไปยัง ${editUser.email} แล้ว${expiryNote} — รหัสผ่านเดิมยังใช้งานได้จนกว่าจะรีเซ็ตสำเร็จ`);
+      }
+
       setEditUser(prev => prev
         ? { ...prev, has_pending_reset: true, reset_token_expires_at: expiresAt ?? prev.reset_token_expires_at }
         : null
@@ -588,36 +617,68 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                               )}
                             </Typography>
                           </Box>
-                          {!readOnly && (
-                            <IconButton size="small" onClick={() => removeChild(index)} sx={{ color: 'error.main' }}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          )}
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            {readOnly && child.id && (
+                              <>
+                                <Button
+                                  size="small"
+                                  startIcon={<HistoryIcon />}
+                                  variant="outlined"
+                                  sx={{ borderRadius: 2 }}
+                                  onClick={() => {
+                                    setJourneyChildId(child.id!);
+                                    setJourneyChildName(child.full_name || child.nickname || 'นักเรียน');
+                                  }}
+                                >
+                                  ประวัติการเรียน
+                                </Button>
+                                <Button
+                                  size="small"
+                                  startIcon={<CouponIcon />}
+                                  variant="outlined"
+                                  sx={{ borderRadius: 2 }}
+                                  onClick={() => {
+                                    setCouponChildId(child.id!);
+                                    setCouponChildName(child.full_name || child.nickname || 'นักเรียน');
+                                  }}
+                                >
+                                  จัดการคูปอง
+                                </Button>
+                              </>
+                            )}
+                            {!readOnly && (
+                              <IconButton size="small" onClick={() => removeChild(index)} sx={{ color: 'error.main' }}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Box>
                         </Box>
                         <Grid container spacing={1.5}>
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label="ชื่อ-นามสกุล *" fullWidth size="small"
+                              label={`ชื่อ-นามสกุล ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
                               value={child.full_name}
-                              onChange={e => !readOnly && updateChild(index, 'full_name', e.target.value)}
-                              InputProps={{ readOnly }}
+                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'full_name', e.target.value)}
+                              InputProps={{ readOnly: readOnly || child.is_hd }}
+                              disabled={child.is_hd}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField
                               label="ชื่อเล่น" fullWidth size="small"
                               value={child.nickname}
-                              onChange={e => !readOnly && updateChild(index, 'nickname', e.target.value)}
-                              InputProps={{ readOnly }}
+                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'nickname', e.target.value)}
+                              InputProps={{ readOnly: readOnly || child.is_hd }}
+                              disabled={child.is_hd}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
-                            <FormControl fullWidth size="small">
+                            <FormControl fullWidth size="small" disabled={child.is_hd}>
                               <InputLabel>เพศ</InputLabel>
                               <Select
                                 value={child.gender} label="เพศ"
-                                onChange={e => !readOnly && updateChild(index, 'gender', e.target.value)}
-                                inputProps={{ readOnly }}
+                                onChange={e => !readOnly && !child.is_hd && updateChild(index, 'gender', e.target.value)}
+                                inputProps={{ readOnly: readOnly || child.is_hd }}
                               >
                                 {GENDERS.map(g => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
                               </Select>
@@ -627,9 +688,10 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                             <TextField
                               label="วัน/เดือน/ปีเกิด" fullWidth size="small" type="date"
                               value={child.date_of_birth}
-                              onChange={e => !readOnly && updateChild(index, 'date_of_birth', e.target.value)}
+                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'date_of_birth', e.target.value)}
                               InputLabelProps={{ shrink: true }}
-                              InputProps={{ readOnly }}
+                              InputProps={{ readOnly: readOnly || child.is_hd }}
+                              disabled={child.is_hd}
                             />
                           </Grid>
                         </Grid>
@@ -952,11 +1014,15 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                             <TableCell>
                               <FormControl size="small" sx={{ minWidth: 160 }}>
                                 <Select value={newCoupon.typeId} onChange={e => setNewCoupon({ ...newCoupon, typeId: e.target.value })}>
-                                  {COUPON_TYPES.map(t => (
-                                    <MenuItem key={t.id} value={t.id}>
+                                  {couponTypes.map(t => (
+                                    <MenuItem key={t.id} value={String(t.id)}>
                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: t.color }} />
-                                        {t.label}
+                                        {t.icon_url ? (
+                                          <img src={t.icon_url} alt="icon" style={{ width: 14, height: 14, objectFit: 'contain' }} />
+                                        ) : (
+                                          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: t.color }} />
+                                        )}
+                                        {t.name}
                                       </Box>
                                     </MenuItem>
                                   ))}
@@ -1129,6 +1195,13 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        <ChildJourneyDialog
+          open={!!journeyChildId}
+          onClose={() => { setJourneyChildId(null); setJourneyChildName(''); }}
+          childId={journeyChildId}
+          childName={journeyChildName}
+        />
       </Box>
     );
   }
@@ -1206,6 +1279,49 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           </TableBody>
         </Table>
       </TableContainer>
+      {couponChildId && (
+        <ChildCouponManagement
+          childId={couponChildId}
+          childName={couponChildName}
+          open={Boolean(couponChildId)}
+          onClose={() => setCouponChildId(null)}
+        />
+      )}
+
+      {/* Reset Link Dialog */}
+      <Dialog open={!!generatedResetLink} onClose={() => setGeneratedResetLink('')} maxWidth="sm" fullWidth>
+        <DialogTitle>ลิงก์รีเซ็ตรหัสผ่าน</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            คุณสามารถคัดลอกลิงก์ด้านล่างและส่งให้ผู้ใช้งานเพื่อรีเซ็ตรหัสผ่านได้โดยตรง:
+          </Typography>
+          <TextField
+            fullWidth
+            value={generatedResetLink}
+            InputProps={{ readOnly: true }}
+            size="small"
+            onClick={(e) => {
+              const target = e.target as HTMLInputElement;
+              target.select();
+              navigator.clipboard.writeText(generatedResetLink);
+              setSuccessMsg('คัดลอกลิงก์แล้ว');
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGeneratedResetLink('')}>ปิด</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              navigator.clipboard.writeText(generatedResetLink);
+              setSuccessMsg('คัดลอกลิงก์แล้ว');
+              setGeneratedResetLink('');
+            }}
+          >
+            คัดลอกลิงก์
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
