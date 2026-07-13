@@ -1,8 +1,0 @@
-CREATE TABLE IF NOT EXISTS System_Logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    level TEXT NOT NULL,
-    source TEXT NOT NULL,
-    message TEXT NOT NULL,
-    stack_trace TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);

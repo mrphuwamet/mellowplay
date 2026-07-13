@@ -1,1 +1,0 @@
-ALTER TABLE Bookings ADD COLUMN calendar_id INTEGER;
