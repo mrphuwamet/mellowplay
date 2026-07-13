@@ -292,6 +292,23 @@ const CourseManagement = () => {
   const guideInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [imagesUploading, setImagesUploading] = useState(false);
+  const [guideUploading, setGuideUploading] = useState(false);
+
+  const uploadFile = async (file: File, folder: string): Promise<string | null> => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', folder);
+      const res = await axios.post(`${API_BASE}/upload`, fd);
+      return res.data.success ? res.data.url : null;
+    } catch {
+      return null;
+    }
+  };
+
   const refreshLibrary = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE}/skills-library`);
@@ -996,7 +1013,16 @@ const CourseManagement = () => {
                   </Box>
                 )}
               </Box>
-              <input type="file" hidden accept="image/*" ref={thumbnailInputRef} onChange={e => { if (e.target.files?.[0]) setFormData({ ...formData, thumbnailUrl: URL.createObjectURL(e.target.files[0]) }); }} />
+              <input type="file" hidden accept="image/*" ref={thumbnailInputRef} onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setThumbnailUploading(true);
+                setFormData(f => ({ ...f, thumbnailUrl: URL.createObjectURL(file) }));
+                const url = await uploadFile(file, 'thumbnails');
+                if (url) setFormData(f => ({ ...f, thumbnailUrl: url }));
+                setThumbnailUploading(false);
+                e.target.value = '';
+              }} />
 
               {/* Video */}
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>วิดีโอประกอบ</Typography>
@@ -1018,7 +1044,15 @@ const CourseManagement = () => {
                   <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดวิดีโอ</Typography>
                 </Box>
               )}
-              <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={e => { if (e.target.files?.[0]) setFormData({ ...formData, videoUrl: URL.createObjectURL(e.target.files[0]) }); }} />
+              <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setVideoUploading(true);
+                const url = await uploadFile(file, 'videos');
+                if (url) setFormData(f => ({ ...f, videoUrl: url }));
+                setVideoUploading(false);
+                e.target.value = '';
+              }} />
 
               {/* Additional Images */}
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพเพิ่มเติม</Typography>
@@ -1038,7 +1072,16 @@ const CourseManagement = () => {
                   <AddIcon color="disabled" fontSize="small" />
                 </Box>
               </Box>
-              <input type="file" hidden accept="image/*" multiple ref={imageInputRef} onChange={e => { if (e.target.files) { const imgs = Array.from(e.target.files).map(f => URL.createObjectURL(f)); setFormData({ ...formData, images: [...formData.images, ...imgs] }); } }} />
+              <input type="file" hidden accept="image/*" multiple ref={imageInputRef} onChange={async e => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+                setImagesUploading(true);
+                const uploads = await Promise.all(Array.from(files).map(f => uploadFile(f, 'images')));
+                const urls = uploads.filter(Boolean) as string[];
+                if (urls.length > 0) setFormData(f => ({ ...f, images: [...f.images, ...urls] }));
+                setImagesUploading(false);
+                e.target.value = '';
+              }} />
             </Paper>
 
             {/* Teacher Guide */}
@@ -1065,7 +1108,15 @@ const CourseManagement = () => {
                   <Typography variant="caption" color="text.secondary">คลิกเพื่อเลือกไฟล์</Typography>
                 </Box>
               )}
-              <input type="file" hidden accept="application/pdf" ref={guideInputRef} onChange={e => { if (e.target.files?.[0]) setFormData({ ...formData, teacherGuideUrl: URL.createObjectURL(e.target.files[0]) }); }} />
+              <input type="file" hidden accept="application/pdf" ref={guideInputRef} onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setGuideUploading(true);
+                const url = await uploadFile(file, 'guides');
+                if (url) setFormData(f => ({ ...f, teacherGuideUrl: url }));
+                setGuideUploading(false);
+                e.target.value = '';
+              }} />
             </Paper>
           </Grid>
         </Grid>
