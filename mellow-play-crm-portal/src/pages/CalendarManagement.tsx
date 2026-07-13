@@ -152,7 +152,7 @@ const CalendarManagement: React.FC = () => {
   const saveRule = async () => {
     if (!selectedCalendar || !ruleForm.startTime || !ruleForm.endTime) return;
     if (ruleMode === 'recurring' && !ruleForm.validFrom) return;
-    if (ruleMode === 'specific' && !ruleForm.specificDate) return;
+    if (ruleMode === 'specific' && !ruleForm.specificDates.some(d => d)) return;
     
     const times = (ruleForm.autoSplit && ruleEditId === null)
       ? generateSplitSlots(ruleForm.startTime, ruleForm.endTime, ruleForm.splitInterval)

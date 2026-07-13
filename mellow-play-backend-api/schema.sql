@@ -152,6 +152,11 @@ CREATE TABLE Courses (
     name_en TEXT,
     description TEXT,
     description_en TEXT,
+    short_description TEXT,
+    short_description_en TEXT,
+    branch_ids TEXT DEFAULT '[]',
+    location TEXT,
+    location_link TEXT,
 
     -- Single-tier fields (new schema)
     age_min REAL DEFAULT 3,

@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS Courses (
     description_en TEXT,
     short_description TEXT,
     short_description_en TEXT,
+    branch_ids TEXT DEFAULT '[]',
+    location TEXT,
     location_label TEXT,
     location_link TEXT,
 
