@@ -1016,10 +1016,17 @@ const CourseManagement = () => {
               <input type="file" hidden accept="image/*" ref={thumbnailInputRef} onChange={async e => {
                 const file = e.target.files?.[0];
                 if (!file) return;
+                const originalUrl = formData.thumbnailUrl;
                 setThumbnailUploading(true);
                 setFormData(f => ({ ...f, thumbnailUrl: URL.createObjectURL(file) }));
                 const url = await uploadFile(file, 'thumbnails');
-                if (url) setFormData(f => ({ ...f, thumbnailUrl: url }));
+                if (url) {
+                  setFormData(f => ({ ...f, thumbnailUrl: url }));
+                } else {
+                  // If upload failed, revert to original url and show error
+                  setFormData(f => ({ ...f, thumbnailUrl: originalUrl }));
+                  setSaveError('ไม่สามารถอัปโหลดรูปปกได้ กรุณาตรวจสอบขนาดไฟล์ (แนะนำไม่เกิน 2MB) หรือลองใหม่อีกครั้ง');
+                }
                 setThumbnailUploading(false);
                 e.target.value = '';
               }} />
