@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/ui/logo.svg';
+import { API_BASE_URL } from '../utils/apiClient';
 
 interface CourseCardProps {
   course: any;
@@ -9,6 +10,16 @@ interface CourseCardProps {
 const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
   const navigate = useNavigate();
 
+  const getImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+      return url;
+    }
+    // Remove the /api/v1 prefix from url if present, because API_BASE_URL already contains it
+    const cleanUrl = url.startsWith('/api/v1') ? url.replace('/api/v1', '') : url;
+    return `${API_BASE_URL}${cleanUrl}`;
+  };
+
   return (
     <div 
       onClick={() => navigate(`/course/${course.id}`)} 
@@ -16,7 +27,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
     >
       {course.thumbnail_url ? (
         <div className="w-full h-32 rounded-xl bg-slate-100 mb-3">
-          <img src={course.thumbnail_url} alt={course.name} className="w-full h-full object-cover rounded-xl" />
+          <img src={getImageUrl(course.thumbnail_url)} alt={course.name} className="w-full h-full object-cover rounded-xl" />
         </div>
       ) : (
         <div className="w-full h-32 rounded-xl bg-mellow-purple-soft flex items-center justify-center p-4 mb-3 opacity-40">

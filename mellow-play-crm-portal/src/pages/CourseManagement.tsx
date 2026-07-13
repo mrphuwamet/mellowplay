@@ -308,6 +308,15 @@ const CourseManagement = () => {
       return null;
     }
   };
+  const getImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+      return url;
+    }
+    // Remove duplication of /api/v1 if backend API path contains it
+    const cleanUrl = url.startsWith('/api/v1') ? url.replace('/api/v1', '') : url;
+    return `${API_URL}${cleanUrl}`;
+  };
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -998,7 +1007,7 @@ const CourseManagement = () => {
               >
                 {formData.thumbnailUrl ? (
                   <>
-                    <img src={formData.thumbnailUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="thumbnail" />
+                    <img src={getImageUrl(formData.thumbnailUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="thumbnail" />
                     <IconButton
                       onClick={e => { e.stopPropagation(); setFormData({ ...formData, thumbnailUrl: '' }); }}
                       sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.5 }}
@@ -1066,7 +1075,7 @@ const CourseManagement = () => {
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {formData.images.map((img, idx) => (
                   <Box key={idx} sx={{ position: 'relative', width: 60, height: 60, borderRadius: 1.5, overflow: 'hidden', border: '1px solid #eee' }}>
-                    <img src={img} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                    <img src={getImageUrl(img)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
                     <IconButton onClick={() => setFormData({ ...formData, images: formData.images.filter((_, i) => i !== idx) })} sx={{ position: 'absolute', top: 1, right: 1, bgcolor: 'rgba(255,255,255,0.85)', p: 0.15 }}>
                       <ClearIcon sx={{ fontSize: 10 }} />
                     </IconButton>

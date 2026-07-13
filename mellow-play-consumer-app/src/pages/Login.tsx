@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Phone, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
+import { Phone, ArrowRight, Loader2, ChevronLeft, AlertCircle } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useChildStore } from '../store/useChildStore';

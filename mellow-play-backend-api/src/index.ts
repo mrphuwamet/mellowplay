@@ -37,7 +37,21 @@ const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
 
-app.use('*', cors());
+app.use('*', cors({
+  origin: (origin) => {
+    // Allow local development ports and standard staging/prod domains
+    if (!origin) return '*';
+    if (origin.startsWith('http://localhost:') || origin.endsWith('.mellowplay.pages.dev') || origin.endsWith('mellowplay.com')) {
+      return origin;
+    }
+    return origin;
+  },
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposeHeaders: ['Content-Length'],
+  maxAge: 600,
+  credentials: true,
+}));
 
 // --- System Routes ---
 app.get('/', (c) => c.text('Mellow Play API is running!'));
