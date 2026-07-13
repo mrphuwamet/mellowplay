@@ -198,6 +198,73 @@ const Home = () => {
               >
                 <Menu size={18} />
               </button>
+
+              {isMenuOpen && (
+                <div className="absolute top-14 right-0 w-64 bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/60 overflow-hidden py-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="px-4 py-2 mb-2 border-b border-slate-100">
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.home.menuTitle}</h3>
+                  </div>
+                  
+                  {isGuest ? (
+                    <>
+                      <button 
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          navigate('/login');
+                        }}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-mellow-purple/10 flex items-center justify-center text-mellow-purple">
+                          <LogIn size={16} />
+                        </div>
+                        <span className="font-bold text-sm">{t.common.login}</span>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          navigate('/register');
+                        }}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-mellow-purple/10 flex items-center justify-center text-mellow-purple">
+                          <User size={16} />
+                        </div>
+                        <span className="font-bold text-sm">{t.common.register}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button 
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          navigate('/settings');
+                        }}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-slate-700"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+                          <Settings size={16} />
+                        </div>
+                        <span className="font-bold text-sm">{t.common.settings}</span>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          localStorage.removeItem('mellow_token');
+                          localStorage.removeItem('mellow_user');
+                          localStorage.removeItem('mellow_guest');
+                          navigate('/login');
+                        }}
+                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-red-50 transition-colors text-red-600"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-500">
+                          <LogOut size={16} />
+                        </div>
+                        <span className="font-bold text-sm">{t.common.logout}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

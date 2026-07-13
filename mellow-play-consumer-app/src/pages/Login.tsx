@@ -21,6 +21,7 @@ const Login = () => {
   const [step, setStep] = useState<'identifier' | 'pin'>('identifier');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showErrorModal, setShowErrorModal] = useState(false);
 
   const [successMessage, setSuccessMessage] = useState<string>(location.state?.message || '');
 
@@ -56,6 +57,7 @@ const Login = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.message || t.login.loginFailed);
+      setShowErrorModal(true);
     } finally {
       setIsLoading(false);
     }
@@ -173,6 +175,41 @@ const Login = () => {
       <p className="text-center mt-8 text-slate-400 text-sm font-bold">
         {t.login.noAccount} <span onClick={() => navigate('/register' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''))} className="text-mellow-purple cursor-pointer underline">{t.login.registerLink}</span>
       </p>
+
+      {showErrorModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowErrorModal(false)} />
+          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 mb-2">{lang === 'th' ? 'รหัสไม่ถูกต้อง' : 'Incorrect PIN'}</h3>
+            <p className="text-sm font-bold text-slate-500 mb-6">
+              {lang === 'th' ? 'กรุณาลองใหม่อีกครั้ง หรือเลือกลืมรหัสผ่าน' : 'Please try again, or click forgot PIN.'}
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  setPassword('');
+                }}
+                className="w-full py-3 rounded-xl font-bold text-white bg-mellow-purple hover:bg-mellow-purple/90"
+              >
+                {lang === 'th' ? 'ลองอีกครั้ง' : 'Try Again'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  navigate('/forgot-password');
+                }}
+                className="w-full py-3 rounded-xl font-bold text-mellow-purple bg-mellow-purple/10 hover:bg-mellow-purple/20"
+              >
+                {t.login.forgotPin}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

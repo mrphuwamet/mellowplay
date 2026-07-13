@@ -24,7 +24,7 @@ const Register = () => {
   const { t } = useTranslation();
   
   // Form State
-  const [step, setStep] = useState<'info' | 'otp' | 'pin' | 'children' | 'consent'>('info');
+  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'children' | 'summary'>('consent');
   const [formData, setFormData] = useState({
     phone: '',
     firstName: '',
@@ -41,6 +41,9 @@ const Register = () => {
   const [children, setChildren] = useState<ChildInput[]>([
     { firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' }
   ]);
+  
+  const [prevPhone, setPrevPhone] = useState('');
+  const [showCancelModal, setShowCancelModal] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,6 +66,13 @@ const Register = () => {
 
   const handleRequestOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    
+    // Skip OTP if phone hasn't changed since last verification
+    if (prevPhone && prevPhone === formData.phone) {
+      setStep('pin');
+      return;
+    }
+    
     if (step === 'otp' && resendTimer > 0) return; // Prevent spam
 
     setIsLoading(true);
@@ -103,6 +113,7 @@ const Register = () => {
       });
       
       if (response.data.success) {
+        setPrevPhone(formData.phone);
         setStep('pin');
       }
     } catch (err: any) {
@@ -131,21 +142,19 @@ const Register = () => {
     setChildren(newChildren);
   };
 
-  const handleNextToConsent = (e: React.FormEvent) => {
+  const handleNextToSummary = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Check if any child has partial information
-    const filledChildren = children.filter(c => c.firstName || c.lastName || c.nickname || c.dob);
-    const invalidChild = filledChildren.find(c => !c.firstName || !c.lastName || !c.nickname || !c.gender || !c.dob || !c.relation || (c.relation === 'Other' && !c.customRelation));
+    // Check if at least 1 child has firstName and dob
+    const validChildren = children.filter(c => c.firstName && c.dob);
     
-    if (invalidChild) {
-      setError(t.register.fillChildInfo);
+    if (validChildren.length === 0) {
+      setError(t.register.fillAtLeastOneChild);
       return;
     }
     
-    // If no children are filled, we just proceed. We will filter empty ones out during submit.
     setError('');
-    setStep('consent');
+    setStep('summary');
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -357,8 +366,10 @@ const Register = () => {
             if (pinStep === 'confirm') {
               setPinStep('create');
               setConfirmPassword('');
+              setFormData({...formData, password: ''});
             } else {
-              setStep('otp');
+              setStep('info');
+              setFormData({...formData, password: ''});
             }
           }} 
           className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-700"
@@ -370,10 +381,7 @@ const Register = () => {
   );
 
   const renderStepChildren = () => (
-    <form onSubmit={handleNextToConsent} className="space-y-6">
-      <div className="text-center">
-        <p className="text-sm font-bold text-slate-500">(คุณสามารถข้ามขั้นตอนนี้และเพิ่มข้อมูลลูกภายหลังได้)</p>
-      </div>
+    <form onSubmit={handleNextToSummary} className="space-y-6">
       <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
         {children.map((child, index) => (
           <div key={index} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 relative group">
@@ -397,14 +405,14 @@ const Register = () => {
             <div className="space-y-3 mt-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">ชื่อ (First Name)</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameLabel}</label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
                     </div>
                     <input
                       type="text"
-                      placeholder="ชื่อจริง"
+                      placeholder={t.register.firstName}
                       value={child.firstName}
                       onChange={(e) => handleChildChange(index, 'firstName', e.target.value)}
                       className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
@@ -412,14 +420,14 @@ const Register = () => {
                   </div>
                 </div>
                 <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">นามสกุล (Last Name)</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
                     </div>
                     <input
                       type="text"
-                      placeholder="นามสกุล"
+                      placeholder={t.register.lastName}
                       value={child.lastName}
                       onChange={(e) => handleChildChange(index, 'lastName', e.target.value)}
                       className="w-full pl-11 pr-4 py-3 bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
@@ -433,7 +441,7 @@ const Register = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">ชื่อเล่น (Nickname)</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.nickname}</label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
@@ -520,18 +528,8 @@ const Register = () => {
         <Plus size={18} /> {t.register.addChild}
       </button>
 
-      <div className="flex gap-3 mt-6">
-        <button 
-          type="button" 
-          onClick={() => {
-            setChildren([]);
-            setStep('consent');
-          }}
-          className="w-1/3 py-4 rounded-2xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all flex items-center justify-center"
-        >
-          {t.register.skip}
-        </button>
-        <button type="submit" disabled={isLoading} className="w-2/3 mellow-btn-primary !mt-0">
+      <div className="mt-6">
+        <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary !mt-0">
           {t.register.nextStep} <ArrowRight size={20} />
         </button>
       </div>
@@ -539,7 +537,7 @@ const Register = () => {
   );
 
   const renderStepConsent = () => (
-    <form onSubmit={handleRegister} className="space-y-6 flex flex-col flex-1 pb-6">
+    <form onSubmit={(e) => { e.preventDefault(); setStep('info'); }} className="space-y-6 flex flex-col flex-1 pb-6">
       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex-1 min-h-[150px] max-h-[35vh] overflow-y-auto">
         <p className="text-xs text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">
           {t.register.pdpaPolicyText}
@@ -579,10 +577,49 @@ const Register = () => {
         </button>
 
         <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary">
-          {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.complete} <ArrowRight size={20} /></>}
+          {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.nextStep} <ArrowRight size={20} /></>}
         </button>
       </div>
     </form>
+  );
+
+  const renderStepSummary = () => (
+    <div className="flex flex-col flex-1 pb-6 space-y-6">
+      <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+        <h3 className="text-sm font-black text-slate-800 mb-3">{lang === 'th' ? 'ข้อมูลผู้ปกครอง' : 'Parent Info'}</h3>
+        <div className="space-y-2 text-sm">
+          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.firstName} {formData.lastName}</span></p>
+          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
+          <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
+        </div>
+      </div>
+      
+      <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+        <h3 className="text-sm font-black text-slate-800 mb-3">{lang === 'th' ? 'ข้อมูลลูก' : 'Children Info'}</h3>
+        <div className="space-y-4">
+          {children.filter(c => c.firstName && c.dob).map((child, i) => (
+            <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
+              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{child.firstName} {child.lastName} {child.nickname && `(${child.nickname})`}</span></p>
+              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{child.dob}</span></p>
+              <p><span className="text-slate-500 font-bold w-24 inline-block">{t.register.relationship}:</span> <span className="font-bold text-slate-800">{child.relation === 'Other' ? child.customRelation : child.relation}</span></p>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      <div className="bg-mellow-purple/5 p-4 rounded-2xl flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-mellow-purple/20 flex items-center justify-center text-mellow-purple shrink-0">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <p className="text-xs font-bold text-slate-600">{t.register.pdpaConsent}</p>
+      </div>
+
+      <div className="mt-auto pt-4">
+        <button onClick={handleRegister} disabled={isLoading} className="w-full mellow-btn-primary">
+          {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.complete} <ArrowRight size={20} /></>}
+        </button>
+      </div>
+    </div>
   );
 
   const getStepTitle = () => {
@@ -592,6 +629,7 @@ const Register = () => {
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreate : t.register.stepPinConfirm;
       case 'children': return t.register.stepChildren;
       case 'consent': return t.register.stepConsent;
+      case 'summary': return t.register.stepSummary;
       default: return '';
     }
   };
@@ -603,6 +641,7 @@ const Register = () => {
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreateDesc : t.register.stepPinConfirmDesc;
       case 'children': return t.register.stepChildrenDesc;
       case 'consent': return t.register.stepConsentDesc;
+      case 'summary': return t.register.stepSummaryDesc;
       default: return '';
     }
   };
@@ -612,19 +651,25 @@ const Register = () => {
       <header className="pt-10 mb-8 flex justify-between items-center">
         <button 
           onClick={() => {
-            if (step === 'info') {
-              navigate(-1);
-            } else {
+            if (step === 'consent') {
               navigate('/login');
+            } else if (step === 'info') {
+              setStep('consent');
+            } else if (step === 'otp') {
+              setStep('info');
+            } else if (step === 'pin') {
+              setStep('info');
+            } else if (step === 'children') {
+              setPinStep('create');
+              setFormData({...formData, password: ''});
+              setStep('pin');
+            } else if (step === 'summary') {
+              setStep('children');
             }
           }} 
-          className={`h-10 px-3 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0 ${step === 'info' ? 'w-10' : ''}`}
+          className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0"
         >
-          {step === 'info' ? (
-            <ChevronLeft size={24} />
-          ) : (
-            <span className="text-sm font-bold text-slate-500 px-1">ยกเลิก</span>
-          )}
+          <ChevronLeft size={24} />
         </button>
         <LanguageToggle />
       </header>
@@ -641,17 +686,51 @@ const Register = () => {
       <Toast message={error || ''} type="error" onClose={() => setError('')} />
 
       <div className="flex-1 flex flex-col">
+        {step === 'consent' && renderStepConsent()}
         {step === 'info' && renderStepInfo()}
         {step === 'otp' && renderStepOtp()}
         {step === 'pin' && renderStepPin()}
         {step === 'children' && renderStepChildren()}
-        {step === 'consent' && renderStepConsent()}
+        {step === 'summary' && renderStepSummary()}
       </div>
 
-      {step === 'info' && (
-        <p className="text-center mt-8 text-slate-400 text-sm font-bold">
-          {t.register.hasAccount} <span onClick={() => navigate('/login')} className="text-mellow-purple cursor-pointer underline">{t.register.loginLink}</span>
-        </p>
+      <div className="mt-8 mb-4 text-center">
+        <button 
+          onClick={() => setShowCancelModal(true)}
+          className="text-red-500 font-bold text-sm underline underline-offset-4 decoration-red-200 hover:decoration-red-500 transition-colors"
+        >
+          {t.register.cancelRegistration}
+        </button>
+      </div>
+
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCancelModal(false)} />
+          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 mb-2">{t.register.confirmCancelTitle}</h3>
+            <p className="text-sm font-bold text-slate-500 mb-6">{t.register.confirmCancelDesc}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
+              >
+                {t.register.confirmCancelNo}
+              </button>
+              <button
+                onClick={() => {
+                  setShowCancelModal(false);
+                  navigate('/login');
+                }}
+                className="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
+              >
+                {t.register.confirmCancelYes}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

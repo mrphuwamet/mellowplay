@@ -92,10 +92,85 @@ export const translations = {
       pdpaConsent: 'I agree to the PDPA terms and conditions',
       marketingConsent: 'I agree to receive marketing updates',
       acceptAll: 'Accept All',
+      pdpaPolicyText: `Privacy Notice and PDPA Consent
+
+Mellow World Co., Ltd. (Mellow Play Brand)
+
+Mellow World Co., Ltd. (the "Company"), acting as a Data Controller, places the highest priority on protecting the personal data of you and your child. This Privacy Notice is intended to inform you of the purposes, procedures, and methods by which the Company collects, uses, and discloses (collectively referred to as "Processing") personal data, as detailed below:
+
+1. Personal Data We Collect
+The Company will collect personal data only as necessary for providing our services. This includes:
+
+Parent's Information: First and Last Name, Phone Number, Email, LINE ID, and Address.
+
+Child's Information: First and Last Name, Nickname, Gender, Date of Birth, and Relationship to the parent.
+
+Activity Participation Data: Registration history, activity records, as well as photos and videos of your child taken during activities, which are strictly used for developmental assessment and generating learning reports.
+
+2. Purposes and Legal Bases for Data Processing
+The Company will process your personal data under lawful bases (such as Contractual Basis or Legitimate Interest) for the following purposes:
+
+To process registration, manage user accounts, and verify identity (OTP/PIN) for service access.
+
+To design, plan, and improve activities to suit your child’s age and developmental stage.
+
+To generate Learning Reports and share media (photos/videos) with you via our application or the Company's official channels.
+
+To communicate, notify, coordinate, and provide after-sales customer service.
+
+3. Marketing Consent
+Subject to your explicit consent, the Company may use your contact information to send you news, special events, educational camps, and promotional offers related to the Mellow Play brand. You have the right to opt-out or withdraw this consent at any time.
+
+4. Disclosure of Personal Data
+The Company will not disclose the personal data of you or your child to third parties, except when necessary to provide our services. This may include sharing data with Cloud Service Providers, application developers, or business partners involved in our activities under strict confidentiality agreements. Additionally, the Company may be required to disclose data to comply with legal obligations or court orders.
+
+5. Data Retention Period
+The Company will retain the personal data of you and your child for the duration that you remain an active user of our services, and for an additional period of 5 years after the termination of services for auditing purposes, dispute resolution, or as required by law. Upon the expiration of this period, the Company will proceed to delete, destroy, or anonymize your personal data.
+
+6. Security Measures
+The Company has implemented appropriate technical and organizational security measures to protect your personal data against loss, unauthorized access, destruction, misuse, alteration, or unlawful disclosure.
+
+7. Rights of the Data Subject
+As a data subject, you are entitled to statutory rights under applicable laws, which include:
+
+The right to access and request a copy of your personal data.
+
+The right to request correction of your data to ensure it is accurate, up-to-date, and complete.
+
+The right to request deletion, destruction, or suspension of the use of your personal data.
+
+The right to withdraw any consent previously granted to the Company (Note: Withdrawal of consent shall not affect the lawfulness of any processing conducted prior to the withdrawal).
+
+8. Contact Us
+If you have any questions regarding data protection or wish to exercise your rights, please contact us at:
+
+Mellow World Co., Ltd. (Headquarters)
+
+Email: mellowworld.corp@gmail.com
+
+Phone: 06 3691 1169
+
+Address: 55/55 Sukhaphiban 5 Rd., Khlong Thanon, Sai Mai, Bangkok 10220, Thailand
+
+Tax ID: 0105566106900
+
+Acceptance of Terms and Conditions:
+By clicking "Accept", you acknowledge that you have read and understood the details outlined in this Privacy Notice, and you consent to the Company's processing of your personal data as specified above.`,
       noTitlePrefix: 'No title prefix needed (e.g. Master, Miss)',
       genderBoy: 'Boy',
       genderGirl: 'Girl',
       genderOther: 'Other',
+      skip: 'Skip',
+      cancel: 'Cancel',
+      specifyRelation: 'Please specify relationship...',
+      stepSummary: 'Registration Summary',
+      stepSummaryDesc: 'Please review your information',
+      cancelRegistration: 'Cancel Registration',
+      confirmCancelTitle: 'Cancel Registration?',
+      confirmCancelDesc: 'Are you sure you want to cancel? Your data will be lost.',
+      confirmCancelYes: 'Yes, Cancel',
+      confirmCancelNo: 'No, Keep it',
+      fillAtLeastOneChild: 'Please add at least one child with Name and Date of Birth'
     },
     home: {
       level: 'Level',
@@ -423,10 +498,83 @@ export const translations = {
       pdpaConsent: 'ฉันยอมรับข้อตกลงและเงื่อนไข PDPA',
       marketingConsent: 'ฉันยินยอมรับข้อมูลข่าวสารโปรโมชั่น',
       acceptAll: 'ยอมรับทั้งหมด',
+      pdpaPolicyText: `บริษัท เมลโล่ เวิร์ล จำกัด (แบรนด์ Mellow Play)
+
+บริษัท เมลโล่ เวิร์ล จำกัด ("บริษัทฯ") ในฐานะผู้ควบคุมข้อมูลส่วนบุคคล ให้ความสำคัญอย่างยิ่งกับการคุ้มครองข้อมูลส่วนบุคคลของท่านและบุตรหลานของท่าน ประกาศความเป็นส่วนตัวฉบับนี้จัดทำขึ้นเพื่อชี้แจงให้ท่านทราบถึงวัตถุประสงค์ ขั้นตอน และวิธีการที่บริษัทฯ เก็บรวบรวม ใช้ และเปิดเผย (รวมเรียกว่า "การประมวลผล") ข้อมูลส่วนบุคคล ดังรายละเอียดต่อไปนี้:
+
+1. ข้อมูลส่วนบุคคลที่บริษัทฯ เก็บรวบรวม
+บริษัทฯ จะเก็บรวบรวมข้อมูลส่วนบุคคลเท่าที่จำเป็นต่อการให้บริการ โดยครอบคลุมข้อมูลดังต่อไปนี้:
+
+ข้อมูลของผู้ปกครอง: ชื่อ-นามสกุล, หมายเลขโทรศัพท์, อีเมล, LINE ID และข้อมูลที่อยู่
+
+ข้อมูลของบุตรหลาน: ชื่อ-นามสกุล, ชื่อเล่น, เพศ, วัน/เดือน/ปีเกิด และความสัมพันธ์กับผู้ปกครอง
+
+ข้อมูลการเข้าร่วมกิจกรรม: ประวัติการลงทะเบียน กิจกรรมที่เข้าร่วม รวมถึงภาพถ่ายและวิดีโอของบุตรหลานระหว่างการทำกิจกรรม ซึ่งใช้เพื่อการประเมินพัฒนาการและจัดทำรายงานการเรียนรู้เท่านั้น
+
+2. วัตถุประสงค์และฐานทางกฎหมายในการประมวลผลข้อมูล
+บริษัทฯ จะประมวลผลข้อมูลส่วนบุคคลของท่านภายใต้ฐานทางกฎหมาย (เช่น ฐานสัญญา ฐานประโยชน์อันชอบธรรม) เพื่อวัตถุประสงค์ดังต่อไปนี้:
+
+เพื่อดำเนินการลงทะเบียน จัดการบัญชีผู้ใช้งาน และยืนยันตัวตน (OTP/PIN) ในการเข้าถึงบริการ
+
+เพื่อใช้ในการออกแบบ วางแผน และปรับปรุงรูปแบบกิจกรรมให้สอดคล้องกับช่วงวัยและพัฒนาการของบุตรหลาน
+
+เพื่อจัดทำรายงานผลการเรียนรู้ (Learning Report) และส่งมอบสื่อประมวลภาพ (ภาพถ่าย/วิดีโอ) ให้แก่ท่านผ่านแอปพลิเคชันหรือช่องทางของบริษัทฯ
+
+เพื่อการติดต่อสื่อสาร แจ้งเตือน ประสานงาน และให้บริการดูแลหลังการขาย
+
+3. การประมวลผลข้อมูลเพื่อวัตถุประสงค์ทางการตลาด (Marketing Consent)
+ในกรณีที่ท่านให้ความยินยอม (Consent) บริษัทฯ อาจใช้ข้อมูลการติดต่อของท่านเพื่อนำเสนอข่าวสาร กิจกรรมพิเศษ ค่ายการเรียนรู้ (Camp) และรายการส่งเสริมการขายที่เกี่ยวข้องกับแบรนด์ Mellow Play ทั้งนี้ ท่านสามารถเลือกที่จะไม่รับข้อมูลดังกล่าว หรือถอนความยินยอมได้ตลอดเวลา
+
+4. การเปิดเผยข้อมูลส่วนบุคคล
+บริษัทฯ จะไม่เปิดเผยข้อมูลส่วนบุคคลของท่านและบุตรหลานแก่บุคคลภายนอก เว้นแต่ในกรณีที่จำเป็นเพื่อการให้บริการ เช่น ผู้ให้บริการระบบคลาวด์ (Cloud Service Provider) ผู้พัฒนาแอปพลิเคชัน หรือพันธมิตรทางธุรกิจที่เกี่ยวข้องกับการจัดกิจกรรม โดยบริษัทฯ จะจัดให้มีข้อตกลงการรักษาความลับอย่างเข้มงวด ทั้งนี้ บริษัทฯ อาจมีความจำเป็นต้องเปิดเผยข้อมูลตามคำสั่งศาล หรือตามที่กฎหมายกำหนด
+
+5. ระยะเวลาในการเก็บรักษาข้อมูลส่วนบุคคล
+บริษัทฯ จะเก็บรักษาข้อมูลส่วนบุคคลของท่านและบุตรหลานไว้ตลอดระยะเวลาที่ท่านยังคงเป็นผู้ใช้บริการของบริษัทฯ และจะเก็บต่อเนื่องเป็นระยะเวลา 5 ปี นับจากวันที่ท่านสิ้นสุดการใช้บริการ เพื่อวัตถุประสงค์ในการตรวจสอบ ป้องกันข้อพิพาท หรือตามที่กฎหมายกำหนด เมื่อพ้นกำหนดระยะเวลาดังกล่าว บริษัทฯ จะดำเนินการลบ ทำลาย หรือทำให้ข้อมูลนั้นไม่สามารถระบุตัวบุคคลได้
+
+6. มาตรการรักษาความมั่นคงปลอดภัย
+บริษัทฯ ได้จัดให้มีมาตรการรักษาความมั่นคงปลอดภัยของข้อมูลส่วนบุคคลที่เหมาะสม ทั้งในเชิงเทคนิคและการบริหารจัดการ เพื่อป้องกันการสูญหาย การเข้าถึง ทำลาย ใช้ ดัดแปลง แก้ไข หรือเปิดเผยข้อมูลส่วนบุคคลโดยไม่มีสิทธิหรือโดยไม่ชอบด้วยกฎหมาย
+
+7. สิทธิของเจ้าของข้อมูลส่วนบุคคล
+ในฐานะเจ้าของข้อมูลส่วนบุคคล ท่านมีสิทธิตามกฎหมายที่เกี่ยวข้อง ซึ่งรวมถึง:
+
+สิทธิในการขอเข้าถึงและขอรับสำเนาข้อมูลส่วนบุคคลของท่าน
+
+สิทธิในการขอแก้ไขข้อมูลให้ถูกต้อง เป็นปัจจุบัน และสมบูรณ์
+
+สิทธิในการขอให้ลบ ทำลาย หรือระงับการใช้ข้อมูลส่วนบุคคล
+
+สิทธิในการถอนความยินยอมที่เคยมอบให้แก่บริษัทฯ (การถอนความยินยอมจะไม่ส่งผลกระทบต่อการประมวลผลข้อมูลที่ดำเนินการไปแล้ว)
+
+8. ช่องทางการติดต่อ
+หากท่านมีข้อสงสัยเกี่ยวกับการคุ้มครองข้อมูลส่วนบุคคล หรือต้องการใช้สิทธิของท่าน สามารถติดต่อได้ที่:
+
+บริษัท เมลโล่ เวิร์ล จำกัด (สำนักงานใหญ่)
+
+อีเมล: mellowworld.corp@gmail.com
+
+โทรศัพท์: 06 3691 1169
+
+ที่อยู่: 55/55 ถ.สุขาภิบาล5 แขวงคลองถนน เขตสายไหม กรุงเทพฯ 10220
+
+หมายเลขประจำตัวผู้เสียภาษี: 0105566106900
+
+การยอมรับข้อตกลงและเงื่อนไข:
+การที่ท่านคลิกยอมรับ ถือว่าท่านได้รับทราบและทำความเข้าใจรายละเอียดในประกาศความเป็นส่วนตัวฉบับนี้ และยินยอมให้บริษัทฯ ประมวลผลข้อมูลส่วนบุคคลตามที่ระบุไว้ข้างต้น`,
       noTitlePrefix: 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)',
       genderBoy: 'ชาย',
       genderGirl: 'หญิง',
       genderOther: 'อื่นๆ',
+      skip: 'ข้าม',
+      cancel: 'ยกเลิก',
+      specifyRelation: 'โปรดระบุความสัมพันธ์...',
+      stepSummary: 'สรุปข้อมูลการสมัคร',
+      stepSummaryDesc: 'กรุณาตรวจสอบข้อมูลของคุณอีกครั้ง',
+      cancelRegistration: 'ยกเลิกการสมัครสมาชิก',
+      confirmCancelTitle: 'ยกเลิกการสมัคร?',
+      confirmCancelDesc: 'คุณแน่ใจหรือไม่ที่จะยกเลิกการสมัคร? ข้อมูลทั้งหมดที่กรอกจะสูญหาย',
+      confirmCancelYes: 'ใช่, ยกเลิก',
+      confirmCancelNo: 'ไม่, กลับไป',
+      fillAtLeastOneChild: 'กรุณาเพิ่มข้อมูลลูกอย่างน้อย 1 คน (ชื่อและวันเกิด)'
     },
     home: {
       level: 'ระดับ',
