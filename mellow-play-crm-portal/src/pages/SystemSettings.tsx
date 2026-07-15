@@ -13,6 +13,7 @@ import {
   Store as BranchIcon,
   AccessTime as TimeIcon,
   Settings as SettingsIcon,
+  VpnKey as KeyIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -29,7 +30,21 @@ interface Branch {
 }
 
 
+// sensitive: true fields use the "type a new value to change it" masked
+// pattern; non-sensitive ones (just a display label, not a credential) are
+// pre-filled with their real current value and edited directly.
+const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean }[] = [
+  { key: 'beam_api_key', label: 'Beam API Key', sensitive: true },
+  { key: 'beam_merchant_id', label: 'Beam Merchant ID', sensitive: true },
+  { key: 'sms_api_key', label: 'SMS API Key (ThaiBulkSMS)', sensitive: true },
+  { key: 'sms_api_secret', label: 'SMS API Secret (ThaiBulkSMS)', sensitive: true },
+  { key: 'sms_sender_name', label: 'SMS Sender Name (ชื่อผู้ส่ง ที่ลงทะเบียนกับ ThaiBulkSMS)', sensitive: false },
+];
+
 const SystemSettings = () => {
+  const currentUser = JSON.parse(localStorage.getItem('crm_user') || '{}');
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -41,14 +56,21 @@ const SystemSettings = () => {
   const [isEditBranch, setIsEditBranch] = useState(false);
   const [systemSettings, setSystemSettings] = useState<{ [key: string]: string }>({});
 
+  // Beam/SMS credentials — super_admin only. GET returns a masked preview
+  // only; typing into a field stages a NEW value, an untouched field is
+  // never sent back so the masked placeholder can't overwrite the real secret.
+  const [integrationKeys, setIntegrationKeys] = useState<{ [key: string]: { masked: string; isSet: boolean } }>({});
+  const [keyEdits, setKeyEdits] = useState<{ [key: string]: string }>({});
+  const [savingKeys, setSavingKeys] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const [branchRes, settingsRes] = await Promise.all([
         axios.get(`${API_BASE}/branches`),
-        axios.get(`${API_BASE}/system/settings`)
+        axios.get(`${API_BASE}/system/settings`),
       ]);
-      
+
       if (branchRes.data.success) {
         setBranches(branchRes.data.branches);
         if (branchRes.data.branches.length > 0) {
@@ -60,8 +82,47 @@ const SystemSettings = () => {
         settingsRes.data.settings.forEach((s: any) => settingsMap[s.key] = s.value);
         setSystemSettings(settingsMap);
       }
+      if (isSuperAdmin) {
+        const keysRes = await axios.get(`${API_BASE}/integration-keys`);
+        if (keysRes.data.success) {
+          setIntegrationKeys(keysRes.data.keys);
+          prefillNonSensitive(keysRes.data.keys);
+        }
+      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  // Non-sensitive fields (e.g. SMS sender name) show their real current
+  // value directly in the editable field, unlike the masked secret fields.
+  const prefillNonSensitive = (keys: { [key: string]: { masked: string; isSet: boolean } }) => {
+    const prefill: { [key: string]: string } = {};
+    for (const { key, sensitive } of INTEGRATION_KEY_FIELDS) {
+      if (!sensitive && keys[key]?.isSet) prefill[key] = keys[key].masked;
+    }
+    setKeyEdits(prev => ({ ...prev, ...prefill }));
+  };
+
+  const handleSaveIntegrationKeys = async () => {
+    const payload: { [key: string]: string } = {};
+    for (const { key } of INTEGRATION_KEY_FIELDS) {
+      if (keyEdits[key]?.trim()) payload[key] = keyEdits[key].trim();
+    }
+    if (Object.keys(payload).length === 0) return;
+    setSavingKeys(true);
+    try {
+      await axios.put(`${API_BASE}/integration-keys`, payload);
+      setKeyEdits({});
+      const keysRes = await axios.get(`${API_BASE}/integration-keys`);
+      if (keysRes.data.success) {
+        setIntegrationKeys(keysRes.data.keys);
+        prefillNonSensitive(keysRes.data.keys);
+      }
+    } catch (e: any) {
+      alert('บันทึกคีย์ไม่สำเร็จ: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setSavingKeys(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -142,6 +203,47 @@ const SystemSettings = () => {
               />
             </Stack>
           </Paper>
+
+          {isSuperAdmin && (
+            <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <KeyIcon color="primary" /> คีย์เชื่อมต่อระบบ (Beam / SMS)
+                </Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                เห็นได้เฉพาะ Super Admin — พิมพ์ค่าใหม่เพื่อเปลี่ยน ถ้าไม่พิมพ์อะไรจะไม่มีผลกับค่าที่ตั้งไว้เดิม
+              </Typography>
+              <Stack spacing={2}>
+                {INTEGRATION_KEY_FIELDS.map(({ key, label, sensitive }) => (
+                  <TextField
+                    key={key}
+                    label={label}
+                    fullWidth
+                    size="small"
+                    value={keyEdits[key] ?? ''}
+                    onChange={(e) => setKeyEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                    placeholder={sensitive ? (integrationKeys[key]?.isSet ? `ตั้งค่าไว้แล้ว (${integrationKeys[key].masked})` : 'ยังไม่ได้ตั้งค่า') : undefined}
+                    helperText={
+                      sensitive
+                        ? (integrationKeys[key]?.isSet ? `ปัจจุบัน: ${integrationKeys[key].masked}` : 'ยังไม่ได้ตั้งค่า — ระบบจะ fallback ไปใช้ค่าจาก Cloudflare secret แทน')
+                        : (integrationKeys[key]?.isSet ? undefined : 'ยังไม่ได้ตั้งค่า — ระบบจะใช้ค่าเริ่มต้น "Demo" ไปก่อน')
+                    }
+                  />
+                ))}
+                <Box>
+                  <Button
+                    variant="contained"
+                    onClick={handleSaveIntegrationKeys}
+                    disabled={savingKeys || Object.values(keyEdits).every(v => !v?.trim())}
+                    sx={{ borderRadius: 2, fontWeight: 700 }}
+                  >
+                    {savingKeys ? <CircularProgress size={18} sx={{ color: 'white' }} /> : 'บันทึกคีย์'}
+                  </Button>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
 
           <Paper sx={{ p: 3, borderRadius: 4 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>

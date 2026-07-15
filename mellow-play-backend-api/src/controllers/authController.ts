@@ -40,7 +40,10 @@ export class AuthController {
 
       if (otpEnabled) {
         // Send SMS via ThaiBulkSMS
-        const smsService = new SmsService(config.smsApiKey, config.smsApiSecret);
+        const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
+        const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
+        const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
+        const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
         sent = await smsService.sendOtp(phone, otp, ref);
       } else {
         console.log(`[TEST MODE] OTP for ${phone}: ${otp} (Ref: ${ref})`);
@@ -387,7 +390,10 @@ export class AuthController {
       let sent = false;
 
       if (otpEnabled) {
-        const smsService = new SmsService(config.smsApiKey, config.smsApiSecret);
+        const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
+        const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
+        const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
+        const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
         sent = await smsService.sendOtp(phone, otp, ref);
       } else {
         console.log(`[TEST MODE] Forgot PW OTP for ${phone}: ${otp} (Ref: ${ref})`);

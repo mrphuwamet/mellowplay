@@ -1075,7 +1075,7 @@ const CourseManagement = () => {
                   ) : (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                       {formData.couponRequirements.map((req, idx) => {
-                        const typeInfo = COUPON_TYPES.find(t => t.id === req.typeId);
+                        const typeInfo = couponTypes.find(t => t.id === req.typeId);
                         return (
                           <Box key={idx} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
                             <FormControl size="small" sx={{ flex: 2, minWidth: 160 }}>
@@ -1085,11 +1085,11 @@ const CourseManagement = () => {
                                 label="ประเภทคูปอง"
                                 onChange={e => updateCouponRequirement(idx, 'typeId', e.target.value)}
                               >
-                                {COUPON_TYPES.map(t => (
+                                {couponTypes.map(t => (
                                   <MenuItem key={t.id} value={t.id}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                       <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: t.color, flexShrink: 0 }} />
-                                      {t.label}
+                                      {t.name}
                                     </Box>
                                   </MenuItem>
                                 ))}
@@ -1112,7 +1112,7 @@ const CourseManagement = () => {
                             }}>
                               <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: typeInfo?.color ?? '#888', flexShrink: 0 }} />
                               <Typography variant="caption" sx={{ fontWeight: 700, color: typeInfo?.color ?? 'text.secondary' }}>
-                                {req.count} × {typeInfo?.label ?? req.label}
+                                {req.count} × {typeInfo?.name ?? req.label}
                               </Typography>
                             </Box>
                             <IconButton size="small" color="error" onClick={() => removeCouponRequirement(idx)}>

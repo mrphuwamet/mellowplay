@@ -16,4 +16,12 @@ export class SettingsRepository {
     const value = await this.getSetting('otp_enabled');
     return value === '1';
   }
+
+  // Lets a super admin override a Cloudflare secret (Beam/SMS credentials)
+  // from the CRM's Settings page without redeploying — falls back to the
+  // Worker env/secret binding when nothing has been set in the DB.
+  async getOverridable(key: string, envFallback: string): Promise<string> {
+    const value = await this.getSetting(key);
+    return value && value.trim() ? value : envFallback;
+  }
 }

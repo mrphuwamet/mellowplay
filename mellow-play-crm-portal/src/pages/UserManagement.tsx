@@ -375,19 +375,19 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
 
   const handleAddCoupon = async () => {
     if (!editUser || !newCoupon.expiresAt) return;
-    const typeInfo = COUPON_TYPES.find(t => t.id === newCoupon.typeId);
+    const typeInfo = couponTypes.find(t => t.id === newCoupon.typeId);
     setCouponSaving(true);
     try {
       const res = await axios.post(`${API_BASE}/users/${editUser.id}/coupons`, {
         type_id:    newCoupon.typeId,
-        label:      typeInfo?.label ?? newCoupon.typeId,
+        label:      typeInfo?.name ?? newCoupon.typeId,
         count:      newCoupon.count,
         expires_at: newCoupon.expiresAt,
         note:       newCoupon.note || undefined,
       });
       setCoupons(prev => [...prev, {
         id: res.data.id, user_id: Number(editUser.id),
-        type_id: newCoupon.typeId, label: typeInfo?.label ?? newCoupon.typeId,
+        type_id: newCoupon.typeId, label: typeInfo?.name ?? newCoupon.typeId,
         count: newCoupon.count, expires_at: newCoupon.expiresAt,
         note: newCoupon.note || undefined, created_at: new Date().toISOString(),
       }]);
@@ -931,7 +931,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                       </TableHead>
                       <TableBody>
                         {coupons.map(coupon => {
-                          const typeInfo = COUPON_TYPES.find(t => t.id === coupon.type_id);
+                          const typeInfo = couponTypes.find(t => t.id === coupon.type_id);
                           const status = getCouponStatus(coupon.expires_at);
                           const isEditing = editingCoupon?.id === coupon.id;
                           return (

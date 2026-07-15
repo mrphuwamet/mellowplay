@@ -365,11 +365,12 @@ const AppContent = () => {
     });
 
     // Shop group
-    const shopChildren: MenuItemConfig[] = [
+    const shopChildrenAll: MenuItemConfig[] = [
       { text: 'จัดการบริการ',        icon: <ServiceMenuIcon />, path: '/crm/services', feature: 'services' },
       { text: 'จัดการรายการสินค้า',  icon: <ProductMenuIcon />, path: '/crm/products', feature: 'products' },
       { text: 'จัดการสต๊อก',         icon: <StockMenuIcon />,   path: '/crm/stock',    feature: 'stock'    },
-    ].filter(item => hasPermission(item.feature));
+    ];
+    const shopChildren = shopChildrenAll.filter(item => hasPermission(item.feature));
     if (shopChildren.length > 0) {
       filtered.push({
         type: 'group',
@@ -726,7 +727,7 @@ const AppContent = () => {
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
-            <Route path="/crm/users" element={protect('customers', <CrmUserManagement />)} />
+            <Route path="/crm/users" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />
             <Route path="/crm/rewards" element={protect('bookings', <RewardsManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />

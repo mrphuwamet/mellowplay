@@ -355,8 +355,8 @@ export class AdminController {
 
       if (!shouldBypassPayment && (!status || status === 'pending')) {
         try {
-          const BEAM_API_KEY = c.env.BEAM_API_KEY;
-          const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
+          const BEAM_API_KEY = await settingsRepo.getOverridable('beam_api_key', c.env.BEAM_API_KEY);
+          const BEAM_MERCHANT_ID = await settingsRepo.getOverridable('beam_merchant_id', c.env.BEAM_MERCHANT_ID);
           if (!BEAM_API_KEY || !BEAM_MERCHANT_ID) {
             throw new Error('Beam credentials not found');
           }
@@ -992,6 +992,68 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const { key, value } = await c.req.json();
       await adminRepo.updateSystemSetting(key, value);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Beam/SMS credentials — deliberately kept OUT of getSystemSettings()/the
+  // generic settings blob (which any staff with 'settings' access can read)
+  // since these are secrets. Only super_admin may view or change them, and
+  // GET only ever returns a masked preview — the real value never round-trips
+  // back to the browser, so re-saving an untouched masked field can't
+  // overwrite the real secret with "••••1234".
+  private static INTEGRATION_KEYS = ['beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name'] as const;
+  // sms_sender_name is the registered ThaiBulkSMS sender ID shown to
+  // recipients — a display label, not a credential, so it isn't masked.
+  private static NON_SENSITIVE_KEYS = new Set(['sms_sender_name']);
+
+  private mask(key: string, value: string): string {
+    if (!value) return '';
+    if (AdminController.NON_SENSITIVE_KEYS.has(key)) return value;
+    return value.length <= 4 ? '••••' : `••••${value.slice(-4)}`;
+  }
+
+  async getIntegrationKeys(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      if (c.get('crmUser')?.role !== 'super_admin') {
+        return c.json({ success: false, message: 'Forbidden' }, 403);
+      }
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+      const envFallback: Record<string, string> = {
+        beam_api_key: c.env.BEAM_API_KEY, beam_merchant_id: c.env.BEAM_MERCHANT_ID,
+        sms_api_key: c.env.SMS_API_KEY, sms_api_secret: c.env.SMS_API_SECRET,
+        sms_sender_name: 'Demo',
+      };
+      const keys: Record<string, { masked: string; isSet: boolean }> = {};
+      for (const key of AdminController.INTEGRATION_KEYS) {
+        const value = await settingsRepo.getOverridable(key, envFallback[key] || '');
+        keys[key] = { masked: this.mask(key, value), isSet: !!value };
+      }
+      return c.json({ success: true, keys });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async updateIntegrationKeys(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      if (c.get('crmUser')?.role !== 'super_admin') {
+        return c.json({ success: false, message: 'Forbidden' }, 403);
+      }
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const body = await c.req.json();
+      for (const key of AdminController.INTEGRATION_KEYS) {
+        // Empty/omitted = leave untouched (this is how the masked-value
+        // re-save case is handled — the frontend never sends a field back
+        // unless the user actually typed a new value into it).
+        if (typeof body[key] === 'string' && body[key].trim()) {
+          await adminRepo.updateSystemSetting(key, body[key].trim());
+        }
+      }
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);

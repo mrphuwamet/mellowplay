@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { HRRepository } from '../repositories/hrRepository';
+import { SettingsRepository } from '../repositories/settingsRepository';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -61,8 +62,9 @@ export class HRController {
         return c.json({ success: true, id: purchaseId, paymentUrl: '' });
       }
 
-      const BEAM_API_KEY = c.env.BEAM_API_KEY;
-      const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
+      const settingsRepo = new SettingsRepository(config.db);
+      const BEAM_API_KEY = await settingsRepo.getOverridable('beam_api_key', c.env.BEAM_API_KEY);
+      const BEAM_MERCHANT_ID = await settingsRepo.getOverridable('beam_merchant_id', c.env.BEAM_MERCHANT_ID);
       if (!BEAM_API_KEY || !BEAM_MERCHANT_ID) {
         return c.json({ success: false, message: 'Beam credentials not found' }, 500);
       }

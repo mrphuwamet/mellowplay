@@ -409,6 +409,8 @@ app.delete('/api/v1/admin/skills-library/:id', (c) => adminController.deleteSkil
 
 app.get('/api/v1/admin/settings', (c) => adminController.getSystemSettings(c));
 app.post('/api/v1/admin/settings', (c) => adminController.updateSystemSetting(c));
+app.get('/api/v1/admin/integration-keys', (c) => adminController.getIntegrationKeys(c));
+app.put('/api/v1/admin/integration-keys', (c) => adminController.updateIntegrationKeys(c));
 
 app.get   ('/api/v1/admin/branches',              (c) => adminController.getBranches(c));
 app.post  ('/api/v1/admin/branches',              (c) => adminController.createBranch(c));

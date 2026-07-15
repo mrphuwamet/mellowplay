@@ -3,11 +3,13 @@ import { Bindings } from '../types/env';
 export class SmsService {
   private apiKey: string;
   private apiSecret: string;
+  private senderName: string;
   private apiUrl = 'https://api-v2.thaibulksms.com/sms';
 
-  constructor(apiKey: string, apiSecret: string) {
+  constructor(apiKey: string, apiSecret: string, senderName: string = 'Demo') {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
+    this.senderName = senderName;
   }
 
   async sendOtp(phone: string, otp: string, ref: string): Promise<boolean> {
@@ -25,7 +27,7 @@ export class SmsService {
         body: new URLSearchParams({
           'msisdn': phone,
           'message': message,
-          'sender': 'Demo',
+          'sender': this.senderName,
         })
       });
 
