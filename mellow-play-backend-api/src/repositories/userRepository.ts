@@ -1,4 +1,5 @@
 import { HDService } from '../services/hdService';
+import { AuthService } from '../services/authService';
 
 export class UserRepository {
   private db: D1Database;
@@ -45,23 +46,58 @@ export class UserRepository {
       .first();
   }
 
+  async findByGoogleId(googleId: string): Promise<any> {
+    return await this.db.prepare('SELECT * FROM Users WHERE google_id = ?')
+      .bind(googleId)
+      .first();
+  }
+
+  async findByEmail(email: string): Promise<any> {
+    return await this.db.prepare('SELECT * FROM Users WHERE email = ?')
+      .bind(email)
+      .first();
+  }
+
+  async linkGoogleId(userId: number, googleId: string): Promise<void> {
+    await this.db.prepare('UPDATE Users SET google_id = ? WHERE id = ?')
+      .bind(googleId, userId)
+      .run();
+  }
+
+  async countChildren(userId: number): Promise<number> {
+    const row = await this.db.prepare('SELECT COUNT(*) as cnt FROM Children WHERE parent_id = ?')
+      .bind(userId)
+      .first<{ cnt: number }>();
+    return row?.cnt || 0;
+  }
+
+  async createFromGoogle(googleId: string, email: string, firstName?: string, lastName?: string): Promise<number> {
+    const passwordHash = await AuthService.hashPassword(crypto.randomUUID());
+    const result = await this.db.prepare(
+      'INSERT INTO Users (google_id, email, password_hash, first_name, last_name, phone_verified) VALUES (?, ?, ?, ?, ?, 0)'
+    ).bind(googleId, email, passwordHash, firstName || null, lastName || null).run();
+    return result.meta.last_row_id;
+  }
+
   async createWithChildren(
-    phone: string, 
-    passwordHash: string, 
-    firstName: string, 
-    lastName: string, 
-    children: Array<{ name: string; dob: string; relation: string; nickname?: string; gender?: string }>,
+    phone: string,
+    passwordHash: string,
+    firstName: string,
+    lastName: string,
+    children: Array<{ name: string; dob: string; relation: string; nickname: string; gender: string }>,
     email?: string,
     lineId?: string,
     pdpaConsent: boolean = false,
     marketingConsent: boolean = false,
-    address?: string
+    address?: string,
+    prefix?: string,
+    dob?: string
   ): Promise<number> {
     // 1. Create User
     const userResult = await this.db.prepare(
-      'INSERT INTO Users (phone, password_hash, first_name, last_name, email, line_id, pdpa_consent, marketing_consent, address, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)'
-    ).bind(phone, passwordHash, firstName, lastName, email || null, lineId || null, pdpaConsent ? 1 : 0, marketingConsent ? 1 : 0, address || null).run();
-    
+      'INSERT INTO Users (phone, password_hash, prefix, first_name, last_name, dob, email, line_id, pdpa_consent, marketing_consent, address, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)'
+    ).bind(phone, passwordHash, prefix || null, firstName, lastName, dob || null, email || null, lineId || null, pdpaConsent ? 1 : 0, marketingConsent ? 1 : 0, address || null).run();
+
     const userId = userResult.meta.last_row_id;
     const hdService = new HDService(''); // Empty API key forces mock calculation
 
@@ -88,8 +124,8 @@ export class UserRepository {
       const hdResult = await this.db.prepare(`
         INSERT INTO HD_Profiles (user_id, name, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(userId, child.name, child.nickname || null, child.gender || null, child.relation, child.dob, hdType, hdProfile, centersJson).run();
-      
+      `).bind(userId, child.name, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+
       const hdProfileId = hdResult.meta.last_row_id;
 
       await this.db.prepare(
@@ -102,7 +138,7 @@ export class UserRepository {
 
   async addSingleChild(
     userId: number,
-    child: { name: string; dob: string; relation: string; nickname?: string; gender?: string }
+    child: { name: string; dob: string; relation: string; nickname: string; gender: string }
   ): Promise<number> {
     const hdService = new HDService(''); // Empty API key forces mock calculation
 
@@ -127,13 +163,17 @@ export class UserRepository {
     const hdResult = await this.db.prepare(`
       INSERT INTO HD_Profiles (user_id, name, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(userId, child.name, child.nickname || null, child.gender || null, child.relation, child.dob, hdType, hdProfile, centersJson).run();
-    
+    `).bind(userId, child.name, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+
     const hdProfileId = hdResult.meta.last_row_id;
 
+    // Random default avatar (char-1..char-6, matching src/assets/charactor-mp
+    // in the consumer app) so new children don't all start on the same one.
+    const randomAvatar = `char-${Math.floor(Math.random() * 6) + 1}`;
+
     const childResult = await this.db.prepare(
-      'INSERT INTO Children (parent_id, hd_profile_id) VALUES (?, ?)'
-    ).bind(userId, hdProfileId).run();
+      'INSERT INTO Children (parent_id, hd_profile_id, avatar) VALUES (?, ?, ?)'
+    ).bind(userId, hdProfileId, randomAvatar).run();
 
     return childResult.meta.last_row_id;
   }

@@ -34,11 +34,12 @@ export class HDProfileRepository {
 
   async findByUserId(userId: number): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT 
+      SELECT
         h.*,
         c.id as child_id,
         c.current_level,
         c.avatar,
+        c.custom_photo_url,
         COALESCE(mc.little_junior_balance, 0) as little_junior_balance,
         COALESCE(mc.junior_balance, 0) as junior_balance,
         (
@@ -72,7 +73,32 @@ export class HDProfileRepository {
     const result = await this.db.prepare(`
       UPDATE Children SET avatar = ? WHERE id = ?
     `).bind(avatar, childId).run();
-    
+
+    return result.success;
+  }
+
+  // Persists the uploaded photo separately from the currently-active `avatar`
+  // so it survives switching to a character avatar and back.
+  async updateCustomPhoto(childId: number, url: string): Promise<boolean> {
+    const result = await this.db.prepare(`
+      UPDATE Children SET custom_photo_url = ? WHERE id = ?
+    `).bind(url, childId).run();
+    return result.success;
+  }
+
+  async deleteCustomPhoto(childId: number, fallbackAvatar: string = 'char-1'): Promise<boolean> {
+    const child = await this.db.prepare(
+      `SELECT avatar, custom_photo_url FROM Children WHERE id = ?`
+    ).bind(childId).first<{ avatar: string | null; custom_photo_url: string | null }>();
+    if (!child) return false;
+
+    const isActive = !!child.avatar && child.avatar === child.custom_photo_url;
+    const result = await this.db.prepare(
+      isActive
+        ? `UPDATE Children SET custom_photo_url = NULL, avatar = ? WHERE id = ?`
+        : `UPDATE Children SET custom_photo_url = NULL WHERE id = ?`
+    ).bind(...(isActive ? [fallbackAvatar, childId] : [childId])).run();
+
     return result.success;
   }
 

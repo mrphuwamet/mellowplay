@@ -1,19 +1,22 @@
 import React from 'react';
 import { useChildStore } from '../store/useChildStore';
-import { ChevronRight, FileText, Lock, Medal, Menu, LogOut, Settings, Ticket, Calendar, LogIn, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, ArrowRightLeft } from 'lucide-react';
+import { ChevronRight, FileText, Lock, Medal, Menu, LogOut, Settings, Ticket, Calendar, LogIn, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, ArrowRightLeft, Crown, Cake } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import QuickAccess from '../components/QuickAccess';
 import AnimatedClouds from '../components/AnimatedClouds';
 import CourseCard from '../components/CourseCard';
 import AddChildModal from '../components/AddChildModal';
-import EditChildModal from '../components/EditChildModal';
 import AvatarPickerModal from '../components/AvatarPickerModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
+import LoadingLogo from '../components/LoadingLogo';
+import BirthdayModal from '../components/BirthdayModal';
 import logo from '../assets/ui/logo.svg';
 import defaultAvatar from '../assets/ui/default-avatar.svg';
 import apiClient from '../utils/apiClient';
+import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
+import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 
 const Home = () => {
   const { children, selectedChildId, isLoading: isStoreLoading, selectChild } = useChildStore();
@@ -21,16 +24,17 @@ const Home = () => {
   const { t, lang, setLang } = useTranslation();
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isAddChildOpen, setIsAddChildOpen] = React.useState(false);
-  const [isEditChildOpen, setIsEditChildOpen] = React.useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = React.useState(false);
   const [isProfileSwitcherOpen, setIsProfileSwitcherOpen] = React.useState(false);
   const [recommendedCourses, setRecommendedCourses] = React.useState<any[]>([]);
-  const [latestClass, setLatestClass] = React.useState<any | null>(null);
+  const [recentHistory, setRecentHistory] = React.useState<any[]>([]);
   const [pendingBookings, setPendingBookings] = React.useState<any[]>([]);
   const [upcomingClasses, setUpcomingClasses] = React.useState<any[]>([]);
   const [selectedBooking, setSelectedBooking] = React.useState<any | null>(null);
   const [isCancelling, setIsCancelling] = React.useState<number | null>(null);
   const [cancelBookingId, setCancelBookingId] = React.useState<number | null>(null);
+  const [isDataLoading, setIsDataLoading] = React.useState(true);
+  const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
 
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const userJson = localStorage.getItem('mellow_user');
@@ -49,23 +53,27 @@ const Home = () => {
   };
 
   const currentChild = isGuest ? guestChild : selectedChild;
+  const { statusMap: courseBookingStatus, isLoading: isBookingStatusLoading } = useCourseBookingStatus(user?.id, currentChild?.id);
 
   React.useEffect(() => {
     const fetchData = async () => {
+      setIsDataLoading(true);
       try {
         const coursesReq = apiClient.get('/admin/courses');
-        const progressReq = (!isGuest && currentChild?.id) ? apiClient.get(`/journey/progress/${currentChild.id}`) : Promise.resolve({ data: { success: false } });
+        const historyReq = (!isGuest && user?.id) ? apiClient.get(`/profiles/bookings/history?userId=${user.id}`) : Promise.resolve({ data: { success: false } });
         const pendingReq = (!isGuest && user?.id) ? apiClient.get(`/profiles/bookings/pending?userId=${user.id}`) : Promise.resolve({ data: { success: false } });
         const upcomingReq = (!isGuest && user?.id) ? apiClient.get(`/profiles/bookings/upcoming?userId=${user.id}`) : Promise.resolve({ data: { success: false } });
 
-        const [coursesRes, progressRes, pendingRes, upcomingRes] = await Promise.all([coursesReq, progressReq, pendingReq, upcomingReq]);
+        const [coursesRes, historyRes, pendingRes, upcomingRes] = await Promise.all([coursesReq, historyReq, pendingReq, upcomingReq]);
 
         if (coursesRes.data.success) {
           setRecommendedCourses(coursesRes.data.courses.filter((c: any) => c.is_recommended === 1 || c.is_recommended === true));
         }
 
-        if (progressRes.data.success && progressRes.data.progressData?.records?.length > 0) {
-          setLatestClass(progressRes.data.progressData.records[0]);
+        if (historyRes.data.success) {
+          const bookings = currentChild ? historyRes.data.bookings.filter((b: any) => b.child_id === currentChild.id) : historyRes.data.bookings;
+          const sorted = [...bookings].sort((a: any, b: any) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+          setRecentHistory(sorted.slice(0, 5));
         }
 
         if (pendingRes.data.success) {
@@ -79,6 +87,8 @@ const Home = () => {
         }
       } catch (err) {
         console.error('Failed to fetch home data:', err);
+      } finally {
+        setIsDataLoading(false);
       }
     };
     fetchData();
@@ -86,8 +96,8 @@ const Home = () => {
 
   if (isStoreLoading && children.length === 0 && !isGuest) {
     return (
-      <div className="mellow-page flex items-center justify-center">
-        <div className="animate-spin text-mellow-purple text-4xl">⏳</div>
+      <div className="mellow-page flex items-center justify-center min-h-screen">
+        <LoadingLogo />
       </div>
     );
   }
@@ -323,24 +333,14 @@ const Home = () => {
                 {t.common.guestMode}
               </div>
             ) : (
-              <>
-                {currentChild && (
-                  <button
-                    onClick={() => setIsEditChildOpen(true)}
-                    className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95"
-                  >
-                    <Settings size={16} />
-                  </button>
-                )}
-                {children.length > 1 && (
-                  <button
-                    onClick={() => setIsProfileSwitcherOpen(true)}
-                    className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95"
-                  >
-                    <ArrowRightLeft size={16} />
-                  </button>
-                )}
-              </>
+              children.length > 1 && (
+                <button
+                  onClick={() => setIsProfileSwitcherOpen(true)}
+                  className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95"
+                >
+                  <ArrowRightLeft size={16} />
+                </button>
+              )
             )}
           </div>
 
@@ -380,11 +380,20 @@ const Home = () => {
                       {currentChild && (
                         <div className="flex flex-wrap items-center gap-2">
                           {currentChild.dob && (
-                            <span className="text-[11px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                              {lang === 'en' ? 'Age' : 'อายุ'} {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : 'ปี'}
-                            </span>
+                            <button
+                              onClick={() => setIsBirthdayModalOpen(true)}
+                              className="inline-flex items-center gap-1 text-[11px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full shadow-sm active:scale-95 transition-transform"
+                            >
+                              <Cake size={12} strokeWidth={2.5} />
+                              {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : 'ปี'}
+                            </button>
                           )}
-                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${membershipStatus === 'premium' ? 'bg-mellow-purple/10 text-mellow-purple' : 'bg-slate-100 text-slate-600'}`}>
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full shadow-sm ${
+                            membershipStatus === 'premium'
+                              ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white'
+                              : 'bg-emerald-100 text-emerald-600'
+                          }`}>
+                            {membershipStatus === 'premium' ? <Crown size={12} strokeWidth={2.5} /> : <Medal size={12} strokeWidth={2.5} />}
                             {membershipStatus === 'premium' ? 'Premium' : 'Regular'}
                           </span>
                         </div>
@@ -428,7 +437,20 @@ const Home = () => {
             {lang === 'en' ? 'Upcoming Classes' : 'คลาสที่กำลังจะมาถึง'}
           </h3>
 
-          {upcomingClasses.length > 0 ? (
+          {isDataLoading ? (
+            <div className="space-y-3">
+              {[0, 1].map(i => (
+                <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 items-center animate-pulse">
+                  <div className="w-16 h-16 rounded-xl bg-slate-100 flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 w-2/3 bg-slate-100 rounded-full" />
+                    <div className="h-2.5 w-1/2 bg-slate-100 rounded-full" />
+                    <div className="h-2.5 w-1/3 bg-slate-100 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : upcomingClasses.length > 0 ? (
             <div className="space-y-3">
               {upcomingClasses.map(booking => (
                 <div
@@ -476,14 +498,31 @@ const Home = () => {
           )}
         </div>
 
-        {recommendedCourses.length > 0 && (
+        {(isDataLoading || isBookingStatusLoading) ? (
+          <div className="mb-8 px-5">
+            <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
+              {lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}
+            </h3>
+            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
+              {[0, 1].map(i => (
+                <div key={i} className="flex-shrink-0 w-64 bg-white p-3 rounded-2xl shadow-sm animate-pulse">
+                  <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 mb-3" />
+                  <div className="h-3.5 w-3/4 bg-slate-100 rounded-full mb-2" />
+                  <div className="h-2.5 w-full bg-slate-100 rounded-full mb-1" />
+                  <div className="h-2.5 w-2/3 bg-slate-100 rounded-full mb-3" />
+                  <div className="h-8 w-full bg-slate-100 rounded-xl" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : recommendedCourses.length > 0 && (
           <div className="mb-8 px-5">
             <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
               {lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}
             </h3>
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
               {recommendedCourses.map((course) => (
-                <CourseCard key={course.id} course={course} />
+                <CourseCard key={course.id} course={course} bookingStatus={courseBookingStatus[course.id]} lang={lang} childCoupons={!isGuest ? currentChild?.coupons : undefined} />
               ))}
             </div>
           </div>
@@ -496,23 +535,58 @@ const Home = () => {
             t.home.registerBtn,
             () => navigate('/register')
           )}
-          <div className={`mellow-card bg-white/85 border border-white p-6 shadow-sm relative overflow-hidden transition-all ${isGuest ? 'blur-[2px]' : ''}`}>
-            {latestClass ? (
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-mellow-blue/10 flex items-center justify-center text-mellow-blue flex-shrink-0">
-                  <Medal size={28} />
+          <div className={`mellow-card bg-white/85 border border-white p-5 shadow-sm relative overflow-hidden transition-all ${isGuest ? 'blur-[2px]' : ''}`}>
+            {isDataLoading ? (
+              <div className="space-y-4">
+                {[0, 1].map(i => (
+                  <div key={i} className="flex items-center gap-4 animate-pulse">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 w-2/3 bg-slate-100 rounded-full" />
+                      <div className="h-2.5 w-1/3 bg-slate-100 rounded-full" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : recentHistory.length > 0 ? (
+              <div>
+                <div className="divide-y divide-slate-100">
+                  {recentHistory.map((item, i) => {
+                    const itemDate = new Date(item.scheduled_at);
+                    const dateLocale = lang === 'en' ? 'en-US' : 'th-TH';
+                    return (
+                      <button
+                        key={item.id ?? i}
+                        onClick={() => setSelectedBooking(item)}
+                        className={`w-full flex items-center gap-3 text-left active:scale-[0.98] transition-transform ${i === 0 ? 'pb-3' : 'py-3'}`}
+                      >
+                        <div className="flex flex-col items-center justify-center w-12 h-12 rounded-2xl bg-mellow-blue/10 shrink-0">
+                          <span className="text-[8px] font-black uppercase leading-none text-mellow-blue">
+                            {itemDate.toLocaleDateString(dateLocale, { month: 'short' })}
+                          </span>
+                          <span className="text-lg font-black leading-tight text-mellow-blue">
+                            {itemDate.getDate()}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-black text-[14px] text-slate-800 leading-tight truncate">{item.course_name || 'คลาสเรียน'}</h4>
+                            {BOOKING_STATUS_META[item.status] && (
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[item.status].bg} ${BOOKING_STATUS_META[item.status].fg}`}>
+                                {lang === 'en' ? BOOKING_STATUS_META[item.status].en : BOOKING_STATUS_META[item.status].th}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-bold mt-0.5 truncate">{item.branch_name}</p>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-300 shrink-0" strokeWidth={2.5} />
+                      </button>
+                    );
+                  })}
                 </div>
-                <div>
-                  <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1">{latestClass.node_name || 'คลาสเรียน'}</h4>
-                  <p className="text-xs text-slate-500 font-bold mb-2">
-                    {new Date(latestClass.achieved_at).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
-                      year: 'numeric', month: 'long', day: 'numeric'
-                    })}
-                  </p>
-                  <button onClick={() => navigate('/roadmap')} className="text-xs font-black text-mellow-blue uppercase tracking-widest flex items-center gap-1 active:scale-95 transition-transform">
-                    ดูความสำเร็จทั้งหมด <ChevronRight size={14} />
-                  </button>
-                </div>
+                <button onClick={() => navigate('/journey')} className="mt-3 text-xs font-black text-mellow-blue uppercase tracking-widest flex items-center gap-1 active:scale-95 transition-transform">
+                  ดูความสำเร็จทั้งหมด <ChevronRight size={14} />
+                </button>
               </div>
             ) : (
               <div className="text-center py-4">
@@ -535,28 +609,24 @@ const Home = () => {
         onClose={() => setIsAddChildOpen(false)}
       />
 
-      <EditChildModal
-        isOpen={isEditChildOpen}
-        onClose={() => setIsEditChildOpen(false)}
-        childInfo={currentChild && currentChild.id !== 'guest' ? {
-          id: currentChild.id as number,
-          name: currentChild.name,
-          nickname: currentChild.nickname || '',
-          dob: currentChild.dob || '',
-          relation: currentChild.relation || 'Mother',
-          gender: currentChild.gender || ''
-        } : undefined}
-      />
-
       <AvatarPickerModal
         isOpen={isAvatarPickerOpen}
         onClose={() => setIsAvatarPickerOpen(false)}
         currentAvatar={currentChild?.avatar || ''}
         childId={typeof currentChild?.id === 'number' ? currentChild.id : undefined}
+        customPhotoUrl={!isGuest ? (currentChild as any)?.customPhotoUrl : undefined}
         onSelect={async (avatarId: string) => {
           if (!currentChild || currentChild.id === 'guest' || typeof currentChild.id !== 'number') return;
           const { updateAvatar } = useChildStore.getState();
           await updateAvatar(currentChild.id, avatarId);
+        }}
+        onPhotoUploaded={(url) => {
+          if (!currentChild || currentChild.id === 'guest' || typeof currentChild.id !== 'number') return;
+          useChildStore.getState().setCustomPhotoUrl(currentChild.id, url);
+        }}
+        onDeletePhoto={async () => {
+          if (!currentChild || currentChild.id === 'guest' || typeof currentChild.id !== 'number') return;
+          await useChildStore.getState().deletePhoto(currentChild.id);
         }}
       />
 
@@ -565,6 +635,15 @@ const Home = () => {
           isOpen={!!selectedBooking}
           onClose={() => setSelectedBooking(null)}
           booking={selectedBooking}
+        />
+      )}
+
+      {currentChild?.dob && (
+        <BirthdayModal
+          isOpen={isBirthdayModalOpen}
+          onClose={() => setIsBirthdayModalOpen(false)}
+          name={currentChild.nickname || currentChild.name}
+          dob={currentChild.dob}
         />
       )}
 

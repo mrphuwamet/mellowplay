@@ -4,6 +4,7 @@ import App from './App';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import ErrorBoundary from './components/ErrorBoundary';
+import './utils/axiosSetup';
 
 const theme = createTheme({
   palette: {

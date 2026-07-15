@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
+import { computeStampExpiry } from '../utils/stampExpiry';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -38,6 +39,28 @@ export class CourseMaterialController {
       const config = new ConfigService(c.env);
       await this.repo(c).deductStock(bookingId);
       await config.db.prepare("UPDATE Bookings SET status='completed' WHERE id=?").bind(bookingId).run();
+
+      const booking = await config.db.prepare(
+        'SELECT child_id, course_id FROM Bookings WHERE id=?'
+      ).bind(bookingId).first<any>();
+
+      if (booking?.child_id && booking?.course_id) {
+        const course = await config.db.prepare(
+          'SELECT stamps_on_completion, stamp_expiry_months FROM Courses WHERE id=?'
+        ).bind(booking.course_id).first<any>();
+
+        const stampsToAward = course?.stamps_on_completion || 0;
+        if (stampsToAward > 0) {
+          const expiresAt = computeStampExpiry(new Date(), course?.stamp_expiry_months ?? 12).toISOString();
+          const stmts = Array.from({ length: stampsToAward }, () =>
+            config.db.prepare(
+              'INSERT INTO Stamps (child_id, booking_id, course_id, expires_at) VALUES (?, ?, ?, ?)'
+            ).bind(booking.child_id, bookingId, booking.course_id, expiresAt)
+          );
+          await config.db.batch(stmts);
+        }
+      }
+
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

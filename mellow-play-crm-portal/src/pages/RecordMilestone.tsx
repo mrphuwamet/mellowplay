@@ -1,23 +1,24 @@
 import { API_URL } from '../config';
 import React, { useEffect, useState, useRef } from 'react';
-import { 
-  Typography, Box, CircularProgress, 
-  Grid, Card, CardContent, Button, Divider, Chip,
-  TextField, IconButton, Paper, Alert, AlertTitle
+import {
+  Typography, Box, CircularProgress,
+  Grid, Button, Chip, Alert,
+  TextField, IconButton, Paper,
 } from '@mui/material';
-import { 
+import {
   ArrowBack as BackIcon,
   Save as SaveIcon,
-  CloudUpload as UploadIcon,
-  Image as ImageIcon,
   Movie as VideoIcon,
   Close as ClearIcon,
-  Psychology as BrainIcon,
-  Handshake as HandshakeIcon,
-  PanTool as HandIcon,
-  Lightbulb as LightbulbIcon
+  Add as AddIcon,
+  AutoAwesome as SkillsStepIcon,
+  RateReview as CommentStepIcon,
+  PhotoLibrary as MediaStepIcon,
+  Groups as AgeIcon,
+  Check as CheckIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import { renderSkillIcon, type SkillItem } from '../utils/skillsLibrary';
 
 const API_BASE = `${API_URL}/api/v1`;
 
@@ -27,47 +28,174 @@ interface RecordMilestoneProps {
   onSuccess: () => void;
 }
 
+interface BilingualSkill { th: string; en: string; }
+
+const skillKey = (s: BilingualSkill) => `${s.th}|${s.en}`;
+
+const getImageUrl = (url?: string) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url;
+  return `${API_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+  const [skillsLoading, setSkillsLoading] = useState(true);
+  const [availableSkills, setAvailableSkills] = useState<{ id: string; skill: BilingualSkill; icon: React.ReactElement; type: 'achievement' | 'indicator' }[]>([]);
+  const [course, setCourse] = useState<any>(null);
+
   const [formData, setFormData] = useState({
-    skills: [] as string[],
+    skills: [] as BilingualSkill[],
     teacherComment: '',
     images: [] as string[],
     videoUrl: ''
   });
+  const [imageUploading, setImageUploading] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
 
-  const availableSkills = [
-    { id: 'problem_solving', label: 'การแก้ปัญหา', icon: <BrainIcon fontSize="small" /> },
-    { id: 'collaboration', label: 'ความร่วมมือ', icon: <HandshakeIcon fontSize="small" /> },
-    { id: 'motor_skills', label: 'พัฒนากล้ามเนื้อ', icon: <HandIcon fontSize="small" /> },
-    { id: 'creativity', label: 'ความคิดสร้างสรรค์', icon: <LightbulbIcon fontSize="small" /> },
-  ];
+  // A report already exists for this booking (opened via "แก้ไขรายงาน" on a
+  // completed booking) — prefill instead of starting from a blank form, and
+  // update it in place on submit rather than filing a duplicate.
+  const isEditMode = booking.status === 'completed';
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    axios.get(`${API_BASE}/admin/journey/progress-by-booking/${booking.id}`)
+      .then(res => {
+        const progress = res.data.success ? res.data.progress : null;
+        if (!progress) return;
+        let skills: BilingualSkill[] = [];
+        try {
+          skills = typeof progress.skills_learned === 'string'
+            ? JSON.parse(progress.skills_learned)
+            : (progress.skills_learned || []);
+        } catch { skills = []; }
+        const media: { url: string; type: string }[] = progress.media || [];
+        setFormData({
+          skills,
+          teacherComment: progress.teacher_comment || '',
+          images: media.filter(m => m.type === 'image').map(m => m.url),
+          videoUrl: media.find(m => m.type === 'video')?.url || '',
+        });
+      })
+      .catch(err => console.error('Failed to load existing report', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking.id, isEditMode]);
+
+  // Skills selectable in a report must come from THIS course's own setup
+  // (achievement_skills_json / metrics_json, picked from the Skills Library
+  // when the course was configured) — different courses teach different
+  // skills, so a fixed global list would be wrong here.
+  useEffect(() => {
+    const fetchCourseSkills = async () => {
+      setSkillsLoading(true);
+      try {
+        const [coursesRes, libraryRes] = await Promise.all([
+          axios.get(`${API_BASE}/admin/courses`),
+          axios.get(`${API_BASE}/admin/skills-library`),
+        ]);
+
+        if (coursesRes.data.success) {
+          const course = coursesRes.data.courses.find((c: any) => c.id === booking.course_id);
+          setCourse(course || null);
+          // Both are arrays of { th, en } pairs — set via SkillTagInput in
+          // CourseManagement, NOT plain strings.
+          let achievementSkills: BilingualSkill[] = [];
+          let indicatorSkills: BilingualSkill[] = [];
+          try { achievementSkills = course?.achievement_skills_json ? JSON.parse(course.achievement_skills_json) : []; } catch {}
+          try { indicatorSkills = course?.metrics_json ? JSON.parse(course.metrics_json) : []; } catch {}
+
+          const library: SkillItem[] = libraryRes.data.success ? libraryRes.data.skills : [];
+          const tagged = [
+            ...achievementSkills.map(skill => ({ skill, type: 'achievement' as const })),
+            ...indicatorSkills.map(skill => ({ skill, type: 'indicator' as const })),
+          ];
+          setAvailableSkills(tagged.map(({ skill, type }) => {
+            const found = library.find(s => s.name === skill.th);
+            // Backfill a missing translation from the Skills Library so the
+            // report page can still show both languages even if whoever
+            // configured the course only filled in one.
+            const resolved: BilingualSkill = {
+              th: skill.th || found?.name || '',
+              en: skill.en || found?.name_en || '',
+            };
+            return {
+              id: skillKey(skill),
+              skill: resolved,
+              icon: renderSkillIcon(found?.icon || 'Star', { fontSize: 'small' }),
+              type,
+            };
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to load course skills', err);
+      } finally {
+        setSkillsLoading(false);
+      }
+    };
+    fetchCourseSkills();
+  }, [booking.course_id]);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  const toggleSkill = (skillLabel: string) => {
-    const current = [...formData.skills];
-    const index = current.indexOf(skillLabel);
-    if (index > -1) current.splice(index, 1);
-    else current.push(skillLabel);
-    setFormData({ ...formData, skills: current });
+  const toggleSkill = (skill: BilingualSkill) => {
+    const key = skillKey(skill);
+    const isSelected = formData.skills.some(s => skillKey(s) === key);
+    setFormData({
+      ...formData,
+      skills: isSelected
+        ? formData.skills.filter(s => skillKey(s) !== key)
+        : [...formData.skills, skill],
+    });
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
-    const newImages = [...formData.images];
-    for (let i = 0; i < files.length; i++) {
-      newImages.push(URL.createObjectURL(files[i]));
+    if (!files || files.length === 0) return;
+    setImageUploading(true);
+    try {
+      const uploaded: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const fd = new FormData();
+        fd.append('file', files[i]);
+        fd.append('folder', 'journey-media');
+        const res = await axios.post(`${API_BASE}/admin/upload`, fd);
+        if (res.data.success) uploaded.push(res.data.url);
+      }
+      setFormData(f => ({ ...f, images: [...f.images, ...uploaded] }));
+    } catch (err) {
+      console.error('Failed to upload image', err);
+      setError('อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setImageUploading(false);
+      e.target.value = '';
     }
-    setFormData({ ...formData, images: newImages });
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVideoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'journey-media');
+      const res = await axios.post(`${API_BASE}/admin/upload`, fd);
+      if (res.data.success) setFormData(f => ({ ...f, videoUrl: res.data.url }));
+    } catch (err) {
+      console.error('Failed to upload video', err);
+      setError('อัปโหลดวิดีโอไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setVideoUploading(false);
+      e.target.value = '';
+    }
   };
 
   const handleSubmit = async () => {
     setLoading(true);
+    setError(null);
     try {
       await axios.post(`${API_BASE}/journey/record`, {
         childId: booking.child_id,
@@ -79,47 +207,156 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
           ...(formData.videoUrl ? [{ url: formData.videoUrl, type: 'video' }] : [])
         ]
       });
+      // The booking only becomes "completed" (stock deducted, stamps
+      // awarded) once the report is first filed — see BookingManagement's
+      // handleComplete. Skip this when editing an already-completed booking,
+      // or it would deduct stock / award stamps a second time.
+      if (!isEditMode) {
+        await axios.post(`${API_BASE}/admin/bookings/${booking.id}/complete`);
+      }
       onSuccess();
     } catch (err: any) {
-      setError(err.message || 'Failed to submit report');
+      setError(err.response?.data?.message || err.message || 'Failed to submit report');
     } finally {
       setLoading(false);
     }
   };
 
+  const stepsDone = {
+    skills: formData.skills.length > 0,
+    comment: formData.teacherComment.trim().length > 0,
+    media: formData.images.length > 0 || !!formData.videoUrl,
+  };
+  const steps = [
+    { key: 'skills', icon: <SkillsStepIcon fontSize="small" />, done: stepsDone.skills },
+    { key: 'comment', icon: <CommentStepIcon fontSize="small" />, done: stepsDone.comment },
+    { key: 'media', icon: <MediaStepIcon fontSize="small" />, done: stepsDone.media },
+  ];
+
   return (
-    <Box sx={{ pb: 10 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
+    <Box sx={{ pb: 10, maxWidth: 900, mx: 'auto' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <IconButton onClick={onClose} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <BackIcon />
         </IconButton>
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 800 }}>บันทึกรายงานการเรียนรู้วันนี้</Typography>
-          <Typography variant="body2" color="text.secondary">
-            นักเรียน: {booking.child_name} • คลาส: {booking.course_name}
-          </Typography>
-        </Box>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>{isEditMode ? 'แก้ไขรายงานการเรียนรู้' : 'บันทึกรายงานการเรียนรู้วันนี้'}</Typography>
       </Box>
 
-      <Grid container spacing={4}>
-        <Grid item xs={12} md={7}>
-          <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9' }}>
-            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>1. ทักษะที่ได้เรียนรู้ (Skills)</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 5 }}>
-              {availableSkills.map(skill => (
-                <Chip
-                  key={skill.id}
-                  icon={skill.icon}
-                  label={skill.label}
-                  onClick={() => toggleSkill(skill.label)}
-                  color={formData.skills.includes(skill.label) ? "primary" : "default"}
-                  variant={formData.skills.includes(skill.label) ? "filled" : "outlined"}
-                  sx={{ py: 2.5, px: 1, borderRadius: 3, fontWeight: 700 }}
-                />
-              ))}
+      {/* Class header — cover image + details, for context while filling the report */}
+      <Paper sx={{ borderRadius: 4, border: '1px solid #f1f3f9', overflow: 'hidden', mb: 4, display: 'flex' }}>
+        <Box sx={{ width: 140, minHeight: 140, flexShrink: 0, bgcolor: '#f1f5f9' }}>
+          {course?.thumbnail_url ? (
+            <img src={getImageUrl(course.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <MediaStepIcon sx={{ fontSize: 28, color: 'text.disabled' }} />
             </Box>
+          )}
+        </Box>
+        <Box sx={{ p: 2.5, flex: 1, minWidth: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }}>{booking.course_name}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            นักเรียน: {booking.child_name}
+          </Typography>
+          {course?.short_description && (
+            <Typography variant="body2" color="text.secondary" sx={{
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+            }}>
+              {course.short_description}
+            </Typography>
+          )}
+          {(course?.age_min || course?.age_max) && (
+            <Chip icon={<AgeIcon sx={{ fontSize: 14 }} />} label={`${course.age_min}-${course.age_max} ปี`} size="small" sx={{ mt: 1.5, fontWeight: 700 }} />
+          )}
+        </Box>
+      </Paper>
 
-            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>2. ความคิดเห็นจากคุณครู</Typography>
+      <Grid container spacing={3}>
+        {/* Left step rail — visual progress, not interactive navigation (everything below is on one page) */}
+        <Grid item xs={1} sx={{ display: { xs: 'none', sm: 'block' } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', pt: 2 }}>
+            {steps.map((step, i) => (
+              <React.Fragment key={step.key}>
+                <Box sx={{
+                  width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  bgcolor: step.done ? '#7c3aed' : '#f1f5f9',
+                  color: step.done ? 'white' : '#94a3b8',
+                  transition: 'all 0.2s',
+                }}>
+                  {step.done ? <CheckIcon fontSize="small" /> : step.icon}
+                </Box>
+                {i < steps.length - 1 && (
+                  <Box sx={{ width: 2, flex: 1, minHeight: 48, my: 0.5, bgcolor: step.done ? '#7c3aed' : '#e2e8f0', transition: 'all 0.2s' }} />
+                )}
+              </React.Fragment>
+            ))}
+          </Box>
+        </Grid>
+
+        <Grid item xs={12} sm={11}>
+          <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9', mb: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>วันนี้น้องได้เรียนรู้อะไรบ้าง</Typography>
+
+            {skillsLoading ? (
+              <Box><CircularProgress size={20} /></Box>
+            ) : availableSkills.length === 0 ? (
+              <Typography variant="body2" color="text.disabled">
+                คลาสนี้ยังไม่ได้ตั้งค่าทักษะ/ตัวชี้วัดไว้ — ไปตั้งค่าได้ที่หน้าจัดการคลาสเรียน
+              </Typography>
+            ) : (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#7c3aed', mb: 1.5 }}>Skills — ทักษะที่ได้จากคลาสนี้</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 3 }}>
+                  {availableSkills.filter(item => item.type === 'achievement').length === 0 ? (
+                    <Typography variant="caption" color="text.disabled">คลาสนี้ยังไม่ได้ตั้งค่า Skills</Typography>
+                  ) : availableSkills.filter(item => item.type === 'achievement').map(item => {
+                    const isSelected = formData.skills.some(s => skillKey(s) === item.id);
+                    const label = item.skill.th && item.skill.en
+                      ? `${item.skill.th} (${item.skill.en})`
+                      : (item.skill.th || item.skill.en);
+                    return (
+                      <Chip
+                        key={item.id}
+                        icon={item.icon}
+                        label={label}
+                        onClick={() => toggleSkill(item.skill)}
+                        color={isSelected ? "primary" : "default"}
+                        variant={isSelected ? "filled" : "outlined"}
+                        sx={{ py: 2.5, px: 1, borderRadius: 3, fontWeight: 700 }}
+                      />
+                    );
+                  })}
+                </Box>
+
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0284c7', mb: 1.5 }}>วันนี้น้องโดดเด่นเรื่องอะไรบ้าง</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                  {availableSkills.filter(item => item.type === 'indicator').length === 0 ? (
+                    <Typography variant="caption" color="text.disabled">คลาสนี้ยังไม่ได้ตั้งค่าตัวชี้วัด</Typography>
+                  ) : availableSkills.filter(item => item.type === 'indicator').map(item => {
+                    const isSelected = formData.skills.some(s => skillKey(s) === item.id);
+                    const label = item.skill.th && item.skill.en
+                      ? `${item.skill.th} (${item.skill.en})`
+                      : (item.skill.th || item.skill.en);
+                    return (
+                      <Chip
+                        key={item.id}
+                        icon={item.icon}
+                        label={label}
+                        onClick={() => toggleSkill(item.skill)}
+                        color={isSelected ? "info" : "default"}
+                        variant={isSelected ? "filled" : "outlined"}
+                        sx={{ py: 2.5, px: 1, borderRadius: 3, fontWeight: 700 }}
+                      />
+                    );
+                  })}
+                </Box>
+              </>
+            )}
+          </Paper>
+
+          <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9', mb: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>ความคิดเห็นจากคุณครู</Typography>
             <TextField
               multiline
               rows={6}
@@ -129,24 +366,22 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
               onChange={(e) => setFormData({ ...formData, teacherComment: e.target.value })}
             />
           </Paper>
-        </Grid>
 
-        <Grid item xs={12} md={5}>
-          <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9' }}>
-            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>3. รูปภาพและวิดีโอประกอบ</Typography>
-            
-            <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9', mb: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>รูปภาพและวิดีโอประกอบ</Typography>
+
+            <Grid container spacing={2}>
               {/* Video Placeholder */}
-              <Grid item xs={4}>
-                <Box 
+              <Grid item xs={4} sm={3}>
+                <Box
                   onClick={() => videoInputRef.current?.click()}
-                  sx={{ 
-                    aspectRatio: '1/1', 
-                    borderRadius: 3, 
-                    border: '2px dashed #e2e8f0', 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
+                  sx={{
+                    aspectRatio: '1/1',
+                    borderRadius: 3,
+                    border: '2px dashed #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
                     bgcolor: formData.videoUrl ? 'slate.900' : 'transparent',
@@ -154,10 +389,12 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
                     position: 'relative'
                   }}
                 >
-                  {formData.videoUrl ? (
+                  {videoUploading ? (
+                    <CircularProgress size={20} />
+                  ) : formData.videoUrl ? (
                     <>
-                      <video src={formData.videoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      <IconButton 
+                      <video src={getImageUrl(formData.videoUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <IconButton
                         size="small"
                         onClick={(e) => { e.stopPropagation(); setFormData({...formData, videoUrl: ''}); }}
                         sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.4)', color: 'white', p: 0.5 }}
@@ -174,63 +411,56 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
                 </Box>
               </Grid>
 
-              {/* Images Grid */}
-              <Grid item xs={8}>
-                <Grid container spacing={1}>
-                  {formData.images.map((img, idx) => (
-                    <Grid item xs={3} key={idx}>
-                      <Box sx={{ position: 'relative', pt: '100%', borderRadius: 2, overflow: 'hidden', border: '1px solid #eee' }}>
-                        <img src={img} alt="" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <IconButton 
-                          size="small"
-                          onClick={() => {
-                            const newImgs = [...formData.images];
-                            newImgs.splice(idx, 1);
-                            setFormData({...formData, images: newImgs});
-                          }}
-                          sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'rgba(255,255,255,0.8)', p: 0.25 }}
-                        >
-                          <ClearIcon sx={{ fontSize: 12 }} />
-                        </IconButton>
-                      </Box>
-                    </Grid>
-                  ))}
-                  {formData.images.length < 8 && (
-                    <Grid item xs={3}>
-                      <Box 
-                        onClick={() => imageInputRef.current?.click()}
-                        sx={{ pt: '100%', position: 'relative', borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer' }}
-                      >
-                        <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <AddIcon color="disabled" sx={{ fontSize: 18 }} />
-                        </Box>
-                      </Box>
-                    </Grid>
-                  )}
+              {/* Images */}
+              {formData.images.map((img, idx) => (
+                <Grid item xs={4} sm={3} key={idx}>
+                  <Box sx={{ position: 'relative', pt: '100%', borderRadius: 3, overflow: 'hidden', border: '1px solid #eee' }}>
+                    <img src={getImageUrl(img)} alt="" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        const newImgs = [...formData.images];
+                        newImgs.splice(idx, 1);
+                        setFormData({...formData, images: newImgs});
+                      }}
+                      sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'rgba(255,255,255,0.8)', p: 0.25 }}
+                    >
+                      <ClearIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Box>
                 </Grid>
-              </Grid>
+              ))}
+              {formData.images.length < 8 && (
+                <Grid item xs={4} sm={3}>
+                  <Box
+                    onClick={() => !imageUploading && imageInputRef.current?.click()}
+                    sx={{ pt: '100%', position: 'relative', borderRadius: 3, border: '2px dashed #e2e8f0', cursor: imageUploading ? 'default' : 'pointer' }}
+                  >
+                    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {imageUploading ? <CircularProgress size={18} /> : <AddIcon color="disabled" sx={{ fontSize: 18 }} />}
+                    </Box>
+                  </Box>
+                </Grid>
+              )}
             </Grid>
 
             <input type="file" hidden accept="image/*" multiple ref={imageInputRef} onChange={handleImageUpload} />
-            <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) setFormData({ ...formData, videoUrl: URL.createObjectURL(file) });
-            }} />
+            <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={handleVideoUpload} />
           </Paper>
 
-          <Box sx={{ mt: 4, display: 'flex', gap: 2 }}>
-            <Button 
-              variant="contained" 
-              fullWidth 
-              size="large" 
-              disabled={loading}
-              onClick={handleSubmit}
-              startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
-              sx={{ py: 2, fontWeight: 800 }}
-            >
-              ส่งรายงานให้ผู้ปกครอง
-            </Button>
-          </Box>
+          {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert>}
+
+          <Button
+            variant="contained"
+            fullWidth
+            size="large"
+            disabled={loading}
+            onClick={handleSubmit}
+            startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
+            sx={{ py: 2, fontWeight: 800 }}
+          >
+            {isEditMode ? 'บันทึกการแก้ไข' : 'ส่งรายงานให้ผู้ปกครอง'}
+          </Button>
         </Grid>
       </Grid>
     </Box>

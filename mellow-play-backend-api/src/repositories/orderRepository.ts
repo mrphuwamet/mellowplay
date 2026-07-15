@@ -80,9 +80,44 @@ export class OrderRepository {
       `).bind(orderId, item.itemType, item.itemId ?? null, item.itemName,
               item.unitPrice, item.quantity ?? 1, item.discountAmount ?? 0,
               item.total, item.meta ? JSON.stringify(item.meta) : null).run();
+
+      // POSNew.tsx checkout used to be a bare ledger: selling a product never
+      // moved stock, and selling a package never credited the buyer's
+      // coupons (that logic only ever existed in the unreachable
+      // posProcessPackageSale/adjustStock endpoints). Apply those side
+      // effects here so a POS sale actually behaves like one.
+      if (item.itemType === 'product' && item.itemId) {
+        await this.applyStockSale(item.itemId, item.quantity ?? 1, orderNumber);
+      } else if (item.itemType === 'package' && item.itemId && !d.isGuest && d.userId) {
+        await this.creditPackageCoupons(item.itemId, d.userId);
+      }
     }
 
     return orderId;
+  }
+
+  private async applyStockSale(productId: number, qty: number, orderNumber: string): Promise<void> {
+    const product = await this.db.prepare('SELECT current_stock FROM Products WHERE id=?').bind(productId).first<any>();
+    if (!product) return;
+    const qtyAfter = Math.max(0, (product.current_stock ?? 0) - qty);
+    await this.db.prepare('UPDATE Products SET current_stock=? WHERE id=?').bind(qtyAfter, productId).run();
+    await this.db.prepare(`
+      INSERT INTO Stock_Transactions (product_id, type, qty, qty_after, note, date)
+      VALUES (?, 'out', ?, ?, ?, ?)
+    `).bind(productId, qty, qtyAfter, `ขายที่ POS (${orderNumber})`, new Date().toISOString().slice(0, 10)).run();
+  }
+
+  private async creditPackageCoupons(packageId: number, userId: number): Promise<void> {
+    const pkg = await this.db.prepare('SELECT * FROM Packages WHERE id=?').bind(packageId).first<any>();
+    if (!pkg) return;
+    const coupons: { typeId: string; quantity: number }[] = JSON.parse(pkg.coupons_json || '[]');
+    const expiresAt = new Date(Date.now() + (pkg.premium_days || 30) * 86400000).toISOString().slice(0, 10);
+    for (const coupon of coupons) {
+      await this.db.prepare(`
+        INSERT INTO User_Coupons (user_id, type_id, label, count, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(userId, coupon.typeId, pkg.name, coupon.quantity, expiresAt).run();
+    }
   }
 
   async updatePaymentStatus(id: number, status: string, method?: string): Promise<void> {

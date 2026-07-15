@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Gift, AlertCircle, Star } from 'lucide-react';
+import { ChevronLeft, Gift, AlertCircle, Star, ChevronLeft as ArrowLeft, ChevronRight as ArrowRight, History, X, Crown, Medal } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -14,11 +14,30 @@ interface Reward {
   stock: number;
 }
 
+interface Stamp {
+  id: number;
+  position: number;
+  status: 'available' | 'used' | 'expired';
+  image_url: string | null;
+  expires_at: string | null;
+  course_name?: string;
+}
+
+interface Redemption {
+  id: number;
+  reward_name: string;
+  stamp_cost: number;
+  claim_code: string;
+  status: string;
+  created_at: string;
+}
+
+const PAGE_SIZE = 15; // 3 rows x 5 cols
+
 const Rewards = () => {
   const navigate = useNavigate();
   const { lang } = useTranslation();
   const selectedChild = useChildStore(state => state.getSelectedChild());
-  const fetchChildren = useChildStore(state => state.fetchChildren);
 
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,11 +45,36 @@ const Rewards = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Get active coupon type based on old logic (or use coupons[0])
-  const activeCoupon = selectedChild?.coupons?.[0];
-  const balance = activeCoupon?.balance || 0;
-  const totalEarned = activeCoupon?.total_earned || balance;
-  const usedStamps = Math.max(0, totalEarned - balance);
+  const [stamps, setStamps] = useState<Stamp[]>([]);
+  const [availableCount, setAvailableCount] = useState(0);
+  const [expiringSoonCount, setExpiringSoonCount] = useState(0);
+  const [nearestExpiryDate, setNearestExpiryDate] = useState<string | null>(null);
+  const [pageIndex, setPageIndex] = useState(0); // 0 = latest page
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<Redemption[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const userJson = localStorage.getItem('mellow_user');
+  const user = userJson ? JSON.parse(userJson) : null;
+  const membershipStatus = user?.membershipStatus || 'inactive';
+  const isPremium = membershipStatus === 'premium';
+
+  const fetchStamps = async () => {
+    if (!selectedChild?.id) return;
+    try {
+      const res = await apiClient.get(`/children/${selectedChild.id}/stamps`);
+      if (res.data.success) {
+        setStamps(res.data.stamps);
+        setAvailableCount(res.data.availableCount);
+        setExpiringSoonCount(res.data.expiringSoonCount);
+        setNearestExpiryDate(res.data.nearestExpiryDate);
+        setPageIndex(0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stamps:', err);
+    }
+  };
 
   const fetchRewards = async () => {
     setLoading(true);
@@ -50,14 +94,35 @@ const Rewards = () => {
     fetchRewards();
   }, []);
 
+  useEffect(() => {
+    fetchStamps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChild?.id]);
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    if (!selectedChild?.id) return;
+    setHistoryLoading(true);
+    try {
+      const res = await apiClient.get(`/redemptions/child/${selectedChild.id}`);
+      if (res.data.success) setHistory(res.data.redemptions);
+    } catch (err) {
+      console.error('Failed to fetch redemption history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const handleRedeem = async (reward: Reward) => {
     if (!selectedChild?.id) return;
-    if (balance < reward.stamp_cost) {
-      setErrorMsg('ยอดแสตมป์สะสมไม่เพียงพอสำหรับการแลกรางวัลนี้');
+    if (availableCount < reward.stamp_cost) {
+      setErrorMsg(lang === 'en' ? 'Not enough stamps for this reward' : 'ยอดแสตมป์สะสมไม่เพียงพอสำหรับการแลกรางวัลนี้');
       return;
     }
 
-    if (confirm(`คุณต้องการใช้ ${reward.stamp_cost} แสตมป์ เพื่อแลก ${reward.name} ใช่หรือไม่?`)) {
+    if (confirm(lang === 'en'
+      ? `Use ${reward.stamp_cost} stamps to redeem ${reward.name}?`
+      : `คุณต้องการใช้ ${reward.stamp_cost} แสตมป์ เพื่อแลก ${reward.name} ใช่หรือไม่?`)) {
       setSubmitting(true);
       setErrorMsg('');
       try {
@@ -67,66 +132,62 @@ const Rewards = () => {
         });
 
         if (response.data.success) {
-          const userJson = localStorage.getItem('mellow_user');
-          if (userJson) {
-            const user = JSON.parse(userJson);
-            await fetchChildren(user.id);
-          }
-          setSuccessMsg(`แลกของรางวัลสำเร็จ! รหัสรับสิทธิ์ของคุณคือ: ${response.data.claimCode}`);
-          fetchRewards(); // Refresh stock
+          setSuccessMsg(lang === 'en'
+            ? `Redeemed successfully! Your claim code: ${response.data.claimCode}`
+            : `แลกของรางวัลสำเร็จ! รหัสรับสิทธิ์ของคุณคือ: ${response.data.claimCode}`);
+          fetchRewards();
+          fetchStamps();
         }
       } catch (err: any) {
-        setErrorMsg(err.response?.data?.message || 'เกิดข้อผิดพลาดในการทำรายการ');
+        setErrorMsg(err.response?.data?.message || (lang === 'en' ? 'Something went wrong' : 'เกิดข้อผิดพลาดในการทำรายการ'));
       } finally {
         setSubmitting(false);
       }
     }
   };
 
-  // Generate Stamp Grid (30 slots)
-  const renderStamps = () => {
-    const slots = [];
-    for (let i = 1; i <= 30; i++) {
-      let status = 'empty';
-      if (i <= usedStamps) status = 'used';
-      else if (i <= totalEarned) status = 'available';
+  const totalCount = stamps.length;
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-      let slotContent;
-      if (status === 'used') {
-        slotContent = (
-          <div className="w-full h-full flex flex-col items-center justify-center opacity-40 grayscale">
-            <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center">
-               <Star size={20} className="text-white opacity-50" fill="currentColor" />
-            </div>
-            <span className="text-[10px] font-bold mt-1 text-slate-800">ใช้แล้ว</span>
-          </div>
-        );
-      } else if (status === 'available') {
-        slotContent = (
-          <div className="w-full h-full flex flex-col items-center justify-center">
-            <div className="w-12 h-12 bg-mellow-ink rounded-full flex items-center justify-center relative shadow-lg transform hover:scale-105 transition-transform">
-               <Star size={24} className="text-yellow-400" fill="currentColor" />
-               <div className="absolute -bottom-1 -right-1 bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-white">NEW</div>
-            </div>
-          </div>
-        );
-      } else {
-        slotContent = (
-          <div className="w-full h-full flex flex-col items-center justify-center opacity-30">
-            <div className="w-10 h-10 bg-slate-200/50 rounded-full flex items-center justify-center border border-slate-300">
-               {i === 30 ? <span className="text-[10px] font-bold text-mellow-purple">FREE</span> : <span className="text-sm font-bold text-slate-400">{i}</span>}
-            </div>
-          </div>
-        );
-      }
+  const currentPageCells = useMemo(() => {
+    const endIdx = totalCount - pageIndex * PAGE_SIZE;
+    const startIdx = Math.max(0, endIdx - PAGE_SIZE);
+    const real = stamps.slice(startIdx, endIdx);
+    const padCount = PAGE_SIZE - real.length;
+    return [...Array(padCount).fill(null), ...real];
+  }, [stamps, pageIndex, totalCount]);
 
-      slots.push(
-        <div key={i} className="aspect-square flex items-center justify-center">
-          {slotContent}
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString(lang === 'en' ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const renderStampCell = (stamp: Stamp | null, i: number) => {
+    if (!stamp) {
+      return (
+        <div key={`empty-${i}`} className="aspect-square flex items-center justify-center">
+          <div className="w-11 h-11 rounded-full border-2 border-dashed border-slate-200" />
         </div>
       );
     }
-    return slots;
+
+    const isMasked = stamp.status !== 'available';
+    return (
+      <div key={stamp.id} className="aspect-square flex flex-col items-center justify-center">
+        <div className={`relative w-12 h-12 rounded-full flex items-center justify-center shadow-sm overflow-hidden ${isMasked ? 'grayscale opacity-50' : ''}`}
+          style={{ backgroundColor: stamp.image_url ? 'transparent' : '#1e1b2e' }}
+        >
+          {stamp.image_url ? (
+            <img src={stamp.image_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <Star size={22} className="text-yellow-400" fill="currentColor" />
+          )}
+        </div>
+        {isMasked && (
+          <span className="text-[9px] font-black mt-1 text-slate-400">
+            {stamp.status === 'used' ? (lang === 'en' ? 'Used' : 'ใช้แล้ว') : (lang === 'en' ? 'Expired' : 'หมดอายุ')}
+          </span>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -139,35 +200,62 @@ const Rewards = () => {
           <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">Mellow Reward Store</h1>
           <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">แลกรับของรางวัล</span>
         </div>
-        <div className="w-10" />
+        <button onClick={openHistory} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
+          <History size={18} />
+        </button>
       </header>
 
       <main className="p-4">
         {/* User Profile Banner */}
         <div className="bg-gradient-to-r from-slate-100 to-slate-50 rounded-3xl p-5 shadow-sm mb-6 flex justify-between items-center">
            <div>
-             <span className="text-sm font-bold text-slate-500">สถานะสมาชิก</span>
-             <h2 className="text-xl font-black text-slate-800">{selectedChild?.name}</h2>
-             <div className="mt-2 text-mellow-ink">
-               <span className="text-xs font-bold opacity-70">ยอดแสตมป์สะสม:</span>
-               <div className="text-3xl font-black">{totalEarned}</div>
-             </div>
-             <div className="mt-2 text-xs font-bold text-slate-500">
-               ระดับสมาชิก <span className="text-mellow-purple">สมาชิกทั่วไป</span>
-             </div>
+             <span className="text-sm font-bold text-slate-500">{selectedChild?.name}</span>
+             <h2 className="text-sm font-black text-slate-500 uppercase tracking-widest mt-1">
+               {lang === 'en' ? 'Stamps available to redeem' : 'แสตมป์ที่แลกได้'}
+             </h2>
+             <div className="text-4xl font-black text-mellow-ink mt-1">{availableCount}</div>
+
+             {!isPremium && nearestExpiryDate && expiringSoonCount > 0 && (
+               <div className="mt-2 text-xs font-bold text-amber-600 bg-amber-50 inline-block px-2.5 py-1 rounded-full">
+                 {lang === 'en'
+                   ? `${expiringSoonCount} expiring on ${formatDate(nearestExpiryDate)}`
+                   : `${expiringSoonCount} ดวงจะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
+               </div>
+             )}
            </div>
            <div className="text-center">
-             <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-2 mx-auto border-4 border-white shadow-sm overflow-hidden">
-                <Star size={36} className="text-orange-500" fill="currentColor" />
+             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 mx-auto border-4 border-white shadow-sm overflow-hidden ${isPremium ? 'bg-gradient-to-br from-amber-400 to-yellow-500' : 'bg-emerald-100'}`}>
+                {isPremium ? <Crown size={28} className="text-white" /> : <Medal size={28} className="text-emerald-600" />}
              </div>
-             <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-full shadow-sm">สมาชิกทั่วไป</span>
+             <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-full shadow-sm">
+               {isPremium ? 'Premium' : (lang === 'en' ? 'Regular' : 'สมาชิกทั่วไป')}
+             </span>
            </div>
         </div>
 
         {/* Stamps Grid */}
         <div className="bg-white rounded-3xl p-5 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => setPageIndex(p => Math.min(pageCount - 1, p + 1))}
+              disabled={pageIndex >= pageCount - 1}
+              className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+              {totalCount === 0 ? (lang === 'en' ? 'No stamps yet' : 'ยังไม่มีแสตมป์') : `${pageCount - pageIndex} / ${pageCount}`}
+            </span>
+            <button
+              onClick={() => setPageIndex(p => Math.max(0, p - 1))}
+              disabled={pageIndex <= 0}
+              className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform"
+            >
+              <ArrowRight size={16} />
+            </button>
+          </div>
           <div className="grid grid-cols-5 gap-y-4 gap-x-2">
-            {renderStamps()}
+            {currentPageCells.map((s, i) => renderStampCell(s, i))}
           </div>
         </div>
 
@@ -177,7 +265,7 @@ const Rewards = () => {
             {errorMsg}
           </div>
         )}
-        
+
         {successMsg && (
           <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-2xl flex items-center gap-3 text-sm font-bold border border-green-100">
             <Gift size={20} />
@@ -187,7 +275,7 @@ const Rewards = () => {
 
         {/* Rewards Catalog */}
         <h3 className="text-lg font-black text-slate-800 mb-4 px-2">ของรางวัลที่แลกได้</h3>
-        
+
         {loading ? (
           <div className="text-center py-10 opacity-50">
              <div className="w-8 h-8 border-4 border-slate-200 border-t-mellow-ink rounded-full animate-spin mx-auto mb-3" />
@@ -211,9 +299,9 @@ const Rewards = () => {
                     <span className="text-sm">{reward.stamp_cost}</span>
                     <span className="text-[10px]">ดวง</span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleRedeem(reward)}
-                    disabled={submitting || balance < reward.stamp_cost}
+                    disabled={submitting || availableCount < reward.stamp_cost}
                     className="px-3 py-1.5 bg-mellow-ink text-white text-[10px] font-bold rounded-xl disabled:opacity-30 active:scale-95 transition-transform"
                   >
                     แลกเลย
@@ -224,6 +312,36 @@ const Rewards = () => {
           </div>
         )}
       </main>
+
+      {historyOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={() => setHistoryOpen(false)}>
+          <div className="w-full sm:max-w-sm bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-slate-800">{lang === 'en' ? 'Redemption History' : 'ประวัติการแลก'}</h3>
+              <button onClick={() => setHistoryOpen(false)} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                <X size={16} />
+              </button>
+            </div>
+            {historyLoading ? (
+              <div className="text-center py-8 opacity-50 text-sm font-bold">{lang === 'en' ? 'Loading...' : 'กำลังโหลด...'}</div>
+            ) : history.length === 0 ? (
+              <div className="text-center py-8 text-sm font-bold text-slate-400">{lang === 'en' ? 'No redemptions yet' : 'ยังไม่มีประวัติการแลก'}</div>
+            ) : (
+              <div className="space-y-2">
+                {history.map(r => (
+                  <div key={r.id} className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-sm text-slate-800">{r.reward_name}</p>
+                      <p className="text-[11px] text-slate-400 font-bold">{formatDate(r.created_at)} • {r.claim_code}</p>
+                    </div>
+                    <span className="text-mellow-purple font-black text-sm">-{r.stamp_cost}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

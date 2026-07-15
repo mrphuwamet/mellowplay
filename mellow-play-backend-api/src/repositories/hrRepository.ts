@@ -28,6 +28,50 @@ export class HRRepository {
     await this.db.prepare('DELETE FROM Packages WHERE id=?').bind(id).run();
   }
 
+  // ── Package Purchases (consumer self-service, paid via Beam) ───────────────
+  async getActivePackages(): Promise<any[]> {
+    const { results } = await this.db.prepare(
+      'SELECT id, name, description, price, coupons_json FROM Packages WHERE active = 1 ORDER BY price ASC'
+    ).all();
+    return results.map((p: any) => ({ ...p, coupons: JSON.parse(p.coupons_json || '[]') }));
+  }
+
+  async getPackageById(id: number): Promise<any | null> {
+    return await this.db.prepare('SELECT * FROM Packages WHERE id = ?').bind(id).first();
+  }
+
+  async createPackagePurchase(data: { packageId: number; childId: number; userId?: number; amount: number }): Promise<number> {
+    const result = await this.db.prepare(`
+      INSERT INTO Package_Purchases (package_id, child_id, user_id, amount) VALUES (?, ?, ?, ?)
+    `).bind(data.packageId, data.childId, data.userId ?? null, data.amount).run();
+    return result.meta.last_row_id as number;
+  }
+
+  async setPackagePurchaseBeamSession(id: number, beamSessionId: string): Promise<void> {
+    await this.db.prepare('UPDATE Package_Purchases SET beam_session_id = ? WHERE id = ?').bind(beamSessionId, id).run();
+  }
+
+  async getPackagePurchase(id: number): Promise<any | null> {
+    return await this.db.prepare('SELECT * FROM Package_Purchases WHERE id = ?').bind(id).first();
+  }
+
+  // Credits one ChildCoupons row per entry in the package's coupons_json —
+  // shared by the free-package fast path and the Beam webhook.
+  async creditPackageCoupons(pkg: any, childId: number): Promise<void> {
+    const coupons: { typeId: string; quantity: number }[] = JSON.parse(pkg.coupons_json || '[]');
+    const stmts = coupons.filter(c => c.quantity > 0).map(coupon =>
+      this.db.prepare(`
+        INSERT INTO ChildCoupons (child_id, coupon_type_id, balance, total_earned)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(child_id, coupon_type_id) DO UPDATE SET
+          balance = balance + excluded.balance,
+          total_earned = total_earned + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(childId, parseInt(coupon.typeId), coupon.quantity, coupon.quantity)
+    );
+    if (stmts.length > 0) await this.db.batch(stmts);
+  }
+
   // ── Campaign Bonuses ───────────────────────────────────────────────────────
   async getCampaigns(): Promise<any[]> {
     const { results } = await this.db.prepare('SELECT * FROM Campaign_Bonuses ORDER BY year DESC, month DESC, created_at DESC').all();
@@ -246,6 +290,56 @@ export class HRRepository {
       VALUES (?, ?, ?, 0, 0, ?, ?)
     `).bind(crmUserId, period, Math.round(incentive), expense, total).run();
     return r.meta.last_row_id as number;
+  }
+
+  // Real (non-mock) replacement for the CRM's IncentiveTracking.tsx page,
+  // which used to render hardcoded MOCK_INCOME/MOCK_CAMPAIGNS data. Sourced
+  // from the same Payouts/Campaign_Bonuses/Transactions tables the rest of
+  // the HR module already writes to.
+  async getMyIncentiveSummary(crmUserId: number, month: number, year: number): Promise<any> {
+    const period = `${year}-${String(month).padStart(2, '0')}`;
+    const dateStart = `${period}-01`;
+    const dateEnd = `${period}-31`;
+
+    const staff = await this.db.prepare(
+      'SELECT salary, employment_type, role FROM CRM_Users WHERE id=?'
+    ).bind(crmUserId).first<any>();
+
+    const payout = await this.db.prepare(
+      'SELECT * FROM Payouts WHERE crm_user_id=? AND period=?'
+    ).bind(crmUserId, period).first<any>();
+
+    const { results: campaignsRaw } = await this.db.prepare(
+      `SELECT * FROM Campaign_Bonuses WHERE month=? AND year=? AND status='active'`
+    ).bind(month, year).all();
+
+    const campaigns = [];
+    for (const camp of campaignsRaw as any[]) {
+      const roles: string[] = JSON.parse(camp.for_roles_json || '[]');
+      if (roles.length > 0 && staff?.role && !roles.includes(staff.role)) continue;
+
+      let progress = 0;
+      if (camp.type === 'sales') {
+        const row = await this.db.prepare(`
+          SELECT COALESCE(SUM(amount), 0) AS total FROM Transactions
+          WHERE sales_staff_id = ? AND type IN ('package_sale','service_sale','guest_sale','class_booking')
+            AND DATE(created_at) BETWEEN ? AND ?
+        `).bind(crmUserId, dateStart, dateEnd).first<any>();
+        progress = row?.total ?? 0;
+      } else if (camp.type === 'teaching_hours') {
+        // No real session-duration tracking exists — each taught class
+        // transaction is counted as one unit (an approximation, not hours).
+        const row = await this.db.prepare(`
+          SELECT COUNT(*) AS cnt FROM Transactions
+          WHERE teaching_staff_id = ? AND type IN ('guest_sale','class_booking')
+            AND DATE(created_at) BETWEEN ? AND ?
+        `).bind(crmUserId, dateStart, dateEnd).first<any>();
+        progress = row?.cnt ?? 0;
+      }
+      campaigns.push({ ...camp, progress });
+    }
+
+    return { staff, payout, campaigns };
   }
 
   // ── Leave Policies ─────────────────────────────────────────────────────────

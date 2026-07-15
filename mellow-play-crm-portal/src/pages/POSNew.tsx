@@ -135,6 +135,15 @@ const POSNew: React.FC = () => {
   // Printer settings
   const printerIp = localStorage.getItem('printer_ip') || '192.168.1.100';
 
+  // Top-up (stamp/coupon balance) — separate from cart checkout since it's
+  // a direct balance credit, not a sellable line item.
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [topupChildId, setTopupChildId] = useState('');
+  const [topupItemType, setTopupItemType] = useState<'little_junior' | 'junior'>('junior');
+  const [topupQuantity, setTopupQuantity] = useState(1);
+  const [topupAmount, setTopupAmount] = useState(0);
+  const [topupProcessing, setTopupProcessing] = useState(false);
+
   // Search
   const [searchQ, setSearchQ] = useState('');
 
@@ -254,6 +263,38 @@ const POSNew: React.FC = () => {
       if (res.data.success) { setMember(res.data.member); setCustomerName(`${res.data.member.first_name} ${res.data.member.last_name}`); setIsGuest(false); }
     } catch { alert('ไม่พบสมาชิก'); }
     finally { setMemberLoading(false); }
+  };
+
+  const openTopup = () => {
+    setTopupChildId(member?.children?.[0]?.id ? String(member.children[0].id) : '');
+    setTopupItemType('junior');
+    setTopupQuantity(1);
+    setTopupAmount(0);
+    setTopupOpen(true);
+  };
+
+  const handleTopup = async () => {
+    if (!member || !topupChildId || topupQuantity <= 0) return;
+    setTopupProcessing(true);
+    try {
+      await axios.post(`${API_BASE}/pos/topup`, {
+        branchId: currentUser.selectedBranchId ?? 1,
+        userId: member.id,
+        childId: parseInt(topupChildId),
+        itemType: topupItemType,
+        quantity: topupQuantity,
+        amount: topupAmount,
+        paymentMethod,
+      });
+      setTopupOpen(false);
+      // Refresh member balances
+      const res = await axios.post(`${API_BASE}/pos/lookup-member`, { phone: member.phone });
+      if (res.data.success) setMember(res.data.member);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'เติมคูปองไม่สำเร็จ');
+    } finally {
+      setTopupProcessing(false);
+    }
   };
 
   const handleCheckout = async () => {
@@ -453,9 +494,9 @@ const POSNew: React.FC = () => {
                             </Typography>
                             <Stack direction="row" spacing={0.75} sx={{ mt: 0.5 }} alignItems="center">
                               <Chip
-                                label={bk.status === 'pending' ? 'รอดำเนินการ' : bk.status === 'confirmed' ? 'ยืนยัน' : bk.status}
+                                label={bk.status === 'pending' ? 'รอดำเนินการ' : (bk.status === 'confirmed' || bk.status === 'confirmed_paid') ? 'ชำระแล้ว' : bk.status}
                                 size="small"
-                                color={bk.status === 'confirmed' ? 'primary' : 'default'}
+                                color={(bk.status === 'confirmed' || bk.status === 'confirmed_paid') ? 'info' : 'default'}
                                 sx={{ fontWeight: 700, fontSize: '10px', height: 18 }}
                               />
                               <Chip
@@ -507,9 +548,15 @@ const POSNew: React.FC = () => {
             </Button>
           </Box>
           {member && (
-            <Alert severity="success" sx={{ py: 0 }}>
-              <Typography variant="caption" fontWeight={700}>{member.first_name} {member.last_name}</Typography>
-            </Alert>
+            <Box>
+              <Alert severity="success" sx={{ py: 0 }}>
+                <Typography variant="caption" fontWeight={700}>{member.first_name} {member.last_name}</Typography>
+              </Alert>
+              <Button size="small" startIcon={<CouponIcon fontSize="small" />} onClick={openTopup}
+                disabled={!member.children?.length} sx={{ mt: 0.5, borderRadius: 2 }}>
+                เติมคูปอง
+              </Button>
+            </Box>
           )}
           {!member && (
             <TextField size="small" placeholder="ชื่อลูกค้า (Guest)" fullWidth value={customerName}
@@ -724,6 +771,44 @@ const POSNew: React.FC = () => {
           <Button onClick={() => setStaffPickerOpen(false)}>ยกเลิก</Button>
           <Button variant="contained" onClick={confirmStaffPicker} sx={{ fontWeight: 800, borderRadius: 2 }}>
             เพิ่มในตะกร้า
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Top-up Dialog */}
+      <Dialog open={topupOpen} onClose={() => setTopupOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>เติมคูปอง / สแตมป์สะสม</DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2 }}>
+          <Stack spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>เด็ก</InputLabel>
+              <Select value={topupChildId} label="เด็ก" onChange={e => setTopupChildId(e.target.value)}>
+                {(member?.children ?? []).map((ch: any) => (
+                  <MenuItem key={ch.id} value={String(ch.id)}>
+                    {ch.name} (Little Junior: {ch.little_junior_balance} / Junior: {ch.junior_balance})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
+              <InputLabel>ประเภท</InputLabel>
+              <Select value={topupItemType} label="ประเภท" onChange={e => setTopupItemType(e.target.value as 'little_junior' | 'junior')}>
+                <MenuItem value="little_junior">Little Junior</MenuItem>
+                <MenuItem value="junior">Junior</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField size="small" type="number" label="จำนวนที่เติม" fullWidth value={topupQuantity}
+              onChange={e => setTopupQuantity(parseInt(e.target.value) || 0)} />
+            <TextField size="small" type="number" label="ยอดชำระ (บาท)" fullWidth value={topupAmount}
+              onChange={e => setTopupAmount(parseFloat(e.target.value) || 0)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setTopupOpen(false)}>ยกเลิก</Button>
+          <Button variant="contained" onClick={handleTopup} disabled={topupProcessing || !topupChildId}
+            sx={{ fontWeight: 800, borderRadius: 2 }}>
+            {topupProcessing ? <CircularProgress size={16} /> : 'ยืนยันการเติม'}
           </Button>
         </DialogActions>
       </Dialog>

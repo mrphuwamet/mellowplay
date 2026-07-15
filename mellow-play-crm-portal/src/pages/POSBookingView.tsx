@@ -5,7 +5,7 @@ import {
   DialogContent, DialogTitle, Divider, FormControl, Grid, IconButton,
   InputAdornment, InputLabel, MenuItem, Paper, Radio, RadioGroup,
   FormControlLabel, FormLabel, Select, Stack, Tab, Tabs, TextField,
-  ToggleButton, ToggleButtonGroup, Tooltip, Typography, Avatar,
+  ToggleButton, ToggleButtonGroup, Tooltip, Typography, Avatar, Snackbar,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -23,6 +23,7 @@ import {
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import RecordMilestone from './RecordMilestone';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -40,7 +41,10 @@ const getWeekStart = (d: Date) => { const r = new Date(d); r.setDate(r.getDate()
 
 const BOOKING_STATUS: Record<string, { label: string; fgColor: string; bgColor: string }> = {
   completed:      { label: 'เสร็จสิ้น',    fgColor: '#2e7d32', bgColor: 'rgba(46,125,50,0.1)'   },
-  confirmed:      { label: 'ยืนยัน',       fgColor: '#1565c0', bgColor: 'rgba(21,101,192,0.1)'  },
+  // 'confirmed' is a legacy status (older rows only) — consolidated into
+  // confirmed_paid going forward, kept here only so old rows still render
+  // with a proper style instead of falling back to the unstyled default.
+  confirmed:      { label: 'ชำระแล้ว',     fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)'   },
   confirmed_paid: { label: 'ชำระแล้ว',     fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)'   },
   pending:        { label: 'รอดำเนินการ',  fgColor: '#e65100', bgColor: 'rgba(230,81,0,0.1)'    },
   cancelled:      { label: 'ยกเลิก',       fgColor: '#c62828', bgColor: 'rgba(198,40,40,0.1)'   },
@@ -49,7 +53,6 @@ const getBkSt = (s: string) => BOOKING_STATUS[s?.toLowerCase()] ?? { label: s??'
 
 const BOOKING_STATUS_OPTIONS = [
   { value: 'pending',        label: 'รอดำเนินการ' },
-  { value: 'confirmed',      label: 'ยืนยัน'      },
   { value: 'confirmed_paid', label: 'ชำระแล้ว'    },
   { value: 'completed',      label: 'เสร็จสิ้น'   },
   { value: 'cancelled',      label: 'ยกเลิก'      },
@@ -83,7 +86,6 @@ const TX_TYPE_LABEL: Record<string, string> = {
 const BOOKING_STATUS_FILTERS = [
   { key: 'all',            label: 'ทั้งหมด'     },
   { key: 'pending',        label: 'รอดำเนินการ' },
-  { key: 'confirmed',      label: 'ยืนยัน'      },
   { key: 'confirmed_paid', label: 'ชำระแล้ว'    },
   { key: 'completed',      label: 'เสร็จสิ้น'   },
   { key: 'cancelled',      label: 'ยกเลิก'      },
@@ -776,15 +778,26 @@ const ClassBookingsTab = ({ branchId, branchName }: { branchId:number|string; br
 
   useEffect(() => { fetchBookings(); }, [fetchBookings]);
 
-  const handleComplete = async (id:number) => {
-    if (!confirm('ยืนยันว่าเรียนเสร็จสิ้น? ระบบจะตัดสต็อกวัสดุที่ใช้')) return;
-    try { await axios.post(`${API_BASE}/bookings/${id}/complete`); fetchBookings(); }
-    catch(e:any) { alert(e.response?.data?.message||'เกิดข้อผิดพลาด'); }
-  };
-  const handleCancel = async (id:number) => {
-    if (!confirm('ยืนยันการยกเลิก? ระบบจะคืนสต็อกวัสดุที่จองไว้')) return;
-    try { await axios.post(`${API_BASE}/bookings/${id}/cancel`); fetchBookings(); }
-    catch(e:any) { alert(e.response?.data?.message||'เกิดข้อผิดพลาด'); }
+  const [confirmAction, setConfirmAction] = useState<{ type: 'complete' | 'cancel'; bookingId: number } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  const handleComplete = (id: number) => setConfirmAction({ type: 'complete', bookingId: id });
+  const handleCancel = (id: number) => setConfirmAction({ type: 'cancel', bookingId: id });
+
+  const executeConfirmedAction = async () => {
+    if (!confirmAction) return;
+    setConfirmLoading(true);
+    try {
+      const path = confirmAction.type === 'complete' ? 'complete' : 'cancel';
+      await axios.post(`${API_BASE}/bookings/${confirmAction.bookingId}/${path}`);
+      setConfirmAction(null);
+      fetchBookings();
+    } catch (e: any) {
+      setActionError(e.response?.data?.message || 'เกิดข้อผิดพลาด');
+    } finally {
+      setConfirmLoading(false);
+    }
   };
 
   const nav = (dir:number) => setCurrentDate(prev=>{
@@ -795,10 +808,12 @@ const ClassBookingsTab = ({ branchId, branchName }: { branchId:number|string; br
     return d;
   });
 
-  const filtered = useMemo(
-    () => statusFilter==='all' ? bookings : bookings.filter(b=>b.status===statusFilter),
-    [bookings, statusFilter],
-  );
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return bookings;
+    // 'confirmed' is a legacy alias for 'confirmed_paid' — match both so old rows aren't hidden.
+    if (statusFilter === 'confirmed_paid') return bookings.filter(b => b.status === 'confirmed_paid' || b.status === 'confirmed');
+    return bookings.filter(b => b.status === statusFilter);
+  }, [bookings, statusFilter]);
 
   if (reportBooking) {
     return <RecordMilestone booking={reportBooking} onClose={()=>setReportBooking(null)} onSuccess={()=>{ setReportBooking(null); fetchBookings(); }}/>;
@@ -849,6 +864,33 @@ const ClassBookingsTab = ({ branchId, branchName }: { branchId:number|string; br
 
       <AddBookingDialog open={addOpen} onClose={()=>setAddOpen(false)} branchId={branchId} branchName={branchName} onSuccess={()=>{ setAddOpen(false); fetchBookings(); }}/>
       <BookingDetailDialog open={!!detailBooking} booking={detailBooking} onClose={()=>setDetailBooking(null)} onRefresh={fetchBookings}/>
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={confirmAction?.type === 'complete' ? 'ยืนยันว่าเรียนเสร็จสิ้น?' : 'ยืนยันการยกเลิกการจอง?'}
+        description={
+          confirmAction?.type === 'complete'
+            ? 'ระบบจะตัดสต็อกวัสดุที่ใช้ในคลาสนี้'
+            : 'ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับรายการนี้'
+        }
+        confirmLabel={confirmAction?.type === 'complete' ? 'ยืนยันเรียนเสร็จ' : 'ยืนยันยกเลิก'}
+        confirmColor={confirmAction?.type === 'complete' ? 'success' : 'error'}
+        icon={confirmAction?.type === 'complete' ? <CheckCircleIcon sx={{ fontSize: 30 }} /> : <CancelIcon sx={{ fontSize: 30 }} />}
+        loading={confirmLoading}
+        onConfirm={executeConfirmedAction}
+        onClose={() => { if (!confirmLoading) setConfirmAction(null); }}
+      />
+
+      <Snackbar
+        open={!!actionError}
+        autoHideDuration={4000}
+        onClose={() => setActionError('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setActionError('')} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          {actionError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

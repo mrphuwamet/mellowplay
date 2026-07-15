@@ -4,11 +4,17 @@ import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
+import { getCourseView } from '../utils/courseImage';
+import { trackCourseView } from '../utils/analytics';
+import PosterCarousel from '../components/PosterCarousel';
+import PromotionCountdown from '../components/PromotionCountdown';
+import { useChildStore } from '../store/useChildStore';
 
 const CourseDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { lang, setLang, t } = useTranslation();
+  const selectedChild = useChildStore(state => state.getSelectedChild());
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [upcomingSlots, setUpcomingSlots] = useState<any[]>([]);
@@ -34,6 +40,12 @@ const CourseDetail = () => {
       }
     };
     fetchCourse();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    trackCourseView(id, selectedChild?.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) {
@@ -66,18 +78,35 @@ const CourseDetail = () => {
   const thDateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
   const enDateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
 
+  const bannerView = getCourseView(course, 'banner');
+
+  const rawShortDescription = lang === 'en' && course.short_description_en ? course.short_description_en : (course.short_description || course.description);
+  const shortDescription = rawShortDescription && rawShortDescription.length > 500
+    ? rawShortDescription.slice(0, 500).trim() + '…'
+    : rawShortDescription;
+
+  const discountAmount = course.active_campaign_discount_amount || 0;
+  const discountedPrice = Math.max(0, (course.original_price || 0) - discountAmount);
+  const discountPercent = discountAmount > 0 && course.original_price
+    ? Math.round((discountAmount / course.original_price) * 100)
+    : 0;
+
   return (
     <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-32">
-      {/* Header Image & Nav */}
-      <div className="relative h-[280px] bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
-        {course.thumbnail_url ? (
-          <img src={course.thumbnail_url} alt={course.name} className="w-full h-full object-cover" />
+      {/* Header Poster Gallery & Nav */}
+      <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
+        {course.poster_images?.length > 0 ? (
+          <PosterCarousel images={course.poster_images} alt={course.name} className="w-full" />
+        ) : bannerView.url ? (
+          <div className="w-full aspect-[4/5]">
+            <img src={bannerView.url} alt={course.name} style={bannerView.style} className="w-full h-full object-cover" />
+          </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center opacity-30 p-10">
+          <div className="w-full aspect-[4/5] flex items-center justify-center opacity-30 p-10">
             <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
           </div>
         )}
-        
+
         {/* Nav */}
         <div className="absolute top-0 left-0 w-full h-[64px] px-5 flex items-center justify-between z-30 bg-gradient-to-b from-black/40 to-transparent">
           <div className="flex items-center gap-2">
@@ -103,7 +132,7 @@ const CourseDetail = () => {
         </div>
       </div>
 
-      <main className="px-5 pt-6 space-y-6">
+      <main className="px-5 pt-6 space-y-4">
         {/* Title & Price */}
         <div>
           <div className="pt-2">
@@ -113,30 +142,48 @@ const CourseDetail = () => {
             {lang === 'th' && course.name_en && course.name_en !== course.name && (
               <h2 className="font-bold text-xl text-slate-500 mb-6">{course.name_en}</h2>
             )}
-            <p className="text-slate-600 text-[15px] leading-relaxed mb-8 whitespace-pre-wrap">
-              {lang === 'en' && course.short_description_en ? course.short_description_en : (course.short_description || course.description)}
-            </p>
+            {shortDescription && (
+              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-4">
+                <p className="text-slate-600 text-[15px] leading-relaxed whitespace-pre-wrap">
+                  {shortDescription}
+                </p>
+              </div>
+            )}
           </div>
-          <div className="flex flex-col gap-1">
-            {course.active_campaign_discount_amount > 0 && (
-              <div className="flex items-center gap-2 mb-1">
-                <span className="px-2 py-0.5 bg-mellow-red text-white text-[10px] font-black uppercase tracking-wider rounded-md">
-                  {course.active_campaign_label || (lang === 'en' ? 'Special Price' : 'ราคาพิเศษ')}
-                </span>
+          <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
+            {discountAmount > 0 && (
+              <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] font-black uppercase tracking-wide text-mellow-red truncate">
+                    {course.active_campaign_label || (lang === 'en' ? 'Special Price' : 'ราคาพิเศษ')}
+                  </span>
+                  {discountPercent > 0 && (
+                    <span className="text-[11px] font-black text-mellow-red shrink-0">
+                      -{discountPercent}%
+                    </span>
+                  )}
+                </div>
+                {course.active_campaign_valid_until && (
+                  <PromotionCountdown validUntil={course.active_campaign_valid_until} lang={lang} />
+                )}
+              </div>
+            )}
+            <div className="flex items-baseline justify-end gap-2">
+              {discountAmount > 0 && (
                 <span className="text-sm text-slate-400 font-bold line-through">
                   ฿{course.original_price?.toLocaleString() || 0}
                 </span>
-              </div>
-            )}
-            <div className="text-[28px] font-black text-mellow-red tracking-tight leading-none">
-              ฿{Math.max(0, (course.original_price || 0) - (course.active_campaign_discount_amount || 0)).toLocaleString()}
+              )}
+              <span className="text-[28px] font-black text-mellow-red tracking-tight leading-none">
+                ฿{discountedPrice.toLocaleString()}
+              </span>
             </div>
           </div>
         </div>
 
         {/* Info Cards */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+          <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-mellow-blue-soft text-mellow-blue-dark flex items-center justify-center">
               <Users size={20} />
             </div>
@@ -145,7 +192,7 @@ const CourseDetail = () => {
               <p className="text-[14px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
             </div>
           </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+          <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-mellow-purple-soft text-mellow-purple-dark flex items-center justify-center">
               <Clock size={20} />
             </div>
@@ -157,20 +204,20 @@ const CourseDetail = () => {
         </div>
 
         {/* Location Card */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
             <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
               <MapPin size={20} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
-              <p className="text-[14px] font-black text-slate-700 line-clamp-1">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
+              <p className="text-[14px] font-black text-slate-700">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
             </div>
           </div>
           {(!course.is_extraclass || course.location_link) && (
-            <a 
-              href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"} 
-              target="_blank" 
+            <a
+              href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
+              target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition-colors shrink-0"
             >
@@ -182,7 +229,7 @@ const CourseDetail = () => {
 
         {/* Description */}
         {course.description && (
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
             <p className="text-[14px] text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">
               {lang === 'en' && course.description_en ? course.description_en : course.description}
@@ -191,7 +238,7 @@ const CourseDetail = () => {
         )}
 
         {/* Schedule */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
               <CalendarIcon size={16} />

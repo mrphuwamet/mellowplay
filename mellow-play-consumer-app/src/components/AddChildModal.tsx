@@ -5,11 +5,18 @@ import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import { Toast } from './Toast';
 import { cleanNamePrefix } from '../utils/nameUtils';
+import DateField from './DateField';
 
 interface AddChildModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+const ddmmyyyyToISO = (value: string) => {
+  const [d, m, y] = value.split('/');
+  if (!d || !m || !y || y.length !== 4) return '';
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+};
 
 const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose }) => {
   const { t, lang } = useTranslation();
@@ -42,9 +49,10 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose }) => {
     try {
       const payload = {
         ...formData,
+        dob: ddmmyyyyToISO(formData.dob),
         name: `${cleanNamePrefix(formData.firstName)} ${cleanNamePrefix(formData.lastName)}`.trim(),
-        relation: formData.relation === 'Other' && formData.customRelation 
-          ? formData.customRelation 
+        relation: formData.relation === 'Other' && formData.customRelation
+          ? formData.customRelation
           : formData.relation
       };
       
@@ -133,12 +141,11 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose }) => {
               <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
                 {t.register?.dateOfBirth || 'Date of Birth'} <span className="text-red-500">*</span>
               </label>
-              <input
-                type="date"
+              <DateField
                 value={formData.dob}
-                onChange={e => setFormData({ ...formData, dob: e.target.value })}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                required
+                onChange={(v) => setFormData({ ...formData, dob: v })}
+                placeholder={t.register?.dobPlaceholder || 'DD/MM/YYYY'}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
               />
             </div>
 

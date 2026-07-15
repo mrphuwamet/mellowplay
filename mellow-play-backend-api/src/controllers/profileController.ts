@@ -57,6 +57,10 @@ export class ProfileController {
       const userId = payload.userId;
       const childData = await c.req.json();
 
+      if (!childData.nickname || !childData.gender) {
+        return c.json({ success: false, message: 'Nickname and gender are required' }, 400);
+      }
+
       const userRepository = new (require('../repositories/userRepository').UserRepository)(config.db);
       const childId = await userRepository.addSingleChild(userId, childData);
       
@@ -105,12 +109,27 @@ export class ProfileController {
       });
 
       const avatarUrl = `/api/v1/files/${key}`;
-      
+
       const config = new ConfigService(c.env);
       const hdProfileRepository = new HDProfileRepository(config.db);
+      // Set as the active avatar AND persist it separately so it isn't lost
+      // if the user later switches to a character avatar.
       await hdProfileRepository.updateAvatar(childId, avatarUrl);
+      await hdProfileRepository.updateCustomPhoto(childId, avatarUrl);
 
       return c.json({ success: true, url: avatarUrl });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async deletePhoto(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const childId = parseInt(c.req.param('childId'));
+      const hdProfileRepository = new HDProfileRepository(config.db);
+      const updated = await hdProfileRepository.deleteCustomPhoto(childId);
+      return c.json({ success: updated });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -155,6 +174,7 @@ export class ProfileController {
           b.*,
           c.name as course_name,
           c.thumbnail_url as course_thumbnail,
+          c.short_description as course_short_description,
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
@@ -189,6 +209,7 @@ export class ProfileController {
           b.*,
           c.name as course_name,
           c.thumbnail_url as course_thumbnail,
+          c.short_description as course_short_description,
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
@@ -198,8 +219,8 @@ export class ProfileController {
         JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
         JOIN Courses c ON b.course_id = c.id
         JOIN Branches br ON b.branch_id = br.id
-        WHERE ch.parent_id = ? 
-          AND b.status = 'confirmed'
+        WHERE ch.parent_id = ?
+          AND b.status IN ('confirmed', 'confirmed_paid')
           AND b.scheduled_at >= datetime('now')
         ORDER BY b.scheduled_at ASC
       `).bind(parseInt(userId)).all();
@@ -223,6 +244,7 @@ export class ProfileController {
           b.*,
           c.name as course_name,
           c.thumbnail_url as course_thumbnail,
+          c.short_description as course_short_description,
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
@@ -232,9 +254,11 @@ export class ProfileController {
         JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
         JOIN Courses c ON b.course_id = c.id
         JOIN Branches br ON b.branch_id = br.id
-        WHERE ch.parent_id = ? 
-          AND b.status = 'confirmed'
-          AND b.scheduled_at < datetime('now')
+        WHERE ch.parent_id = ?
+          AND (
+            b.status IN ('completed', 'awaiting_report')
+            OR (b.status IN ('confirmed', 'confirmed_paid') AND b.scheduled_at < datetime('now'))
+          )
         ORDER BY b.scheduled_at DESC
       `).bind(parseInt(userId)).all();
 

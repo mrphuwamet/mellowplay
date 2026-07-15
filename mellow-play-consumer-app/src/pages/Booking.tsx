@@ -13,9 +13,11 @@ import visaIcon from '../assets/payment-icon/visa.png';
 import wechatpayIcon from '../assets/payment-icon/wechat-pay-logo.png';
 import shopeepayIcon from '../assets/payment-icon/shopeepay.png';
 import truewalletIcon from '../assets/payment-icon/truewallet.webp';
+import { getCourseView, type CourseImageViews } from '../utils/courseImage';
+import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; is_extraclass?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; }
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -513,13 +515,13 @@ const Booking = () => {
                        </div>
                      )}
                      <div className="flex justify-between text-sm font-bold text-slate-600 items-center">
-                       <span>{lang === 'en' ? 'Discount Code' : 'กรอกโค้ดส่วนลด'}</span>
+                       <span>{lang === 'en' ? 'Discount Code' : 'โค้ดส่วนลด'}</span>
                        <div className="flex gap-2 w-1/2">
-                         <input 
-                           type="text" 
-                           value={promoCode} 
-                           onChange={(e) => setPromoCode(e.target.value.toUpperCase())} 
-                           placeholder={t.booking?.promoPlaceholder || 'รหัสส่วนลด'} 
+                         <input
+                           type="text"
+                           value={promoCode}
+                           onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                           placeholder={lang === 'en' ? 'Enter Code' : 'กรอกโค้ดที่นี่'}
                            className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold uppercase w-full"
                          />
                          <button 
@@ -536,9 +538,9 @@ const Booking = () => {
                        <span className="text-mellow-green">{promoDiscount > 0 ? `- ${promoDiscount.toLocaleString()} ฿` : '- 0 ฿'}</span>
                      </div>
                      <div className="h-px bg-slate-100 my-2" />
-                     <div className="flex justify-between text-lg font-black text-mellow-purple">
+                     <div className="flex justify-between items-center text-base font-black text-slate-700">
                        <span>{lang === 'en' ? 'Total' : 'ยอดที่ต้องชำระ'}</span>
-                       <span>{Math.max(0, (((selectedCourse?.original_price || 0) - (selectedCourse?.active_campaign_discount_amount || 0)) * selectedChildren.length) - promoDiscount).toLocaleString()} ฿</span>
+                       <span className="text-2xl font-black text-mellow-purple">{totalPrice.toLocaleString()} ฿</span>
                      </div>
                    </div>
                  </>
@@ -660,20 +662,25 @@ const Booking = () => {
                       {lang === 'en' ? 'No classes found matching search criteria' : 'ไม่พบคลาสเรียนที่ตรงกับเงื่อนไขการค้นหา'}
                     </div>
                   ) : (
-                    filteredCourses.map(course => (
+                    filteredCourses.map(course => {
+                      const view = getCourseView(course, 'square');
+                      return (
                       <div
                         key={course.id}
                         className={`rounded-2xl border transition-all overflow-hidden ${selectedCourse?.id === course.id ? 'border-mellow-purple ring-2 ring-mellow-purple/10 bg-white' : 'bg-white border-slate-100'}`}
                       >
                         {/* Main clickable area */}
-                        <button
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => { setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); }}
-                          className="w-full text-left flex gap-0 active:scale-[0.99] transition-transform items-stretch"
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); } }}
+                          className="w-full text-left flex gap-0 active:scale-[0.99] transition-transform items-stretch cursor-pointer"
                         >
                           {/* Thumbnail Container */}
                           <div className="w-[95px] shrink-0 bg-slate-100 relative self-stretch overflow-hidden">
-                            {course.thumbnail_url
-                              ? <img src={course.thumbnail_url} className="absolute inset-0 w-full h-full object-cover" alt={course.name} />
+                            {view.url
+                              ? <img src={view.url} style={view.style} className="absolute inset-0 w-full h-full object-cover" alt={course.name} />
                               : <div className="absolute inset-0 w-full h-full flex items-center justify-center text-slate-300 bg-gradient-to-br from-slate-100 to-slate-200"><BookOpen size={28}/></div>
                             }
                             {/* Category Tag overlaying the top-left */}
@@ -713,18 +720,27 @@ const Booking = () => {
                                 )}
                               </div>
 
-                              {/* Detail pill button — bottom right */}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setIsCourseModalOpen(true); }}
-                                className="shrink-0 px-3 py-1 bg-mellow-purple/10 text-mellow-purple text-[11px] font-bold rounded-full hover:bg-mellow-purple/20 active:scale-95 transition-all"
-                              >
-                                {lang === 'en' ? 'Detail' : 'รายละเอียด'}
-                              </button>
+                              {/* Detail + Book pill buttons — bottom right */}
+                              <div className="shrink-0 flex items-center gap-1.5">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setIsCourseModalOpen(true); }}
+                                  className="px-3 py-1 bg-mellow-purple/10 text-mellow-purple text-[11px] font-bold rounded-full hover:bg-mellow-purple/20 active:scale-95 transition-all"
+                                >
+                                  {lang === 'en' ? 'Detail' : 'รายละเอียด'}
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); }}
+                                  className="px-3 py-1 bg-mellow-purple text-white text-[11px] font-bold rounded-full hover:bg-mellow-purple/90 active:scale-95 transition-all"
+                                >
+                                  {lang === 'en' ? 'Book' : 'จองคลาส'}
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </button>
+                        </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -968,8 +984,12 @@ const Booking = () => {
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsCourseModalOpen(false)} />
           <div className="bg-white rounded-[32px] w-[calc(100vw-48px)] max-w-sm max-h-[80vh] overflow-y-auto relative z-10 animate-in slide-in-from-bottom-8 duration-300">
-            {selectedCourse.thumbnail_url && (
-               <img src={selectedCourse.thumbnail_url} className="w-full h-48 object-cover rounded-t-[32px]" />
+            {selectedCourse.poster_images && selectedCourse.poster_images.length > 0 ? (
+              <PosterCarousel images={selectedCourse.poster_images} alt={selectedCourse.name} className="w-full" rounded="rounded-t-[32px]" />
+            ) : getCourseView(selectedCourse, 'card').url && (
+               <div className="w-full h-48 rounded-t-[32px] overflow-hidden">
+                 <img src={getCourseView(selectedCourse, 'card').url} style={getCourseView(selectedCourse, 'card').style} className="w-full h-full object-cover" />
+               </div>
             )}
             <button onClick={() => setIsCourseModalOpen(false)} className="absolute top-4 right-4 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center backdrop-blur-md">
               <X size={18} />
@@ -1014,9 +1034,11 @@ const Booking = () => {
       {!successBooking && currentStep === 'payment' && (
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
           <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[15px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
-             {isFreeBooking 
-               ? (lang === 'en' ? 'Confirm Booking' : 'จองคลาสเรียน') 
-               : (paymentMethod === 'coupon' ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง') : (t.booking?.confirmCash || 'ไปหน้าชำระเงิน'))}
+             {isFreeBooking
+               ? (lang === 'en' ? 'Confirm Booking' : 'จองคลาสเรียน')
+               : (paymentMethod === 'coupon'
+                 ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
+                 : (lang === 'en' ? `Pay ${totalPrice.toLocaleString()} ฿` : `ชำระ ${totalPrice.toLocaleString()} บาท`))}
           </button>
         </div>
       )}

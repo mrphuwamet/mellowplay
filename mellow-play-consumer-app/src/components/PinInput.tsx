@@ -54,7 +54,7 @@ const PinInput: React.FC<PinInputProps> = ({ length = 6, value, onChange, type =
           type={type}
           inputMode="numeric"
           pattern="[0-9]*"
-          maxLength={2}
+          maxLength={1}
           value={value[i] || ''}
           onChange={(e) => handleChange(e, i)}
           onKeyDown={(e) => handleKeyDown(e, i)}

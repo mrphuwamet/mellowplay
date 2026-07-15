@@ -6,30 +6,38 @@ export class AdminRepository {
   }
 
   async getDashboardStats(): Promise<any> {
-    const stats = await this.db.batch([
-      this.db.prepare('SELECT COUNT(*) as total FROM Users WHERE membership_expires_at > datetime("now")').first(),
-      this.db.prepare('SELECT COUNT(*) as total FROM Children').first(),
-      this.db.prepare('SELECT COUNT(*) as total FROM Bookings WHERE scheduled_at >= date("now")').first(),
-      this.db.prepare('SELECT COUNT(*) as total FROM Bookings WHERE status = "pending"').first()
+    // NOTE: db.batch() takes an array of un-executed prepared statements —
+    // calling .first() here executes each query immediately and hands
+    // batch() an array of Promises instead, which D1 rejects. Run them
+    // concurrently with Promise.all instead.
+    const [activeMembers, totalChildren, upcomingBookings] = await Promise.all([
+      this.db.prepare('SELECT COUNT(*) as total FROM Users WHERE membership_expires_at > datetime("now")').first<any>(),
+      this.db.prepare('SELECT COUNT(*) as total FROM Children').first<any>(),
+      this.db.prepare('SELECT COUNT(*) as total FROM Bookings WHERE scheduled_at >= date("now")').first<any>(),
     ]);
 
     return {
-      activeMembers: stats[0].total,
-      totalChildren: stats[1].total,
-      upcomingBookings: stats[2].total,
-      pendingRequests: stats[3].total
+      activeMembers: activeMembers?.total || 0,
+      totalChildren: totalChildren?.total || 0,
+      upcomingBookings: upcomingBookings?.total || 0,
     };
   }
 
   async getAllUsers(): Promise<any[]> {
+    // Children can come from either the app's HD-based registration flow
+    // (Children, parent_id) or CRM-created walk-in records (User_CRM_Children)
+    // — a plain LEFT JOIN against only one of them undercounts (usually to
+    // zero) for regular app users. Sum both via correlated subqueries instead
+    // of joining both tables directly, which would multiply rows together.
     const { results } = await this.db.prepare(`
       SELECT
         u.id, u.phone, u.email, u.first_name, u.last_name,
         u.membership_expires_at, u.membership_type,
-        COUNT(DISTINCT crm.id) as children_count
+        (
+          COALESCE((SELECT COUNT(*) FROM Children WHERE parent_id = u.id), 0) +
+          COALESCE((SELECT COUNT(*) FROM User_CRM_Children WHERE user_id = u.id), 0)
+        ) as children_count
       FROM Users u
-      LEFT JOIN User_CRM_Children crm ON u.id = crm.user_id
-      GROUP BY u.id
       ORDER BY u.created_at DESC
     `).all();
     return results;
@@ -195,17 +203,18 @@ export class AdminRepository {
     slotDate?: string;
     slotStartTime?: string;
     paymentStatus?: string;
+    paymentMethod?: string;
     notes?: string;
   }): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO Bookings
         (child_id, course_id, branch_id, scheduled_at, status, age_group,
-         calendar_id, slot_date, slot_start_time, payment_status, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup,
       data.calendarId ?? null, data.slotDate ?? null, data.slotStartTime ?? null,
-      data.paymentStatus ?? 'prepaid', data.notes ?? null
+      data.paymentStatus ?? 'prepaid', data.paymentMethod ?? 'coupon', data.notes ?? null
     ).run();
     return result.meta.last_row_id;
   }
@@ -274,12 +283,71 @@ export class AdminRepository {
           SELECT json_group_array(json_object('day_of_week', day_of_week, 'specific_date', specific_date))
           FROM Calendar_Slot_Rules
           WHERE calendar_id = c.calendar_id AND is_active = 1
-        ) as calendar_summary_json
+        ) as calendar_summary_json,
+        (
+          SELECT json_group_array(json_object('view_key', view_key, 'image_url', image_url, 'focal_x', focal_x, 'focal_y', focal_y, 'zoom', zoom))
+          FROM Course_Image_Views
+          WHERE course_id = c.id
+        ) as image_views_json,
+        (
+          SELECT json_group_array(json_object('image_url', image_url, 'focal_x', focal_x, 'focal_y', focal_y, 'zoom', zoom))
+          FROM Course_Image_Focals
+          WHERE course_id = c.id
+        ) as image_focals_json
       FROM Courses c
       JOIN Course_Categories cat ON c.category_id = cat.id
       ORDER BY cat.name ASC, c.name ASC
     `).all();
     return results;
+  }
+
+  async getCourseImageViews(courseId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(
+      'SELECT view_key, image_url, focal_x, focal_y, zoom FROM Course_Image_Views WHERE course_id = ?'
+    ).bind(courseId).all();
+    return results;
+  }
+
+  async upsertCourseImageViews(
+    courseId: number,
+    views: Array<{ viewKey: string; imageUrl: string; focalX: number; focalY: number; zoom: number }>,
+  ): Promise<void> {
+    for (const v of views) {
+      await this.db.prepare(`
+        INSERT INTO Course_Image_Views (course_id, view_key, image_url, focal_x, focal_y, zoom, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(course_id, view_key) DO UPDATE SET
+          image_url = excluded.image_url,
+          focal_x = excluded.focal_x,
+          focal_y = excluded.focal_y,
+          zoom = excluded.zoom,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(courseId, v.viewKey, v.imageUrl, v.focalX, v.focalY, v.zoom).run();
+    }
+  }
+
+  async getCourseImageFocals(courseId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(
+      'SELECT image_url, focal_x, focal_y, zoom FROM Course_Image_Focals WHERE course_id = ?'
+    ).bind(courseId).all();
+    return results;
+  }
+
+  async upsertCourseImageFocals(
+    courseId: number,
+    focals: Array<{ imageUrl: string; focalX: number; focalY: number; zoom: number }>,
+  ): Promise<void> {
+    for (const f of focals) {
+      await this.db.prepare(`
+        INSERT INTO Course_Image_Focals (course_id, image_url, focal_x, focal_y, zoom, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(course_id, image_url) DO UPDATE SET
+          focal_x = excluded.focal_x,
+          focal_y = excluded.focal_y,
+          zoom = excluded.zoom,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(courseId, f.imageUrl, f.focalX, f.focalY, f.zoom).run();
+    }
   }
 
   async getAllCategories(): Promise<any[]> {
@@ -374,9 +442,12 @@ export class AdminRepository {
     teacherGuideUrl?: string;
     isRecommended?: boolean;
     isExtraclass?: boolean;
+    allowRepeat?: boolean;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
+    stampsOnCompletion?: number;
+    stampExpiryMonths?: number;
   }): Promise<number> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -397,8 +468,8 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass,
-        short_description_en, location, location_link
+        thumbnail_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, allow_repeat,
+        short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
@@ -406,8 +477,8 @@ export class AdminRepository {
         1, ?, ?, ?, ?,
         1, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
       )
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -421,7 +492,9 @@ export class AdminRepository {
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,
-      data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null
+      data.allowRepeat === false ? 0 : 1,
+      data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
+      data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12
     ).run();
     return result.meta.last_row_id;
   }
@@ -451,9 +524,12 @@ export class AdminRepository {
     teacherGuideUrl?: string;
     isRecommended?: boolean;
     isExtraclass?: boolean;
+    allowRepeat?: boolean;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
+    stampsOnCompletion?: number;
+    stampExpiryMonths?: number;
   }): Promise<void> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -475,8 +551,9 @@ export class AdminRepository {
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
         thumbnail_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
-        is_recommended = ?, is_extraclass = ?,
-        short_description_en = ?, location = ?, location_link = ?
+        is_recommended = ?, is_extraclass = ?, allow_repeat = ?,
+        short_description_en = ?, location = ?, location_link = ?,
+        stamps_on_completion = ?, stamp_expiry_months = ?
       WHERE id = ?
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -490,7 +567,9 @@ export class AdminRepository {
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,
+      data.allowRepeat === false ? 0 : 1,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
+      data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       id
     ).run();
   }
@@ -525,17 +604,17 @@ export class AdminRepository {
     return results;
   }
 
-  async createSkill(name: string, type: string, icon: string, color?: string): Promise<number> {
+  async createSkill(name: string, type: string, icon: string, color?: string, nameEn?: string): Promise<number> {
     const result = await this.db.prepare(
-      'INSERT INTO Skills_Library (name, type, icon, color) VALUES (?, ?, ?, ?)'
-    ).bind(name, type, icon, color || null).run();
+      'INSERT INTO Skills_Library (name, name_en, type, icon, color) VALUES (?, ?, ?, ?, ?)'
+    ).bind(name, nameEn || null, type, icon, color || null).run();
     return result.meta.last_row_id;
   }
 
-  async updateSkill(id: number, name: string, type: string, icon: string, color?: string): Promise<void> {
+  async updateSkill(id: number, name: string, type: string, icon: string, color?: string, nameEn?: string): Promise<void> {
     await this.db.prepare(
-      'UPDATE Skills_Library SET name = ?, type = ?, icon = ?, color = ? WHERE id = ?'
-    ).bind(name, type, icon, color || null, id).run();
+      'UPDATE Skills_Library SET name = ?, name_en = ?, type = ?, icon = ?, color = ? WHERE id = ?'
+    ).bind(name, nameEn || null, type, icon, color || null, id).run();
   }
 
   async deleteSkill(id: number): Promise<void> {

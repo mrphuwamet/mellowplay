@@ -14,9 +14,6 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import {
-  getSkillsLibrary,
-  saveSkillsLibrary,
-  generateSkillId,
   ICON_OPTIONS,
   renderSkillIcon,
   type SkillItem,
@@ -45,6 +42,7 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
 
   // Form state
   const [formName, setFormName] = useState('');
+  const [formNameEn, setFormNameEn] = useState('');
   const [formIcon, setFormIcon] = useState('Star');
   const [formType, setFormType] = useState<SkillType>('achievement');
   const [formError, setFormError] = useState('');
@@ -69,6 +67,7 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
   const openAdd = (type: SkillType) => {
     setEditItem(null);
     setFormName('');
+    setFormNameEn('');
     setFormIcon('Star');
     setFormType(type);
     setFormError('');
@@ -78,6 +77,7 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
   const openEdit = (item: SkillItem) => {
     setEditItem(item);
     setFormName(item.name);
+    setFormNameEn(item.name_en || '');
     setFormIcon(item.icon);
     setFormType(item.type);
     setFormError('');
@@ -89,11 +89,12 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
       setFormError('กรุณาระบุชื่อ');
       return;
     }
-    
+
     setFormError('');
     try {
       const payload = {
         name: formName.trim(),
+        nameEn: formNameEn.trim() || undefined,
         icon: formIcon,
         type: formType,
         color: formType === 'achievement' ? themeColor : indicatorColor
@@ -173,6 +174,9 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
                 </TableCell>
                 <TableCell>
                   <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>{item.name}</Typography>
+                  {item.name_en && (
+                    <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
+                  )}
                 </TableCell>
                 {isSuperAdmin && (
                   <TableCell align="right">
@@ -282,13 +286,21 @@ const SkillsLibraryManagement: React.FC<Props> = ({ currentUserRole }) => {
               }}>
                 {renderSkillIcon(formIcon, { sx: { fontSize: 28, color: formType === 'achievement' ? themeColor : indicatorColor } })}
               </Box>
-              <TextField
-                label="ชื่อ"
-                fullWidth
-                value={formName}
-                onChange={(e) => { setFormName(e.target.value); setFormError(''); }}
-                autoFocus
-              />
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flex: 1 }}>
+                <TextField
+                  label="ชื่อ (ภาษาไทย)"
+                  fullWidth
+                  value={formName}
+                  onChange={(e) => { setFormName(e.target.value); setFormError(''); }}
+                  autoFocus
+                />
+                <TextField
+                  label="Name (English)"
+                  fullWidth
+                  value={formNameEn}
+                  onChange={(e) => setFormNameEn(e.target.value)}
+                />
+              </Box>
             </Box>
 
             {/* Icon picker */}

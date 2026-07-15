@@ -32,9 +32,10 @@ export class AuthService {
 
   // --- JWT Methods ---
 
-  static async generateToken(userId: number, secret: string): Promise<string> {
+  static async generateToken(userId: number, secret: string, extraClaims: Record<string, any> = {}): Promise<string> {
     const payload = {
       userId,
+      ...extraClaims,
       exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 30), // 30 days expiry
     }
     return await sign(payload, secret, 'HS256')
@@ -43,6 +44,24 @@ export class AuthService {
   static async verifyToken(token: string, secret: string): Promise<any> {
     try {
       return await verify(token, secret, 'HS256')
+    } catch (e) {
+      return null
+    }
+  }
+
+  // Verifies a Google ID token via Google's tokeninfo endpoint.
+  // Returns the decoded payload (with `sub`, `email`, `given_name`, `family_name`, etc.)
+  // if valid and matching the expected client ID, otherwise null.
+  static async verifyGoogleIdToken(idToken: string, expectedClientId: string): Promise<any | null> {
+    try {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`)
+      if (!res.ok) return null
+
+      const payload = await res.json() as any
+      if (payload.aud !== expectedClientId) return null
+      if (payload.email_verified !== 'true' && payload.email_verified !== true) return null
+
+      return payload
     } catch (e) {
       return null
     }

@@ -8,11 +8,13 @@
 -- ── Users ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS Users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone TEXT UNIQUE NOT NULL,
+    phone TEXT UNIQUE,
     email TEXT UNIQUE,
     password_hash TEXT NOT NULL,
+    prefix TEXT,
     first_name TEXT,
     last_name TEXT,
+    dob DATE,
     phone_verified INTEGER DEFAULT 0,
     membership_expires_at DATETIME,
     membership_type TEXT DEFAULT 'standard',
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS Users (
     address TEXT,
     application_date DATETIME,
     profile_image_url TEXT,
+    google_id TEXT UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -96,7 +99,10 @@ CREATE TABLE IF NOT EXISTS Children (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER NOT NULL,
     hd_profile_id INTEGER UNIQUE NOT NULL,
-    avatar TEXT,
+    avatar TEXT, -- currently active avatar: a character key (e.g. 'char-1') or a photo URL
+    -- The uploaded photo persists here independently of `avatar` so switching
+    -- to a character and back doesn't lose it; only an explicit delete clears it.
+    custom_photo_url TEXT,
     current_level INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (parent_id) REFERENCES Users(id),
@@ -156,6 +162,17 @@ CREATE TABLE IF NOT EXISTS Courses (
     coupon_requirements_json TEXT,
     is_recommended BOOLEAN DEFAULT 0,
     is_extraclass BOOLEAN DEFAULT 0,
+    -- Independent of is_extraclass: whether the same child can register for
+    -- this course more than once. Decoupled so an admin can mark a specific
+    -- one-off event as non-repeatable without that being automatically
+    -- inferred from the Extra Class flag (and vice versa).
+    allow_repeat BOOLEAN DEFAULT 1,
+
+    -- Stamps awarded to the child once a booking for this course is marked
+    -- completed. stamp_expiry_months is rounded up to the nearest half-year
+    -- boundary (Jun 30 / Dec 31) when the actual Stamps row is created.
+    stamps_on_completion INTEGER DEFAULT 0,
+    stamp_expiry_months INTEGER DEFAULT 12,
 
     -- Legacy dual-tier fields
     is_little_junior_enabled BOOLEAN DEFAULT 1,
@@ -242,13 +259,17 @@ CREATE TABLE IF NOT EXISTS Bookings (
     slot_date TEXT,
     slot_start_time TEXT,
     age_group TEXT NOT NULL,
-    status TEXT DEFAULT 'confirmed',
+    status TEXT DEFAULT 'confirmed_paid',
     payment_status TEXT DEFAULT 'paid',
     payment_method TEXT DEFAULT 'coupon',
     order_id INTEGER,
     notes TEXT,
     teaching_staff_id INTEGER,
     beam_session_id TEXT,
+    -- Set only via the Super Admin force-status tool (adminController.updateBookingStatus)
+    -- for correcting payment-status errors after the fact; not written by the normal
+    -- payment/booking flow.
+    paid_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (course_id) REFERENCES Courses(id),
     FOREIGN KEY (branch_id) REFERENCES Branches(id)
@@ -319,6 +340,7 @@ CREATE TABLE IF NOT EXISTS Branch_Default_Slots (
 CREATE TABLE IF NOT EXISTS Skills_Library (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    name_en TEXT,
     type TEXT NOT NULL,
     icon TEXT,
     color TEXT,
@@ -339,7 +361,11 @@ CREATE TABLE IF NOT EXISTS Roadmap_Nodes (
 CREATE TABLE IF NOT EXISTS Child_Journey (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     child_id INTEGER NOT NULL,
-    node_id INTEGER NOT NULL,
+    -- Nullable: RecordMilestone.tsx (CRM) records reports per-course (skills
+    -- from Courses.achievement_skills_json), not against Roadmap_Nodes, which
+    -- has no seed/management data. node_title falls back to the booking's
+    -- course name when this is absent.
+    node_id INTEGER,
     booking_id INTEGER,
     skills_learned TEXT,
     teacher_comment TEXT,
@@ -471,14 +497,55 @@ CREATE TABLE IF NOT EXISTS Course_Materials (
     FOREIGN KEY (course_id) REFERENCES Courses(id)
 );
 
+-- ── Course Image Views ──────────────────────────────────────────────────────
+-- Per-course, per-display-context (see src/constants/imageViews.ts) image
+-- assignment + focal point. One row per (course_id, view_key). Any view a
+-- course hasn't configured falls back to thumbnail_url + a centered focal
+-- point (50, 50) at read time — see adminController.getCourses.
+CREATE TABLE IF NOT EXISTS Course_Image_Views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    view_key TEXT NOT NULL,
+    image_url TEXT NOT NULL,
+    focal_x REAL NOT NULL DEFAULT 50,
+    focal_y REAL NOT NULL DEFAULT 50,
+    zoom REAL NOT NULL DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES Courses(id),
+    UNIQUE(course_id, view_key)
+);
+
+-- ── Course Image Focals ─────────────────────────────────────────────────────
+-- Per-image focal point (0-100, 0-100) for the Consumer app's swipeable 4:5
+-- poster gallery on the course-detail page — every uploaded image (thumbnail
+-- + gallery) gets its own row here, unlike Course_Image_Views above which
+-- assigns exactly one curated image per (course_id, view_key). Any image
+-- without a row falls back to a centered focal point (50, 50).
+CREATE TABLE IF NOT EXISTS Course_Image_Focals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    image_url TEXT NOT NULL,
+    focal_x REAL NOT NULL DEFAULT 50,
+    focal_y REAL NOT NULL DEFAULT 50,
+    zoom REAL NOT NULL DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES Courses(id),
+    UNIQUE(course_id, image_url)
+);
+
 -- ── Stock Reservations ────────────────────────────────────────────────────────
+-- Tracks per-booking course-material stock reservations: created when a
+-- booking is made (status='pending'), deducted from Products.current_stock
+-- when the class completes (status='deducted'), or released back if the
+-- booking is cancelled (status='released').
 CREATE TABLE IF NOT EXISTS Stock_Reservations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    booking_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
-    order_id INTEGER,
-    qty INTEGER NOT NULL,
-    status TEXT DEFAULT 'reserved',
+    quantity INTEGER NOT NULL,
+    status TEXT DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (booking_id) REFERENCES Bookings(id),
     FOREIGN KEY (product_id) REFERENCES Products(id)
 );
 
@@ -560,6 +627,58 @@ CREATE TABLE IF NOT EXISTS Rewards (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ── Stamps ────────────────────────────────────────────────────────────────────
+-- Individual stamp ledger (one row per stamp) so each stamp can be masked
+-- independently as used/expired, unlike the aggregate ChildCoupons.balance.
+CREATE TABLE IF NOT EXISTS Stamps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    child_id INTEGER NOT NULL,
+    booking_id INTEGER,
+    course_id INTEGER,
+    earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME,
+    status TEXT DEFAULT 'available', -- 'available' | 'used' | 'expired'
+    used_at DATETIME,
+    redemption_id INTEGER,
+    FOREIGN KEY (child_id) REFERENCES Children(id) ON DELETE CASCADE,
+    FOREIGN KEY (booking_id) REFERENCES Bookings(id),
+    FOREIGN KEY (course_id) REFERENCES Courses(id),
+    FOREIGN KEY (redemption_id) REFERENCES Redemptions(id)
+);
+
+-- CRM-configurable: which stamp image applies to a given range of stamp
+-- positions (1-indexed by earn order), e.g. stamps #1-10 use image A.
+CREATE TABLE IF NOT EXISTS Stamp_Image_Ranges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    range_start INTEGER NOT NULL,
+    range_end INTEGER NOT NULL,
+    image_url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Course Views (lightweight click/view analytics for the funnel) ────────────
+CREATE TABLE IF NOT EXISTS Course_Views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    child_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES Courses(id)
+);
+
+-- ── Course Reviews (customer rating + feedback, surfaced in CourseManagement) ─
+CREATE TABLE IF NOT EXISTS Course_Reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    child_id INTEGER NOT NULL,
+    booking_id INTEGER,
+    rating INTEGER NOT NULL,
+    comment TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES Courses(id),
+    FOREIGN KEY (child_id) REFERENCES Children(id),
+    FOREIGN KEY (booking_id) REFERENCES Bookings(id)
+);
+
 -- ── System Logs ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS System_Logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -599,6 +718,23 @@ CREATE TABLE IF NOT EXISTS Packages (
     seller_commission_value REAL DEFAULT 0,
     active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Self-service online purchases of a Package (paid via Beam), distinct from
+-- posProcessPackageSale's in-person/POS flow — this is the staging row the
+-- Beam webhook flips to 'paid' and uses to credit ChildCoupons.
+CREATE TABLE IF NOT EXISTS Package_Purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_id INTEGER NOT NULL,
+    child_id INTEGER NOT NULL,
+    user_id INTEGER,
+    amount REAL NOT NULL DEFAULT 0,
+    status TEXT DEFAULT 'pending', -- 'pending' | 'paid' | 'cancelled'
+    payment_method TEXT,
+    beam_session_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (package_id) REFERENCES Packages(id),
+    FOREIGN KEY (child_id) REFERENCES Children(id)
 );
 
 -- ── Campaign Bonuses ──────────────────────────────────────────────────────────
@@ -776,6 +912,25 @@ VALUES ('daily', 6, 30, 3);
 
 INSERT OR IGNORE INTO CouponTypes (id, name, color) VALUES (1, 'Junior Coupon', '#f63b44ff');
 INSERT OR IGNORE INTO CouponTypes (id, name, color) VALUES (2, 'Little Junior Coupon', '#10a5b9ff');
+
+-- ── News Feed ───────────────────────────────────────────────────────────────
+-- CRM-managed content shown in the Consumer app's Explore page under
+-- "ข่าวสาร" (news) / "สื่อความรู้" (media) — type distinguishes the two.
+CREATE TABLE IF NOT EXISTS News_Feed (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL DEFAULT 'news',
+    title TEXT NOT NULL,
+    title_en TEXT,
+    content TEXT,
+    content_en TEXT,
+    image_url TEXT,
+    video_url TEXT,
+    link_url TEXT,
+    is_published BOOLEAN NOT NULL DEFAULT 1,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ── Initial Admin ──────────────────────────────────────────────────────────────
 -- Email: admin@mellowplay.co | Password: password123 (SHA-256)

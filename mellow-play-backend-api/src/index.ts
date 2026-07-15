@@ -18,7 +18,10 @@ import { OrderController } from './controllers/orderController';
 import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
+import { NewsFeedController } from './controllers/newsFeedController';
+import { AnalyticsController } from './controllers/analyticsController';
 import { ConfigService } from './services/configService';
+import { AuthService } from './services/authService';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
 const authController = new AuthController();
@@ -36,6 +39,8 @@ const reportController         = new ReportController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
+const newsFeedController       = new NewsFeedController();
+const analyticsController      = new AnalyticsController();
 
 app.use('*', cors({
   origin: (origin) => {
@@ -46,7 +51,7 @@ app.use('*', cors({
     }
     return origin;
   },
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposeHeaders: ['Content-Length'],
   maxAge: 600,
@@ -123,8 +128,28 @@ app.get('/doc', (c) => {
                     phone: { type: 'string' },
                     otp: { type: 'string' },
                     password: { type: 'string' },
+                    prefix: { type: 'string', example: 'นาย' },
                     firstName: { type: 'string' },
-                    lastName: { type: 'string' }
+                    lastName: { type: 'string' },
+                    dob: { type: 'string', example: '1990-01-31' },
+                    email: { type: 'string' },
+                    lineId: { type: 'string' },
+                    address: { type: 'string' },
+                    pdpaConsent: { type: 'boolean' },
+                    marketingConsent: { type: 'boolean' },
+                    children: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          name: { type: 'string' },
+                          nickname: { type: 'string' },
+                          gender: { type: 'string' },
+                          dob: { type: 'string', example: '2015-06-20' },
+                          relation: { type: 'string' }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -192,8 +217,10 @@ app.post('/api/v1/auth/request-otp', (c) => authController.requestOtp(c));
 app.post('/api/v1/auth/verify-otp', (c) => authController.verifyOtp(c));
 app.post('/api/v1/auth/register', (c) => authController.register(c));
 app.post('/api/v1/auth/login', (c) => authController.login(c));
+app.post('/api/v1/auth/google', (c) => authController.googleLogin(c));
 app.post('/api/v1/auth/admin/login', (c) => authController.adminLogin(c));
 app.post('/api/v1/auth/forgot-password/request-otp', (c) => authController.forgotPasswordRequestOtp(c));
+app.post('/api/v1/auth/forgot-password/verify-otp', (c) => authController.forgotPasswordVerifyOtp(c));
 app.post('/api/v1/auth/forgot-password/reset', (c) => authController.forgotPasswordReset(c));
 
 // --- Protected Routes (Require JWT) ---
@@ -208,6 +235,11 @@ app.use('/api/v1/profiles/*', async (c, next) => {
 });
 
 app.use('/api/v1/journey/*', async (c, next) => {
+  // CRM submits milestone reports here (RecordMilestone.tsx) using a plain,
+  // unauthenticated axios call — it never has a consumer-app JWT to send, so
+  // gating this path the same as the consumer-facing journey routes made
+  // every report submission 401 silently, leaving Child_Journey empty.
+  if (c.req.path === '/api/v1/journey/record') return next();
   const config = new ConfigService(c.env);
   return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, next);
 });
@@ -219,17 +251,74 @@ app.get('/api/v1/profiles', (c) => profileController.listProfiles(c));
 app.put('/api/v1/profiles/children/:childId', (c) => profileController.updateChild(c));
 app.put('/api/v1/profiles/:childId/avatar', (c) => profileController.updateAvatar(c));
 app.post('/api/v1/profiles/:childId/upload-avatar', (c) => profileController.uploadAvatar(c));
+app.delete('/api/v1/profiles/:childId/photo', (c) => profileController.deletePhoto(c));
 app.get('/api/v1/profiles/bookings/pending', (c) => profileController.getPendingBookings(c));
 app.get('/api/v1/profiles/bookings/upcoming', (c) => profileController.getUpcomingBookings(c));
 app.get('/api/v1/profiles/bookings/history', (c) => profileController.getHistoryBookings(c));
 app.post('/api/v1/profiles/bookings/:id/cancel', (c) => profileController.cancelMyBooking(c));
 app.get('/api/v1/journey/progress/:childId', (c) => journeyController.getChildProgress(c));
+app.get('/api/v1/journey/progress-by-booking/:bookingId', (c) => journeyController.getProgressByBooking(c));
+// Same lookup, exposed under /admin so RecordMilestone.tsx can prefill an
+// existing report — the consumer-only JWT gate on /api/v1/journey/* would
+// otherwise 401 the CRM. Left in ADMIN_PUBLIC_ROUTES below (unauthenticated)
+// since RecordMilestone.tsx has no CRM login token to send.
+app.get('/api/v1/admin/journey/progress-by-booking/:bookingId', (c) => journeyController.getProgressByBooking(c));
 app.get('/api/v1/journey/album/:childId', (c) => journeyController.getAlbum(c));
 
 // CRM Route (Protected for Facilitators in production, simplified here)
 app.post('/api/v1/journey/record', (c) => journeyController.recordMilestone(c));
 
 // --- Admin/CRM Routes ---
+// /api/v1/admin/* and /api/v1/system/* now require a CRM staff JWT
+// (type: 'admin', issued by POST /auth/admin/login) except for a small
+// allowlist of endpoints the consumer app calls directly without a CRM
+// login (course/branch catalog reads, booking create/cancel, coupon-type
+// list) — see ADMIN_PUBLIC_ROUTES. PUT /admin/users/:id is shared: CRM staff
+// can edit any user, and a consumer can edit their own profile with their
+// own (non-admin) JWT.
+const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/branches$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/courses$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/coupons$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
+  { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
+  { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/coupon-types$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/journey\/progress-by-booking\/[^/]+$/ },
+];
+
+async function requireCrmAuth(c: any, next: any) {
+  const isPublicRoute = ADMIN_PUBLIC_ROUTES.some(
+    (r) => r.method === c.req.method && r.pattern.test(c.req.path)
+  );
+  if (isPublicRoute) return next();
+
+  const authHeader = c.req.header('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+  const config = new ConfigService(c.env);
+  const payload = await AuthService.verifyToken(token, config.jwtSecret);
+  if (!payload) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+  if (payload.type === 'admin') {
+    c.set('crmUser', payload);
+    return next();
+  }
+
+  // PUT /admin/users/:id also accepts a consumer's own (non-admin) JWT,
+  // but only to edit their own profile.
+  const selfEditMatch = c.req.method === 'PUT' && c.req.path.match(/^\/api\/v1\/admin\/users\/(\d+)$/);
+  if (selfEditMatch && payload.userId === parseInt(selfEditMatch[1])) {
+    return next();
+  }
+
+  return c.json({ success: false, message: 'Unauthorized' }, 401);
+}
+
+app.use('/api/v1/admin/*', requireCrmAuth);
+app.use('/api/v1/system/*', requireCrmAuth);
+
 app.get('/api/v1/admin/stats', (c) => adminController.getStats(c));
 app.get('/api/v1/admin/users', (c) => adminController.getUsers(c));
 app.get('/api/v1/admin/users/:id', (c) => adminController.getUserById(c));
@@ -257,13 +346,16 @@ app.post('/api/v1/admin/courses', (c) => adminController.createCourse(c));
 app.put('/api/v1/admin/courses/:id', (c) => adminController.updateCourse(c));
 app.delete('/api/v1/admin/courses/:id', (c) => adminController.deleteCourse(c));
 
+app.get('/api/v1/image-views', (c) => adminController.getImageViews(c));
+app.get('/api/v1/admin/courses/:id/image-views', (c) => adminController.getCourseImageViews(c));
+app.put('/api/v1/admin/courses/:id/image-views', (c) => adminController.updateCourseImageViews(c));
+app.get('/api/v1/admin/courses/:id/image-focals', (c) => adminController.getCourseImageFocals(c));
+app.put('/api/v1/admin/courses/:id/image-focals', (c) => adminController.updateCourseImageFocals(c));
+
 app.get('/api/v1/admin/categories', (c) => adminController.getCategories(c));
 app.post('/api/v1/admin/categories', (c) => adminController.createCategory(c));
 app.put('/api/v1/admin/categories/:id', (c) => adminController.updateCategory(c));
 app.delete('/api/v1/admin/categories/:id', (c) => adminController.deleteCategory(c));
-
-app.post('/api/v1/coupons/use', (c) => couponController.useCoupons(c));
-app.post('/api/v1/coupons/staff-use', (c) => couponController.staffUseCoupons(c));
 
 // ================= REWARDS & REDEMPTIONS =================
 app.get('/api/v1/rewards', (c) => rewardsController.getAvailableRewards(c));
@@ -273,6 +365,26 @@ app.get('/api/v1/admin/rewards', (c) => rewardsController.getAllRewards(c));
 app.post('/api/v1/admin/rewards', (c) => rewardsController.createReward(c));
 app.put('/api/v1/admin/rewards/:id', (c) => rewardsController.updateReward(c));
 app.delete('/api/v1/admin/rewards/:id', (c) => rewardsController.deleteReward(c));
+
+app.get('/api/v1/children/:childId/stamps', (c) => rewardsController.getChildStamps(c));
+
+app.get   ('/api/v1/admin/stamp-image-ranges',     (c) => rewardsController.getStampImageRanges(c));
+app.post  ('/api/v1/admin/stamp-image-ranges',     (c) => rewardsController.createStampImageRange(c));
+app.put   ('/api/v1/admin/stamp-image-ranges/:id', (c) => rewardsController.updateStampImageRange(c));
+app.delete('/api/v1/admin/stamp-image-ranges/:id', (c) => rewardsController.deleteStampImageRange(c));
+
+// ================= NEWS FEED (ข่าวสาร / สื่อความรู้) =================
+app.get('/api/v1/news-feed', (c) => newsFeedController.getPublished(c));
+app.get('/api/v1/admin/news-feed', (c) => newsFeedController.getAll(c));
+app.post('/api/v1/admin/news-feed', (c) => newsFeedController.create(c));
+app.put('/api/v1/admin/news-feed/:id', (c) => newsFeedController.update(c));
+app.delete('/api/v1/admin/news-feed/:id', (c) => newsFeedController.delete(c));
+
+// ================= ANALYTICS (Dashboard + course views/reviews) =================
+app.get ('/api/v1/admin/analytics',                (c) => analyticsController.getDashboardAnalytics(c));
+app.post('/api/v1/courses/:courseId/view',         (c) => analyticsController.recordCourseView(c));
+app.get ('/api/v1/courses/:courseId/reviews',      (c) => analyticsController.getCourseReviews(c));
+app.post('/api/v1/courses/reviews',                (c) => analyticsController.createCourseReview(c));
 
 app.get('/api/v1/admin/coupon-types', (c) => couponController.getCouponTypes(c));
 app.post('/api/v1/admin/coupon-types', (c) => couponController.createCouponType(c));
@@ -357,6 +469,11 @@ app.post  ('/api/v1/admin/packages',     (c) => hrController.createPackage(c));
 app.put   ('/api/v1/admin/packages/:id', (c) => hrController.updatePackage(c));
 app.delete('/api/v1/admin/packages/:id', (c) => hrController.deletePackage(c));
 
+// Consumer-facing self-service package storefront (Beam-paid)
+app.get ('/api/v1/packages',                    (c) => hrController.getActivePackages(c));
+app.post('/api/v1/packages/:id/purchase',       (c) => hrController.purchasePackage(c));
+app.get ('/api/v1/packages/purchases/:id',      (c) => hrController.getPackagePurchaseStatus(c));
+
 // ── HR: Campaign Bonuses ───────────────────────────────────────────────────
 app.get   ('/api/v1/admin/campaign-bonuses',     (c) => hrController.getCampaigns(c));
 app.post  ('/api/v1/admin/campaign-bonuses',     (c) => hrController.createCampaign(c));
@@ -389,6 +506,7 @@ app.post('/api/v1/admin/expense-advances',           (c) => hrController.createE
 app.put('/api/v1/admin/expense-advances/:id/status', (c) => hrController.updateExpenseStatus(c));
 
 // ── HR: Payouts ─────────────────────────────────────────────────────────────
+app.get('/api/v1/admin/incentive-summary', (c) => hrController.getMyIncentiveSummary(c));
 app.get('/api/v1/admin/payouts',         (c) => hrController.getPayouts(c));
 app.post('/api/v1/admin/payouts',        (c) => hrController.createPayout(c));
 app.put('/api/v1/admin/payouts/:id/pay',    (c) => hrController.markPayoutPaid(c));

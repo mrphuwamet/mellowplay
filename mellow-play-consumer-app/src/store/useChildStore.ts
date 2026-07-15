@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import apiClient from '../utils/apiClient';
+import { DEFAULT_CHARACTER_AVATAR_ID } from '../utils/characterAvatars';
 
 interface Child {
   id: number;
@@ -9,6 +10,7 @@ interface Child {
   gender?: string;
   dob?: string;
   avatar: string;
+  customPhotoUrl?: string;
   level: number;
   hd_type?: string;
   hd_profile?: string;
@@ -29,6 +31,8 @@ interface ChildStore {
   selectChild: (id: number) => void;
   getSelectedChild: () => Child | null;
   updateAvatar: (childId: number, avatar: string) => Promise<void>;
+  setCustomPhotoUrl: (childId: number, url: string) => void;
+  deletePhoto: (childId: number) => Promise<void>;
   updateChildInfo: (childId: number, name: string) => Promise<void>;
 }
 
@@ -52,7 +56,8 @@ export const useChildStore = create<ChildStore>((set, get) => ({
           relation: p.relation,
           gender: p.gender,
           dob: p.birth_date,
-          avatar: p.avatar || (p.relation === 'son' ? 'boy' : 'girl'),
+          avatar: p.avatar || DEFAULT_CHARACTER_AVATAR_ID,
+          customPhotoUrl: p.custom_photo_url || undefined,
           level: p.current_level || 1,
           hd_type: p.hd_type,
           hd_profile: p.hd_profile,
@@ -104,6 +109,31 @@ export const useChildStore = create<ChildStore>((set, get) => ({
       }
     } catch (err) {
       console.error("Failed to update avatar:", err);
+    }
+  },
+
+  // Uploading a photo already writes both `avatar` and `custom_photo_url` on
+  // the backend in one call — this just mirrors that into local state so the
+  // picker can show the persisted photo without a full refetch.
+  setCustomPhotoUrl: (childId: number, url: string) => {
+    set(state => ({
+      children: state.children.map(c => c.id === childId ? { ...c, avatar: url, customPhotoUrl: url } : c)
+    }));
+  },
+
+  deletePhoto: async (childId: number) => {
+    try {
+      const response = await apiClient.delete(`/profiles/${childId}/photo`);
+      if (response.data.success) {
+        set(state => ({
+          children: state.children.map(c => c.id === childId
+            ? { ...c, customPhotoUrl: undefined, avatar: c.avatar === c.customPhotoUrl ? DEFAULT_CHARACTER_AVATAR_ID : c.avatar }
+            : c
+          )
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to delete photo:", err);
     }
   },
 

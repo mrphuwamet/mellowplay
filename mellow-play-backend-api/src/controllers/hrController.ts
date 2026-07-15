@@ -34,6 +34,90 @@ export class HRController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  // ── Package Purchases (consumer self-service storefront) ───────────────────
+  async getActivePackages(c: C) {
+    try { return c.json({ success: true, packages: await this.repo(c).getActivePackages() }); }
+    catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async purchasePackage(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const packageId = parseInt(c.req.param('id'));
+      const { childId, userId } = await c.req.json();
+      if (!childId) return c.json({ success: false, message: 'childId required' }, 400);
+
+      const pkg = await this.repo(c).getPackageById(packageId);
+      if (!pkg || !pkg.active) return c.json({ success: false, message: 'Package not found' }, 404);
+
+      const purchaseId = await this.repo(c).createPackagePurchase({
+        packageId, childId: parseInt(childId), userId: userId ? parseInt(userId) : undefined, amount: pkg.price,
+      });
+
+      if (pkg.price <= 0) {
+        // Free package — skip Beam entirely and credit stamps immediately.
+        await this.repo(c).creditPackageCoupons(pkg, parseInt(childId));
+        await config.db.prepare(`UPDATE Package_Purchases SET status='paid', payment_method='free' WHERE id=?`).bind(purchaseId).run();
+        return c.json({ success: true, id: purchaseId, paymentUrl: '' });
+      }
+
+      const BEAM_API_KEY = c.env.BEAM_API_KEY;
+      const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
+      if (!BEAM_API_KEY || !BEAM_MERCHANT_ID) {
+        return c.json({ success: false, message: 'Beam credentials not found' }, 500);
+      }
+
+      const authString = btoa(`${BEAM_MERCHANT_ID}:${BEAM_API_KEY}`);
+      const baseUrl = c.req.header('origin') || 'http://localhost:5173';
+      const redirectUrl = `${baseUrl}/package-purchase-success?purchaseId=${purchaseId}`;
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const netAmount = Math.round(pkg.price * 100);
+
+      const payload = {
+        linkSettings: {
+          card: { isEnabled: true },
+          qrPromptPay: { isEnabled: true },
+          eWallets: { isEnabled: true },
+          mobileBanking: { isEnabled: true },
+        },
+        order: {
+          currency: 'THB',
+          netAmount,
+          description: `Package: ${pkg.name}`,
+          referenceId: `PKG-${purchaseId}-${Date.now()}`,
+        },
+        expiresAt,
+        redirectUrl,
+      };
+
+      const res = await fetch('https://api.beamcheckout.com/api/v1/payment-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${authString}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText);
+      }
+      const data: any = await res.json();
+
+      await this.repo(c).setPackagePurchaseBeamSession(purchaseId, data.id);
+
+      return c.json({ success: true, id: purchaseId, paymentUrl: data.url });
+    } catch (error: any) {
+      return c.json({ success: false, message: 'ระบบชำระเงินขัดข้อง กรุณาลองใหม่อีกครั้ง หรือติดต่อพนักงาน' }, 500);
+    }
+  }
+
+  async getPackagePurchaseStatus(c: C) {
+    try {
+      const id = parseInt(c.req.param('id'));
+      const purchase = await this.repo(c).getPackagePurchase(id);
+      if (!purchase) return c.json({ success: false, message: 'Purchase not found' }, 404);
+      return c.json({ success: true, purchase });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // ── Campaign Bonuses ───────────────────────────────────────────────────────
   async getCampaigns(c: C) {
     try { return c.json({ success: true, campaigns: await this.repo(c).getCampaigns() }); }
@@ -197,6 +281,17 @@ export class HRController {
         return c.json({ success: false, message: 'crmUserId, period, month, year required' }, 400);
       const id = await this.repo(c).generatePayout(crmUserId, period, month, year);
       return c.json({ success: true, id });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── Incentive Summary (real data for IncentiveTracking.tsx) ────────────────
+  async getMyIncentiveSummary(c: C) {
+    try {
+      const { crmUserId, month, year } = c.req.query();
+      if (!crmUserId || !month || !year)
+        return c.json({ success: false, message: 'crmUserId, month, year required' }, 400);
+      const summary = await this.repo(c).getMyIncentiveSummary(parseInt(crmUserId), parseInt(month), parseInt(year));
+      return c.json({ success: true, ...summary });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

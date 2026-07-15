@@ -1,4 +1,5 @@
 import React from 'react';
+import { CHARACTER_AVATARS } from '../utils/characterAvatars';
 
 interface ChildAvatarProps {
   avatarType?: string;
@@ -7,6 +8,7 @@ interface ChildAvatarProps {
 
 export const ChildAvatar: React.FC<ChildAvatarProps> = ({ avatarType, className = "w-10 h-10" }) => {
   const isUrl = avatarType && (avatarType.startsWith('http') || avatarType.startsWith('/api/v1/files/'));
+  const character = avatarType ? CHARACTER_AVATARS.find(a => a.id === avatarType) : undefined;
   const isBoy = avatarType === 'boy' || avatarType === '👦' || avatarType === 'son';
   const isGirl = avatarType === 'girl' || avatarType === '👧' || avatarType === 'daughter';
 
@@ -14,6 +16,14 @@ export const ChildAvatar: React.FC<ChildAvatarProps> = ({ avatarType, className 
     return (
       <div className={`rounded-full overflow-hidden shadow-inner flex items-center justify-center bg-slate-200 ${className}`}>
         <img src={avatarType} alt="Avatar" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  if (character) {
+    return (
+      <div className={`rounded-full overflow-hidden shadow-inner flex items-center justify-center bg-slate-100 ${className}`}>
+        <img src={character.src} alt={character.label} className="w-full h-full object-cover" />
       </div>
     );
   }

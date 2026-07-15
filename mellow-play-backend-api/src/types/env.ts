@@ -8,10 +8,12 @@ export interface Bindings {
   ENVIRONMENT: string;
   SMS_API_KEY: string;
   SMS_API_SECRET: string;
+  GOOGLE_CLIENT_ID: string;
   BEAM_API_KEY: string;
   BEAM_MERCHANT_ID: string;
 }
 
 export type Variables = {
   userId: number;
+  crmUser?: { userId: number; type: string; role: string; branchId: number | null };
 }

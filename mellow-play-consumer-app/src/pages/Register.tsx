@@ -1,18 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Calendar, Users } from 'lucide-react';
+import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Users } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import PinInput from '../components/PinInput';
+import PinPad from '../components/PinPad';
+import DateField from '../components/DateField';
+import FieldHint from '../components/FieldHint';
 import { cleanNamePrefix } from '../utils/nameUtils';
+import logo from '../assets/ui/logo.svg';
+import { TH } from 'country-flag-icons/react/3x2';
+
+const ddmmyyyyToISO = (value: string) => {
+  const [d, m, y] = value.split('/');
+  if (!d || !m || !y || y.length !== 4) return '';
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+};
 
 interface ChildInput {
-  name: string;
+  firstName: string;
+  lastName: string;
   nickname: string;
   gender: string;
   dob: string;
   relation: string;
+  customRelation?: string;
+}
+
+interface ChildFieldErrors {
+  firstName?: string;
+  nickname?: string;
+  gender?: string;
+  dob?: string;
   customRelation?: string;
 }
 
@@ -21,14 +41,16 @@ const Register = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
-  const { t, language } = useTranslation();
-  
+  const { t } = useTranslation();
+
   // Form State
-  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'children' | 'summary'>('consent');
+  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'summary'>('consent');
   const [formData, setFormData] = useState({
     phone: '',
+    prefix: '',
     firstName: '',
     lastName: '',
+    dob: '',
     password: '',
     email: '',
     lineId: '',
@@ -37,13 +59,19 @@ const Register = () => {
     marketingConsent: false,
     otp: ''
   });
-  
+
   const [children, setChildren] = useState<ChildInput[]>([
-    { firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' }
+    { firstName: '', lastName: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }
   ]);
-  
+
+  const [fieldErrors, setFieldErrors] = useState<{
+    prefix?: string; firstName?: string; lastName?: string; phone?: string; email?: string;
+  }>({});
+  const [childErrors, setChildErrors] = useState<ChildFieldErrors[]>([]);
+
   const [prevPhone, setPrevPhone] = useState('');
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [childToRemove, setChildToRemove] = useState<number | null>(null);
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -65,9 +93,38 @@ const Register = () => {
     return () => clearInterval(interval);
   }, [step, resendTimer]);
 
+  const validateInfoStep = () => {
+    const errs: typeof fieldErrors = {};
+    if (!formData.prefix) errs.prefix = t.register.requiredPrefix;
+    if (!formData.firstName.trim()) errs.firstName = t.register.requiredFirstName;
+    if (!formData.lastName.trim()) errs.lastName = t.register.requiredLastName;
+    if (!formData.phone.trim()) errs.phone = t.register.requiredPhone;
+    if (!formData.email.trim()) errs.email = t.register.requiredEmail;
+
+    const cErrs: ChildFieldErrors[] = children.map((c) => {
+      const e: ChildFieldErrors = {};
+      if (!c.firstName.trim()) e.firstName = t.register.requiredFirstName;
+      if (!c.nickname.trim()) e.nickname = t.register.requiredNickname;
+      if (!c.gender) e.gender = t.register.requiredGender;
+      if (!c.dob) e.dob = t.register.requiredDob;
+      if (c.relation === 'Other' && !(c.customRelation || '').trim()) e.customRelation = t.register.requiredRelation;
+      return e;
+    });
+
+    setFieldErrors(errs);
+    setChildErrors(cErrs);
+
+    return Object.keys(errs).length === 0 && !cErrs.some((e) => Object.keys(e).length > 0);
+  };
+
   const handleRequestOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
+
+    if (!validateInfoStep()) {
+      return;
+    }
+    setError('');
+
     // Skip OTP if phone hasn't changed since last verification
     if (prevPhone && prevPhone === formData.phone) {
       setStep('pin');
@@ -127,7 +184,8 @@ const Register = () => {
   };
 
   const handleAddChild = () => {
-    setChildren([...children, { firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' }]);
+    setChildren([...children, { firstName: '', lastName: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }]);
+    setChildErrors((prev) => [...prev, {}]);
   };
 
   const handleRemoveChild = (index: number) => {
@@ -135,6 +193,11 @@ const Register = () => {
       const newChildren = [...children];
       newChildren.splice(index, 1);
       setChildren(newChildren);
+      setChildErrors((prev) => {
+        const newErrs = [...prev];
+        newErrs.splice(index, 1);
+        return newErrs;
+      });
     }
   };
 
@@ -142,21 +205,13 @@ const Register = () => {
     const newChildren = [...children];
     newChildren[index][field] = value;
     setChildren(newChildren);
-  };
 
-  const handleNextToSummary = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Check if at least 1 child has firstName and dob
-    const validChildren = children.filter(c => c.firstName && c.dob);
-    
-    if (validChildren.length === 0) {
-      setError(t.register.fillAtLeastOneChild);
-      return;
-    }
-    
-    setError('');
-    setStep('summary');
+    setChildErrors((prev) => {
+      if (!prev[index]?.[field as keyof ChildFieldErrors]) return prev;
+      const newErrs = [...prev];
+      newErrs[index] = { ...newErrs[index], [field]: undefined };
+      return newErrs;
+    });
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -173,8 +228,10 @@ const Register = () => {
 
     const payload = {
       ...formData,
+      dob: formData.dob ? ddmmyyyyToISO(formData.dob) : '',
       children: children.filter(c => c.firstName && c.dob).map(c => ({
         ...c,
+        dob: ddmmyyyyToISO(c.dob),
         name: `${cleanNamePrefix(c.firstName)} ${c.lastName ? cleanNamePrefix(c.lastName) : ''}`.trim(),
         relation: c.relation === 'Other' && c.customRelation ? c.customRelation : c.relation
       }))
@@ -194,10 +251,27 @@ const Register = () => {
   };
 
   const renderStepInfo = () => (
-    <form onSubmit={handleRequestOtp} className="space-y-4 mt-2">
-      <div className="grid grid-cols-2 gap-3">
-         <div className="relative">
+    <form onSubmit={handleRequestOtp} noValidate className="space-y-4 mt-2">
+      <h3 className="font-black text-mellow-ink text-sm">{t.register.parentInfoTitle}</h3>
+
+      <div className="flex gap-3">
+         <div className="relative shrink-0 w-[130px]">
+            <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.prefixLabel}</label>
+            <FieldHint message={fieldErrors.prefix} />
+            <select
+              value={formData.prefix}
+              onChange={(e) => { setFormData({...formData, prefix: e.target.value}); setFieldErrors(prev => ({...prev, prefix: undefined})); }}
+              className="w-full px-3 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            >
+              <option value="" disabled>{t.register.selectTitle}</option>
+              <option value="นาย">{t.register.prefixMr}</option>
+              <option value="นาง">{t.register.prefixMrs}</option>
+              <option value="นางสาว">{t.register.prefixMiss}</option>
+            </select>
+         </div>
+         <div className="relative flex-1">
             <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameLabel}</label>
+            <FieldHint message={fieldErrors.firstName} />
             <div className="relative">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <User size={18} />
@@ -206,44 +280,61 @@ const Register = () => {
                 type="text"
                 placeholder={t.register.firstName}
               value={formData.firstName}
-              onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+              onChange={(e) => { setFormData({...formData, firstName: e.target.value}); setFieldErrors(prev => ({...prev, firstName: undefined})); }}
               className="w-full pl-11 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
-              required
             />
           </div>
-         </div>
-         <div className="relative">
-            <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
-            <input
-              type="text"
-              placeholder={t.register.lastName}
-              value={formData.lastName}
-              onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-              className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
-              required
-            />
          </div>
       </div>
 
       <div className="relative">
+        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
+        <FieldHint message={fieldErrors.lastName} />
+        <input
+          type="text"
+          placeholder={t.register.lastName}
+          value={formData.lastName}
+          onChange={(e) => { setFormData({...formData, lastName: e.target.value}); setFieldErrors(prev => ({...prev, lastName: undefined})); }}
+          className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+        />
+      </div>
+
+      <div className="relative">
+        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.parentDobLabel}{t.register.optionalSuffix}</label>
+        <DateField
+          value={formData.dob}
+          onChange={(v) => setFormData({...formData, dob: v})}
+          placeholder={t.register.dobPlaceholder}
+          className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+        />
+      </div>
+
+      <div className="relative">
         <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.phoneLabel}</label>
-        <div className="relative">
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-            <Phone size={20} />
+        <FieldHint message={fieldErrors.phone} />
+        <div className="flex gap-2">
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm text-slate-500">
+            <TH className="w-5 h-auto rounded-[2px]" />
+            {t.register.phoneCountryCode}
           </div>
-          <input
-            type="tel"
-            placeholder={t.register.phone}
-            value={formData.phone}
-            onChange={(e) => setFormData({...formData, phone: e.target.value})}
-            className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
-            required
-          />
+          <div className="relative flex-1">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+              <Phone size={20} />
+            </div>
+            <input
+              type="tel"
+              placeholder={t.register.phone}
+              value={formData.phone}
+              onChange={(e) => { setFormData({...formData, phone: e.target.value}); setFieldErrors(prev => ({...prev, phone: undefined})); }}
+              className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            />
+          </div>
         </div>
       </div>
 
       <div className="relative">
         <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.emailLabel}</label>
+        <FieldHint message={fieldErrors.email} />
         <div className="relative">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
             <Mail size={20} />
@@ -252,15 +343,14 @@ const Register = () => {
             type="email"
             placeholder={t.register.email}
             value={formData.email}
-            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            onChange={(e) => { setFormData({...formData, email: e.target.value}); setFieldErrors(prev => ({...prev, email: undefined})); }}
             className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
-            required
           />
         </div>
       </div>
 
       <div className="relative">
-        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lineIdLabel}</label>
+        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lineIdLabel}{t.register.optionalSuffix}</label>
         <div className="relative">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
             <MessageCircle size={20} />
@@ -276,7 +366,7 @@ const Register = () => {
       </div>
 
       <div className="relative">
-        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.addressLabel}</label>
+        <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.addressLabel}{t.register.optionalSuffix}</label>
         <textarea
           placeholder={t.register.addressPlaceholder}
           value={formData.address}
@@ -286,123 +376,21 @@ const Register = () => {
         />
       </div>
 
+      <h3 className="font-black text-mellow-ink text-sm pt-2">{t.register.childrenInfoTitle}</h3>
 
-
-      <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary mt-6">
-        {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.nextStep} <ArrowRight size={20} /></>}
-      </button>
-    </form>
-  );
-
-  const renderStepOtp = () => (
-    <form onSubmit={handleVerifyOtp} className="space-y-6">
-      <div className="flex justify-center gap-2">
-        <PinInput 
-          length={6} 
-          value={formData.otp} 
-          onChange={(val) => setFormData({...formData, otp: val})} 
-          type="text"
-        />
-      </div>
-
-      {otpRef && (
-        <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl">
-          {language === 'th' ? `รหัสอ้างอิง (Ref): ${otpRef}` : `Reference Code: ${otpRef}`}
-        </div>
-      )}
-
-      {debugOtp && (
-        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl text-center text-[14px] font-black uppercase tracking-widest">
-           Debug OTP: {debugOtp}
-        </div>
-      )}
-
-      <button type="submit" className="w-full mellow-btn-primary">
-        {t.register.verifyNext} <ArrowRight size={20} />
-      </button>
-
-      <p className="text-center text-slate-400 text-xs font-bold mt-2">
-        {resendTimer > 0 ? (
-          <span>กรุณารอ {resendTimer} วินาที เพื่อส่งรหัสใหม่</span>
-        ) : (
-          <>
-            {t.register.didntReceive}{' '}
-            <button 
-              type="button" 
-              onClick={() => handleRequestOtp()} 
-              className="text-mellow-purple underline font-black"
-            >
-              {t.register.resend}
-            </button>
-          </>
-        )}
-      </p>
-    </form>
-  );
-
-  const renderStepPin = () => (
-    <div className="space-y-6 mt-4">
-      <PinInput 
-        length={6} 
-        value={pinStep === 'create' ? formData.password : confirmPassword} 
-        onChange={(val) => {
-          if (pinStep === 'create') {
-            setFormData({...formData, password: val});
-            if (val.length === 6) {
-              setTimeout(() => setPinStep('confirm'), 300);
-            }
-          } else {
-            setConfirmPassword(val);
-            if (val.length === 6) {
-              if (val === formData.password) {
-                setTimeout(() => setStep('children'), 300);
-              } else {
-                setError(t.register.pinNotMatch);
-                setConfirmPassword('');
-                setPinStep('create');
-                setFormData({...formData, password: ''});
-              }
-            }
-          }
-        }} 
-      />
-
-      <div className="flex justify-between items-center mt-6">
-        <button 
-          type="button" 
-          onClick={() => {
-            if (pinStep === 'confirm') {
-              setPinStep('create');
-              setConfirmPassword('');
-              setFormData({...formData, password: ''});
-            } else {
-              setStep('info');
-              setFormData({...formData, password: ''});
-            }
-          }} 
-          className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-700"
-        >
-          <ChevronLeft size={16} className="mr-1" /> ย้อนกลับ
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderStepChildren = () => (
-    <form onSubmit={handleNextToSummary} className="space-y-6">
-      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+      <div className="space-y-4">
         {children.map((child, index) => (
           <div key={index} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 relative group">
             {children.length > 1 && (
-              <button 
-                type="button" 
-                onClick={() => handleRemoveChild(index)}
+              <button
+                type="button"
+                onClick={() => setChildToRemove(index)}
                 className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
               >
                 <Trash2 size={16} />
               </button>
             )}
-            
+
             <div className="mb-4 flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-mellow-purple/10 text-mellow-purple flex items-center justify-center text-xs font-black">
                 {index + 1}
@@ -414,6 +402,7 @@ const Register = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
                   <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameLabel}</label>
+                  <FieldHint message={childErrors[index]?.firstName} />
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
@@ -450,6 +439,7 @@ const Register = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
                   <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.nickname}</label>
+                  <FieldHint message={childErrors[index]?.nickname} />
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
@@ -464,12 +454,14 @@ const Register = () => {
                   </div>
                 </div>
                 <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">เพศ (Gender)</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.genderLabel}</label>
+                  <FieldHint message={childErrors[index]?.gender} />
                   <select
                     value={child.gender}
                     onChange={(e) => handleChildChange(index, 'gender', e.target.value)}
-                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
+                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                   >
+                    <option value="" disabled>{t.register.selectGender}</option>
                     <option value="Boy">{t.register.genderBoy}</option>
                     <option value="Girl">{t.register.genderGirl}</option>
                     <option value="Other">{t.register.genderOther}</option>
@@ -478,22 +470,19 @@ const Register = () => {
               </div>
 
               <div className="relative">
-                <label className="text-xs font-bold text-slate-500 mb-1 block">วันเกิด (Date of Birth)</label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <Calendar size={18} />
-                  </div>
-                  <input
-                    type="date"
-                    value={child.dob}
-                    onChange={(e) => handleChildChange(index, 'dob', e.target.value)}
-                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                  />
-                </div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.dateOfBirth}</label>
+                <FieldHint message={childErrors[index]?.dob} />
+                <DateField
+                  value={child.dob}
+                  onChange={(v) => handleChildChange(index, 'dob', v)}
+                  placeholder={t.register.dobPlaceholder}
+                  className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                  iconSize={18}
+                />
               </div>
 
               <div className="relative">
-                <label className="text-xs font-bold text-slate-500 mb-1 block">ความสัมพันธ์ (Relation)</label>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.relationship}{t.register.optionalSuffix}</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Users size={18} />
@@ -501,8 +490,9 @@ const Register = () => {
                   <select
                     value={child.relation}
                     onChange={(e) => handleChildChange(index, 'relation', e.target.value)}
-                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none appearance-none"
+                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
                   >
+                    <option value="">{t.register.notSpecified}</option>
                     <option value="Father">{t.register.father}</option>
                     <option value="Mother">{t.register.mother}</option>
                     <option value="Relative">{t.register.relative}</option>
@@ -513,13 +503,13 @@ const Register = () => {
 
               {child.relation === 'Other' && (
                 <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
+                  <FieldHint message={childErrors[index]?.customRelation} />
                   <input
                     type="text"
                     placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
                     value={child.customRelation || ''}
                     onChange={(e) => handleChildChange(index, 'customRelation', e.target.value)}
                     className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    required
                   />
                 </div>
               )}
@@ -528,20 +518,112 @@ const Register = () => {
         ))}
       </div>
 
-      <button 
-        type="button" 
+      <button
+        type="button"
         onClick={handleAddChild}
         className="w-full py-[14px] border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
       >
         <Plus size={18} /> {t.register.addChild}
       </button>
 
-      <div className="mt-6">
-        <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary !mt-0">
-          {t.register.nextStep} <ArrowRight size={20} />
+      <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary mt-6">
+        {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.nextStep} <ArrowRight size={20} /></>}
+      </button>
+    </form>
+  );
+
+  const renderStepOtp = () => (
+    <form onSubmit={handleVerifyOtp} className="space-y-6">
+      <div className="flex justify-center gap-2">
+        <PinInput 
+          length={6} 
+          value={formData.otp} 
+          onChange={(val) => setFormData({...formData, otp: val})} 
+          type="text"
+        />
+      </div>
+
+      {otpRef && (
+        <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl">
+          {t.register.referenceCode}: {otpRef}
+        </div>
+      )}
+
+      {debugOtp && (
+        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl text-center text-[14px] font-black uppercase tracking-widest">
+           Debug OTP: {debugOtp}
+        </div>
+      )}
+
+      <button type="submit" className="w-full mellow-btn-primary">
+        {t.register.verifyNext} <ArrowRight size={20} />
+      </button>
+
+      <p className="text-center text-slate-400 text-xs font-bold mt-2">
+        {resendTimer > 0 ? (
+          <span>{t.register.resendWaitLabel.replace('{{seconds}}', String(resendTimer))}</span>
+        ) : (
+          <>
+            {t.register.didntReceive}{' '}
+            <button 
+              type="button" 
+              onClick={() => handleRequestOtp()} 
+              className="text-mellow-purple underline font-black"
+            >
+              {t.register.resend}
+            </button>
+          </>
+        )}
+      </p>
+    </form>
+  );
+
+  const renderStepPin = () => (
+    <div className="space-y-6 mt-4">
+      <PinPad
+        length={6}
+        value={pinStep === 'create' ? formData.password : confirmPassword}
+        onChange={(val) => {
+          if (pinStep === 'create') {
+            setFormData({...formData, password: val});
+            if (val.length === 6) {
+              setTimeout(() => setPinStep('confirm'), 300);
+            }
+          } else {
+            setConfirmPassword(val);
+            if (val.length === 6) {
+              if (val === formData.password) {
+                setTimeout(() => setStep('summary'), 300);
+              } else {
+                setError(t.register.pinNotMatch);
+                setConfirmPassword('');
+                setPinStep('create');
+                setFormData({...formData, password: ''});
+              }
+            }
+          }
+        }} 
+      />
+
+      <div className="flex justify-between items-center mt-6">
+        <button 
+          type="button" 
+          onClick={() => {
+            if (pinStep === 'confirm') {
+              setPinStep('create');
+              setConfirmPassword('');
+              setFormData({...formData, password: ''});
+            } else {
+              setStep('info');
+              setFormData({...formData, password: ''});
+            }
+          }} 
+          className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-700"
+        >
+          <ChevronLeft size={16} className="mr-1" /> {t.register.back}
         </button>
       </div>
-    </form>
+    </div>
   );
 
   const renderStepConsent = () => (
@@ -594,16 +676,17 @@ const Register = () => {
   const renderStepSummary = () => (
     <div className="flex flex-col flex-1 pb-6 space-y-6">
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{language === 'th' ? 'ข้อมูลผู้ปกครอง' : 'Parent Info'}</h3>
+        <h3 className="text-sm font-black text-slate-800 mb-3">{t.register.parentInfoTitle}</h3>
         <div className="space-y-2 text-sm">
-          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.firstName} {formData.lastName}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.prefix} {formData.firstName} {formData.lastName}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.parentDobLabel}:</span> <span className="font-bold text-slate-800">{formData.dob}</span></p>
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
         </div>
       </div>
       
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{language === 'th' ? 'ข้อมูลลูก' : 'Children Info'}</h3>
+        <h3 className="text-sm font-black text-slate-800 mb-3">{t.register.childrenInfoTitle}</h3>
         <div className="space-y-4">
           {children.filter(c => c.firstName && c.dob).map((child, i) => (
             <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
@@ -635,7 +718,6 @@ const Register = () => {
       case 'info': return t.register.stepInfo;
       case 'otp': return t.register.stepOtp;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreate : t.register.stepPinConfirm;
-      case 'children': return t.register.stepChildren;
       case 'consent': return t.register.stepConsent;
       case 'summary': return t.register.stepSummary;
       default: return '';
@@ -647,7 +729,6 @@ const Register = () => {
       case 'info': return t.register.stepInfoDesc;
       case 'otp': return `${t.register.stepOtpDesc} ${formData.phone}`;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreateDesc : t.register.stepPinConfirmDesc;
-      case 'children': return t.register.stepChildrenDesc;
       case 'consent': return t.register.stepConsentDesc;
       case 'summary': return t.register.stepSummaryDesc;
       default: return '';
@@ -667,12 +748,10 @@ const Register = () => {
               setStep('info');
             } else if (step === 'pin') {
               setStep('info');
-            } else if (step === 'children') {
+            } else if (step === 'summary') {
               setPinStep('create');
               setFormData({...formData, password: ''});
               setStep('pin');
-            } else if (step === 'summary') {
-              setStep('children');
             }
           }} 
           className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0"
@@ -683,6 +762,7 @@ const Register = () => {
       </header>
 
       <div className="text-center mb-10">
+        <img src={logo} alt="Mellow Play" className="h-10 mx-auto mb-4" />
         <h1 className="text-2xl font-black text-mellow-ink">
           {getStepTitle()}
         </h1>
@@ -698,14 +778,13 @@ const Register = () => {
         {step === 'info' && renderStepInfo()}
         {step === 'otp' && renderStepOtp()}
         {step === 'pin' && renderStepPin()}
-        {step === 'children' && renderStepChildren()}
         {step === 'summary' && renderStepSummary()}
       </div>
 
       <div className="mt-8 mb-4 text-center">
         <button 
           onClick={() => setShowCancelModal(true)}
-          className="text-red-500 font-bold text-sm underline underline-offset-4 decoration-red-200 hover:decoration-red-500 transition-colors"
+          className="text-slate-400 font-bold text-sm underline underline-offset-4 decoration-slate-200 hover:text-slate-500 hover:decoration-slate-400 transition-colors"
         >
           {t.register.cancelRegistration}
         </button>
@@ -735,6 +814,36 @@ const Register = () => {
                 className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
               >
                 {t.register.confirmCancelYes}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {childToRemove !== null && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setChildToRemove(null)} />
+          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 mb-2">{t.register.removeChildTitle}</h3>
+            <p className="text-sm font-bold text-slate-500 mb-6">{t.register.removeChildDesc}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setChildToRemove(null)}
+                className="flex-1 py-[14px] rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
+              >
+                {t.register.removeChildCancel}
+              </button>
+              <button
+                onClick={() => {
+                  handleRemoveChild(childToRemove);
+                  setChildToRemove(null);
+                }}
+                className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
+              >
+                {t.register.removeChildConfirm}
               </button>
             </div>
           </div>

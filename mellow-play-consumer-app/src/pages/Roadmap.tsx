@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useChildStore } from '../store/useChildStore';
-import { MapPin, Clock, Calendar, CheckCircle, ChevronRight, AlertCircle, Play } from 'lucide-react';
+import { MapPin, Clock, CheckCircle, ChevronRight, AlertCircle, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 import BookingDetailModal from '../components/BookingDetailModal';
 import CourseCard from '../components/CourseCard';
 import ChildAvatar from '../components/ChildAvatar';
+import { getCourseView } from '../utils/courseImage';
+import { trackCourseView } from '../utils/analytics';
+import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 
 const Roadmap = () => {
   const navigate = useNavigate();
@@ -47,11 +50,19 @@ const Roadmap = () => {
         const combined = [...past, ...future].sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
         setAllClasses(combined);
 
-        // For recommendations, get courses that the child HAS NOT booked yet.
-        const bookedCourseIds = new Set(combined.map(b => b.course_id));
+        // A course with an upcoming session is never re-recommended (child is
+        // already going). A course only in past history is still shown, but
+        // flagged `alreadyCompleted` so one-time "extra" classes can be
+        // marked as taken instead of silently disappearing or being re-bookable.
+        const upcomingCourseIds = new Set(future.map((b: any) => b.course_id));
+        const completedCourseIds = new Set(past.map((b: any) => b.course_id));
+
         let availableCourses = [];
         if (allCoursesRes.data.success) {
-          availableCourses = allCoursesRes.data.courses.filter((c: any) => !bookedCourseIds.has(c.id));
+          availableCourses = allCoursesRes.data.courses
+            .filter((c: any) => !upcomingCourseIds.has(c.id))
+            .map((c: any) => ({ ...c, alreadyCompleted: completedCourseIds.has(c.id) }))
+            .sort((a: any, b: any) => Number(a.alreadyCompleted) - Number(b.alreadyCompleted));
         }
 
         setRecommendedClasses(availableCourses.slice(0, 3));
@@ -154,17 +165,13 @@ const Roadmap = () => {
                     const bookingDate = new Date(booking.scheduled_at);
                     const isPast = bookingDate < now;
                     
+                    const dateLocale = lang === 'en' ? 'en-US' : 'th-TH';
+
                     return (
-                      <div 
+                      <div
                         key={booking.id}
-                        onClick={() => {
-                          if (isPast) {
-                             navigate(`/pcg-detail/${booking.course_id}`);
-                          } else {
-                             setSelectedBooking(booking);
-                          }
-                        }}
-                        className={`relative z-10 ml-14 p-4 rounded-2xl shadow-sm border cursor-pointer active:scale-[0.98] transition-all group ${
+                        onClick={() => setSelectedBooking(booking)}
+                        className={`relative z-10 ml-14 p-2.5 rounded-2xl shadow-sm border cursor-pointer active:scale-[0.98] transition-all flex items-center gap-2.5 ${
                           isPast ? 'bg-slate-50 border-slate-200 opacity-90' : 'bg-white border-mellow-blue/30 shadow-mellow-blue/5'
                         }`}
                       >
@@ -172,39 +179,42 @@ const Roadmap = () => {
                         <div className={`absolute -left-[35px] top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-[3px] rounded-full shadow-sm ${
                           isPast ? 'border-slate-400' : 'border-mellow-blue'
                         }`} />
-                        
-                        <div className="flex items-center gap-3">
-                          <img 
-                            src={booking.course_thumbnail || 'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?auto=format&fit=crop&w=150&q=80'} 
-                            alt={booking.course_name}
-                            className={`w-16 h-16 rounded-xl object-cover shadow-sm bg-slate-100 flex-shrink-0 ${isPast ? 'grayscale-[30%]' : ''}`}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-slate-800 text-[15px] truncate">{booking.course_name}</h3>
-                            <div className="flex items-center gap-1 text-slate-500 mt-1">
-                              <Calendar size={12} className={isPast ? "text-slate-400" : "text-mellow-blue"} />
-                              <span className="text-[11px] font-semibold tracking-wide">
-                                {bookingDate.toLocaleDateString()} {bookingDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+
+                        {/* Date badge — the most prominent element */}
+                        <div className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 ${isPast ? 'bg-slate-100' : 'bg-mellow-blue/10'}`}>
+                          <span className={`text-[9px] font-black uppercase leading-none ${isPast ? 'text-slate-400' : 'text-mellow-blue'}`}>
+                            {bookingDate.toLocaleDateString(dateLocale, { month: 'short' })}
+                          </span>
+                          <span className={`text-xl font-black leading-tight ${isPast ? 'text-slate-500' : 'text-mellow-blue'}`}>
+                            {bookingDate.getDate()}
+                          </span>
+                          <span className={`text-[9px] font-bold leading-none ${isPast ? 'text-slate-400' : 'text-mellow-blue/70'}`}>
+                            {bookingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+
+                        <img
+                          src={booking.course_thumbnail || 'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?auto=format&fit=crop&w=150&q=80'}
+                          alt={booking.course_name}
+                          className={`w-12 h-12 rounded-xl object-cover shadow-sm bg-slate-100 flex-shrink-0 ${isPast ? 'grayscale-[30%]' : ''}`}
+                        />
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="font-bold text-slate-800 text-[14px] truncate">{booking.course_name}</h3>
+                            {BOOKING_STATUS_META[booking.status] && (
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[booking.status].bg} ${BOOKING_STATUS_META[booking.status].fg}`}>
+                                {lang === 'en' ? BOOKING_STATUS_META[booking.status].en : BOOKING_STATUS_META[booking.status].th}
                               </span>
-                            </div>
-                            <div className="flex items-center gap-1 text-slate-500 mt-0.5">
-                              <MapPin size={12} className={isPast ? "text-slate-400" : "text-mellow-blue"} />
-                              <span className="text-[11px] font-medium truncate">{booking.branch_name}</span>
-                            </div>
-                            
-                            {/* Action Button */}
-                            <button 
-                              className={`mt-3 px-4 py-2 rounded-xl text-[12px] font-bold w-fit flex items-center gap-2 transition-all ${
-                                isPast 
-                                  ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' 
-                                  : 'bg-mellow-blue/10 text-mellow-blue hover:bg-mellow-blue hover:text-white'
-                              }`}
-                            >
-                              {lang === 'en' ? 'View Details' : 'ดูรายละเอียด'}
-                              <ChevronRight size={14} strokeWidth={2.5} />
-                            </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-slate-500 mt-0.5">
+                            <MapPin size={11} className={isPast ? "text-slate-400" : "text-mellow-blue"} />
+                            <span className="text-[11px] font-medium truncate">{booking.branch_name}</span>
                           </div>
                         </div>
+
+                        <ChevronRight size={18} className="text-slate-300 shrink-0" strokeWidth={2.5} />
                       </div>
                     );
                   })}
@@ -229,40 +239,62 @@ const Roadmap = () => {
               {lang === 'en' ? "Recommended for you" : "กิจกรรมที่คุณอาจสนใจ"}
             </h3>
             <div className="grid grid-cols-1 gap-4">
-              {recommendedClasses.map((course) => (
+              {recommendedClasses.map((course) => {
+                const view = getCourseView(course, 'square');
+                const isOneTimeDone = course.alreadyCompleted && !course.allow_repeat;
+                return (
                 <div key={course.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative">
-                  <div className="absolute top-3 left-3 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-full z-10 shadow-sm flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                    {lang === 'en' ? 'RECOMMENDED' : 'แนะนำ'}
+                  <div className={`absolute top-3 left-3 text-white text-[10px] font-bold px-2 py-1 rounded-full z-10 shadow-sm flex items-center gap-1 ${isOneTimeDone ? 'bg-slate-400' : 'bg-red-500'}`}>
+                    {isOneTimeDone ? <CheckCircle size={10} /> : <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />}
+                    {isOneTimeDone
+                      ? (lang === 'en' ? 'ALREADY TAKEN' : 'เคยเรียนแล้ว')
+                      : (lang === 'en' ? 'RECOMMENDED' : 'แนะนำ')}
                   </div>
-                  
-                  <div className="flex p-3 gap-3">
-                    <img 
-                      src={course.thumbnail_url || 'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?auto=format&fit=crop&w=150&q=80'} 
-                      alt={course.name}
-                      className="w-24 h-24 rounded-xl object-cover bg-slate-100 flex-shrink-0"
-                    />
+
+                  <div className={`flex p-3 gap-3 ${isOneTimeDone ? 'opacity-70' : ''}`}>
+                    <div className="w-24 h-24 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+                      <img
+                        src={view.url || 'https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?auto=format&fit=crop&w=150&q=80'}
+                        alt={course.name}
+                        style={view.url ? view.style : undefined}
+                        className={`w-full h-full object-cover ${isOneTimeDone ? 'grayscale-[40%]' : ''}`}
+                      />
+                    </div>
                     <div className="flex-1 flex flex-col min-w-0">
                       <h4 className="font-bold text-slate-800 text-[15px] truncate">{course.name}</h4>
                       <p className="text-[12px] text-slate-500 line-clamp-2 mt-1 leading-snug">
                         {course.short_description || course.description}
                       </p>
-                      
+                      {course.alreadyCompleted && !!course.allow_repeat && (
+                        <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-emerald-600">
+                          <CheckCircle size={10} />
+                          {lang === 'en' ? 'Previously taken' : 'เคยเรียนแล้ว'}
+                        </span>
+                      )}
+
                       <div className="mt-auto pt-2 flex items-center justify-between">
                         <span className="text-[13px] font-black text-slate-700">
                           {course.original_price ? `฿${course.original_price}` : ''}
                         </span>
-                        <button 
-                          onClick={() => navigate(`/booking?courseId=${course.id}`)}
-                          className="px-4 py-2 bg-mellow-purple text-white text-[12px] font-bold rounded-xl active:scale-95 transition-all shadow-sm"
+                        <button
+                          disabled={isOneTimeDone}
+                          onClick={() => isOneTimeDone ? navigate(`/course/${course.id}`) : (trackCourseView(course.id), navigate(`/booking?courseId=${course.id}`))}
+                          className={`px-4 py-2 text-[12px] font-bold rounded-xl transition-all shadow-sm ${
+                            isOneTimeDone
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+                              : 'bg-mellow-purple text-white active:scale-95'
+                          }`}
                         >
-                          {lang === 'en' ? 'Book Class' : 'จองคลาส'}
+                          {isOneTimeDone
+                            ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
+                            : (lang === 'en' ? 'Book Class' : 'จองคลาส')}
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

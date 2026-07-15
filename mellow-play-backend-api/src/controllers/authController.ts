@@ -88,22 +88,30 @@ export class AuthController {
   async register(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { phone, otp, password, firstName, lastName, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
-      
+      const { phone, otp, password, prefix, firstName, lastName, dob, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
+
+      const childList = children || [];
+      const invalidChild = childList.find((child: any) => !child.nickname || !child.gender);
+      if (invalidChild) {
+        return c.json({ success: false, message: 'Nickname and gender are required for each child' }, 400);
+      }
+
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
       const userId = await userRepository.createWithChildren(
-        phone, 
-        passwordHash, 
-        firstName, 
-        lastName, 
-        children || [],
+        phone,
+        passwordHash,
+        firstName,
+        lastName,
+        childList,
         email,
         lineId,
         pdpaConsent,
         marketingConsent,
-        address
+        address,
+        prefix,
+        dob
       );
       return c.json({ success: true, userId });
     } catch (error: any) {
@@ -113,6 +121,8 @@ export class AuthController {
         message = 'อีเมลนี้ถูกใช้งานแล้ว (Email is already registered)';
       } else if (message.includes('UNIQUE constraint failed: Users.phone')) {
         message = 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว (Phone number is already registered)';
+      } else if (message.includes('UNIQUE constraint failed: Users.google_id')) {
+        message = 'บัญชี Google นี้ถูกใช้งานแล้ว (This Google account is already linked to another user)';
       }
       return c.json({ success: false, message }, 500);
     }
@@ -126,20 +136,43 @@ export class AuthController {
       console.log('Request body parsed:', JSON.stringify(body));
       
       const { login, password } = body;
-      
+
       if (!login || !password) {
         return c.json({ success: false, message: 'Login and password are required' }, 400);
       }
 
+      const attemptKey = `login_attempts:${login}`;
+      const attemptDataStr = await config.kv.get(attemptKey);
+      const attemptData = attemptDataStr ? JSON.parse(attemptDataStr) : { count: 0, lockedUntil: 0 };
+      const now = Date.now();
+
+      if (attemptData.lockedUntil && attemptData.lockedUntil > now) {
+        const retryAfter = Math.ceil((attemptData.lockedUntil - now) / 1000);
+        return c.json({ success: false, message: 'Too many attempts. Please try again later.', locked: true, retryAfter }, 429);
+      }
+
+      const registerFailedAttempt = async () => {
+        attemptData.count = (attemptData.count || 0) + 1;
+        if (attemptData.count >= 5) {
+          attemptData.lockedUntil = now + 60 * 1000;
+          attemptData.count = 0;
+          await config.kv.put(attemptKey, JSON.stringify(attemptData), { expirationTtl: 90 });
+          return { locked: true, retryAfter: 60 };
+        }
+        await config.kv.put(attemptKey, JSON.stringify(attemptData), { expirationTtl: 300 });
+        return { locked: false, attemptsRemaining: 5 - attemptData.count };
+      };
+
       console.log('Connecting to database...');
       const userRepository = new UserRepository(config.db);
-      
-      console.log('Finding user by identifier:', login);
-      let user = await userRepository.findByIdentifier(login);
+
+      console.log('Finding user by phone:', login);
+      let user = await userRepository.findByPhone(login);
       console.log('User found:', user ? 'Yes' : 'No');
 
       if (!user) {
-        return c.json({ success: false, message: 'User not found' }, 401);
+        const result = await registerFailedAttempt();
+        return c.json({ success: false, message: 'User not found', ...result }, result.locked ? 429 : 401);
       }
 
       console.log('Verifying password...');
@@ -147,8 +180,11 @@ export class AuthController {
       console.log('Password valid:', isValid);
 
       if (!isValid) {
-        return c.json({ success: false, message: 'Invalid password' }, 401);
+        const result = await registerFailedAttempt();
+        return c.json({ success: false, message: 'Invalid password', ...result }, result.locked ? 429 : 401);
       }
+
+      await config.kv.delete(attemptKey);
 
       console.log('Generating token...');
       const token = await AuthService.generateToken(user.id, config.jwtSecret);
@@ -178,6 +214,71 @@ export class AuthController {
     } catch (error: any) {
       console.error('login error detail:', error.stack || error.message);
       return c.json({ success: false, message: error.message, stack: config.isDev ? error.stack : undefined }, 500);
+    }
+  }
+
+  async googleLogin(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { idToken } = await c.req.json();
+
+      if (!idToken) {
+        return c.json({ success: false, message: 'idToken is required' }, 400);
+      }
+
+      const payload = await AuthService.verifyGoogleIdToken(idToken, config.googleClientId);
+      if (!payload) {
+        return c.json({ success: false, message: 'Invalid Google token' }, 401);
+      }
+
+      const googleId = payload.sub;
+      const email = payload.email;
+      const firstName = payload.given_name;
+      const lastName = payload.family_name;
+
+      const userRepository = new UserRepository(config.db);
+
+      let user = await userRepository.findByGoogleId(googleId);
+
+      if (!user) {
+        const existingByEmail = await userRepository.findByEmail(email);
+        if (existingByEmail) {
+          await userRepository.linkGoogleId(existingByEmail.id, googleId);
+          user = await userRepository.findByGoogleId(googleId);
+        } else {
+          const userId = await userRepository.createFromGoogle(googleId, email, firstName, lastName);
+          user = await userRepository.findByGoogleId(googleId) || { id: userId, phone: null, email, first_name: firstName, last_name: lastName };
+        }
+      }
+
+      const token = await AuthService.generateToken(user.id, config.jwtSecret);
+      const childCount = await userRepository.countChildren(user.id);
+
+      let membershipStatus = 'inactive';
+      if (user.membership_expires_at) {
+        const expiryDate = new Date(user.membership_expires_at);
+        if (expiryDate > new Date()) {
+          membershipStatus = 'active';
+        }
+      }
+
+      return c.json({
+        success: true,
+        token,
+        needsPhone: !user.phone,
+        needsChildInfo: childCount === 0,
+        user: {
+          id: user.id,
+          phone: user.phone,
+          email: user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          membershipStatus
+        }
+      });
+    } catch (error: any) {
+      console.error('googleLogin error:', error);
+      return c.json({ success: false, message: error.message }, 500);
     }
   }
 
@@ -214,8 +315,15 @@ export class AuthController {
         return c.json({ success: false, message: 'Invalid credentials' }, 401);
       }
 
-      const token = await AuthService.generateToken(user.id, config.jwtSecret);
-      
+      // type: 'admin' distinguishes a CRM staff token from a consumer-app
+      // token — both are signed with the same secret/shape otherwise, and
+      // the admin route middleware in index.ts checks this claim.
+      const token = await AuthService.generateToken(user.id, config.jwtSecret, {
+        type: 'admin',
+        role: user.role,
+        branchId: user.branch_id,
+      });
+
       // Fetch available branches
       let branches = [];
       if (user.role === 'super_admin') {
@@ -250,8 +358,8 @@ export class AuthController {
       const { phone } = await c.req.json();
       
       const userRepository = new UserRepository(config.db);
-      const user = await userRepository.findByIdentifier(phone);
-      
+      const user = await userRepository.findByPhone(phone);
+
       if (!user) {
         return c.json({ success: false, message: 'User not found' }, 404);
       }
@@ -301,6 +409,31 @@ export class AuthController {
     }
   }
 
+  async forgotPasswordVerifyOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { phone, otp } = await c.req.json();
+      const storedOtpData = await config.kv.get(`forgot_pw_otp:${phone}`);
+
+      if (!storedOtpData) return c.json({ success: false, message: 'OTP expired' }, 400);
+
+      let storedOtp = storedOtpData;
+      try {
+        const parsed = JSON.parse(storedOtpData);
+        storedOtp = parsed.otp;
+      } catch (e) {
+        // Fallback if stored as plain text
+      }
+
+      if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
+
+      return c.json({ success: true });
+    } catch (error: any) {
+      console.error('forgotPasswordVerifyOtp error:', error);
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async forgotPasswordReset(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -321,8 +454,8 @@ export class AuthController {
       if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
       
       const userRepository = new UserRepository(config.db);
-      const user = await userRepository.findByIdentifier(phone);
-      
+      const user = await userRepository.findByPhone(phone);
+
       if (!user) {
         return c.json({ success: false, message: 'User not found' }, 404);
       }

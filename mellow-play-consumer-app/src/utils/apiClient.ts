@@ -19,11 +19,15 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor to handle 401 Unauthorized
+// Interceptor to handle 401 Unauthorized — but not for auth endpoints
+// themselves, where a 401 just means "wrong credentials", not "session expired".
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/google'];
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const isAuthEndpoint = AUTH_ENDPOINTS.some((path) => error.config?.url?.includes(path));
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('mellow_token');
       localStorage.removeItem('mellow_user');
       window.location.href = '/login';

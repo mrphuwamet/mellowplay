@@ -6,6 +6,7 @@ compatibility_date = "2024-01-01"
 [vars]
 ENVIRONMENT = "production"
 JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
+GOOGLE_CLIENT_ID = "696563144967-jirued97ecjseko0om8h6d5325h58s2g.apps.googleusercontent.com"
 
 [[d1_databases]]
 binding = "DB"
@@ -30,6 +31,7 @@ name = "mellow-play-backend-api-dev"
 [env.dev.vars]
 ENVIRONMENT = "development"
 JWT_SECRET = "5fcf231b9b050f71452bb4d637d68a820dad6c51c88d4e3bfafc495232094d18d"
+GOOGLE_CLIENT_ID = "696563144967-jirued97ecjseko0om8h6d5325h58s2g.apps.googleusercontent.com"
 
 [[env.dev.d1_databases]]
 binding = "DB"

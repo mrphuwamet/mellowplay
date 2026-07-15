@@ -6,6 +6,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
+  Snackbar,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -16,9 +17,12 @@ import {
   Cancel as CancelIcon,
   Download as DownloadIcon,
   ViewList as ListIcon,
+  EventBusy as EventBusyIcon,
+  AdminPanelSettings as ForceStatusIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -92,9 +96,13 @@ const addDays = (date: Date, n: number): Date => {
 
 const STATUS_META: Record<string, { label: string; color: string; fgColor: string; bgColor: string }> = {
   completed:      { label: 'เสร็จสิ้น',   color: 'success', fgColor: '#2e7d32', bgColor: 'rgba(46,125,50,0.1)' },
-  confirmed:      { label: 'ยืนยัน',      color: 'primary', fgColor: '#1565c0', bgColor: 'rgba(21,101,192,0.1)' },
+  // 'confirmed' is a legacy status (older rows only) — consolidated into
+  // confirmed_paid going forward, kept here only so old rows still render
+  // with a proper style instead of falling back to the unstyled default.
+  confirmed:      { label: 'ชำระแล้ว',    color: 'info',    fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)' },
   confirmed_paid: { label: 'ชำระแล้ว',    color: 'info',    fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)' },
   pending:        { label: 'รอดำเนินการ', color: 'warning', fgColor: '#e65100', bgColor: 'rgba(230,81,0,0.1)' },
+  awaiting_report:{ label: 'รอกรอกรายงาน', color: 'warning', fgColor: '#b45309', bgColor: 'rgba(180,83,9,0.1)' },
   cancelled:      { label: 'ยกเลิก',      color: 'error',   fgColor: '#c62828', bgColor: 'rgba(198,40,40,0.1)' },
 };
 
@@ -112,19 +120,21 @@ const formatDuration = (d: string): string => {
 const STATUS_FILTERS = [
   { key: 'all',           label: 'ทั้งหมด' },
   { key: 'pending',       label: 'รอดำเนินการ' },
-  { key: 'confirmed',     label: 'ยืนยัน' },
   { key: 'confirmed_paid',label: 'ชำระแล้ว' },
+  { key: 'awaiting_report', label: 'รอกรอกรายงาน' },
   { key: 'completed',     label: 'เสร็จสิ้น' },
   { key: 'cancelled',     label: 'ยกเลิก' },
 ];
 
 // ─── BookingItem (row in list) ───────────────────────────────────────────────
 
-const BookingItem = ({ booking, onReport, onComplete, onCancel }: {
+const BookingItem = ({ booking, onReport, onComplete, onCancel, isSuperAdmin, onForceStatus }: {
   booking: Booking;
   onReport: (b: Booking) => void;
-  onComplete: (id: number) => void;
+  onComplete: (b: Booking) => void;
   onCancel: (id: number) => void;
+  isSuperAdmin?: boolean;
+  onForceStatus?: (b: Booking) => void;
 }) => {
   const si = getStatusInfo(booking.status);
   const time = new Date(booking.scheduled_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -149,8 +159,8 @@ const BookingItem = ({ booking, onReport, onComplete, onCancel }: {
       <Chip label={si.label} size="small" sx={{ fontWeight: 700, flexShrink: 0, bgcolor: si.bgColor, color: si.fgColor, border: 'none' }} variant="outlined" />
       {isActive && (
         <>
-          <Tooltip title="เรียนเสร็จ — ตัดสต็อก">
-            <IconButton size="small" color="success" onClick={() => onComplete(booking.id)}>
+          <Tooltip title="เรียนเสร็จ — กรอกรายงานเพื่อยืนยัน">
+            <IconButton size="small" color="success" onClick={() => onComplete(booking)}>
               <CheckCircleIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -161,10 +171,17 @@ const BookingItem = ({ booking, onReport, onComplete, onCancel }: {
           </Tooltip>
         </>
       )}
-      {booking.status === 'completed' && (
-        <Tooltip title="กรอกรายงาน">
-          <IconButton size="small" color="success" onClick={() => onReport(booking)}>
+      {['completed', 'awaiting_report'].includes(booking.status) && (
+        <Tooltip title={booking.status === 'awaiting_report' ? 'กรอกรายงาน (ค้างอยู่)' : 'แก้ไขรายงาน'}>
+          <IconButton size="small" color={booking.status === 'awaiting_report' ? 'warning' : 'success'} onClick={() => onReport(booking)}>
             <ReportIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+      {isSuperAdmin && onForceStatus && (
+        <Tooltip title="แก้ไขสถานะ (Super Admin)">
+          <IconButton size="small" color="warning" onClick={() => onForceStatus(booking)}>
+            <ForceStatusIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       )}
@@ -174,20 +191,20 @@ const BookingItem = ({ booking, onReport, onComplete, onCancel }: {
 
 // ─── Day View ────────────────────────────────────────────────────────────────
 
-const DayView = ({ bookings, date, onReport, onComplete, onCancel }: { bookings: Booking[]; date: Date; onReport: (b: Booking) => void; onComplete: (id: number) => void; onCancel: (id: number) => void }) => {
+const DayView = ({ bookings, date, onReport, onComplete, onCancel, isSuperAdmin, onForceStatus }: { bookings: Booking[]; date: Date; onReport: (b: Booking) => void; onComplete: (b: Booking) => void; onCancel: (id: number) => void; isSuperAdmin: boolean; onForceStatus: (b: Booking) => void }) => {
   const dayStr = toISODate(date);
   const dayBookings = bookings.filter(b => b.scheduled_at.startsWith(dayStr));
   if (dayBookings.length === 0) {
     return (
-      <Paper sx={{ borderRadius: 3, p: 6, textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+      <Paper variant="outlined" sx={{ borderRadius: 3, p: 6, textAlign: 'center', borderColor: '#eef0f3' }}>
         <Typography color="text.secondary">ไม่มีรายการจองในวันนี้</Typography>
       </Paper>
     );
   }
   return (
-    <Paper sx={{ borderRadius: 3, p: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+    <Paper variant="outlined" sx={{ borderRadius: 3, p: 2, borderColor: '#eef0f3' }}>
       <Stack spacing={1}>
-        {dayBookings.map(b => <BookingItem key={b.id} booking={b} onReport={onReport} onComplete={onComplete} onCancel={onCancel} />)}
+        {dayBookings.map(b => <BookingItem key={b.id} booking={b} onReport={onReport} onComplete={onComplete} onCancel={onCancel} isSuperAdmin={isSuperAdmin} onForceStatus={onForceStatus} />)}
       </Stack>
     </Paper>
   );
@@ -200,7 +217,7 @@ const WeekView = ({ bookings, weekStart, onReport }: { bookings: Booking[]; week
   const todayStr = toISODate(new Date());
 
   return (
-    <Paper sx={{ borderRadius: 3, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+    <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', borderColor: '#eef0f3' }}>
       {/* Header */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid #eee' }}>
         {days.map((day, i) => {
@@ -233,14 +250,14 @@ const WeekView = ({ bookings, weekStart, onReport }: { bookings: Booking[]; week
                   return (
                     <Tooltip key={b.id} title={`${time} น. · ${b.course_name} · ${b.child_name}`}>
                       <Box
-                        onClick={() => b.status === 'completed' && onReport(b)}
+                        onClick={() => ['completed','awaiting_report'].includes(b.status) && onReport(b)}
                         sx={{
                           px: 0.75, py: 0.375, borderRadius: 1,
                           bgcolor: si.bgColor, color: si.fgColor,
                           fontSize: '11px', fontWeight: 700,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          cursor: b.status === 'completed' ? 'pointer' : 'default',
-                          '&:hover': b.status === 'completed' ? { opacity: 0.8 } : {},
+                          cursor: ['completed','awaiting_report'].includes(b.status) ? 'pointer' : 'default',
+                          '&:hover': ['completed','awaiting_report'].includes(b.status) ? { opacity: 0.8 } : {},
                         }}
                       >
                         {time} {b.course_name}
@@ -273,7 +290,7 @@ const MonthView = ({ bookings, date, onReport }: { bookings: Booking[]; date: Da
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <Paper sx={{ borderRadius: 3, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+    <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', borderColor: '#eef0f3' }}>
       {/* Day name header */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', bgcolor: '#fafafa', borderBottom: '1px solid #eee' }}>
         {THAI_DAYS.map((d, i) => (
@@ -312,13 +329,13 @@ const MonthView = ({ bookings, date, onReport }: { bookings: Booking[]; date: Da
                       return (
                         <Tooltip key={b.id} title={`${b.course_name} · ${b.child_name}`}>
                           <Box
-                            onClick={() => b.status === 'completed' && onReport(b)}
+                            onClick={() => ['completed','awaiting_report'].includes(b.status) && onReport(b)}
                             sx={{
                               px: 0.5, py: 0.125, borderRadius: 0.5,
                               bgcolor: si.bgColor, color: si.fgColor,
                               fontSize: '10px', fontWeight: 700,
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                              cursor: b.status === 'completed' ? 'pointer' : 'default',
+                              cursor: ['completed','awaiting_report'].includes(b.status) ? 'pointer' : 'default',
                             }}
                           >
                             {b.course_name}
@@ -357,11 +374,13 @@ const calculateAge = (birthDateStr: string | undefined) => {
   return age >= 0 ? `${age} ปี` : '0 ปี';
 };
 
-const ListView = ({ bookings, onReport, onComplete, onCancel }: {
+const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onForceStatus }: {
   bookings: Booking[];
   onReport: (b: Booking) => void;
-  onComplete: (id: number) => void;
+  onComplete: (b: Booking) => void;
   onCancel: (id: number) => void;
+  isSuperAdmin: boolean;
+  onForceStatus: (b: Booking) => void;
 }) => {
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'none' | 'course' | 'date'>('none');
@@ -497,8 +516,16 @@ const ListView = ({ bookings, onReport, onComplete, onCancel }: {
 
       {/* List */}
       {filtered.length === 0 ? (
-        <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <Typography color="text.secondary">ไม่พบรายการที่ตรงกับเงื่อนไข</Typography>
+        <Paper variant="outlined" sx={{ p: 6, textAlign: 'center', borderRadius: 3, borderColor: '#eef0f3' }}>
+          <EventBusyIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+          <Typography sx={{ fontWeight: 700, color: 'text.secondary' }}>
+            {bookings.length === 0 ? 'ไม่มีรายการจองในช่วงเวลานี้' : 'ไม่พบรายการที่ตรงกับเงื่อนไขค้นหา'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {bookings.length === 0
+              ? 'ลองขยายช่วงวันที่ "จาก–ถึง" ด้านบน หรือตรวจสอบว่าเลือกสาขาถูกต้องแล้ว'
+              : 'ลองปรับคำค้นหาหรือตัวกรองสถานะดูใหม่อีกครั้ง'}
+          </Typography>
         </Paper>
       ) : (
         <Stack spacing={2}>
@@ -506,20 +533,20 @@ const ListView = ({ bookings, onReport, onComplete, onCancel }: {
             <Box key={groupKey}>
               {groupBy !== 'none' && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '14px' }}>{groupKey}</Typography>
-                  <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 800, fontSize: '11px', bgcolor: 'slate.200' }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>{groupKey}</Typography>
+                  <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: 'slate.200' }} />
                 </Box>
               )}
-              <Paper sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.04)', border: '1px solid #f1f5f9' }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', borderColor: '#eef0f3' }}>
                 {/* Table Header */}
                 <Box sx={{
                   display: 'grid',
-                  gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 110px',
+                  gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 130px',
                   bgcolor: '#f8fafc', px: 3, py: 2,
                   borderBottom: '1px solid #e2e8f0',
                 }}>
                   {['รหัส', 'วัน/เวลา', 'รายละเอียดเด็ก & ผู้ปกครอง', 'คลาสเรียน', 'สาขา', 'สถานะ', 'จัดการ'].map(h => (
-                    <Typography key={h} variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px' }}>{h}</Typography>
+                    <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '12px' }}>{h}</Typography>
                   ))}
                 </Box>
                 {items.map((b, idx) => {
@@ -529,88 +556,95 @@ const ListView = ({ bookings, onReport, onComplete, onCancel }: {
                   return (
                     <Box key={b.id} sx={{
                       display: 'grid',
-                      gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 110px',
-                      px: 3, py: 2.25, alignItems: 'center',
+                      gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 130px',
+                      px: 3, py: 2.5, alignItems: 'center',
                       borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none',
                       '&:hover': { bgcolor: '#f8fafc/50' },
                       transition: 'background-color 0.2s',
                     }}>
-                      <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '13px' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '14px' }}>
                         #{b.id}
                       </Typography>
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 800, fontSize: '13px', color: 'slate.700' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '14px', color: 'slate.700' }}>
                           {isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                        <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '12.5px' }}>
                           {isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
                         </Typography>
                       </Box>
                       <Box>
                         <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
-                          <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '14px' }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>
                             {b.child_name || '-'}
                           </Typography>
                           {b.child_nickname && (
-                            <Chip 
-                              label={b.child_nickname} 
-                              size="small" 
-                              sx={{ 
-                                bgcolor: 'rgba(116, 82, 214, 0.08)', 
-                                color: 'rgb(116, 82, 214)', 
-                                fontWeight: 800, 
-                                fontSize: '10px',
-                                height: 18 
-                              }} 
+                            <Chip
+                              label={b.child_nickname}
+                              size="small"
+                              sx={{
+                                bgcolor: 'rgba(116, 82, 214, 0.08)',
+                                color: 'rgb(116, 82, 214)',
+                                fontWeight: 700,
+                                fontSize: '11px',
+                                height: 20
+                              }}
                             />
                           )}
                         </Stack>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
                           {b.child_birth_date && (
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: '11px' }}>
+                            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '12.5px' }}>
                               🎂 {new Date(b.child_birth_date).toLocaleDateString('th-TH')} ({calculateAge(b.child_birth_date)})
                             </Typography>
                           )}
                           {b.parent_name && (
-                            <Typography variant="caption" sx={{ color: 'slate.500', fontWeight: 600, fontSize: '11px' }}>
+                            <Typography variant="body2" sx={{ color: 'slate.500', fontWeight: 500, fontSize: '12.5px' }}>
                               • 👤 {b.parent_name} {b.parent_phone ? `(${b.parent_phone})` : ''}
                             </Typography>
                           )}
                         </Stack>
                       </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13.5px', color: 'slate.800' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14.5px', color: 'slate.800' }}>
                         {b.course_name || '-'}
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {b.branch_name || '-'}
                       </Typography>
                       <Box>
                         <Chip
                           label={si.label}
                           size="small"
-                          sx={{ fontWeight: 800, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '11px', px: 1 }}
+                          sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26 }}
                           variant="outlined"
                         />
                       </Box>
-                      <Stack direction="row" spacing={0.5}>
+                      <Stack direction="row" spacing={0.25}>
                         {isActive && (
                           <>
                             <Tooltip title="เรียนเสร็จ">
-                              <IconButton size="small" color="success" onClick={() => onComplete(b.id)}>
-                                <CheckCircleIcon sx={{ fontSize: 18 }} />
+                              <IconButton color="success" onClick={() => onComplete(b)}>
+                                <CheckCircleIcon sx={{ fontSize: 22 }} />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="ยกเลิก">
-                              <IconButton size="small" color="error" onClick={() => onCancel(b.id)}>
-                                <CancelIcon sx={{ fontSize: 18 }} />
+                              <IconButton color="error" onClick={() => onCancel(b.id)}>
+                                <CancelIcon sx={{ fontSize: 22 }} />
                               </IconButton>
                             </Tooltip>
                           </>
                         )}
-                        {b.status === 'completed' && (
-                          <Tooltip title="กรอกรายงาน">
-                            <IconButton size="small" color="success" onClick={() => onReport(b)}>
-                              <ReportIcon sx={{ fontSize: 18 }} />
+                        {['completed', 'awaiting_report'].includes(b.status) && (
+                          <Tooltip title={b.status === 'awaiting_report' ? 'กรอกรายงาน (ค้างอยู่)' : 'แก้ไขรายงาน'}>
+                            <IconButton color={b.status === 'awaiting_report' ? 'warning' : 'success'} onClick={() => onReport(b)}>
+                              <ReportIcon sx={{ fontSize: 22 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {isSuperAdmin && (
+                          <Tooltip title="แก้ไขสถานะ (Super Admin)">
+                            <IconButton color="warning" onClick={() => onForceStatus(b)}>
+                              <ForceStatusIcon sx={{ fontSize: 22 }} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -968,21 +1002,48 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const BookingManagement = () => {
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('week');
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('list');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [addOpen, setAddOpen] = useState(false);
   const [reportBooking, setReportBooking] = useState<Booking | null>(null);
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
 
   const userJson = localStorage.getItem('crm_user');
   const currentUser = userJson ? JSON.parse(userJson) : null;
-  const branchId: number | string = currentUser?.selectedBranchId;
-  const branchName: string = currentUser?.selectedBranchName ?? '';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const ownBranchId: number | string = currentUser?.selectedBranchId;
+  const ownBranchName: string = currentUser?.selectedBranchName ?? '';
+
+  // Super admins default to "every branch" so nothing is ever hidden behind
+  // branch scoping by surprise; regular staff stay scoped to their own branch.
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+    isSuperAdmin ? 'all' : String(ownBranchId ?? ''),
+  );
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/branches`).then(res => {
+      if (res.data.success) setBranches(res.data.branches ?? []);
+    }).catch(() => {});
+  }, []);
+
+  const branchName = selectedBranchId === 'all'
+    ? 'ทุกสาขา'
+    : branches.find(b => String(b.id) === selectedBranchId)?.name ?? ownBranchName;
+
+  // List view uses its own user-adjustable date range instead of being tied
+  // to calendar navigation, so it's always obvious what window is in effect.
+  const [listFrom, setListFrom] = useState(toISODate(new Date()));
+  const [listTo, setListTo] = useState(toISODate(addDays(new Date(), 90)));
 
   // ── date range & label based on view + currentDate ──────────────────────
   const { startDate, endDate, label } = useMemo(() => {
+    if (viewMode === 'list') {
+      return { startDate: listFrom, endDate: listTo, label: '' };
+    }
     if (viewMode === 'day') {
       const d = toISODate(currentDate);
       return {
@@ -1009,46 +1070,132 @@ const BookingManagement = () => {
       endDate: toISODate(end),
       label: `${THAI_MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear() + 543}`,
     };
-  }, [viewMode, currentDate]);
+  }, [viewMode, currentDate, listFrom, listTo]);
 
   // ── fetch ────────────────────────────────────────────────────────────────
   const fetchBookings = useCallback(async () => {
-    if (!branchId) return;
+    if (!selectedBranchId) {
+      setFetchError('ยังไม่ได้เลือกสาขา กรุณาเลือกสาขาก่อนใช้งาน');
+      return;
+    }
     setLoading(true);
+    setFetchError('');
     try {
-      const params = new URLSearchParams({ branchId: String(branchId), startDate, endDate });
+      const params = new URLSearchParams({ branchId: selectedBranchId, startDate, endDate });
       const res = await axios.get(`${API_BASE}/bookings?${params}`);
       if (res.data.success) setBookings(res.data.bookings ?? []);
-    } catch (e) {
+      else setFetchError(res.data.message || 'ไม่สามารถโหลดรายการจองได้');
+    } catch (e: any) {
       console.error('fetchBookings error', e);
+      setFetchError(e?.response?.data?.message || 'เกิดข้อผิดพลาดในการโหลดรายการจอง กรุณาลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
     }
-  }, [branchId, startDate, endDate]);
+  }, [selectedBranchId, startDate, endDate]);
 
   useEffect(() => { fetchBookings(); }, [fetchBookings]);
 
-  const handleComplete = async (bookingId: number) => {
-    if (!confirm('ยืนยันว่าเรียนเสร็จสิ้น? ระบบจะตัดสต็อกวัสดุที่ใช้')) return;
+  // ── quick stats (based on the full fetched range, not the status filter) ──
+  const stats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const b of bookings) counts[b.status] = (counts[b.status] || 0) + 1;
+    return {
+      total: bookings.length,
+      confirmed: (counts['confirmed'] || 0) + (counts['confirmed_paid'] || 0),
+      pending: counts['pending'] || 0,
+      completed: counts['completed'] || 0,
+      cancelled: counts['cancelled'] || 0,
+    };
+  }, [bookings]);
+
+  const [confirmAction, setConfirmAction] = useState<{ type: 'cancel'; bookingId: number } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  // "เรียนเสร็จ" no longer completes the booking immediately — it flags the
+  // class as attended (awaiting_report) and opens the report form; the
+  // booking only becomes 'completed' (stock deducted) once the report is
+  // actually submitted, in RecordMilestone's onSuccess below.
+  const handleComplete = async (booking: Booking) => {
     try {
-      await axios.post(`${API_BASE}/bookings/${bookingId}/complete`);
+      await axios.patch(`${API_BASE}/bookings/${booking.id}/status`, { status: 'awaiting_report' });
+      setReportBooking({ ...booking, status: 'awaiting_report' });
       fetchBookings();
-    } catch (e: any) { alert(e.response?.data?.message || 'เกิดข้อผิดพลาด'); }
+    } catch (e: any) {
+      setActionError(e.response?.data?.message || 'เกิดข้อผิดพลาด');
+    }
+  };
+  const handleCancel = (bookingId: number) => setConfirmAction({ type: 'cancel', bookingId });
+
+  // ── Super Admin force-status patch (error correction) ────────────────────
+  const [forceStatusBooking, setForceStatusBooking] = useState<Booking | null>(null);
+  const [forceStatusValue, setForceStatusValue] = useState<'pending' | 'confirmed_paid'>('confirmed_paid');
+  const [forceScheduledAt, setForceScheduledAt] = useState('');
+  const [forcePaidAt, setForcePaidAt] = useState('');
+  const [forceStatusLoading, setForceStatusLoading] = useState(false);
+  const [forceStatusError, setForceStatusError] = useState('');
+  const [forceStatusSuccess, setForceStatusSuccess] = useState(false);
+
+  // <input type="datetime-local"> requires "YYYY-MM-DDTHH:MM" — stored dates
+  // use a space separator ("YYYY-MM-DD HH:MM:SS"), so convert both ways.
+  const toDatetimeLocalValue = (raw?: string) => raw ? raw.replace(' ', 'T').slice(0, 16) : '';
+  const fromDatetimeLocalValue = (val: string) => val ? val.replace('T', ' ') : '';
+
+  const openForceStatus = (b: Booking) => {
+    setForceStatusBooking(b);
+    setForceStatusValue(b.status === 'pending' ? 'pending' : 'confirmed_paid');
+    setForceScheduledAt(toDatetimeLocalValue(b.scheduled_at));
+    setForcePaidAt('');
+    setForceStatusError('');
   };
 
-  const handleCancel = async (bookingId: number) => {
-    if (!confirm('ยืนยันการยกเลิก? ระบบจะคืนสต็อกวัสดุที่จองไว้')) return;
+  const submitForceStatus = async () => {
+    if (!forceStatusBooking) return;
+    setForceStatusLoading(true);
+    setForceStatusError('');
     try {
-      await axios.post(`${API_BASE}/bookings/${bookingId}/cancel`);
+      await axios.patch(`${API_BASE}/bookings/${forceStatusBooking.id}/status`, {
+        status: forceStatusValue,
+        scheduledAt: forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined,
+        paidAt: forcePaidAt ? fromDatetimeLocalValue(forcePaidAt) : undefined,
+      });
+      setForceStatusBooking(null);
+      setForceStatusSuccess(true);
+      // If the current status tab no longer matches the new status, the
+      // booking would silently vanish from the filtered list with no
+      // feedback — reset to "all" so the admin can actually see the result.
+      if (statusFilter !== 'all' && statusFilter !== forceStatusValue) {
+        setStatusFilter('all');
+      }
       fetchBookings();
-    } catch (e: any) { alert(e.response?.data?.message || 'เกิดข้อผิดพลาด'); }
+    } catch (e: any) {
+      setForceStatusError(e.response?.data?.message || 'เกิดข้อผิดพลาด ไม่สามารถบันทึกได้');
+    } finally {
+      setForceStatusLoading(false);
+    }
+  };
+
+  const executeConfirmedAction = async () => {
+    if (!confirmAction) return;
+    setConfirmLoading(true);
+    try {
+      await axios.post(`${API_BASE}/bookings/${confirmAction.bookingId}/cancel`);
+      setConfirmAction(null);
+      fetchBookings();
+    } catch (e: any) {
+      setActionError(e.response?.data?.message || 'เกิดข้อผิดพลาด');
+    } finally {
+      setConfirmLoading(false);
+    }
   };
 
   // ── filter ───────────────────────────────────────────────────────────────
-  const filteredBookings = useMemo(
-    () => statusFilter === 'all' ? bookings : bookings.filter(b => b.status === statusFilter),
-    [bookings, statusFilter],
-  );
+  const filteredBookings = useMemo(() => {
+    if (statusFilter === 'all') return bookings;
+    // 'confirmed' is a legacy alias for 'confirmed_paid' — match both so old rows aren't hidden.
+    if (statusFilter === 'confirmed_paid') return bookings.filter(b => b.status === 'confirmed_paid' || b.status === 'confirmed');
+    return bookings.filter(b => b.status === statusFilter);
+  }, [bookings, statusFilter]);
 
   // ── navigation ───────────────────────────────────────────────────────────
   const navigate = (dir: number) => {
@@ -1075,25 +1222,67 @@ const BookingManagement = () => {
   return (
     <Box>
       {/* Page header */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 3 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={1.5} mb={3}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 800 }}>รายการจองคลาสเรียน</Typography>
-          {branchName && (
-            <Typography variant="body2" color="text.secondary">สาขา {branchName}</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>รายการจองคลาสเรียน</Typography>
+          {isSuperAdmin ? (
+            <FormControl size="small" variant="standard" sx={{ mt: 0.5, minWidth: 160 }}>
+              <Select
+                value={selectedBranchId}
+                onChange={e => setSelectedBranchId(e.target.value)}
+                disableUnderline
+                sx={{ fontWeight: 600, fontSize: '0.875rem', color: 'text.secondary' }}
+              >
+                <MenuItem value="all" sx={{ fontWeight: 600 }}>ทุกสาขา</MenuItem>
+                {branches.map(b => (
+                  <MenuItem key={b.id} value={String(b.id)} sx={{ fontWeight: 600 }}>{b.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : (
+            ownBranchName && <Typography variant="body2" color="text.secondary">สาขา {ownBranchName}</Typography>
           )}
         </Box>
         <Button
           variant="contained"
+          disableElevation
           startIcon={<AddIcon />}
           onClick={() => setAddOpen(true)}
-          sx={{ borderRadius: 3, fontWeight: 800 }}
+          sx={{ borderRadius: 2.5, fontWeight: 700, px: 2.5 }}
         >
           เพิ่มการจอง
         </Button>
-      </Box>
+      </Stack>
+
+      {fetchError && (
+        <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2.5 }} onClose={() => setFetchError('')}>
+          {fetchError}
+        </Alert>
+      )}
+
+      {/* Quick stats */}
+      {!fetchError && (
+        <Stack direction="row" spacing={1.25} mb={2.5} flexWrap="wrap" useFlexGap>
+          {[
+            { label: 'ทั้งหมด', value: stats.total, fg: '#334155' },
+            { label: 'ยืนยัน/ชำระแล้ว', value: stats.confirmed, fg: '#1565c0' },
+            { label: 'รอดำเนินการ', value: stats.pending, fg: '#e65100' },
+            { label: 'เสร็จสิ้น', value: stats.completed, fg: '#2e7d32' },
+            { label: 'ยกเลิก', value: stats.cancelled, fg: '#c62828' },
+          ].map(s => (
+            <Box key={s.label} sx={{
+              flex: '1 1 140px', minWidth: 128, p: 1.5, borderRadius: 2.5,
+              bgcolor: 'white', border: '1px solid #eef0f3', borderLeft: `3px solid ${s.fg}`,
+            }}>
+              <Typography variant="h6" sx={{ fontWeight: 700, color: s.fg, lineHeight: 1.2 }}>{s.value}</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>{s.label}</Typography>
+            </Box>
+          ))}
+        </Stack>
+      )}
 
       {/* Toolbar */}
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 3, boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+      <Paper variant="outlined" sx={{ p: 2, mb: 2.5, borderRadius: 3, borderColor: '#eef0f3' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           alignItems={{ sm: 'center' }}
@@ -1101,60 +1290,73 @@ const BookingManagement = () => {
           spacing={1.5}
           flexWrap="wrap"
         >
-          {/* Shortcuts */}
-          <Stack direction="row" spacing={1} flexShrink={0}>
-            <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
-              onClick={() => { setViewMode('day');   setCurrentDate(new Date()); }}>วันนี้</Button>
-            <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
-              onClick={() => { setViewMode('week');  setCurrentDate(new Date()); }}>สัปดาห์นี้</Button>
-            <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
-              onClick={() => { setViewMode('month'); setCurrentDate(new Date()); }}>เดือนนี้</Button>
-          </Stack>
-
-          {/* Navigator */}
-          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: 1, justifyContent: 'center' }}>
-            <IconButton size="small" onClick={() => navigate(-1)}><ChevronLeft /></IconButton>
-            <Typography
-              variant="body1"
-              sx={{ fontWeight: 700, minWidth: { xs: 160, sm: 220 }, textAlign: 'center', px: 1, whiteSpace: 'nowrap' }}
-            >
-              {label}
-            </Typography>
-            <IconButton size="small" onClick={() => navigate(1)}><ChevronRight /></IconButton>
-          </Stack>
-
           {/* View mode */}
           <ToggleButtonGroup
             value={viewMode}
             exclusive
             onChange={(_, v) => v && setViewMode(v)}
             size="small"
-            sx={{ flexShrink: 0 }}
+            sx={{ flexShrink: 0, '& .MuiToggleButton-root': { border: 'none', borderRadius: 2, mx: 0.25 } }}
           >
-            <ToggleButton value="day"   sx={{ fontWeight: 700, px: 2 }}>วัน</ToggleButton>
-            <ToggleButton value="week"  sx={{ fontWeight: 700, px: 2 }}>สัปดาห์</ToggleButton>
-            <ToggleButton value="month" sx={{ fontWeight: 700, px: 2 }}>เดือน</ToggleButton>
-            <ToggleButton value="list"  sx={{ fontWeight: 700, px: 2, display: 'flex', gap: 0.5 }}><ListIcon sx={{ fontSize: 16 }} />รายการ</ToggleButton>
+            <ToggleButton value="list"  sx={{ fontWeight: 600, px: 2, display: 'flex', gap: 0.5 }}><ListIcon sx={{ fontSize: 16 }} />รายการ</ToggleButton>
+            <ToggleButton value="day"   sx={{ fontWeight: 600, px: 2 }}>วัน</ToggleButton>
+            <ToggleButton value="week"  sx={{ fontWeight: 600, px: 2 }}>สัปดาห์</ToggleButton>
+            <ToggleButton value="month" sx={{ fontWeight: 600, px: 2 }}>เดือน</ToggleButton>
           </ToggleButtonGroup>
+
+          {/* List mode: adjustable date range. Calendar modes: navigator. */}
+          {viewMode === 'list' ? (
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1, justifyContent: { xs: 'flex-start', sm: 'center' } }}>
+              <TextField
+                type="date" size="small" label="จาก" value={listFrom}
+                onChange={e => setListFrom(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+              <Typography variant="body2" color="text.secondary">–</Typography>
+              <TextField
+                type="date" size="small" label="ถึง" value={listTo}
+                onChange={e => setListTo(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Stack>
+          ) : (
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: 1, justifyContent: 'center' }}>
+              <IconButton size="small" onClick={() => navigate(-1)}><ChevronLeft /></IconButton>
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 600, minWidth: { xs: 160, sm: 220 }, textAlign: 'center', px: 1, whiteSpace: 'nowrap' }}
+              >
+                {label}
+              </Typography>
+              <IconButton size="small" onClick={() => navigate(1)}><ChevronRight /></IconButton>
+              <Button size="small" onClick={() => setCurrentDate(new Date())} sx={{ fontWeight: 600, ml: 0.5, borderRadius: 2 }}>
+                วันนี้
+              </Button>
+            </Stack>
+          )}
         </Stack>
 
-        {/* Status filter chips */}
-        <Stack direction="row" spacing={0.75} mt={1.5} flexWrap="wrap" alignItems="center">
+        <Divider sx={{ my: 1.5 }} />
+
+        {/* Status filter chips — always colored so status is legible at a glance */}
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" alignItems="center" useFlexGap>
           {STATUS_FILTERS.map(({ key, label: slabel }) => {
             const active = statusFilter === key;
             const si = key !== 'all' ? getStatusInfo(key) : null;
+            const fg = si?.fgColor ?? '#475569';
             return (
               <Chip
                 key={key}
                 label={slabel}
                 size="small"
-                variant={active ? 'filled' : 'outlined'}
                 onClick={() => setStatusFilter(key)}
                 sx={{
-                  fontWeight: 700, cursor: 'pointer',
-                  ...(active && si
-                    ? { bgcolor: si.bgColor, color: si.fgColor, borderColor: si.fgColor }
-                    : {}),
+                  fontWeight: 600, cursor: 'pointer', border: '1px solid',
+                  borderColor: active ? fg : `${fg}33`,
+                  bgcolor: active ? `${fg}1a` : 'transparent',
+                  color: fg,
                 }}
               />
             );
@@ -1171,11 +1373,11 @@ const BookingManagement = () => {
           <CircularProgress />
         </Box>
       ) : viewMode === 'day' ? (
-        <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} />
+        <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} isSuperAdmin={isSuperAdmin} onForceStatus={openForceStatus} />
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} />
+        <ListView bookings={filteredBookings} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} isSuperAdmin={isSuperAdmin} onForceStatus={openForceStatus} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
       )}
@@ -1183,10 +1385,89 @@ const BookingManagement = () => {
       <AddBookingDialog
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        branchId={branchId}
-        branchName={branchName}
+        branchId={selectedBranchId !== 'all' ? selectedBranchId : ownBranchId}
+        branchName={selectedBranchId !== 'all' ? branchName : ownBranchName}
         onSuccess={() => { setAddOpen(false); fetchBookings(); }}
       />
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title="ยืนยันการยกเลิกการจอง?"
+        description="ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับรายการนี้"
+        confirmLabel="ยืนยันยกเลิก"
+        confirmColor="error"
+        icon={<CancelIcon sx={{ fontSize: 30 }} />}
+        loading={confirmLoading}
+        onConfirm={executeConfirmedAction}
+        onClose={() => { if (!confirmLoading) setConfirmAction(null); }}
+      />
+
+      <Snackbar
+        open={!!actionError}
+        autoHideDuration={4000}
+        onClose={() => setActionError('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setActionError('')} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          {actionError}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={forceStatusSuccess}
+        autoHideDuration={3500}
+        onClose={() => setForceStatusSuccess(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setForceStatusSuccess(false)} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          แก้ไขสถานะการจองเรียบร้อยแล้ว
+        </Alert>
+      </Snackbar>
+
+      {/* Super Admin: force-patch booking status for error correction */}
+      <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>แก้ไขสถานะการจอง (Super Admin)</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
+          </Typography>
+          {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>สถานะ</InputLabel>
+            <Select
+              label="สถานะ"
+              value={forceStatusValue}
+              onChange={e => setForceStatusValue(e.target.value as 'pending' | 'confirmed_paid')}
+            >
+              <MenuItem value="pending">รอจ่ายเงิน</MenuItem>
+              <MenuItem value="confirmed_paid">จ่ายเงินแล้ว</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            label="วันที่จอง (แก้ไขได้ถ้าจำเป็น)"
+            type="datetime-local"
+            fullWidth
+            sx={{ mb: 2 }}
+            InputLabelProps={{ shrink: true }}
+            value={forceScheduledAt}
+            onChange={e => setForceScheduledAt(e.target.value)}
+          />
+          <TextField
+            label="วันที่จ่ายเงิน (ถ้ามี)"
+            type="datetime-local"
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+            value={forcePaidAt}
+            onChange={e => setForcePaidAt(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setForceStatusBooking(null)} disabled={forceStatusLoading}>ยกเลิก</Button>
+          <Button variant="contained" color="warning" onClick={submitForceStatus} disabled={forceStatusLoading}>
+            {forceStatusLoading ? <CircularProgress size={18} /> : 'บันทึก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

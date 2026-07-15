@@ -10,7 +10,7 @@ import { ChildAvatar } from '../components/ChildAvatar';
 
 const SettingsProfile = () => {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { lang } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -48,7 +48,7 @@ const SettingsProfile = () => {
 
     const userJson = localStorage.getItem('mellow_user');
     if (!userJson) {
-      setError('User not found. Please log in.');
+      setError(lang === 'en' ? 'User not found. Please log in.' : 'ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบ');
       setIsLoading(false);
       return;
     }
@@ -74,11 +74,11 @@ const SettingsProfile = () => {
           email: formData.email,
         };
         localStorage.setItem('mellow_user', JSON.stringify(updatedUser));
-        setSuccess('Profile updated successfully!');
+        setSuccess(lang === 'en' ? 'Profile updated successfully!' : 'บันทึกข้อมูลเรียบร้อยแล้ว');
         setTimeout(() => navigate('/'), 1500);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to update profile. Please try again.');
+      setError(err.response?.data?.message || (lang === 'en' ? 'Failed to update profile. Please try again.' : 'ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง'));
     } finally {
       setIsLoading(false);
     }
@@ -91,13 +91,13 @@ const SettingsProfile = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none">Parent Profile Settings</h1>
+        <h1 className="text-[16px] font-black tracking-tight leading-none">{lang === 'en' ? 'Parent Profile Settings' : 'ตั้งค่าข้อมูลผู้ปกครอง'}</h1>
         <div className="w-10" /> {/* Spacer */}
       </header>
 
       <main className="p-5">
         <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
-          <h2 className="text-xl font-black text-slate-800 mb-6">Parent Information</h2>
+          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Parent Information' : 'ข้อมูลผู้ปกครอง'}</h2>
 
           <form onSubmit={handleSave} className="space-y-4">
             {success && (
@@ -113,7 +113,7 @@ const SettingsProfile = () => {
 
             {/* First Name */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">First Name</label>
+              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">{lang === 'en' ? 'First Name' : 'ชื่อจริง'}</label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <User size={18} />
@@ -130,7 +130,7 @@ const SettingsProfile = () => {
 
             {/* Last Name */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">Last Name</label>
+              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">{lang === 'en' ? 'Last Name' : 'นามสกุล'}</label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <User size={18} />
@@ -147,7 +147,7 @@ const SettingsProfile = () => {
 
             {/* Phone */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">Phone Number</label>
+              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">{lang === 'en' ? 'Phone Number' : 'เบอร์โทรศัพท์'}</label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <Phone size={18} />
@@ -164,7 +164,7 @@ const SettingsProfile = () => {
 
             {/* Email */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">Email Address</label>
+              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">{lang === 'en' ? 'Email Address' : 'อีเมล'}</label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <Mail size={18} />
@@ -189,7 +189,7 @@ const SettingsProfile = () => {
               ) : (
                 <>
                   <Save size={18} />
-                  Save Changes
+                  {lang === 'en' ? 'Save Changes' : 'บันทึกการเปลี่ยนแปลง'}
                 </>
               )}
             </button>
@@ -199,7 +199,7 @@ const SettingsProfile = () => {
         {/* Children Settings Section */}
         {children.length > 0 && (
           <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
-            <h2 className="text-xl font-black text-slate-800 mb-6">Child Profiles</h2>
+            <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Child Profiles' : 'ข้อมูลเด็ก'}</h2>
             <div className="space-y-4">
               {children.map((child) => (
                 <div key={child.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
@@ -207,7 +207,7 @@ const SettingsProfile = () => {
                     <ChildAvatar avatarType={child.avatar} className="w-12 h-12 rounded-full ring-2 ring-white shadow-sm" />
                     <div>
                       <h3 className="font-black text-slate-800 text-[15px] leading-tight">{child.name}</h3>
-                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{child.relation || 'Child'}</p>
+                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{child.relation || (lang === 'en' ? 'Child' : 'เด็ก')}</p>
                     </div>
                   </div>
                   <button 
@@ -217,7 +217,8 @@ const SettingsProfile = () => {
                         name: child.name,
                         nickname: child.nickname || '',
                         dob: child.dob || '',
-                        relation: child.relation || 'Child'
+                        relation: child.relation || 'Child',
+                        gender: child.gender || ''
                       });
                       setIsEditChildOpen(true);
                     }}
@@ -234,24 +235,16 @@ const SettingsProfile = () => {
               className="mt-6 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600 transition-all flex items-center justify-center gap-2"
             >
               <User size={18} />
-              {t.home?.addChild || 'เพิ่มข้อมูลเด็ก'}
+              {lang === 'en' ? 'Add Child' : 'เพิ่มข้อมูลเด็ก'}
             </button>
           </div>
         )}
       </main>
 
-      <EditChildModal 
+      <EditChildModal
         isOpen={isEditChildOpen}
         onClose={() => setIsEditChildOpen(false)}
-        childData={editingChild}
-        onSuccess={async () => {
-          setIsEditChildOpen(false);
-          const userJson = localStorage.getItem('mellow_user');
-          if (userJson) {
-            const user = JSON.parse(userJson);
-            await fetchChildren(user.id);
-          }
-        }}
+        childInfo={editingChild}
       />
 
       <AddChildModal 

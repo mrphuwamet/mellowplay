@@ -1,20 +1,33 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, FileText, Heart, Compass, Star, Map, Calendar } from 'lucide-react';
+import { Camera, Heart, Compass, Star, Map, Calendar, Lock, Ticket } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
+import GuestUnlockModal from './GuestUnlockModal';
 
 const QuickAccess = () => {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
+  const isGuest = localStorage.getItem('mellow_guest') === 'true';
+  const [lockedFeature, setLockedFeature] = React.useState<string | null>(null);
 
   const menuItems = [
-    { label: t.home.quickAccess.album, icon: Camera, path: '/album', color: 'bg-mellow-blue', isComingSoon: true },
+    { label: t.home.quickAccess.album, icon: Camera, path: '/album', color: 'bg-mellow-blue', gated: true },
     { label: t.home.quickAccess.knowMyChild, icon: Heart, path: '/know-my-child', color: 'bg-mellow-red', isComingSoon: true },
     { label: t.home.quickAccess.explore, icon: Compass, path: '/explore', color: 'bg-mellow-yellow' },
-    { label: t.home.quickAccess.rewards, icon: Star, path: '/rewards', color: 'bg-mellow-green', isComingSoon: true },
-    { label: t.home.quickAccess.journey, icon: Map, path: '/journey', color: 'bg-cyan-500' },
+    { label: t.home.quickAccess.rewards, icon: Star, path: '/rewards', color: 'bg-mellow-green', gated: true },
+    { label: t.home.quickAccess.journey, icon: Map, path: '/journey', color: 'bg-cyan-500', gated: true },
     { label: t.home.quickAccess.booking, icon: Calendar, path: '/booking', color: 'bg-orange-500' },
+    { label: t.home.quickAccess.myCoupons, icon: Ticket, path: '/my-coupons', color: 'bg-pink-500', gated: true },
   ];
+
+  const handleClick = (item: typeof menuItems[number]) => {
+    if (item.isComingSoon) return;
+    if (isGuest && item.gated) {
+      setLockedFeature(item.label);
+      return;
+    }
+    navigate(item.path);
+  };
 
   return (
     <div className="mb-8 mt-8">
@@ -27,7 +40,7 @@ const QuickAccess = () => {
           return (
             <button
               key={item.label}
-              onClick={() => { if (!item.isComingSoon) navigate(item.path); }}
+              onClick={() => handleClick(item)}
               className={`flex flex-col items-center gap-2.5 group transition-all relative ${item.isComingSoon ? 'opacity-60 cursor-default' : 'active:scale-95'}`}
             >
               {item.isComingSoon && (
@@ -36,6 +49,11 @@ const QuickAccess = () => {
               <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] ${!item.isComingSoon ? 'group-hover:shadow-xl' : ''} transition-all relative overflow-hidden`}>
                 <div className={`absolute inset-0 bg-white/10 ${!item.isComingSoon ? 'group-active:bg-black/10' : ''} transition-colors`} />
                 <Icon size={24} className="relative z-10" />
+                {isGuest && item.gated && (
+                  <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                    <Lock size={16} className="text-white" />
+                  </div>
+                )}
               </div>
               <span className="text-[12px] font-black text-slate-600 text-center leading-tight px-1">
                 {item.label}
@@ -44,6 +62,12 @@ const QuickAccess = () => {
           );
         })}
       </div>
+
+      <GuestUnlockModal
+        isOpen={!!lockedFeature}
+        onClose={() => setLockedFeature(null)}
+        featureLabel={lockedFeature || ''}
+      />
     </div>
   );
 };

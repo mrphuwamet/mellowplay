@@ -6,19 +6,21 @@ import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import logo from '../assets/ui/logo.svg';
 import PinInput from '../components/PinInput';
+import PinPad from '../components/PinPad';
 
 type Step = 'phone' | 'otp' | 'pin';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
-  const { t, language } = useTranslation();
-  
+  const { t, lang } = useTranslation();
+
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  
+  const [pinStep, setPinStep] = useState<'create' | 'confirm'>('create');
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -54,37 +56,43 @@ const ForgotPassword = () => {
     }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     if (otp.length < 6) {
       setError(t.register?.invalidOtp || 'Invalid OTP');
-      return;
-    }
-    setStep('pin');
-    setError('');
-  };
-
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPin.length < 6 || confirmPin.length < 6) {
-      setError(t.login.pinLabel || 'Please enter PIN');
-      return;
-    }
-    
-    if (newPin !== confirmPin) {
-      setError(t.login.pinMismatch || 'PINs do not match');
       return;
     }
 
     setIsLoading(true);
     setError('');
-    
+
+    try {
+      const res = await apiClient.post('/auth/forgot-password/verify-otp', { phone, otp });
+      if (res.data.success) {
+        setPinStep('create');
+        setNewPin('');
+        setConfirmPin('');
+        setStep('pin');
+      } else {
+        setError(res.data.message || t.register?.invalidOtp || 'Invalid OTP');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || t.register?.invalidOtp || 'Invalid OTP');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (finalPin: string) => {
+    setIsLoading(true);
+    setError('');
+
     try {
       const res = await apiClient.post('/auth/forgot-password/reset', {
         phone,
         otp,
-        newPassword: newPin
+        newPassword: finalPin
       });
-      
+
       if (res.data.success) {
         setSuccessMessage('Password reset successfully');
         setTimeout(() => {
@@ -101,9 +109,16 @@ const ForgotPassword = () => {
   };
 
   const handleBack = () => {
-    if (step === 'pin') setStep('otp');
-    else if (step === 'otp') setStep('phone');
-    else navigate('/login');
+    if (step === 'pin') {
+      setPinStep('create');
+      setNewPin('');
+      setConfirmPin('');
+      setStep('otp');
+    } else if (step === 'otp') {
+      setStep('phone');
+    } else {
+      navigate('/login');
+    }
   };
 
   return (
@@ -124,7 +139,11 @@ const ForgotPassword = () => {
         <h1 className="text-2xl font-black text-mellow-ink">{t.login.resetPin || 'Reset PIN'}</h1>
         {step === 'phone' && <p className="text-slate-400 font-bold mt-2">{t.login.resetPinDesc || 'Enter phone number'}</p>}
         {step === 'otp' && <p className="text-slate-400 font-bold mt-2">{t.register?.stepOtpDesc} {phone}</p>}
-        {step === 'pin' && <p className="text-slate-400 font-bold mt-2">{t.login.newPin || 'New PIN'}</p>}
+        {step === 'pin' && (
+          <p className="text-slate-400 font-bold mt-2">
+            {pinStep === 'create' ? (t.login.newPin || 'New PIN') : (t.login.confirmNewPin || 'Confirm New PIN')}
+          </p>
+        )}
       </div>
 
       <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm flex flex-col gap-2 items-center pointer-events-none [&>*]:pointer-events-auto">
@@ -132,7 +151,7 @@ const ForgotPassword = () => {
         <Toast message={error || ''} type="error" onClose={() => setError('')} />
       </div>
 
-      <form onSubmit={step === 'pin' ? handleResetPassword : (e) => e.preventDefault()} className="space-y-4">
+      <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
 
         {step === 'phone' && (
           <>
@@ -166,58 +185,59 @@ const ForgotPassword = () => {
               <label className="text-[13px] font-bold text-slate-500 mb-3 block text-center">
                 {t.login.pinLabel || 'Enter OTP'}
               </label>
-              <PinInput 
-                length={6} 
-                value={otp} 
-                onChange={(val) => setOtp(val)} 
+              <PinInput
+                length={6}
+                value={otp}
+                onChange={(val) => setOtp(val)}
               />
             </div>
             {otpRef && (
               <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl my-4">
-                {language === 'th' ? `รหัสอ้างอิง (Ref): ${otpRef}` : `Reference Code: ${otpRef}`}
+                {lang === 'th' ? `รหัสอ้างอิง (Ref): ${otpRef}` : `Reference Code: ${otpRef}`}
               </div>
             )}
             <button
               type="button"
               onClick={handleVerifyOtp}
-              className="w-full mellow-btn-primary mt-4"
+              disabled={isLoading}
+              className="w-full mellow-btn-primary mt-4 disabled:opacity-70"
             >
-              {t.register?.nextStep || 'Next'} <ArrowRight size={20} />
+              {isLoading ? <Loader2 className="animate-spin mx-auto" /> : <>{t.register?.nextStep || 'Next'} <ArrowRight size={20} /></>}
             </button>
           </>
         )}
 
         {step === 'pin' && (
           <>
-            <div className="relative mb-6">
-              <label className="text-[13px] font-bold text-slate-500 mb-3 block text-center">
-                {t.login.newPin || 'New PIN'}
-              </label>
-              <PinInput 
-                length={6} 
-                value={newPin} 
-                onChange={(val) => setNewPin(val)} 
-              />
-            </div>
-            
-            <div className="relative mt-8 border-t border-slate-100 pt-6">
-              <label className="text-[13px] font-bold text-slate-500 mb-3 block text-center">
-                {t.login.confirmNewPin || 'Confirm New PIN'}
-              </label>
-              <PinInput 
-                length={6} 
-                value={confirmPin} 
-                onChange={(val) => setConfirmPin(val)} 
-              />
-            </div>
-            
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full mellow-btn-primary mt-6 disabled:opacity-70"
-            >
-              {isLoading ? <Loader2 className="animate-spin mx-auto" /> : <>{t.common?.save || 'Save'} <ArrowRight size={20} /></>}
-            </button>
+            <PinPad
+              length={6}
+              value={pinStep === 'create' ? newPin : confirmPin}
+              onChange={(val) => {
+                if (pinStep === 'create') {
+                  setNewPin(val);
+                  if (val.length === 6) {
+                    setTimeout(() => setPinStep('confirm'), 300);
+                  }
+                } else {
+                  setConfirmPin(val);
+                  if (val.length === 6) {
+                    if (val === newPin) {
+                      setTimeout(() => handleResetPassword(val), 300);
+                    } else {
+                      setError(t.login.pinMismatch || 'PINs do not match');
+                      setConfirmPin('');
+                      setPinStep('create');
+                      setNewPin('');
+                    }
+                  }
+                }
+              }}
+            />
+            {isLoading && (
+              <div className="flex justify-center mt-4">
+                <Loader2 className="animate-spin text-mellow-purple" />
+              </div>
+            )}
           </>
         )}
       </form>

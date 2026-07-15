@@ -52,6 +52,8 @@ import {
   CardGiftcard as GiftMenuIcon,
   LocalActivity as TicketIcon,
   LocalOffer as PromoIcon,
+  Feed as NewsFeedMenuIcon,
+  Grade as StampImageMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -62,12 +64,12 @@ import BookingManagement from './pages/BookingManagement';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import IncentiveTracking from './pages/IncentiveTracking';
+import MySchedule from './pages/MySchedule';
 import AttendanceManagement from './pages/AttendanceManagement';
 import LeaveManagement from './pages/LeaveManagement';
 import ExpenseAdvance from './pages/ExpenseAdvance';
 import Payout from './pages/Payout';
 import SystemSettings from './pages/SystemSettings';
-import POSDashboard from './pages/POSDashboard';
 import MyProfile from './pages/MyProfile';
 import RolePermissionManagement from './pages/RolePermissionManagement';
 import SkillsLibraryManagement from './pages/SkillsLibraryManagement';
@@ -88,6 +90,8 @@ import POSBookingView from './pages/POSBookingView';
 import POSSalesHistory from './pages/POSSalesHistory';
 import RedemptionManagement from './pages/RedemptionManagement';
 import RewardsManagement from './pages/RewardsManagement';
+import NewsFeedManagement from './pages/NewsFeedManagement';
+import StampImageManagement from './pages/StampImageManagement';
 import { SystemLogs } from './pages/SystemLogs';
 import {
   canAccessFeature,
@@ -314,6 +318,7 @@ const AppContent = () => {
 
   const financeChildren: MenuItemConfig[] = useMemo(() => {
     const all: MenuItemConfig[] = [
+      { text: 'ตารางงานของฉัน', icon: <ScheduleIcon />, path: '/crm/my-schedule', feature: 'my_schedule' },
       { text: 'ข้อมูลรายได้ (Incentive)', icon: <IncentiveIcon />, path: '/crm/incentives', feature: 'incentives' },
       { text: 'บันทึกวันทำงาน / OT', icon: <OTIcon />, path: '/crm/attendance', feature: 'attendance' },
       { text: 'ระบบลางาน', icon: <LeaveIcon />, path: '/crm/leave', feature: 'leave_requests' },
@@ -350,6 +355,8 @@ const AppContent = () => {
       { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
       { text: 'จัดการของรางวัล', icon: <GiftMenuIcon />, path: '/crm/rewards', feature: 'bookings' },
       { text: 'จัดการปฏิทิน',        icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
+      { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
+      { text: 'จัดการรูปแสตมป์', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
     ];
 
     const filtered = flatItems.filter((e) => {
@@ -723,7 +730,7 @@ const AppContent = () => {
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />
             <Route path="/crm/rewards" element={protect('bookings', <RewardsManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />
-            <Route path="/crm/my-schedule" element={<Navigate to="/crm/bookings" replace />} />
+            <Route path="/crm/my-schedule" element={protect('my_schedule', <MySchedule />)} />
             <Route path="/crm/class-booking" element={<Navigate to="/pos/class-booking" replace />} />
             <Route path="/crm/service-queue" element={<Navigate to="/pos/service-queue" replace />} />
             <Route path="/crm/incentives" element={protect('incentives', <IncentiveTracking />)} />
@@ -741,6 +748,8 @@ const AppContent = () => {
             <Route path="/crm/skills-library"  element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
+            <Route path="/crm/news-feed"       element={protect('news_feed', <NewsFeedManagement />)} />
+            <Route path="/crm/stamp-images"    element={protect('stamp_images', <StampImageManagement />)} />
             <Route path="/crm/coupons"         element={protect('packages', <CouponManagement />)} />
             <Route path="/crm/promotions"      element={protect('packages', <PromotionManagement />)} />
             <Route path="/crm/sale-campaigns"  element={protect('packages', <SaleCampaignManagement />)} />

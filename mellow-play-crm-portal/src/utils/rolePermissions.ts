@@ -22,7 +22,9 @@ export type FeatureKey =
   | 'campaign_bonus'
   | 'services'
   | 'products'
-  | 'stock';
+  | 'stock'
+  | 'news_feed'
+  | 'stamp_images';
 
 export type RolePermissionConfig = Record<UserRole, Record<FeatureKey, boolean>>;
 
@@ -52,6 +54,8 @@ const defaultPermissionTemplate: Record<FeatureKey, boolean> = {
   services: false,
   products: false,
   stock: false,
+  news_feed: false,
+  stamp_images: false,
 };
 
 const defaultPermissions: RolePermissionConfig = {
@@ -78,6 +82,8 @@ const defaultPermissions: RolePermissionConfig = {
     services: true,
     products: true,
     stock: true,
+    news_feed: true,
+    stamp_images: true,
   },
   operator: {
     dashboard: true,
@@ -102,6 +108,8 @@ const defaultPermissions: RolePermissionConfig = {
     services: true,
     products: true,
     stock: true,
+    news_feed: true,
+    stamp_images: false,
   },
   play_facilitator: {
     dashboard: true,
@@ -126,6 +134,8 @@ const defaultPermissions: RolePermissionConfig = {
     services: false,
     products: false,
     stock: false,
+    news_feed: false,
+    stamp_images: false,
   },
 };
 
@@ -158,6 +168,8 @@ export const permissionFeatureLabels: Record<FeatureKey, string> = {
   services: 'จัดการบริการ',
   products: 'จัดการรายการสินค้า',
   stock: 'จัดการสต๊อก',
+  news_feed: 'จัดการฟีดข่าวสาร/สื่อความรู้',
+  stamp_images: 'จัดการรูปแสตมป์',
 };
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));

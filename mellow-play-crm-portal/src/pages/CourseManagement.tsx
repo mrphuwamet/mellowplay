@@ -2,6 +2,7 @@ import { API_URL } from '../config';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SkillsLibraryManagement from './SkillsLibraryManagement';
+import mellowPlayLogo from '../assets/logo.svg';
 import CourseMaterialsTab from '../components/CourseMaterialsTab';
 import {
   Typography, Box, CircularProgress,
@@ -9,10 +10,10 @@ import {
   TextField, MenuItem, Select, FormControl, InputLabel, InputAdornment,
   IconButton, Paper, Stack, Alert, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  List, ListItem, ListItemText, Divider,
+  List, ListItem, ListItemText, ListItemButton, ListItemIcon, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
   ToggleButton, ToggleButtonGroup, Switch, FormControlLabel,
-  Tab, Tabs,
+  Tab, Tabs, Rating, Avatar,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,9 +39,30 @@ import {
   People as SalesIcon,
   School as TeacherIcon,
   AutoStories as SkillsLibIcon,
+  AspectRatio as CropIcon,
+  CheckCircle as SavedIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
+import FocalPointPicker from '../components/FocalPointPicker';
+
+interface ImageViewDef {
+  key: string;
+  label: string;
+  labelEn: string;
+  ratioW: number;
+  ratioH: number;
+  recommendedWidth: number;
+  recommendedHeight: number;
+  usageNote: string;
+}
+
+interface CourseImageView {
+  imageUrl: string;
+  focalX: number;
+  focalY: number;
+  zoom: number;
+}
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -70,6 +92,9 @@ interface Course {
   teacher_guide_url?: string;
   is_recommended?: boolean;
   is_extraclass?: boolean;
+  allow_repeat?: boolean;
+  stamps_on_completion?: number;
+  stamp_expiry_months?: number;
   // Legacy fields — used for migration only
   is_little_junior_enabled?: boolean;
   is_junior_enabled?: boolean;
@@ -118,27 +143,16 @@ const formatAgeRange = (min?: number, max?: number) => {
 };
 
 // Bilingual tag input with Modal
-const SkillTagInput = ({ label, values, onChange, color = 'primary' }: {
+const SkillTagInput = ({ label, values, onChange, color = 'primary', onOpenPicker, libraryItems }: {
   label: string;
   values: { th: string; en: string }[];
   onChange: (v: { th: string; en: string }[]) => void;
   color?: 'primary' | 'secondary';
+  onOpenPicker: () => void;
+  libraryItems: SkillItem[];
 }) => {
-  const [open, setOpen] = React.useState(false);
-  const [th, setTh] = React.useState('');
-  const [en, setEn] = React.useState('');
-
   const accentColor = color === 'primary' ? '#7c3aed' : '#0284c7';
   const bgColor     = color === 'primary' ? '#f5f3ff' : '#eff6ff';
-
-  const handleAdd = () => {
-    if (!th.trim() && !en.trim()) return;
-    onChange([...values, { th: th.trim(), en: en.trim() }]);
-    setTh(''); setEn('');
-    setOpen(false);
-  };
-
-  const handleClose = () => { setTh(''); setEn(''); setOpen(false); };
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -146,61 +160,38 @@ const SkillTagInput = ({ label, values, onChange, color = 'primary' }: {
         <Typography variant="subtitle2" fontWeight={800} sx={{ color: accentColor }}>
           {label}
         </Typography>
-        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setOpen(true)}
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={onOpenPicker}
           sx={{ borderRadius: 2, fontWeight: 700, borderColor: accentColor, color: accentColor,
             '&:hover': { borderColor: accentColor, bgcolor: bgColor } }}>
-          เพิ่มรายการ
+          เลือกจากคลัง
         </Button>
       </Box>
 
-      {/* List */}
+      {/* Tags — selection always comes from the Skills Library picker below,
+          so names/icons stay consistent with what RecordMilestone shows. */}
       {values.length === 0
-        ? <Typography variant="caption" color="text.disabled">ยังไม่มีรายการ — กด "เพิ่มรายการ"</Typography>
+        ? <Typography variant="caption" color="text.disabled">ยังไม่มีรายการ — กด "เลือกจากคลัง"</Typography>
         : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            {values.map((v, i) => (
-              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5,
-                px: 2, py: 1.25, borderRadius: 2, bgcolor: bgColor,
-                border: '1px solid', borderColor: `${accentColor}30` }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  {v.th && <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.5 }}>{v.th}</Typography>}
-                  {v.en && <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5, display: 'block' }}>{v.en}</Typography>}
-                </Box>
-                <IconButton size="small" onClick={() => onChange(values.filter((_, j) => j !== i))}
-                  sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
-                  <CloseIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Box>
-            ))}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {values.map((v, i) => {
+              const found = libraryItems.find(item => item.name === v.th);
+              const displayLabel = v.th && v.en ? `${v.th} (${v.en})` : (v.th || v.en);
+              return (
+                <Chip
+                  key={i}
+                  icon={found ? renderSkillIcon(found.icon, { sx: { fontSize: '18px !important', color: `${accentColor} !important` } }) : undefined}
+                  label={displayLabel}
+                  onDelete={() => onChange(values.filter((_, j) => j !== i))}
+                  sx={{
+                    bgcolor: bgColor, color: accentColor, fontWeight: 700, borderRadius: 2,
+                    border: '1px solid', borderColor: `${accentColor}30`,
+                    '& .MuiChip-deleteIcon': { color: accentColor, opacity: 0.5, '&:hover': { opacity: 1 } },
+                  }}
+                />
+              );
+            })}
           </Box>
         )}
-
-      {/* Modal */}
-      <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>
-          {label.split('—')[0].trim()}
-          <Typography variant="body2" color="text.secondary" fontWeight={400}>กรอกทั้ง 2 ภาษา อย่างน้อย 1 ภาษา</Typography>
-        </DialogTitle>
-        <Divider />
-        <DialogContent sx={{ pt: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField autoFocus fullWidth label="ภาษาไทย" placeholder="เช่น ความคิดสร้างสรรค์"
-            value={th} onChange={(e) => setTh(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('skill-en-input')?.focus(); } }}
-            InputProps={{ sx: { borderRadius: 2 } }} />
-          <TextField id="skill-en-input" fullWidth label="English" placeholder="e.g. Creative Thinking"
-            value={en} onChange={(e) => setEn(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-            InputProps={{ sx: { borderRadius: 2 } }} />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
-          <Button onClick={handleClose} sx={{ fontWeight: 700, borderRadius: 2 }}>ยกเลิก</Button>
-          <Button variant="contained" onClick={handleAdd} disabled={!th.trim() && !en.trim()}
-            disableElevation sx={{ fontWeight: 700, borderRadius: 2,
-              bgcolor: accentColor, '&:hover': { bgcolor: accentColor, opacity: 0.9 } }}>
-            เพิ่มรายการ
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };
@@ -228,8 +219,10 @@ const CourseManagement = () => {
   const [categoryFormDialogOpen, setCategoryFormDialogOpen] = useState(false);
   const [editCategory, setEditCategory] = useState<Category | null>(null);
   const [isVideoPreviewOpen, setIsVideoPreviewOpen] = useState(false);
-  const [descExpandModal, setDescExpandModal] = useState<{ open: boolean; lang: 'th' | 'en' } | null>(null);
+  const [descExpandModal, setDescExpandModal] = useState<{ open: boolean; lang: 'th' | 'en'; field: 'description' | 'shortDescription' } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [courseReviews, setCourseReviews] = useState<any[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     id: 0,
@@ -263,6 +256,9 @@ const CourseManagement = () => {
     teacherCommissionValue: '',
     isRecommended: false,
     isExtraclass: false,
+    allowRepeat: true,
+    stampsOnCompletion: 0,
+    stampExpiryMonths: 12,
   });
 
   const [categoryFormData, setCategoryFormData] = useState({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
@@ -290,12 +286,164 @@ const CourseManagement = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const guideInputRef = useRef<HTMLInputElement>(null);
-  const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
   const [imagesUploading, setImagesUploading] = useState(false);
   const [guideUploading, setGuideUploading] = useState(false);
+
+  // ── Display Views (per-view curated image + focal point) ─────────────────
+  const [imageViewDefs, setImageViewDefs] = useState<ImageViewDef[]>([]);
+  const [posterViewDef, setPosterViewDef] = useState<ImageViewDef | null>(null);
+  const [courseImageViews, setCourseImageViews] = useState<Record<string, CourseImageView>>({});
+  // Poster gallery: every uploaded image gets its own focal point + zoom, keyed
+  // by image URL, edited one-at-a-time via a modal (see posterModalImage).
+  const [imageFocals, setImageFocals] = useState<Record<string, { focalX: number; focalY: number; zoom: number }>>({});
+  const [posterModalImage, setPosterModalImage] = useState<string | null>(null);
+  const [mediaModalOpen, setMediaModalOpen] = useState(false);
+  const [mediaModalTab, setMediaModalTab] = useState<'media' | 'video' | 'views' | 'poster'>('media');
+
+  // Thumbnail + gallery images are shown merged as one gallery in the UI —
+  // the first image in the merged list is auto-designated as thumbnailUrl,
+  // keeping the underlying data model (and every place that falls back to
+  // thumbnail_url elsewhere in the system) unchanged.
+  const mergedImages = [formData.thumbnailUrl, ...formData.images].filter(Boolean);
+
+  const addGalleryImages = (urls: string[]) => {
+    if (urls.length === 0) return;
+    setFormData(f => {
+      if (!f.thumbnailUrl) {
+        const [first, ...rest] = urls;
+        return { ...f, thumbnailUrl: first, images: [...f.images, ...rest] };
+      }
+      return { ...f, images: [...f.images, ...urls] };
+    });
+  };
+
+  const removeGalleryImage = (url: string) => {
+    setFormData(f => {
+      if (f.thumbnailUrl === url) {
+        const [newThumb, ...rest] = f.images;
+        return { ...f, thumbnailUrl: newThumb || '', images: rest };
+      }
+      return { ...f, images: f.images.filter(img => img !== url) };
+    });
+  };
+
+  const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
+
+  const reorderGalleryImages = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const reordered = [...mergedImages];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    const [newThumb, ...rest] = reordered;
+    setFormData(f => ({ ...f, thumbnailUrl: newThumb || '', images: rest }));
+  };
+
+  useEffect(() => {
+    axios.get(`${API_URL}/api/v1/image-views`).then(res => {
+      if (res.data.success) {
+        setImageViewDefs(res.data.views ?? []);
+        setPosterViewDef(res.data.poster ?? null);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const loadCourseImageViews = useCallback(async (courseId: number) => {
+    if (!courseId) return;
+    try {
+      const res = await axios.get(`${API_BASE}/courses/${courseId}/image-views`);
+      if (res.data.success) {
+        const map: Record<string, CourseImageView> = {};
+        for (const v of res.data.views as any[]) {
+          map[v.view_key] = { imageUrl: v.image_url, focalX: v.focal_x, focalY: v.focal_y, zoom: v.zoom ?? 1 };
+        }
+        setCourseImageViews(map);
+      }
+    } catch (e) { console.error('Failed to load course image views', e); }
+  }, []);
+
+  const loadCourseImageFocals = useCallback(async (courseId: number) => {
+    if (!courseId) return;
+    try {
+      const res = await axios.get(`${API_BASE}/courses/${courseId}/image-focals`);
+      if (res.data.success) {
+        const map: Record<string, { focalX: number; focalY: number; zoom: number }> = {};
+        for (const f of res.data.focals as any[]) {
+          map[f.image_url] = { focalX: f.focal_x, focalY: f.focal_y, zoom: f.zoom ?? 1 };
+        }
+        setImageFocals(map);
+      }
+    } catch (e) { console.error('Failed to load course image focals', e); }
+  }, []);
+
+  const getViewImageUrl = (viewKey: string) => courseImageViews[viewKey]?.imageUrl || formData.thumbnailUrl || '';
+  const getViewFocal = (viewKey: string) => ({
+    x: courseImageViews[viewKey]?.focalX ?? 50,
+    y: courseImageViews[viewKey]?.focalY ?? 50,
+    zoom: courseImageViews[viewKey]?.zoom ?? 1,
+  });
+
+  const setViewImage = (viewKey: string, imageUrl: string) => {
+    setCourseImageViews(prev => ({
+      ...prev,
+      [viewKey]: { imageUrl, focalX: prev[viewKey]?.focalX ?? 50, focalY: prev[viewKey]?.focalY ?? 50, zoom: prev[viewKey]?.zoom ?? 1 },
+    }));
+  };
+
+  const setViewFocal = (viewKey: string, focalX: number, focalY: number) => {
+    setCourseImageViews(prev => ({
+      ...prev,
+      [viewKey]: { imageUrl: prev[viewKey]?.imageUrl || formData.thumbnailUrl, focalX, focalY, zoom: prev[viewKey]?.zoom ?? 1 },
+    }));
+  };
+
+  const setViewZoom = (viewKey: string, zoom: number) => {
+    setCourseImageViews(prev => ({
+      ...prev,
+      [viewKey]: { imageUrl: prev[viewKey]?.imageUrl || formData.thumbnailUrl, focalX: prev[viewKey]?.focalX ?? 50, focalY: prev[viewKey]?.focalY ?? 50, zoom },
+    }));
+  };
+
+  const getImageFocal = (imageUrl: string) => ({
+    x: imageFocals[imageUrl]?.focalX ?? 50,
+    y: imageFocals[imageUrl]?.focalY ?? 50,
+    zoom: imageFocals[imageUrl]?.zoom ?? 1,
+  });
+
+  const setImageFocal = (imageUrl: string, focalX: number, focalY: number) => {
+    setImageFocals(prev => ({ ...prev, [imageUrl]: { focalX, focalY, zoom: prev[imageUrl]?.zoom ?? 1 } }));
+  };
+
+  const setImageZoom = (imageUrl: string, zoom: number) => {
+    setImageFocals(prev => ({ ...prev, [imageUrl]: { focalX: prev[imageUrl]?.focalX ?? 50, focalY: prev[imageUrl]?.focalY ?? 50, zoom } }));
+  };
+
+  // Persists both the curated per-view assignments and the poster per-image
+  // focals — called from handleSubmit once the course itself has a valid id,
+  // so there is a single "save class" action instead of a separate button.
+  const saveImageViewsAndFocals = async (courseId: number) => {
+    const views = imageViewDefs.map(def => ({
+      viewKey: def.key,
+      imageUrl: getViewImageUrl(def.key),
+      focalX: getViewFocal(def.key).x,
+      focalY: getViewFocal(def.key).y,
+      zoom: getViewFocal(def.key).zoom,
+    })).filter(v => !!v.imageUrl);
+
+    const galleryImages = [formData.thumbnailUrl, ...formData.images].filter(Boolean);
+    const focals = galleryImages.map(img => ({
+      imageUrl: img,
+      focalX: getImageFocal(img).x,
+      focalY: getImageFocal(img).y,
+      zoom: getImageFocal(img).zoom,
+    }));
+
+    await Promise.all([
+      views.length > 0 ? axios.put(`${API_BASE}/courses/${courseId}/image-views`, { views }) : Promise.resolve(),
+      focals.length > 0 ? axios.put(`${API_BASE}/courses/${courseId}/image-focals`, { focals }) : Promise.resolve(),
+    ]);
+  };
 
   const uploadFile = async (file: File, folder: string): Promise<string | null> => {
     try {
@@ -353,6 +501,15 @@ const CourseManagement = () => {
 
   useEffect(() => { fetchData(); }, []);
 
+  useEffect(() => {
+    if (!editCourse?.id) { setCourseReviews([]); return; }
+    setReviewsLoading(true);
+    axios.get(`${API_URL}/api/v1/courses/${editCourse.id}/reviews`)
+      .then(res => { if (res.data.success) setCourseReviews(res.data.reviews); })
+      .catch(e => console.error('Failed to fetch course reviews', e))
+      .finally(() => setReviewsLoading(false));
+  }, [editCourse?.id]);
+
   const filteredCourses = React.useMemo(() => {
     return courses.filter(course => {
       const q = filters.search.toLowerCase();
@@ -368,7 +525,12 @@ const CourseManagement = () => {
   const handleEditOpen = async (course: Course | null = null) => {
     setSaveError(null);
     setPageTab(0);
+    setCourseImageViews({});
+    setImageFocals({});
+    setPosterModalImage(null);
     if (course) {
+      loadCourseImageViews(course.id);
+      loadCourseImageFocals(course.id);
       let reqs: CouponRequirement[] = [];
       try {
         const { data } = await axios.get(`${API_BASE}/courses/${course.id}/coupons`);
@@ -428,6 +590,9 @@ const CourseManagement = () => {
         teacherCommissionValue: (course as any).teacher_commission_value != null ? String((course as any).teacher_commission_value) : '',
         isRecommended: !!course.is_recommended,
         isExtraclass: !!course.is_extraclass,
+        allowRepeat: course.allow_repeat === undefined || course.allow_repeat === null ? true : !!course.allow_repeat,
+        stampsOnCompletion: course.stamps_on_completion ?? 0,
+        stampExpiryMonths: course.stamp_expiry_months ?? 12,
       });
     } else {
       setEditCourse(null);
@@ -440,6 +605,9 @@ const CourseManagement = () => {
         teacherCommissionType: 'percent', teacherCommissionValue: '',
         isRecommended: false,
         isExtraclass: false,
+        allowRepeat: true,
+        stampsOnCompletion: 0,
+        stampExpiryMonths: 12,
       });
     }
     setIsEditing(true);
@@ -507,6 +675,9 @@ const CourseManagement = () => {
         teacherCommissionValue: formData.teacherCommissionValue ? parseFloat(formData.teacherCommissionValue) : null,
         isRecommended:          formData.isRecommended,
         isExtraclass:           formData.isExtraclass,
+        allowRepeat:            formData.allowRepeat,
+        stampsOnCompletion:     formData.stampsOnCompletion,
+        stampExpiryMonths:      formData.stampExpiryMonths,
       };
       let courseId = editCourse?.id;
       if (editCourse) {
@@ -523,6 +694,7 @@ const CourseManagement = () => {
              quantity_required: req.count
           }))
         });
+        await saveImageViewsAndFocals(courseId);
       }
 
       setIsEditing(false);
@@ -589,11 +761,17 @@ const CourseManagement = () => {
     }
   };
 
-  const togglePickerItem = (name: string) => {
+  const togglePickerItem = (item: SkillItem) => {
     if (!pickerState.field) return;
     const field = pickerState.field;
     const current = formData[field];
-    setFormData({ ...formData, [field]: current.includes(name) ? current.filter(t => t !== name) : [...current, name] });
+    const exists = current.some(s => s.th === item.name);
+    setFormData({
+      ...formData,
+      [field]: exists
+        ? current.filter(s => s.th !== item.name)
+        : [...current, { th: item.name, en: item.name_en || '' }],
+    });
   };
 
   // Derived state
@@ -635,13 +813,7 @@ const CourseManagement = () => {
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>ปฏิทิน (Calendar)</InputLabel>
-                    <Select value={formData.calendarId} label="ปฏิทิน (Calendar)" onChange={e => setFormData({ ...formData, calendarId: Number(e.target.value) })}>
-                      <MenuItem value={0}><em>(ไม่ผูกกับปฏิทิน)</em></MenuItem>
-                      {calendars.map(cal => <MenuItem key={cal.id} value={cal.id}>{cal.name}</MenuItem>)}
-                    </Select>
-                  </FormControl>
+                  <TextField label="รหัสวิชา (Subject Code)" fullWidth value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} />
                 </Grid>
                 <Grid item xs={12}>
                   <FormControl fullWidth>
@@ -657,25 +829,58 @@ const CourseManagement = () => {
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField label="รหัสวิชา (Subject Code)" fullWidth value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} />
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>ปฏิทิน (Calendar)</InputLabel>
+                    <Select value={formData.calendarId} label="ปฏิทิน (Calendar)" onChange={e => setFormData({ ...formData, calendarId: Number(e.target.value) })}>
+                      <MenuItem value={0}><em>(ไม่ผูกกับปฏิทิน)</em></MenuItem>
+                      {calendars.map(cal => <MenuItem key={cal.id} value={cal.id}>{cal.name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
                 </Grid>
-                <Grid item xs={12} sm={6}>
+                <Grid item xs={12}>
                   <TextField label="🇹🇭 ชื่อคลาส (ภาษาไทย) *" fullWidth value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
                 </Grid>
-                <Grid item xs={12} sm={6}>
+                <Grid item xs={12}>
                   <TextField label="🇬🇧 Class Name (English)" fullWidth value={formData.nameEn} onChange={e => setFormData({ ...formData, nameEn: e.target.value })} />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <FormControlLabel 
-                    control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />} 
-                    label="โปรโมทเป็นคลาสแนะนำ (Recommended)" 
+                  <FormControlLabel
+                    control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />}
+                    label="คลาสแนะนำ"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <FormControlLabel 
-                    control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />} 
-                    label="ตั้งเป็น Extra Class" 
+                  <FormControlLabel
+                    control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
+                    label="Extra Class"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel
+                    control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
+                    label="เข้าร่วมซ้ำได้"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="แสตมป์ที่ได้รับ (หลังเรียนจบ)"
+                    type="number"
+                    fullWidth
+                    inputProps={{ min: 0 }}
+                    value={formData.stampsOnCompletion}
+                    onChange={e => setFormData({ ...formData, stampsOnCompletion: Math.max(0, parseInt(e.target.value) || 0) })}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="ระยะเวลาหมดอายุแสตมป์ (เดือน)"
+                    type="number"
+                    fullWidth
+                    inputProps={{ min: 1 }}
+                    value={formData.stampExpiryMonths}
+                    onChange={e => setFormData({ ...formData, stampExpiryMonths: Math.max(1, parseInt(e.target.value) || 12) })}
+                    helperText="วันหมดอายุจริงจะปัดขึ้นเป็นสิ้นเดือน 6 หรือสิ้นปี"
                   />
                 </Grid>
               </Grid>
@@ -739,16 +944,30 @@ const CourseManagement = () => {
               <SectionLabel icon={<DurationIcon />} title="รายละเอียดและระยะเวลา" />
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="🇹🇭 รายละเอียดอย่างย่อ (ภาษาไทย) - แสดงบนการ์ด" fullWidth value={formData.shortDescription} onChange={e => setFormData({ ...formData, shortDescription: e.target.value })} />
+                  <Box sx={{ position: 'relative' }}>
+                    <TextField label="🇹🇭 รายละเอียดอย่างย่อ (ภาษาไทย) - แสดงบนการ์ด" multiline rows={3} fullWidth value={formData.shortDescription} onChange={e => setFormData({ ...formData, shortDescription: e.target.value })} />
+                    <Tooltip title="ขยาย">
+                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'th', field: 'shortDescription' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
+                        <ExpandIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="🇬🇧 รายละเอียดอย่างย่อ (ภาษาอังกฤษ) - แสดงบนการ์ด" fullWidth value={formData.shortDescriptionEn} onChange={e => setFormData({ ...formData, shortDescriptionEn: e.target.value })} />
+                  <Box sx={{ position: 'relative' }}>
+                    <TextField label="🇬🇧 รายละเอียดอย่างย่อ (ภาษาอังกฤษ) - แสดงบนการ์ด" multiline rows={3} fullWidth value={formData.shortDescriptionEn} onChange={e => setFormData({ ...formData, shortDescriptionEn: e.target.value })} />
+                    <Tooltip title="Expand">
+                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'en', field: 'shortDescription' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
+                        <ExpandIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ position: 'relative' }}>
                     <TextField label="🇹🇭 รายละเอียด (ภาษาไทย)" multiline rows={4} fullWidth value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
                     <Tooltip title="ขยาย">
-                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'th' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
+                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'th', field: 'description' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
                         <ExpandIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -758,7 +977,7 @@ const CourseManagement = () => {
                   <Box sx={{ position: 'relative' }}>
                     <TextField label="🇬🇧 Description (English)" multiline rows={4} fullWidth value={formData.descriptionEn} onChange={e => setFormData({ ...formData, descriptionEn: e.target.value })} />
                     <Tooltip title="Expand">
-                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'en' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
+                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'en', field: 'description' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
                         <ExpandIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -973,6 +1192,8 @@ const CourseManagement = () => {
                 values={formData.skills}
                 onChange={(v) => setFormData({ ...formData, skills: v })}
                 color="primary"
+                onOpenPicker={() => setPickerState({ open: true, field: 'skills', type: 'achievement' })}
+                libraryItems={libraryItems}
               />
               <Divider sx={{ my: 1 }} />
               <Box sx={{ mt: 2 }}>
@@ -981,6 +1202,8 @@ const CourseManagement = () => {
                   values={formData.metrics}
                   onChange={(v) => setFormData({ ...formData, metrics: v })}
                   color="secondary"
+                  onOpenPicker={() => setPickerState({ open: true, field: 'metrics', type: 'indicator' })}
+                  libraryItems={libraryItems}
                 />
               </Box>
             </Paper>
@@ -989,116 +1212,300 @@ const CourseManagement = () => {
           {/* ── Right column ── */}
           <Grid item xs={12} md={4}>
 
-            {/* Media */}
+            {/* Media summary — full editor lives in the "จัดการรูปภาพและวิดีโอ" modal below */}
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
               <SectionLabel icon={<ImageIcon />} title="สื่อประกอบคลาส" />
-
-              {/* Thumbnail */}
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                รูปปก (Thumbnail) <span style={{ color: '#ef4444', marginLeft: 4 }}>* ขนาดแนะนำ: 800x450 (อัตราส่วน 16:9)</span>
-              </Typography>
-              <Box
-                onClick={() => thumbnailInputRef.current?.click()}
-                sx={{
-                  position: 'relative', mb: 2.5, aspectRatio: '16/9', borderRadius: 2, overflow: 'hidden',
-                  border: '2px dashed #e2e8f0', cursor: 'pointer', bgcolor: '#f9fafb',
-                  '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
-                }}
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
+                <Box sx={{ width: 72, height: 72, borderRadius: 2, overflow: 'hidden', bgcolor: '#f1f5f9', flexShrink: 0, border: '1px solid #eee' }}>
+                  {formData.thumbnailUrl ? (
+                    <img src={getImageUrl(formData.thumbnailUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                  ) : (
+                    <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ImageIcon color="disabled" fontSize="small" />
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    {mergedImages.length > 0 ? `รูปภาพ ${mergedImages.length} รูป` : 'ยังไม่มีรูปภาพ'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {formData.videoUrl ? 'มีวิดีโอ' : 'ยังไม่มีวิดีโอ'}
+                  </Typography>
+                </Box>
+              </Box>
+              <Button
+                fullWidth variant="outlined" startIcon={<ImageIcon />}
+                onClick={() => { setMediaModalTab('media'); setMediaModalOpen(true); }}
               >
-                {formData.thumbnailUrl ? (
-                  <>
-                    <img src={getImageUrl(formData.thumbnailUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="thumbnail" />
-                    <IconButton
-                      onClick={e => { e.stopPropagation(); setFormData({ ...formData, thumbnailUrl: '' }); }}
-                      sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.5 }}
-                    >
-                      <ClearIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </>
-                ) : (
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <ImageIcon color="disabled" sx={{ mb: 0.5 }} />
-                    <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดรูปปก</Typography>
-                  </Box>
-                )}
-              </Box>
-              <input type="file" hidden accept="image/*" ref={thumbnailInputRef} onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const originalUrl = formData.thumbnailUrl;
-                setThumbnailUploading(true);
-                setFormData(f => ({ ...f, thumbnailUrl: URL.createObjectURL(file) }));
-                const url = await uploadFile(file, 'thumbnails');
-                if (url) {
-                  setFormData(f => ({ ...f, thumbnailUrl: url }));
-                } else {
-                  // If upload failed, revert to original url and show error
-                  setFormData(f => ({ ...f, thumbnailUrl: originalUrl }));
-                  setSaveError('ไม่สามารถอัปโหลดรูปปกได้ กรุณาตรวจสอบขนาดไฟล์ (แนะนำไม่เกิน 2MB) หรือลองใหม่อีกครั้ง');
-                }
-                setThumbnailUploading(false);
-                e.target.value = '';
-              }} />
-
-              {/* Video */}
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>วิดีโอประกอบ</Typography>
-              {formData.videoUrl ? (
-                <Box sx={{ position: 'relative', aspectRatio: '16/9', borderRadius: 2, overflow: 'hidden', bgcolor: 'black', mb: 2.5 }}>
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => setIsVideoPreviewOpen(true)}>
-                    <PlayIcon sx={{ color: 'white', fontSize: 40 }} />
-                  </Box>
-                  <IconButton onClick={() => setFormData({ ...formData, videoUrl: '' })} sx={{ position: 'absolute', top: 4, right: 4, color: 'white', bgcolor: 'rgba(0,0,0,0.45)', p: 0.5 }}>
-                    <ClearIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </Box>
-              ) : (
-                <Box
-                  onClick={() => videoInputRef.current?.click()}
-                  sx={{ aspectRatio: '16/9', borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', mb: 2.5, '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' } }}
-                >
-                  <VideoIcon color="disabled" sx={{ mb: 0.5 }} />
-                  <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดวิดีโอ</Typography>
-                </Box>
-              )}
-              <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setVideoUploading(true);
-                const url = await uploadFile(file, 'videos');
-                if (url) setFormData(f => ({ ...f, videoUrl: url }));
-                setVideoUploading(false);
-                e.target.value = '';
-              }} />
-
-              {/* Additional Images */}
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพเพิ่มเติม</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {formData.images.map((img, idx) => (
-                  <Box key={idx} sx={{ position: 'relative', width: 60, height: 60, borderRadius: 1.5, overflow: 'hidden', border: '1px solid #eee' }}>
-                    <img src={getImageUrl(img)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
-                    <IconButton onClick={() => setFormData({ ...formData, images: formData.images.filter((_, i) => i !== idx) })} sx={{ position: 'absolute', top: 1, right: 1, bgcolor: 'rgba(255,255,255,0.85)', p: 0.15 }}>
-                      <ClearIcon sx={{ fontSize: 10 }} />
-                    </IconButton>
-                  </Box>
-                ))}
-                <Box
-                  onClick={() => imageInputRef.current?.click()}
-                  sx={{ width: 60, height: 60, borderRadius: 1.5, border: '2px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
-                >
-                  <AddIcon color="disabled" fontSize="small" />
-                </Box>
-              </Box>
-              <input type="file" hidden accept="image/*" multiple ref={imageInputRef} onChange={async e => {
-                const files = e.target.files;
-                if (!files || files.length === 0) return;
-                setImagesUploading(true);
-                const uploads = await Promise.all(Array.from(files).map(f => uploadFile(f, 'images')));
-                const urls = uploads.filter(Boolean) as string[];
-                if (urls.length > 0) setFormData(f => ({ ...f, images: [...f.images, ...urls] }));
-                setImagesUploading(false);
-                e.target.value = '';
-              }} />
+                จัดการรูปภาพและวิดีโอ
+              </Button>
             </Paper>
+
+            {/* Media management modal — left sidebar nav + right content panel */}
+            <Dialog open={mediaModalOpen} onClose={() => setMediaModalOpen(false)} maxWidth="md" fullWidth>
+              <DialogTitle sx={{ fontWeight: 800, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                จัดการรูปภาพและวิดีโอ
+                <IconButton onClick={() => setMediaModalOpen(false)}><ClearIcon /></IconButton>
+              </DialogTitle>
+              <DialogContent sx={{ p: 0 }} dividers>
+                <Box sx={{ display: 'flex', minHeight: 480, maxHeight: '70vh' }}>
+                  {/* Left sidebar */}
+                  <Box sx={{ width: 210, flexShrink: 0, borderRight: '1px solid #eee', bgcolor: '#fafafa', overflowY: 'auto' }}>
+                    <List dense sx={{ py: 1 }}>
+                      <ListItemButton selected={mediaModalTab === 'media'} onClick={() => setMediaModalTab('media')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
+                        <ListItemIcon sx={{ minWidth: 32 }}><ImageIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText primary="รูปภาพ" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'media' ? 800 : 600 }} />
+                      </ListItemButton>
+                      <ListItemButton selected={mediaModalTab === 'video'} onClick={() => setMediaModalTab('video')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
+                        <ListItemIcon sx={{ minWidth: 32 }}><VideoIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText primary="วิดีโอ" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'video' ? 800 : 600 }} />
+                      </ListItemButton>
+                      {!!formData.id && (
+                        <ListItemButton selected={mediaModalTab === 'views'} onClick={() => setMediaModalTab('views')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
+                          <ListItemIcon sx={{ minWidth: 32 }}><CropIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText primary="มุมมองการแสดงผล" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'views' ? 800 : 600 }} />
+                        </ListItemButton>
+                      )}
+                      {!!formData.id && posterViewDef && (
+                        <ListItemButton selected={mediaModalTab === 'poster'} onClick={() => setMediaModalTab('poster')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
+                          <ListItemIcon sx={{ minWidth: 32 }}><CropIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText primary="แกลเลอรีโปสเตอร์" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'poster' ? 800 : 600 }} />
+                        </ListItemButton>
+                      )}
+                    </List>
+                  </Box>
+
+                  {/* Right content panel */}
+                  <Box sx={{ flex: 1, overflowY: 'auto', p: 3, minWidth: 0 }}>
+                    {mediaModalTab === 'media' && (
+                      <>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                          รูปภาพ <span style={{ color: '#94a3b8', marginLeft: 4, fontWeight: 400 }}>* ลากรูปเพื่อจัดลำดับ — รูปแรกจะถูกใช้เป็นรูปปกของคลาสโดยอัตโนมัติ</span>
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          {mergedImages.map((img, idx) => (
+                            <Box
+                              key={img}
+                              draggable
+                              onDragStart={() => setDragImageIndex(idx)}
+                              onDragOver={e => e.preventDefault()}
+                              onDrop={e => {
+                                e.preventDefault();
+                                if (dragImageIndex !== null) reorderGalleryImages(dragImageIndex, idx);
+                                setDragImageIndex(null);
+                              }}
+                              onDragEnd={() => setDragImageIndex(null)}
+                              sx={{
+                                position: 'relative', width: 84, height: 84, borderRadius: 1.5, overflow: 'hidden',
+                                border: idx === 0 ? '2px solid' : '1px solid', borderColor: idx === 0 ? 'primary.main' : '#eee',
+                                cursor: 'grab', opacity: dragImageIndex === idx ? 0.4 : 1, transition: 'opacity 0.15s',
+                              }}
+                            >
+                              <img src={getImageUrl(img)} style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} alt="" />
+                              {idx === 0 && (
+                                <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.55)', color: 'white', fontSize: 9, fontWeight: 700, textAlign: 'center', py: 0.25 }}>
+                                  ปก
+                                </Box>
+                              )}
+                              <IconButton onClick={() => removeGalleryImage(img)} sx={{ position: 'absolute', top: 1, right: 1, bgcolor: 'rgba(255,255,255,0.85)', p: 0.15 }}>
+                                <ClearIcon sx={{ fontSize: 12 }} />
+                              </IconButton>
+                            </Box>
+                          ))}
+                          <Box
+                            onClick={() => imageInputRef.current?.click()}
+                            sx={{ width: 84, height: 84, borderRadius: 1.5, border: '2px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
+                          >
+                            <AddIcon color="disabled" fontSize="small" />
+                          </Box>
+                        </Box>
+                        <input type="file" hidden accept="image/*" multiple ref={imageInputRef} onChange={async e => {
+                          const files = e.target.files;
+                          if (!files || files.length === 0) return;
+                          setImagesUploading(true);
+                          const uploads = await Promise.all(Array.from(files).map(f => uploadFile(f, 'images')));
+                          const urls = uploads.filter(Boolean) as string[];
+                          addGalleryImages(urls);
+                          setImagesUploading(false);
+                          e.target.value = '';
+                        }} />
+                      </>
+                    )}
+
+                    {mediaModalTab === 'video' && (
+                      <>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>วิดีโอประกอบ</Typography>
+                        {formData.videoUrl ? (
+                          <Box sx={{ position: 'relative', maxWidth: 360, aspectRatio: '16/9', borderRadius: 2, overflow: 'hidden', bgcolor: 'black', mb: 2.5 }}>
+                            <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => setIsVideoPreviewOpen(true)}>
+                              <PlayIcon sx={{ color: 'white', fontSize: 40 }} />
+                            </Box>
+                            <IconButton onClick={() => setFormData({ ...formData, videoUrl: '' })} sx={{ position: 'absolute', top: 4, right: 4, color: 'white', bgcolor: 'rgba(0,0,0,0.45)', p: 0.5 }}>
+                              <ClearIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Box>
+                        ) : (
+                          <Box
+                            onClick={() => videoInputRef.current?.click()}
+                            sx={{ maxWidth: 360, aspectRatio: '16/9', borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', mb: 2.5, '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' } }}
+                          >
+                            <VideoIcon color="disabled" sx={{ mb: 0.5 }} />
+                            <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดวิดีโอ</Typography>
+                          </Box>
+                        )}
+                        <input type="file" hidden accept="video/*" ref={videoInputRef} onChange={async e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setVideoUploading(true);
+                          const url = await uploadFile(file, 'videos');
+                          if (url) setFormData(f => ({ ...f, videoUrl: url }));
+                          setVideoUploading(false);
+                          e.target.value = '';
+                        }} />
+                      </>
+                    )}
+
+                    {mediaModalTab === 'views' && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                          เลือกรูปและจุดโฟกัสสำหรับแต่ละตำแหน่งที่แสดงผลในระบบ ถ้าไม่ตั้งค่า ระบบจะใช้รูปปกและจุดกึ่งกลางเป็นค่าเริ่มต้น
+                        </Typography>
+                        {imageViewDefs.length === 0 ? (
+                          <Typography variant="body2" color="text.disabled">กำลังโหลด...</Typography>
+                        ) : (
+                          <Stack spacing={2.5}>
+                            {imageViewDefs.map(def => {
+                              const candidateImages = [formData.thumbnailUrl, ...formData.images].filter(Boolean);
+                              const currentImage = getViewImageUrl(def.key);
+                              const focal = getViewFocal(def.key);
+                              return (
+                                <Box key={def.key} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #eee', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                  <Box sx={{ width: { xs: '100%', sm: 220 }, flexShrink: 0 }}>
+                                    <FocalPointPicker
+                                      imageUrl={getImageUrl(currentImage)}
+                                      ratioW={def.ratioW}
+                                      ratioH={def.ratioH}
+                                      focalX={focal.x}
+                                      focalY={focal.y}
+                                      zoom={focal.zoom}
+                                      onChange={(x, y) => setViewFocal(def.key, x, y)}
+                                      onZoomChange={z => setViewZoom(def.key, z)}
+                                    />
+                                  </Box>
+                                  <Box sx={{ flex: 1, minWidth: 220 }}>
+                                    <Typography variant="body1" sx={{ fontWeight: 800 }}>{def.label}</Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                                      {def.usageNote}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: 'primary.main', fontWeight: 700 }}>
+                                      แนะนำ {def.recommendedWidth}×{def.recommendedHeight}px (อัตราส่วน {def.ratioW}:{def.ratioH})
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                                      เลือกรูป
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                      {candidateImages.map((img, i) => {
+                                        const selected = img === currentImage;
+                                        return (
+                                          <Box
+                                            key={i}
+                                            onClick={() => setViewImage(def.key, img)}
+                                            sx={{
+                                              width: 56, height: 56, borderRadius: 1.5, overflow: 'hidden', cursor: 'pointer',
+                                              border: '2px solid', borderColor: selected ? 'primary.main' : 'transparent',
+                                              boxShadow: selected ? 2 : 0, opacity: selected ? 1 : 0.7,
+                                              '&:hover': { opacity: 1 },
+                                            }}
+                                          >
+                                            <img src={getImageUrl(img)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                          </Box>
+                                        );
+                                      })}
+                                    </Box>
+                                  </Box>
+                                </Box>
+                              );
+                            })}
+                          </Stack>
+                        )}
+                      </>
+                    )}
+
+                    {mediaModalTab === 'poster' && posterViewDef && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                          {posterViewDef.usageNote} — คลิกรูปเพื่อตั้งจุดโฟกัส แนะนำ {posterViewDef.recommendedWidth}×{posterViewDef.recommendedHeight}px (อัตราส่วน {posterViewDef.ratioW}:{posterViewDef.ratioH})
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                          {[formData.thumbnailUrl, ...formData.images].filter(Boolean).map((img, i) => (
+                            <Box
+                              key={i}
+                              onClick={() => setPosterModalImage(img)}
+                              sx={{
+                                width: 84, aspectRatio: '4/5', borderRadius: 2, overflow: 'hidden', cursor: 'pointer',
+                                border: '1px solid #eee', position: 'relative',
+                                '&:hover .poster-edit-hint': { opacity: 1 },
+                              }}
+                            >
+                              <img
+                                src={getImageUrl(img)}
+                                alt=""
+                                style={{
+                                  width: '100%', height: '100%', objectFit: 'cover',
+                                  objectPosition: `${getImageFocal(img).x}% ${getImageFocal(img).y}%`,
+                                  transform: `scale(${getImageFocal(img).zoom})`,
+                                  transformOrigin: `${getImageFocal(img).x}% ${getImageFocal(img).y}%`,
+                                }}
+                              />
+                              <Box
+                                className="poster-edit-hint"
+                                sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.15s' }}
+                              >
+                                <CropIcon sx={{ color: 'white', fontSize: 20 }} />
+                              </Box>
+                            </Box>
+                          ))}
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                </Box>
+              </DialogContent>
+              <DialogActions sx={{ px: 3, py: 2 }}>
+                <Button variant="contained" onClick={() => setMediaModalOpen(false)}>เสร็จสิ้น</Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Poster focal-point modal — manage one image's crop at a time */}
+            <Dialog open={!!posterModalImage} onClose={() => setPosterModalImage(null)} maxWidth="xs" fullWidth>
+              <DialogTitle sx={{ fontWeight: 800 }}>
+                ตั้งจุดโฟกัสรูปโปสเตอร์
+                <IconButton onClick={() => setPosterModalImage(null)} sx={{ position: 'absolute', right: 12, top: 12 }}><ClearIcon /></IconButton>
+              </DialogTitle>
+              <DialogContent>
+                {posterModalImage && posterViewDef && (
+                  <>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                      ลากจุดวงกลมเพื่อเลือกส่วนของภาพที่จะโชว์ในหน้ารายละเอียดคลาส (Consumer)
+                    </Typography>
+                    <FocalPointPicker
+                      imageUrl={getImageUrl(posterModalImage)}
+                      ratioW={posterViewDef.ratioW}
+                      ratioH={posterViewDef.ratioH}
+                      focalX={getImageFocal(posterModalImage).x}
+                      focalY={getImageFocal(posterModalImage).y}
+                      zoom={getImageFocal(posterModalImage).zoom}
+                      onChange={(x, y) => setImageFocal(posterModalImage, x, y)}
+                      onZoomChange={z => setImageZoom(posterModalImage, z)}
+                    />
+                  </>
+                )}
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button variant="contained" onClick={() => setPosterModalImage(null)}>เสร็จสิ้น</Button>
+              </DialogActions>
+            </Dialog>
 
             {/* Teacher Guide */}
             <Paper sx={{ p: 3, borderRadius: 3 }}>
@@ -1135,6 +1542,55 @@ const CourseManagement = () => {
               }} />
             </Paper>
           </Grid>
+
+          {editCourse && (
+            <Grid item xs={12}>
+              <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>รีวิวจากลูกค้า</Typography>
+                  {courseReviews.length > 0 && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Rating
+                        value={courseReviews.reduce((s, r) => s + r.rating, 0) / courseReviews.length}
+                        precision={0.1}
+                        readOnly
+                        size="small"
+                      />
+                      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+                        {(courseReviews.reduce((s, r) => s + r.rating, 0) / courseReviews.length).toFixed(1)} ({courseReviews.length})
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+
+                {reviewsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+                ) : courseReviews.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">ยังไม่มีรีวิวสำหรับคลาสนี้</Typography>
+                ) : (
+                  <Stack spacing={1.5} sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {courseReviews.map((r) => (
+                      <Box key={r.id} sx={{ display: 'flex', gap: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#f8fafc' }}>
+                        <Avatar sx={{ width: 32, height: 32, fontSize: 14 }}>{(r.nickname || r.child_name || '?')[0]}</Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{r.nickname || r.child_name}</Typography>
+                            <Rating value={r.rating} readOnly size="small" />
+                          </Box>
+                          {r.comment && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{r.comment}</Typography>
+                          )}
+                          <Typography variant="caption" color="text.disabled">
+                            {new Date(r.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+              </Paper>
+            </Grid>
+          )}
         </Grid>
 
         {/* Fixed save buttons */}
@@ -1178,21 +1634,28 @@ const CourseManagement = () => {
         >
           <DialogTitle sx={{ fontWeight: 800 }}>{pickerState.type === 'achievement' ? '⭐ เลือกทักษะ (Achievement)' : '📊 เลือกตัวชี้วัด (Indicator)'}</DialogTitle>
           <DialogContent dividers>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {libraryItems.filter(s => s.type === pickerState.type).map(item => {
-                const isSelected = pickerState.field ? formData[pickerState.field].includes(item.name) : false;
-                return (
-                  <Chip
-                    key={item.id}
-                    icon={renderSkillIcon(item.icon, { fontSize: 'small', sx: { color: isSelected ? 'inherit' : (item.type === 'achievement' ? '#7452d6' : '#ef4f55') } })}
-                    label={item.name}
-                    onClick={() => togglePickerItem(item.name)}
-                    color={isSelected ? (pickerState.type === 'achievement' ? 'primary' : 'secondary') : 'default'}
-                    variant={isSelected ? 'filled' : 'outlined'}
-                  />
-                );
-              })}
-            </Box>
+            {libraryItems.filter(s => s.type === pickerState.type).length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                ยังไม่มีรายการในคลัง — ไปเพิ่มได้ที่หน้า "จัดการ Skills & ตัวชี้วัด" ก่อน
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {libraryItems.filter(s => s.type === pickerState.type).map(item => {
+                  const isSelected = pickerState.field ? formData[pickerState.field].some(s => s.th === item.name) : false;
+                  const label = item.name_en ? `${item.name} (${item.name_en})` : item.name;
+                  return (
+                    <Chip
+                      key={item.id}
+                      icon={renderSkillIcon(item.icon, { fontSize: 'small', sx: { color: isSelected ? 'inherit' : (item.type === 'achievement' ? '#7452d6' : '#ef4f55') } })}
+                      label={label}
+                      onClick={() => togglePickerItem(item)}
+                      color={isSelected ? (pickerState.type === 'achievement' ? 'primary' : 'secondary') : 'default'}
+                      variant={isSelected ? 'filled' : 'outlined'}
+                    />
+                  );
+                })}
+              </Box>
+            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setPickerState(prev => ({ ...prev, open: false }))}>เสร็จสิ้น</Button>
@@ -1271,6 +1734,7 @@ const CourseManagement = () => {
         <Table>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
             <TableRow>
+              <TableCell sx={{ fontWeight: 800 }}>รูป</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>รหัสคลาส</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ชื่อคลาส</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>หมวดหมู่</TableCell>
@@ -1286,6 +1750,15 @@ const CourseManagement = () => {
               const catColor = categories.find(c => c.id === course.category_id)?.color || '#7452d6';
               return (
                 <TableRow key={course.id} hover>
+                  <TableCell sx={{ width: 56 }}>
+                    <Box sx={{ width: 44, height: 44, borderRadius: 1.5, overflow: 'hidden', bgcolor: '#f8f5ff', border: '1px solid #eee' }}>
+                      {course.thumbnail_url ? (
+                        <img src={getImageUrl(course.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <img src={mellowPlayLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 6, opacity: 0.5 }} />
+                      )}
+                    </Box>
+                  </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{course.code || `#${course.id}`}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{course.name}</TableCell>
                   <TableCell>
@@ -1313,7 +1786,7 @@ const CourseManagement = () => {
             })}
             {filteredCourses.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
                   <Typography variant="body2" color="text.secondary">ไม่พบข้อมูลคลาสเรียน</Typography>
                 </TableCell>
               </TableRow>

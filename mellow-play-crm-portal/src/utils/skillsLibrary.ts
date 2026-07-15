@@ -48,12 +48,11 @@ export type SkillType = 'achievement' | 'indicator';
 export interface SkillItem {
   id: number;
   name: string;
+  name_en?: string;
   type: SkillType;
   icon: string;
   color?: string;
 }
-
-const STORAGE_KEY = 'crm-skills-library-v1';
 
 export const ICON_OPTIONS: { key: string; label: string; Component: React.ElementType }[] = [
   { key: 'DirectionsRun', label: 'วิ่ง/เคลื่อนไหว', Component: DirectionsRun },
@@ -104,43 +103,3 @@ export const renderSkillIcon = (iconKey: string, props?: SvgIconProps): React.Re
   return React.createElement(Star, props);
 };
 
-const defaultSkills: SkillItem[] = [
-  { id: 1, name: 'ทักษะการเคลื่อนไหว', type: 'achievement', icon: 'DirectionsRun', color: '#7452d6' },
-  { id: 2, name: 'ความสมดุลของร่างกาย', type: 'achievement', icon: 'Balance', color: '#7452d6' },
-  { id: 3, name: 'ทักษะกล้ามเนื้อมัดเล็ก', type: 'achievement', icon: 'PanTool', color: '#7452d6' },
-  { id: 4, name: 'ทักษะกล้ามเนื้อมัดใหญ่', type: 'achievement', icon: 'SportsKabaddi', color: '#7452d6' },
-  { id: 5, name: 'ความคิดสร้างสรรค์', type: 'achievement', icon: 'Lightbulb', color: '#7452d6' },
-  { id: 6, name: 'ทักษะการสื่อสาร', type: 'achievement', icon: 'Forum', color: '#7452d6' },
-  { id: 7, name: 'ทักษะการแก้ปัญหา', type: 'achievement', icon: 'Psychology', color: '#7452d6' },
-  { id: 8, name: 'ทักษะการทำงานร่วมกัน', type: 'achievement', icon: 'Group', color: '#7452d6' },
-  { id: 9, name: 'ทักษะดนตรี', type: 'achievement', icon: 'MusicNote', color: '#7452d6' },
-  { id: 10, name: 'ทักษะศิลปะ', type: 'achievement', icon: 'Brush', color: '#7452d6' },
-  { id: 11, name: 'ความมั่นใจในตนเอง', type: 'indicator', icon: 'EmojiEmotions', color: '#ef4f55' },
-  { id: 12, name: 'ความมีวินัย', type: 'indicator', icon: 'Rule', color: '#ef4f55' },
-  { id: 13, name: 'ความอดทน', type: 'indicator', icon: 'HourglassEmpty', color: '#ef4f55' },
-  { id: 14, name: 'ทักษะการฟัง', type: 'indicator', icon: 'Hearing', color: '#ef4f55' },
-  { id: 15, name: 'ความมีสมาธิ', type: 'indicator', icon: 'CenterFocusStrong', color: '#ef4f55' },
-  { id: 16, name: 'การทำงานเป็นทีม', type: 'indicator', icon: 'People', color: '#ef4f55' },
-  { id: 17, name: 'ความกระตือรือร้น', type: 'indicator', icon: 'FlashOn', color: '#ef4f55' },
-  { id: 18, name: 'ความรับผิดชอบ', type: 'indicator', icon: 'Star', color: '#ef4f55' },
-];
-
-export const getSkillsLibrary = (): SkillItem[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as SkillItem[];
-  } catch {
-    // ignore
-  }
-  return [...defaultSkills];
-};
-
-export const saveSkillsLibrary = (items: SkillItem[]): void => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-};
-
-export const getSkillsByType = (type: SkillType): SkillItem[] =>
-  getSkillsLibrary().filter((s) => s.type === type);
-
-export const generateSkillId = (): number =>
-  Date.now();

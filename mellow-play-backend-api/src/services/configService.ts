@@ -27,6 +27,10 @@ export class ConfigService {
     return this.env.JWT_SECRET;
   }
 
+  get googleClientId(): string {
+    return this.env.GOOGLE_CLIENT_ID;
+  }
+
   get db(): D1Database {
     return this.env.DB;
   }

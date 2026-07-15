@@ -5,6 +5,7 @@ import { ConfigService } from '../services/configService';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants/imageViews';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -175,30 +176,35 @@ export class AdminController {
       // Check for duplicates
       for (const parsedChildId of parsedChildIds) {
         if (parsedChildId > 0) {
-          
-          // Check 1: Duplicate course registration
-          const { results: existingBookings } = await db.prepare(`
-            SELECT id, status FROM Bookings 
-            WHERE child_id = ? AND course_id = ? 
-              AND status IN ('confirmed', 'completed')
-          `).bind(parsedChildId, parseInt(courseId)).all();
 
-          if (existingBookings.length > 0) {
-            return c.json({ 
-              success: false, 
-              error_code: 'DUPLICATE_BOOKING',
-              message: 'One of the selected children has already registered for this class.',
-              bookingId: existingBookings[0].id
-            }, 400);
-          }
-
-          // Check 2: Extra Class same day restriction
+          // Check 1: Duplicate course registration — only blocked when this
+          // course is marked non-repeatable (allow_repeat = 0). This is
+          // independent of is_extraclass so an admin can control it directly.
           const { results: courseDetails } = await db.prepare(`
-            SELECT is_extraclass FROM Courses WHERE id = ?
+            SELECT is_extraclass, allow_repeat FROM Courses WHERE id = ?
           `).bind(parseInt(courseId)).all();
 
           const isExtraClass = courseDetails[0]?.is_extraclass;
+          const allowRepeat = courseDetails[0]?.allow_repeat;
 
+          if (!allowRepeat) {
+            const { results: existingBookings } = await db.prepare(`
+              SELECT id, status FROM Bookings
+              WHERE child_id = ? AND course_id = ?
+                AND status IN ('confirmed', 'confirmed_paid', 'completed')
+            `).bind(parsedChildId, parseInt(courseId)).all();
+
+            if (existingBookings.length > 0) {
+              return c.json({
+                success: false,
+                error_code: 'DUPLICATE_BOOKING',
+                message: 'One of the selected children has already registered for this class.',
+                bookingId: existingBookings[0].id
+              }, 400);
+            }
+          }
+
+          // Check 2: Extra Class same day restriction
           if (isExtraClass) {
             const targetDate = scheduledAt.split('T')[0];
             const { results: sameDayExtraBookings } = await db.prepare(`
@@ -207,7 +213,7 @@ export class AdminController {
               WHERE b.child_id = ? 
                 AND c.is_extraclass = 1
                 AND b.scheduled_at LIKE ?
-                AND b.status IN ('confirmed', 'completed')
+                AND b.status IN ('confirmed', 'confirmed_paid', 'completed')
             `).bind(parsedChildId, `${targetDate}%`).all();
 
             if (sameDayExtraBookings.length > 0) {
@@ -288,8 +294,41 @@ export class AdminController {
 
       const isFree = pricePerChild === 0 && paymentMethod !== 'coupon';
       const shouldBypassPayment = isFree || !paymentEnabled;
-      const targetStatus = shouldBypassPayment ? 'confirmed' : (status || 'pending_payment');
+      const targetStatus = shouldBypassPayment ? 'confirmed_paid' : (status || 'pending');
       const targetPaymentStatus = shouldBypassPayment ? 'paid' : (paymentStatus || 'pending');
+
+      // Coupon-based payment: server-side balance validation + deduction.
+      // The client (Booking.tsx) already checks balance for UX, but nothing
+      // previously enforced this server-side, so a booking could be created
+      // with paymentMethod='coupon' without ever spending a coupon.
+      if (paymentMethod === 'coupon' && couponTypeId) {
+        const courseCoupon = await db.prepare(
+          `SELECT quantity_required FROM CourseCoupons WHERE course_id = ? AND coupon_type_id = ?`
+        ).bind(parseInt(courseId), couponTypeId).first() as any;
+        const quantityRequired = courseCoupon?.quantity_required ?? 1;
+
+        for (const parsedChildId of parsedChildIds) {
+          if (parsedChildId <= 0) continue; // guest booking, no coupon to deduct
+          const childCoupon = await db.prepare(
+            `SELECT balance FROM ChildCoupons WHERE child_id = ? AND coupon_type_id = ?`
+          ).bind(parsedChildId, couponTypeId).first() as any;
+          const balance = childCoupon?.balance ?? 0;
+          if (balance < quantityRequired) {
+            return c.json({
+              success: false,
+              error_code: 'INSUFFICIENT_COUPON_BALANCE',
+              message: 'One of the selected children does not have enough coupon balance for this class.'
+            }, 400);
+          }
+        }
+
+        for (const parsedChildId of parsedChildIds) {
+          if (parsedChildId <= 0) continue;
+          await db.prepare(
+            `UPDATE ChildCoupons SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE child_id = ? AND coupon_type_id = ?`
+          ).bind(quantityRequired, parsedChildId, couponTypeId).run();
+        }
+      }
 
       const bookingIds = [];
       for (const parsedChildId of parsedChildIds) {
@@ -304,6 +343,7 @@ export class AdminController {
           slotDate: slotDate ?? undefined,
           slotStartTime: slotStartTime ?? undefined,
           paymentStatus: targetPaymentStatus,
+          paymentMethod: paymentMethod ?? undefined,
           notes: notes ?? undefined,
         });
         bookingIds.push(id);
@@ -313,7 +353,7 @@ export class AdminController {
       let beamPaymentUrl = '';
       let beamSessionId = '';
 
-      if (!shouldBypassPayment && (!status || status === 'pending_payment')) {
+      if (!shouldBypassPayment && (!status || status === 'pending')) {
         try {
           const BEAM_API_KEY = c.env.BEAM_API_KEY;
           const BEAM_MERCHANT_ID = c.env.BEAM_MERCHANT_ID;
@@ -436,6 +476,83 @@ export class AdminController {
     }
   }
 
+  async getImageViews(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    return c.json({ success: true, views: IMAGE_VIEWS, poster: POSTER_VIEW });
+  }
+
+  async getCourseImageViews(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const courseId = parseInt(c.req.param('id'));
+      const rows = await adminRepo.getCourseImageViews(courseId);
+      return c.json({ success: true, views: rows });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async updateCourseImageViews(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const courseId = parseInt(c.req.param('id'));
+      const { views } = await c.req.json();
+
+      if (!Array.isArray(views)) {
+        return c.json({ success: false, message: 'views must be an array' }, 400);
+      }
+      const validKeys = new Set(IMAGE_VIEWS.map(v => v.key));
+      for (const v of views) {
+        if (!validKeys.has(v.viewKey) || !v.imageUrl) {
+          return c.json({ success: false, message: `invalid view entry: ${JSON.stringify(v)}` }, 400);
+        }
+      }
+      const normalizedViews = views.map((v: any) => ({ ...v, zoom: clampZoom(v.zoom) }));
+
+      await adminRepo.upsertCourseImageViews(courseId, normalizedViews);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async getCourseImageFocals(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const courseId = parseInt(c.req.param('id'));
+      const rows = await adminRepo.getCourseImageFocals(courseId);
+      return c.json({ success: true, focals: rows });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async updateCourseImageFocals(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const courseId = parseInt(c.req.param('id'));
+      const { focals } = await c.req.json();
+
+      if (!Array.isArray(focals)) {
+        return c.json({ success: false, message: 'focals must be an array' }, 400);
+      }
+      for (const f of focals) {
+        if (!f.imageUrl) {
+          return c.json({ success: false, message: `invalid focal entry: ${JSON.stringify(f)}` }, 400);
+        }
+      }
+      const normalizedFocals = focals.map((f: any) => ({ ...f, zoom: clampZoom(f.zoom) }));
+
+      await adminRepo.upsertCourseImageFocals(courseId, normalizedFocals);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async getCourses(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -478,6 +595,7 @@ export class AdminController {
         let bestDiscountAmt = 0;
         let bestDiscountPct = 0;
         let bestLabel = null;
+        let bestValidUntil: string | null = null;
         let finalOriginalPrice = course.original_price || 0;
 
         for (const camp of (activeCampaigns as any[])) {
@@ -507,17 +625,61 @@ export class AdminController {
             bestDiscountAmt = calculatedDiscountAmt;
             bestDiscountPct = itemDiscountPct;
             bestLabel = camp.consumer_label;
+            bestValidUntil = camp.valid_until || null;
           }
         }
 
+        // Merge configured per-view image assignments with defaults (thumbnail,
+        // centered focal point) for any view the course hasn't set up yet, so
+        // every consumer of this response can always render every view.
+        let configuredViews: Array<{ view_key: string; image_url: string; focal_x: number; focal_y: number; zoom: number }> = [];
+        try {
+          configuredViews = course.image_views_json ? JSON.parse(course.image_views_json) : [];
+        } catch (e) { /* ignore malformed json */ }
+        const imageViews: Record<string, { imageUrl: string; focalX: number; focalY: number; zoom: number }> = {};
+        for (const view of IMAGE_VIEWS) {
+          const configured = configuredViews.find(v => v.view_key === view.key);
+          imageViews[view.key] = configured
+            ? { imageUrl: formatUrl(configured.image_url) || '', focalX: configured.focal_x, focalY: configured.focal_y, zoom: configured.zoom ?? DEFAULT_FOCAL.zoom }
+            : { imageUrl: formatUrl(course.thumbnail_url) || '', focalX: DEFAULT_FOCAL.focalX, focalY: DEFAULT_FOCAL.focalY, zoom: DEFAULT_FOCAL.zoom };
+        }
+
+        // Poster gallery (Consumer course-detail page): every uploaded image
+        // (thumbnail + gallery), each with its own focal point — see
+        // Course_Image_Focals / POSTER_VIEW in constants/imageViews.ts.
+        let configuredFocals: Array<{ image_url: string; focal_x: number; focal_y: number; zoom: number }> = [];
+        try {
+          configuredFocals = course.image_focals_json ? JSON.parse(course.image_focals_json) : [];
+        } catch (e) { /* ignore malformed json */ }
+        let galleryImages: string[] = [];
+        try {
+          galleryImages = course.images_json ? JSON.parse(course.images_json) : [];
+        } catch (e) { /* ignore malformed json */ }
+        const posterImages = [course.thumbnail_url, ...galleryImages]
+          .filter(Boolean)
+          .map((url: string) => {
+            const configured = configuredFocals.find(f => f.image_url === url);
+            return {
+              imageUrl: formatUrl(url) || '',
+              focalX: configured ? configured.focal_x : DEFAULT_FOCAL.focalX,
+              focalY: configured ? configured.focal_y : DEFAULT_FOCAL.focalY,
+              zoom: configured ? (configured.zoom ?? DEFAULT_FOCAL.zoom) : DEFAULT_FOCAL.zoom,
+            };
+          });
+
+        const { image_views_json, image_focals_json, ...courseFields } = course;
+
         return {
-          ...course,
+          ...courseFields,
           thumbnail_url: formatUrl(course.thumbnail_url),
           video_url: formatUrl(course.video_url),
           teacher_guide_url: formatUrl(course.teacher_guide_url),
+          image_views: imageViews,
+          poster_images: posterImages,
           active_campaign_discount_amount: bestDiscountAmt,
           active_campaign_discount_percent: bestDiscountPct,
-          active_campaign_label: bestLabel
+          active_campaign_label: bestLabel,
+          active_campaign_valid_until: bestValidUntil
         };
       });
 
@@ -780,8 +942,8 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const { name, type, icon, color } = await c.req.json();
-      const id = await adminRepo.createSkill(name, type, icon, color);
+      const { name, type, icon, color, nameEn } = await c.req.json();
+      const id = await adminRepo.createSkill(name, type, icon, color, nameEn);
       return c.json({ success: true, id });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -793,8 +955,8 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
-      const { name, type, icon, color } = await c.req.json();
-      await adminRepo.updateSkill(id, name, type, icon, color);
+      const { name, type, icon, color, nameEn } = await c.req.json();
+      await adminRepo.updateSkill(id, name, type, icon, color, nameEn);
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -1071,7 +1233,7 @@ export class AdminController {
       await config.db.prepare(`UPDATE Member_Coupons SET ${couponColumn} = ${couponColumn} - 1, updated_at = CURRENT_TIMESTAMP WHERE child_id = ?`).bind(childId).run();
       await config.db.prepare(`
         INSERT INTO Bookings (child_id, course_id, branch_id, scheduled_at, status, age_group, calendar_id, slot_date, slot_start_time, payment_status, notes, teaching_staff_id)
-        VALUES (?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, 'prepaid', ?, ?)
+        VALUES (?, ?, ?, ?, 'confirmed_paid', ?, ?, ?, ?, 'prepaid', ?, ?)
       `).bind(childId, courseId, branchId, scheduledAt, ageGroup, calendarId ?? null, date ?? null, startTime ?? null, notes ?? null, teachingStaffId ?? null).run();
       const booking = await config.db.prepare(
         'SELECT id FROM Bookings WHERE course_id=? AND branch_id=? AND scheduled_at=? ORDER BY id DESC LIMIT 1'
@@ -1092,10 +1254,20 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
-      const { status } = await c.req.json();
-      const allowed = ['pending','confirmed','confirmed_paid','completed','cancelled'];
+      const { status, scheduledAt, paidAt } = await c.req.json();
+      const allowed = ['pending','confirmed_paid','awaiting_report','completed','cancelled'];
       if (!allowed.includes(status)) return c.json({ success: false, message: 'invalid status' }, 400);
-      await config.db.prepare('UPDATE Bookings SET status=? WHERE id=?').bind(status, id).run();
+
+      // scheduledAt/paidAt are optional overrides for Super Admin error-correction
+      // (e.g. backdating a payment or fixing a wrong class date) — normal status
+      // changes (complete/cancel) omit them and only the status column updates.
+      const sets = ['status = ?'];
+      const binds: any[] = [status];
+      if (scheduledAt) { sets.push('scheduled_at = ?'); binds.push(scheduledAt); }
+      if (paidAt) { sets.push('paid_at = ?'); binds.push(paidAt); }
+      binds.push(id);
+
+      await config.db.prepare(`UPDATE Bookings SET ${sets.join(', ')} WHERE id=?`).bind(...binds).run();
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

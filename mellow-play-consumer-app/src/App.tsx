@@ -3,22 +3,24 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate,
 import Home from './pages/Home';
 import Roadmap from './pages/Roadmap';
 import KnowMyChild from './pages/KnowMyChild';
-import PCGDetail from './pages/PCGDetail';
 import Album from './pages/Album';
 import Explore from './pages/Explore';
 import Rewards from './pages/Rewards';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
-import Report from './pages/Report';
+import AddChild from './pages/AddChild';
 import SettingsProfile from './pages/SettingsProfile';
 import Booking from './pages/Booking';
 import CourseList from './pages/CourseList';
 import CourseDetail from './pages/CourseDetail';
 import BookingSuccess from './pages/BookingSuccess';
-import { Map, Star, Camera, Compass, Home as HomeIcon } from 'lucide-react';
+import MyCoupons from './pages/MyCoupons';
+import PackagePurchaseSuccess from './pages/PackagePurchaseSuccess';
+import { Map, Star, Camera, Compass, Home as HomeIcon, Lock } from 'lucide-react';
 import { useChildStore } from './store/useChildStore';
 import { LanguageProvider, useTranslation } from './LanguageContext';
+import GuestUnlockModal from './components/GuestUnlockModal';
 
 const AppContent = () => {
   const location = useLocation();
@@ -48,6 +50,14 @@ const AppContent = () => {
 
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const showNav = ['/', '/journey', '/album', '/explore', '/rewards'].includes(location.pathname);
+  const [lockedNavFeature, setLockedNavFeature] = React.useState<string | null>(null);
+
+  const guardedNav = (e: React.MouseEvent, label: string) => {
+    if (isGuest) {
+      e.preventDefault();
+      setLockedNavFeature(label);
+    }
+  };
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#fbfaf7] relative shadow-2xl overflow-hidden">
@@ -55,18 +65,20 @@ const AppContent = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/add-child" element={<AddChild />} />
         <Route path="/" element={<Home />} />
         <Route path="/journey" element={<Roadmap />} />
         <Route path="/know-my-child" element={<Navigate to="/" replace />} />
         <Route path="/know-my-child/:type" element={<Navigate to="/" replace />} />
-        <Route path="/album" element={<Navigate to="/" replace />} />
+        <Route path="/album" element={<Album />} />
         <Route path="/explore" element={<Explore />} />
-        <Route path="/rewards" element={<Navigate to="/" replace />} />
-        <Route path="/report" element={<Navigate to="/" replace />} />
+        <Route path="/rewards" element={<Rewards />} />
         <Route path="/settings" element={<SettingsProfile />} />
         <Route path="/settings/profile" element={<SettingsProfile />} />
         <Route path="/booking" element={<Booking />} />
         <Route path="/booking-success" element={<BookingSuccess />} />
+        <Route path="/my-coupons" element={<MyCoupons />} />
+        <Route path="/package-purchase-success" element={<PackagePurchaseSuccess />} />
         <Route path="/courses/:type" element={<CourseList />} />
         <Route path="/course/:id" element={<CourseDetail />} />
       </Routes>
@@ -78,26 +90,33 @@ const AppContent = () => {
             <HomeIcon size={24} />
             <span className="text-[14px] font-black tracking-tighter">{t.nav.home}</span>
           </Link>
-          <Link to="/journey" className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/journey' ? 'text-mellow-purple' : 'text-slate-400'}`}>
+          <Link to="/journey" onClick={e => guardedNav(e, t.nav.journey)} className={`relative flex flex-col items-center gap-1 transition-colors ${location.pathname === '/journey' ? 'text-mellow-purple' : 'text-slate-400'}`}>
             <Map size={24} />
+            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
             <span className="text-[14px] font-black tracking-tighter">{t.nav.journey}</span>
           </Link>
-          <div className={`relative flex flex-col items-center gap-1 transition-colors text-slate-300 opacity-60 cursor-default`}>
+          <Link to="/album" onClick={e => guardedNav(e, t.nav.album)} className={`relative flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/album' ? 'text-mellow-blue' : 'text-slate-400'}`}>
             <Camera size={24} />
+            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
             <span className="text-[14px] font-black tracking-tighter">{t.nav.album}</span>
-            <div className="absolute -top-2 bg-mellow-red text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-10">Coming Soon</div>
-          </div>
+          </Link>
           <Link to="/explore" className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/explore' ? 'text-mellow-yellow' : 'text-slate-400'}`}>
             <Compass size={24} />
             <span className="text-[14px] font-black tracking-tighter">{t.nav.explore}</span>
           </Link>
-          <div className={`relative flex flex-col items-center gap-1 transition-colors text-slate-300 opacity-60 cursor-default`}>
+          <Link to="/rewards" onClick={e => guardedNav(e, t.nav.rewards)} className={`relative flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/rewards' ? 'text-mellow-green' : 'text-slate-400'}`}>
             <Star size={24} />
+            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
             <span className="text-[14px] font-black tracking-tighter">{t.nav.rewards}</span>
-            <div className="absolute -top-2 bg-mellow-red text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-10">Coming Soon</div>
-          </div>
+          </Link>
         </nav>
       )}
+
+      <GuestUnlockModal
+        isOpen={!!lockedNavFeature}
+        onClose={() => setLockedNavFeature(null)}
+        featureLabel={lockedNavFeature || ''}
+      />
     </div>
   );
 };
