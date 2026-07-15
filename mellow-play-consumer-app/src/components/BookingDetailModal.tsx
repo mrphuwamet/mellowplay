@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Calendar, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award } from 'lucide-react';
+import { X, Calendar, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award, Sparkles } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import CourseRatingPrompt from './CourseRatingPrompt';
@@ -37,7 +37,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
     return d.toLocaleDateString(lang === 'en' ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  let skills: (string | { th: string; en: string })[] = [];
+  let skills: (string | { th: string; en: string; type?: 'achievement' | 'indicator' })[] = [];
   try {
     if (progress?.skills_learned) {
       skills = typeof progress.skills_learned === 'string' ? JSON.parse(progress.skills_learned) : progress.skills_learned;
@@ -52,6 +52,12 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
     if (typeof s === 'string') return s;
     return (lang === 'en' ? s.en : s.th) || s.th || s.en;
   };
+
+  // Course-level "skills" vs. per-report "today's highlight" were recorded
+  // into the same flat array with a type tag; legacy entries (or plain
+  // strings) predate the tag and default to skills.
+  const skillItems = skills.filter(s => typeof s === 'string' || s.type !== 'indicator');
+  const indicatorItems = skills.filter(s => typeof s !== 'string' && s.type === 'indicator');
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -104,12 +110,22 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           {booking.course_short_description && (
             <div>
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                {lang === 'en' ? 'About this class' : 'รายละเอียดกิจกรรมอย่างย่อ'}
+                {lang === 'en' ? 'Details' : 'รายละเอียด'}
               </h4>
               <p className="text-sm text-slate-600 font-medium leading-relaxed">
                 {booking.course_short_description}
               </p>
             </div>
+          )}
+
+          {booking.course_id && (
+            <button
+              onClick={() => navigate(`/course/${booking.course_id}`)}
+              className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+            >
+              <BookOpen size={16} />
+              {lang === 'en' ? 'View More Details' : 'ดูรายละเอียดเพิ่มเติม'}
+            </button>
           )}
 
           <div className="h-px bg-slate-100 my-2" />
@@ -157,14 +173,31 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                     </div>
                   )}
 
-                  {skills.length > 0 && (
+                  {skillItems.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                      <p className="text-[10px] font-black text-mellow-purple uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                        <Award size={11} />
                         {lang === 'en' ? 'Skills' : 'ทักษะที่ได้รับ'}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
-                        {skills.map((s, i) => (
+                        {skillItems.map((s, i) => (
                           <span key={i} className="px-2.5 py-1 bg-mellow-purple/10 text-mellow-purple text-[11px] font-black rounded-full">
+                            {skillLabel(s)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {indicatorItems.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                        <Sparkles size={11} />
+                        {lang === 'en' ? "Today's Highlight" : 'สิ่งที่โดดเด่นในวันนี้'}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {indicatorItems.map((s, i) => (
+                          <span key={i} className="px-2.5 py-1 bg-amber-50 text-amber-600 text-[11px] font-black rounded-full">
                             {skillLabel(s)}
                           </span>
                         ))}
@@ -185,6 +218,14 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                   {booking.course_id && booking.child_id && (
                     <CourseRatingPrompt courseId={booking.course_id} childId={booking.child_id} bookingId={booking.id} />
                   )}
+
+                  <button
+                    onClick={() => navigate(`/report/${booking.id}`, { state: { booking } })}
+                    className="w-full py-3 bg-mellow-purple/10 text-mellow-purple rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Award size={16} />
+                    {lang === 'en' ? 'View Full Report' : 'ดูรายงานฉบับเต็ม'}
+                  </button>
                 </div>
               )}
 
@@ -241,19 +282,9 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           </div>
         </div>
 
-        {booking.course_id && (
-          <button
-            onClick={() => navigate(`/course/${booking.course_id}`)}
-            className="mt-6 w-full py-3.5 bg-slate-100 text-slate-700 rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
-          >
-            <BookOpen size={16} />
-            {lang === 'en' ? 'Class Details' : 'ดูรายละเอียดคลาส'}
-          </button>
-        )}
-
         <button
           onClick={onClose}
-          className="mt-3 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[15px] active:scale-[0.98] transition-all"
+          className="mt-6 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[15px] active:scale-[0.98] transition-all"
         >
           {lang === 'en' ? 'Close' : 'ปิดหน้านี้'}
         </button>

@@ -21,6 +21,30 @@ export class UserRepository {
       .first();
   }
 
+  async findById(id: number): Promise<any> {
+    return await this.db.prepare('SELECT * FROM Users WHERE id = ?')
+      .bind(id)
+      .first();
+  }
+
+  async updatePhone(userId: number, phone: string): Promise<void> {
+    await this.db.prepare('UPDATE Users SET phone = ?, phone_verified = 1 WHERE id = ?')
+      .bind(phone, userId)
+      .run();
+  }
+
+  async updateAvatar(userId: number, avatarUrl: string): Promise<void> {
+    await this.db.prepare('UPDATE Users SET profile_image_url = ? WHERE id = ?')
+      .bind(avatarUrl, userId)
+      .run();
+  }
+
+  async unlinkGoogleId(userId: number): Promise<void> {
+    await this.db.prepare('UPDATE Users SET google_id = NULL WHERE id = ?')
+      .bind(userId)
+      .run();
+  }
+
   async updatePassword(phone: string, passwordHash: string): Promise<void> {
     await this.db.prepare('UPDATE Users SET password_hash = ? WHERE phone = ?')
       .bind(passwordHash, phone)
@@ -62,6 +86,53 @@ export class UserRepository {
     await this.db.prepare('UPDATE Users SET google_id = ? WHERE id = ?')
       .bind(googleId, userId)
       .run();
+  }
+
+  // Moves coupon balance between two children — restricted to siblings under
+  // the SAME parent account, verified server-side against the requester's
+  // own JWT userId rather than trusting the client's claimed ownership.
+  async transferChildCoupon(
+    fromChildId: number,
+    toChildId: number,
+    couponTypeId: number,
+    quantity: number,
+    requestingUserId: number
+  ): Promise<{ success: boolean; message?: string }> {
+    if (fromChildId === toChildId) {
+      return { success: false, message: 'Cannot transfer to the same child' };
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return { success: false, message: 'Invalid quantity' };
+    }
+
+    const { results: children } = await this.db.prepare(
+      `SELECT id, parent_id FROM Children WHERE id IN (?, ?)`
+    ).bind(fromChildId, toChildId).all<{ id: number; parent_id: number }>();
+
+    if (children.length !== 2 || children.some(c => c.parent_id !== requestingUserId)) {
+      return { success: false, message: 'Both children must belong to your account' };
+    }
+
+    const fromBalance = await this.db.prepare(
+      `SELECT balance FROM ChildCoupons WHERE child_id = ? AND coupon_type_id = ?`
+    ).bind(fromChildId, couponTypeId).first<{ balance: number }>();
+
+    if (!fromBalance || fromBalance.balance < quantity) {
+      return { success: false, message: 'Insufficient coupon balance' };
+    }
+
+    await this.db.batch([
+      this.db.prepare(
+        `UPDATE ChildCoupons SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE child_id = ? AND coupon_type_id = ?`
+      ).bind(quantity, fromChildId, couponTypeId),
+      this.db.prepare(`
+        INSERT INTO ChildCoupons (child_id, coupon_type_id, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(child_id, coupon_type_id) DO UPDATE SET balance = balance + excluded.balance, updated_at = CURRENT_TIMESTAMP
+      `).bind(toChildId, couponTypeId, quantity),
+    ]);
+
+    return { success: true };
   }
 
   async countChildren(userId: number): Promise<number> {

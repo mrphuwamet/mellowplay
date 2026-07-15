@@ -6,6 +6,9 @@ import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants/imageViews';
+import { AuthService } from '../services/authService';
+import { sendAlert } from '../services/alertService';
+import { SmsService } from '../services/smsService';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -49,19 +52,34 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
       const data = await c.req.json();
+
+      // The UPDATE statement always rewrites every column, so any field a
+      // caller doesn't send must fall back to whatever is already on file —
+      // otherwise a partial save (e.g. the consumer app's Settings page,
+      // which only sends name/phone/email) would silently null out
+      // everything else (pdpa consent, membership expiry, profile photo...).
+      const current = await adminRepo.getUserById(id);
+      if (!current) return c.json({ success: false, message: 'User not found' }, 404);
+
+      // A consumer editing their own profile (no CRM token) can't change
+      // phone here — that must go through the OTP-verified phone-change
+      // flow (POST /auth/phone-change/*).
+      const phone = !c.get('crmUser') ? current.phone : (data.phone !== undefined ? data.phone : current.phone);
+
       await adminRepo.updateUser(id, {
-        firstName:          data.first_name,
-        lastName:           data.last_name,
-        phone:              data.phone,
-        email:              data.email,
-        relationship:       data.relationship,
-        lineId:             data.line_id,
-        pdpaConsent:        data.pdpa_consent,
-        marketingConsent:   data.marketing_consent,
-        applicationDate:    data.application_date,
-        membershipType:     data.membership_type,
-        membershipExpiresAt: data.membership_expires_at ?? null,
-        profileImageUrl:    data.profile_image_url,
+        firstName:          data.first_name !== undefined ? data.first_name : current.first_name,
+        lastName:           data.last_name !== undefined ? data.last_name : current.last_name,
+        phone,
+        email:              data.email !== undefined ? data.email : current.email,
+        relationship:       data.relationship !== undefined ? data.relationship : current.relationship,
+        lineId:             data.line_id !== undefined ? data.line_id : current.line_id,
+        pdpaConsent:        data.pdpa_consent !== undefined ? data.pdpa_consent : !!current.pdpa_consent,
+        marketingConsent:   data.marketing_consent !== undefined ? data.marketing_consent : (current.marketing_consent != null ? !!current.marketing_consent : null),
+        applicationDate:    data.application_date !== undefined ? data.application_date : current.application_date,
+        membershipType:     data.membership_type !== undefined ? data.membership_type : current.membership_type,
+        membershipExpiresAt: data.membership_expires_at !== undefined ? data.membership_expires_at : current.membership_expires_at,
+        profileImageUrl:    data.profile_image_url !== undefined ? data.profile_image_url : current.profile_image_url,
+        displayName:        data.display_name !== undefined ? data.display_name : current.display_name,
         children:           data.children,
       });
       return c.json({ success: true });
@@ -353,7 +371,7 @@ export class AdminController {
       let beamPaymentUrl = '';
       let beamSessionId = '';
 
-      if (!shouldBypassPayment && (!status || status === 'pending')) {
+      if (!shouldBypassPayment && (!status || status === 'pending' || status === 'pending_payment')) {
         try {
           const BEAM_API_KEY = await settingsRepo.getOverridable('beam_api_key', c.env.BEAM_API_KEY);
           const BEAM_MERCHANT_ID = await settingsRepo.getOverridable('beam_merchant_id', c.env.BEAM_MERCHANT_ID);
@@ -407,9 +425,12 @@ export class AdminController {
         } catch (e: any) {
           const logger = new SystemLogger(config.db);
           await logger.error('beam-payment', e);
-          
-          return c.json({ 
-            success: false, 
+          await sendAlert(config.db, 'Payment Error (Beam Checkout)', {
+            bookingIds: bookingIds.join(', '), error: e.message,
+          });
+
+          return c.json({
+            success: false,
             message: 'ระบบชำระเงินขัดข้อง กรุณาลองใหม่อีกครั้ง หรือติดต่อพนักงาน'
           }, 500);
         }
@@ -421,8 +442,10 @@ export class AdminController {
 
       return c.json({ success: true, id: firstId, bookingIds, paymentUrl: beamPaymentUrl });
     } catch (error: any) {
-      const logger = new SystemLogger(c.env.DB ? c.env.DB : (new ConfigService(c.env)).db);
+      const db = c.env.DB ? c.env.DB : (new ConfigService(c.env)).db;
+      const logger = new SystemLogger(db);
       await logger.error('create-booking', error);
+      await sendAlert(db, 'Booking Creation Failed', { error: error.message });
       return c.json({ success: false, message: 'ระบบชัดข้อง' }, 500);
     }
   }
@@ -431,7 +454,14 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const users = await adminRepo.getAllCrmUsers();
+      const rows = await adminRepo.getAllCrmUsers();
+      const users = rows.map((u: any) => {
+        let workDays: string[] = [];
+        try { workDays = JSON.parse(u.work_days || '[]'); } catch { /* ignore malformed */ }
+        // SQLite has no real boolean — coerce here so `{user.has_pending_reset && <Chip/>}`
+        // in the CRM renders nothing (not the literal text "0") when false.
+        return { ...u, work_days: workDays, has_pending_reset: !!u.has_pending_reset };
+      });
       return c.json({ success: true, users });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -443,7 +473,10 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const data = await c.req.json();
-      const passwordHash = data.password || 'hashed_password'; 
+      if (!data.password || !data.password.trim()) {
+        return c.json({ success: false, message: 'password required' }, 400);
+      }
+      const passwordHash = await AuthService.hashPassword(data.password.trim());
       const id = await adminRepo.createCrmUser({ ...data, passwordHash });
       return c.json({ success: true, id });
     } catch (error: any) {
@@ -457,6 +490,12 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
       const data = await c.req.json();
+      // Password field is optional on edit — leaving it blank keeps the
+      // existing password. When provided, hash it server-side (never trust
+      // a client-supplied hash).
+      if (data.password && data.password.trim()) {
+        data.passwordHash = await AuthService.hashPassword(data.password.trim());
+      }
       await adminRepo.updateCrmUser(id, data);
       return c.json({ success: true });
     } catch (error: any) {
@@ -470,6 +509,37 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
       await adminRepo.deleteCrmUser(id);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Manual-share password reset — internal org, no email service. Generates
+  // a link the admin copies and sends however's convenient (LINE, in
+  // person, etc.); the staff member opens it to set their own new password.
+  async resetCrmUserPassword(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      const token = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      await adminRepo.setCrmUserResetToken(id, token, expiresAt);
+      const origin = c.req.header('origin') || '';
+      const resetLink = `${origin}/reset-password?token=${token}`;
+      return c.json({ success: true, resetLink, expires_at: expiresAt });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async revokeCrmUserResetToken(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      await adminRepo.clearCrmUserResetToken(id);
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -565,23 +635,22 @@ export class AdminController {
 
       const now = new Date();
       
+      // Must be THIS worker's own origin (wherever the upload request actually
+      // landed), never the caller's — a frontend on localhost:5173 calling
+      // the deployed dev worker previously got back a bogus
+      // "http://localhost:8787" URL (nothing listens there), since this used
+      // to guess "local frontend ⇒ local backend" from the request's Origin
+      // header. x-forwarded-host covers any reverse-proxy in front of the
+      // worker; otherwise the request's own URL is authoritative.
       const getOrigin = (ctx: any) => {
-        const originHeader = ctx.req.header('origin') || '';
-        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
-          return 'http://localhost:8787';
-        }
         const forwardedHost = ctx.req.header('x-forwarded-host');
-        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'https';
         if (forwardedHost) {
           return `${forwardedProto}://${forwardedHost}`;
         }
-        const host = ctx.req.header('host');
-        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
-          return `http://${host}`;
-        }
         return new URL(ctx.req.url).origin;
       };
-      
+
       const origin = getOrigin(c);
       const formatUrl = (url?: string) => {
         if (!url) return url;
@@ -695,23 +764,22 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const categories = await adminRepo.getAllCategories();
       
+      // Must be THIS worker's own origin (wherever the upload request actually
+      // landed), never the caller's — a frontend on localhost:5173 calling
+      // the deployed dev worker previously got back a bogus
+      // "http://localhost:8787" URL (nothing listens there), since this used
+      // to guess "local frontend ⇒ local backend" from the request's Origin
+      // header. x-forwarded-host covers any reverse-proxy in front of the
+      // worker; otherwise the request's own URL is authoritative.
       const getOrigin = (ctx: any) => {
-        const originHeader = ctx.req.header('origin') || '';
-        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
-          return 'http://localhost:8787';
-        }
         const forwardedHost = ctx.req.header('x-forwarded-host');
-        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'https';
         if (forwardedHost) {
           return `${forwardedProto}://${forwardedHost}`;
         }
-        const host = ctx.req.header('host');
-        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
-          return `http://${host}`;
-        }
         return new URL(ctx.req.url).origin;
       };
-      
+
       const origin = getOrigin(c);
       const formattedCategories = categories.map((cat: any) => {
         if (!cat.image_url) return cat;
@@ -867,23 +935,22 @@ export class AdminController {
         httpMetadata: { contentType: file.type || 'image/jpeg' },
       });
 
+      // Must be THIS worker's own origin (wherever the upload request actually
+      // landed), never the caller's — a frontend on localhost:5173 calling
+      // the deployed dev worker previously got back a bogus
+      // "http://localhost:8787" URL (nothing listens there), since this used
+      // to guess "local frontend ⇒ local backend" from the request's Origin
+      // header. x-forwarded-host covers any reverse-proxy in front of the
+      // worker; otherwise the request's own URL is authoritative.
       const getOrigin = (ctx: any) => {
-        const originHeader = ctx.req.header('origin') || '';
-        if (originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
-          return 'http://localhost:8787';
-        }
         const forwardedHost = ctx.req.header('x-forwarded-host');
-        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'http';
+        const forwardedProto = ctx.req.header('x-forwarded-proto') || 'https';
         if (forwardedHost) {
           return `${forwardedProto}://${forwardedHost}`;
         }
-        const host = ctx.req.header('host');
-        if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
-          return `http://${host}`;
-        }
         return new URL(ctx.req.url).origin;
       };
-      
+
       const origin = getOrigin(c);
       return c.json({ success: true, url: `${origin}/api/v1/files/${key}` });
     } catch (error: any) {
@@ -899,7 +966,10 @@ export class AdminController {
         console.error('serveFile BUCKET binding is missing!');
         return c.json({ success: false, message: 'Bucket binding missing' }, 500);
       }
-      const object = await c.env.BUCKET.get(fullKey);
+      // R2 accepts the incoming Range header directly and returns just that
+      // byte range — required for <video> seeking/scrubbing to work at all,
+      // and for iOS Safari to play video from this endpoint in the first place.
+      const object = await c.env.BUCKET.get(fullKey, { range: c.req.raw.headers });
       if (!object) {
         console.warn('serveFile object not found in BUCKET for key:', fullKey);
         return c.json({ success: false, message: 'Not found' }, 404);
@@ -908,6 +978,17 @@ export class AdminController {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('cache-control', 'public, max-age=31536000');
+      headers.set('accept-ranges', 'bytes');
+
+      if (object.range) {
+        const start = 'offset' in object.range ? (object.range.offset ?? 0) : 0;
+        const length = 'length' in object.range && object.range.length != null ? object.range.length : object.size - start;
+        headers.set('content-range', `bytes ${start}-${start + length - 1}/${object.size}`);
+        headers.set('content-length', String(length));
+        return new Response(object.body as any, { status: 206, headers });
+      }
+
+      headers.set('content-length', String(object.size));
       return new Response(object.body as any, { headers });
     } catch (error: any) {
       console.error('serveFile error:', error);
@@ -1004,10 +1085,14 @@ export class AdminController {
   // GET only ever returns a masked preview — the real value never round-trips
   // back to the browser, so re-saving an untouched masked field can't
   // overwrite the real secret with "••••1234".
-  private static INTEGRATION_KEYS = ['beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name'] as const;
+  private static INTEGRATION_KEYS = [
+    'beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name', 'discord_webhook_url',
+    'anthropic_api_key', 'google_ai_api_key', 'translation_provider',
+  ] as const;
   // sms_sender_name is the registered ThaiBulkSMS sender ID shown to
   // recipients — a display label, not a credential, so it isn't masked.
-  private static NON_SENSITIVE_KEYS = new Set(['sms_sender_name']);
+  // translation_provider is a plain choice ('claude' | 'gemini'), not a secret either.
+  private static NON_SENSITIVE_KEYS = new Set(['sms_sender_name', 'translation_provider']);
 
   private mask(key: string, value: string): string {
     if (!value) return '';
@@ -1025,7 +1110,8 @@ export class AdminController {
       const envFallback: Record<string, string> = {
         beam_api_key: c.env.BEAM_API_KEY, beam_merchant_id: c.env.BEAM_MERCHANT_ID,
         sms_api_key: c.env.SMS_API_KEY, sms_api_secret: c.env.SMS_API_SECRET,
-        sms_sender_name: 'Demo',
+        sms_sender_name: 'Demo', discord_webhook_url: '',
+        anthropic_api_key: '', google_ai_api_key: '', translation_provider: 'claude',
       };
       const keys: Record<string, { masked: string; isSet: boolean }> = {};
       for (const key of AdminController.INTEGRATION_KEYS) {
@@ -1055,6 +1141,101 @@ export class AdminController {
         }
       }
       return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Lets a super_admin verify a just-pasted key actually works, without
+  // waiting for a real booking/OTP/alert to exercise it. Always tests
+  // whatever is CURRENTLY configured (DB override, falling back to the
+  // Cloudflare secret) — never the unsaved text in the CRM's input field.
+  async testIntegration(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      if (c.get('crmUser')?.role !== 'super_admin') {
+        return c.json({ success: false, message: 'Forbidden' }, 403);
+      }
+      const { service, phone } = await c.req.json();
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+
+      if (service === 'discord') {
+        const webhookUrl = await settingsRepo.getOverridable('discord_webhook_url', '');
+        if (!webhookUrl) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า Discord Webhook URL' }, 400);
+
+        const res = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{
+              title: '✅ ทดสอบการเชื่อมต่อจาก Mellow Play CRM',
+              description: 'ถ้าเห็นข้อความนี้ แปลว่า Discord Webhook เชื่อมต่อสำเร็จ',
+              color: 0x22c55e,
+              timestamp: new Date().toISOString(),
+            }],
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return c.json({ success: false, message: `Discord ตอบกลับ ${res.status}: ${text.slice(0, 300)}` }, 400);
+        }
+        return c.json({ success: true, message: 'ส่งข้อความทดสอบไปที่ Discord แล้ว ตรวจสอบใน channel ได้เลย' });
+      }
+
+      if (service === 'sms') {
+        if (!phone) return c.json({ success: false, message: 'กรุณาระบุเบอร์โทรศัพท์สำหรับทดสอบ' }, 400);
+        const apiKey = await settingsRepo.getOverridable('sms_api_key', c.env.SMS_API_KEY);
+        const apiSecret = await settingsRepo.getOverridable('sms_api_secret', c.env.SMS_API_SECRET);
+        const senderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
+        if (!apiKey || !apiSecret) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า SMS API Key/Secret' }, 400);
+
+        const sms = new SmsService(apiKey, apiSecret, senderName);
+        const result = await sms.sendTest(phone);
+        if (!result.ok) return c.json({ success: false, message: `ส่ง SMS ทดสอบไม่สำเร็จ: ${result.detail || 'unknown error'}` }, 400);
+        return c.json({ success: true, message: `ส่ง SMS ทดสอบไปที่ ${phone} แล้ว` });
+      }
+
+      if (service === 'beam') {
+        const apiKey = await settingsRepo.getOverridable('beam_api_key', c.env.BEAM_API_KEY);
+        const merchantId = await settingsRepo.getOverridable('beam_merchant_id', c.env.BEAM_MERCHANT_ID);
+        if (!apiKey || !merchantId) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า Beam API Key/Merchant ID' }, 400);
+
+        const authString = btoa(`${merchantId}:${apiKey}`);
+        // Mirrors createBooking()'s real payload shape exactly (including
+        // redirectUrl) — Beam's gateway can return an opaque 502 instead of
+        // a clean validation error when a required field like this is missing.
+        const baseUrl = c.req.header('origin') || 'https://mellowplay.co';
+        const res = await fetch('https://api.beamcheckout.com/api/v1/payment-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${authString}` },
+          body: JSON.stringify({
+            linkSettings: { card: { isEnabled: true }, qrPromptPay: { isEnabled: true }, eWallets: { isEnabled: true }, mobileBanking: { isEnabled: true } },
+            order: { currency: 'THB', netAmount: 100, description: 'CRM Test Connection (ทดสอบการเชื่อมต่อ)', referenceId: `TEST-${Date.now()}` },
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+            redirectUrl: `${baseUrl}/`,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return c.json({ success: false, message: `Beam ตอบกลับ ${res.status}: ${text.slice(0, 300)}` }, 400);
+        }
+        const data: any = await res.json();
+        return c.json({ success: true, message: 'สร้างลิงก์จ่ายเงินทดสอบสำเร็จ (คีย์เชื่อมต่อได้จริง) — ไม่ต้องกดจ่าย ลิงก์นี้จะหมดอายุใน 5 นาที', testUrl: data.url });
+      }
+
+      if (service === 'claude' || service === 'gemini') {
+        try {
+          const testPrompt = 'Translate the following text from Thai to English. Output ONLY the translated text.\n\nสวัสดี';
+          const translatedText = service === 'gemini'
+            ? await this.translateWithGemini(settingsRepo, c.env, testPrompt)
+            : await this.translateWithClaude(settingsRepo, c.env, testPrompt);
+          return c.json({ success: true, message: `เชื่อมต่อสำเร็จ — ทดสอบแปล "สวัสดี" ได้ผลลัพธ์: "${translatedText}"` });
+        } catch (e: any) {
+          return c.json({ success: false, message: e.message }, 400);
+        }
+      }
+
+      return c.json({ success: false, message: 'Unknown service' }, 400);
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -1441,6 +1622,108 @@ export class AdminController {
       return c.json({ success: true, logs: results });
     } catch (e: any) {
       return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  // AI machine translation (Claude or Gemini, whichever the CRM's Settings
+  // page has selected) for the news writer's "Auto Translate" button — a
+  // draft translation the admin can then hand-edit. No silent fallback
+  // between providers: if the selected one fails, the admin sees why
+  // (wrong/missing key, etc.) rather than getting a worse translation
+  // from a provider they didn't choose.
+  async translateText(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const { text, from, to } = await c.req.json();
+      if (!text || !from || !to) {
+        return c.json({ success: false, message: 'text, from, to are required' }, 400);
+      }
+
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+      const provider = (await settingsRepo.getOverridable('translation_provider', 'claude')) || 'claude';
+      const langName = (code: string) => (code === 'th' ? 'Thai' : code === 'en' ? 'English' : code);
+      const prompt = `Translate the following text from ${langName(from)} to ${langName(to)}. Output ONLY the translated text with no explanation, no quotes, and no preamble. Preserve line breaks.\n\n${text}`;
+
+      const translatedText = provider === 'gemini'
+        ? await this.translateWithGemini(settingsRepo, c.env, prompt)
+        : await this.translateWithClaude(settingsRepo, c.env, prompt);
+
+      return c.json({ success: true, translatedText });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  private async translateWithClaude(settingsRepo: SettingsRepository, env: Bindings, prompt: string): Promise<string> {
+    const apiKey = await settingsRepo.getOverridable('anthropic_api_key', env.ANTHROPIC_API_KEY || '');
+    if (!apiKey) throw new Error('ยังไม่ได้ตั้งค่า Anthropic API Key');
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Claude API error ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const data: any = await res.json();
+    return data?.content?.[0]?.text?.trim() || '';
+  }
+
+  private async translateWithGemini(settingsRepo: SettingsRepository, env: Bindings, prompt: string): Promise<string> {
+    const apiKey = await settingsRepo.getOverridable('google_ai_api_key', env.GOOGLE_AI_API_KEY || '');
+    if (!apiKey) throw new Error('ยังไม่ได้ตั้งค่า Google AI (Gemini) API Key');
+
+    // "-latest" is Google's rolling alias, always pointing at the current
+    // recommended Flash model — avoids hardcoding a dated version name that
+    // Google later retires out from under this endpoint.
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Gemini API error ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const data: any = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  }
+
+  // Mirrors the same WHERE clause createBooking() uses when actually
+  // applying a promo code at booking time — kept identical so "Apply"
+  // preview here never disagrees with what the booking ends up discounting.
+  async validatePromoCode(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const code = c.req.query('code');
+      const price = parseFloat(c.req.query('price') || '0');
+      if (!code) return c.json({ success: false, message: 'กรุณากรอกโค้ดส่วนลด' }, 400);
+
+      const promo = await config.db.prepare(`
+        SELECT discount_amount, discount_percent FROM Promotions
+        WHERE code = ? AND is_active = 1
+        AND (valid_until IS NULL OR valid_until > datetime('now'))
+        AND (max_uses = 0 OR current_uses < max_uses)
+      `).bind(code).first() as any;
+
+      if (!promo) {
+        return c.json({ success: false, message: 'ไม่พบโค้ด หรือ โค้ดหมดอายุ' }, 404);
+      }
+
+      let discountAmount = promo.discount_percent > 0
+        ? Math.floor(price * promo.discount_percent / 100)
+        : promo.discount_amount;
+      discountAmount = Math.max(0, Math.min(discountAmount, price));
+
+      return c.json({ success: true, discountAmount });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
     }
   }
 

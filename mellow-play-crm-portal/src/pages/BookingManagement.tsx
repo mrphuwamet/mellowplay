@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { formatBirthDate } from '../utils/dateFormat';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Box, Typography, Paper, Chip, Button, IconButton,
@@ -450,7 +451,7 @@ const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onFo
       const date = isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH');
       const time = isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
       const status = getStatusInfo(b.status).label;
-      const childBdate = b.child_birth_date ? new Date(b.child_birth_date).toLocaleDateString('th-TH') : '-';
+      const childBdate = formatBirthDate(b.child_birth_date);
       const actualAge = calculateAge(b.child_birth_date);
       return [
         b.id,
@@ -595,7 +596,7 @@ const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onFo
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
                           {b.child_birth_date && (
                             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '12.5px' }}>
-                              🎂 {new Date(b.child_birth_date).toLocaleDateString('th-TH')} ({calculateAge(b.child_birth_date)})
+                              🎂 {formatBirthDate(b.child_birth_date)} ({calculateAge(b.child_birth_date)})
                             </Typography>
                           )}
                           {b.parent_name && (

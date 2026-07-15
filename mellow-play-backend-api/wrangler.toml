@@ -37,11 +37,14 @@ GOOGLE_CLIENT_ID = "696563144967-jirued97ecjseko0om8h6d5325h58s2g.apps.googleuse
 binding = "DB"
 database_name = "mellow_play_db_dev"
 database_id = "e502e26f-dff8-4006-ad51-c4cd89db3d22"
+preview_database_id = "e502e26f-dff8-4006-ad51-c4cd89db3d22"
 
 [[env.dev.r2_buckets]]
 binding = "BUCKET"
 bucket_name = "mellow-play-assets-dev"
+preview_bucket_name = "mellow-play-assets-dev"
 
 [[env.dev.kv_namespaces]]
 binding = "OTP_KV"
 id = "3b85a45ec6df4e9693e7696133cccf06"
+preview_id = "3b85a45ec6df4e9693e7696133cccf06"

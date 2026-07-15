@@ -80,17 +80,25 @@ export class ShopRepository {
     return results;
   }
   async createProduct(d: any): Promise<number> {
+    const categoryId = d.category_id ?? d.categoryId ?? null;
+    const sellPrice = d.sell_price ?? d.sellPrice ?? 0;
+    const costPrice = d.cost_price ?? d.costPrice ?? 0;
+    const minStock = d.min_stock ?? d.minStock ?? 5;
     const r = await this.db.prepare(`
       INSERT INTO Products (sku, name, category_id, description, sell_price, cost_price, unit, min_stock, current_stock, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-    `).bind(d.sku, d.name, d.categoryId ?? null, d.description ?? null, d.sellPrice, d.costPrice, d.unit, d.minStock, d.active ? 1 : 0).run();
+    `).bind(d.sku, d.name, categoryId, d.description ?? null, sellPrice, costPrice, d.unit ?? null, minStock, d.active ? 1 : 0).run();
     return r.meta.last_row_id as number;
   }
   async updateProduct(id: number, d: any): Promise<void> {
+    const categoryId = d.category_id ?? d.categoryId ?? null;
+    const sellPrice = d.sell_price ?? d.sellPrice ?? 0;
+    const costPrice = d.cost_price ?? d.costPrice ?? 0;
+    const minStock = d.min_stock ?? d.minStock ?? 5;
     await this.db.prepare(`
       UPDATE Products SET sku=?, name=?, category_id=?, description=?, sell_price=?, cost_price=?, unit=?, min_stock=?, active=?
       WHERE id=?
-    `).bind(d.sku, d.name, d.categoryId ?? null, d.description ?? null, d.sellPrice, d.costPrice, d.unit, d.minStock, d.active ? 1 : 0, id).run();
+    `).bind(d.sku, d.name, categoryId, d.description ?? null, sellPrice, costPrice, d.unit ?? null, minStock, d.active ? 1 : 0, id).run();
   }
   async deleteProduct(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Products WHERE id=?').bind(id).run();

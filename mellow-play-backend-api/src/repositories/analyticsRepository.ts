@@ -53,33 +53,55 @@ export class AnalyticsRepository {
 
   async getParentStats(): Promise<any> {
     const totalRow = await this.db.prepare(`SELECT COUNT(*) as total FROM Users`).first<any>();
+    // membership_type only ever has two real values in the CRM ('regular' /
+    // 'premium' — see UserManagement.tsx's MEMBERSHIP_TYPES) — anything else
+    // (the unused DB default 'standard', blank, null) is really just "regular".
     const { results: byType } = await this.db.prepare(`
-      SELECT COALESCE(NULLIF(TRIM(membership_type), ''), 'standard') as type, COUNT(*) as count
+      SELECT CASE WHEN LOWER(TRIM(membership_type)) = 'premium' THEN 'premium' ELSE 'regular' END as type, COUNT(*) as count
       FROM Users
       GROUP BY type
     `).all<any>();
     return { total: totalRow?.total || 0, byMembershipType: byType };
   }
 
-  async getTrends(range: 'week' | 'month' | 'year'): Promise<any[]> {
-    const daysBack = range === 'week' ? 7 : range === 'month' ? 30 : 365;
+  // Parent type by relationship to the child (บิดา/มารดา/ปู่ย่าตายาย/อื่นๆ —
+  // see UserManagement.tsx's RELATIONSHIPS), separate from membership type.
+  async getParentRelationshipStats(): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT COALESCE(NULLIF(TRIM(relationship), ''), 'unspecified') as relationship, COUNT(*) as count
+      FROM Users
+      GROUP BY relationship
+    `).all<any>();
+    return results;
+  }
+
+  async getTrends(range: 'week' | 'month' | 'year' | 'custom', startDate?: string, endDate?: string): Promise<any[]> {
     const dateFormat = range === 'year' ? '%Y-%m' : '%Y-%m-%d';
+    let dateFilter: string;
+    const params: string[] = [];
+    if (range === 'custom' && startDate && endDate) {
+      dateFilter = `DATE(created_at) BETWEEN ? AND ?`;
+      params.push(startDate, endDate);
+    } else {
+      const daysBack = range === 'week' ? 7 : range === 'month' ? 30 : 365;
+      dateFilter = `created_at >= datetime('now', '-${daysBack} days')`;
+    }
 
     const { results: bookingRows } = await this.db.prepare(`
       SELECT strftime('${dateFormat}', created_at) as period, COUNT(*) as bookings
       FROM Bookings
-      WHERE created_at >= datetime('now', '-${daysBack} days') AND status != 'cancelled'
+      WHERE ${dateFilter} AND status != 'cancelled'
       GROUP BY period
       ORDER BY period ASC
-    `).all<any>();
+    `).bind(...params).all<any>();
 
     const { results: revenueRows } = await this.db.prepare(`
       SELECT strftime('${dateFormat}', created_at) as period, SUM(amount) as revenue
       FROM Transactions
-      WHERE created_at >= datetime('now', '-${daysBack} days') AND is_voided = 0 AND amount > 0
+      WHERE ${dateFilter} AND is_voided = 0 AND amount > 0
       GROUP BY period
       ORDER BY period ASC
-    `).all<any>();
+    `).bind(...params).all<any>();
 
     const merged = new Map<string, { period: string; bookings: number; revenue: number }>();
     for (const r of bookingRows) merged.set(r.period, { period: r.period, bookings: r.bookings, revenue: 0 });

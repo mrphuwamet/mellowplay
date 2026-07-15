@@ -22,6 +22,7 @@ import {
 import { Add, Edit, Delete, CloudUpload } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL } from '../config';
+import LoadingOverlay from '../components/LoadingOverlay';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -29,6 +30,12 @@ interface StampImageRange {
   id: number;
   range_start: number;
   range_end: number;
+  image_url: string;
+}
+
+interface StampPageBackground {
+  id: number;
+  page_number: number;
   image_url: string;
 }
 
@@ -41,6 +48,13 @@ const StampImageManagement = () => {
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [backgrounds, setBackgrounds] = useState<StampPageBackground[]>([]);
+  const [bgOpen, setBgOpen] = useState(false);
+  const [bgEditing, setBgEditing] = useState<StampPageBackground | null>(null);
+  const [bgForm, setBgForm] = useState({ pageNumber: 1, imageUrl: '' });
+  const [bgUploading, setBgUploading] = useState(false);
+  const [bgError, setBgError] = useState('');
+
   const fetchRanges = async () => {
     try {
       const { data } = await axios.get(`${API_BASE}/stamp-image-ranges`);
@@ -50,7 +64,73 @@ const StampImageManagement = () => {
     }
   };
 
-  useEffect(() => { fetchRanges(); }, []);
+  const fetchBackgrounds = async () => {
+    try {
+      const { data } = await axios.get(`${API_BASE}/stamp-page-backgrounds`);
+      if (data.success) setBackgrounds(data.backgrounds);
+    } catch (e) {
+      console.error('Failed to fetch stamp page backgrounds', e);
+    }
+  };
+
+  useEffect(() => { fetchRanges(); fetchBackgrounds(); }, []);
+
+  const handleBgOpen = (bg?: StampPageBackground) => {
+    setBgError('');
+    if (bg) {
+      setBgEditing(bg);
+      setBgForm({ pageNumber: bg.page_number, imageUrl: bg.image_url });
+    } else {
+      setBgEditing(null);
+      const nextPage = backgrounds.length ? Math.max(...backgrounds.map(b => b.page_number)) + 1 : 1;
+      setBgForm({ pageNumber: nextPage, imageUrl: '' });
+    }
+    setBgOpen(true);
+  };
+
+  const uploadBgImage = async (file: File) => {
+    setBgUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'stamp-backgrounds');
+      const res = await axios.post(`${API_BASE}/upload`, fd);
+      if (res.data.success) setBgForm(f => ({ ...f, imageUrl: res.data.url }));
+      else setBgError('อัปโหลดรูปไม่สำเร็จ');
+    } catch {
+      setBgError('อัปโหลดรูปไม่สำเร็จ');
+    } finally {
+      setBgUploading(false);
+    }
+  };
+
+  const handleBgSave = async () => {
+    setBgError('');
+    if (bgForm.pageNumber < 1) { setBgError('ลำดับหน้าต้องเริ่มจาก 1'); return; }
+    if (!bgForm.imageUrl) { setBgError('กรุณาอัปโหลดรูปพื้นหลัง'); return; }
+    try {
+      if (bgEditing) await axios.put(`${API_BASE}/stamp-page-backgrounds/${bgEditing.id}`, bgForm);
+      else await axios.post(`${API_BASE}/stamp-page-backgrounds`, bgForm);
+      setBgOpen(false);
+      fetchBackgrounds();
+    } catch (e: any) {
+      setBgError(e.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึก');
+    }
+  };
+
+  const handleBgDelete = async (id: number) => {
+    if (!window.confirm('ต้องการลบพื้นหลังหน้านี้ใช่หรือไม่?')) return;
+    try {
+      await axios.delete(`${API_BASE}/stamp-page-backgrounds/${id}`);
+      fetchBackgrounds();
+    } catch (e) {
+      console.error('Failed to delete stamp page background', e);
+    }
+  };
+
+  // Distinct images already uploaded across other ranges, so staff can
+  // reuse one instead of uploading the same icon again for every range.
+  const existingImages = Array.from(new Set(ranges.map(r => r.image_url).filter(Boolean)));
 
   const handleOpen = (range?: StampImageRange) => {
     setError('');
@@ -60,7 +140,8 @@ const StampImageManagement = () => {
     } else {
       setEditing(null);
       const nextStart = ranges.length ? Math.max(...ranges.map(r => r.range_end)) + 1 : 1;
-      setForm({ rangeStart: nextStart, rangeEnd: nextStart + 9, imageUrl: '' });
+      // Default span matches the consumer app's 12-per-page stamp grid.
+      setForm({ rangeStart: nextStart, rangeEnd: nextStart + 11, imageUrl: '' });
     }
     setOpen(true);
   };
@@ -146,6 +227,96 @@ const StampImageManagement = () => {
         </Table>
       </TableContainer>
 
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 5, mb: 3 }}>
+        <Box>
+          <Typography variant="h5" fontWeight="bold">พื้นหลังการ์ดแสตมป์</Typography>
+          <Typography variant="body2" color="text.secondary">
+            กำหนดรูปพื้นหลังของการ์ดแสตมป์แต่ละหน้า (ตามหมายเลขหน้าที่แสดงในแอป เช่น "2 / 3")
+          </Typography>
+        </Box>
+        <Button variant="contained" startIcon={<Add />} onClick={() => handleBgOpen()}>เพิ่มพื้นหลัง</Button>
+      </Box>
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>พื้นหลัง</TableCell>
+              <TableCell>หน้าที่</TableCell>
+              <TableCell>จัดการ</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {backgrounds.length === 0 && (
+              <TableRow><TableCell colSpan={3} align="center" sx={{ color: 'text.secondary', py: 4 }}>ยังไม่มีการตั้งค่าพื้นหลัง (จะใช้พื้นหลังปกติ)</TableCell></TableRow>
+            )}
+            {backgrounds.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell>
+                  <Box component="img" src={b.image_url} alt="background" sx={{ width: 64, height: 40, objectFit: 'cover', borderRadius: 1 }} />
+                </TableCell>
+                <TableCell>หน้า {b.page_number}</TableCell>
+                <TableCell>
+                  <IconButton onClick={() => handleBgOpen(b)} color="primary"><Edit /></IconButton>
+                  <IconButton onClick={() => handleBgDelete(b.id)} color="error"><Delete /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Dialog open={bgOpen} onClose={() => setBgOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{bgEditing ? 'แก้ไขพื้นหลัง' : 'เพิ่มพื้นหลัง'}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {bgError && <Alert severity="error">{bgError}</Alert>}
+            <TextField
+              label="หน้าที่ (#)"
+              type="number"
+              fullWidth
+              inputProps={{ min: 1 }}
+              value={bgForm.pageNumber}
+              onChange={e => setBgForm(f => ({ ...f, pageNumber: parseInt(e.target.value) || 1 }))}
+            />
+
+            <Button
+              variant="outlined"
+              component="label"
+              startIcon={bgUploading ? <CircularProgress size={16} /> : <CloudUpload />}
+              disabled={bgUploading}
+            >
+              {bgForm.imageUrl ? 'เปลี่ยนรูปพื้นหลัง' : 'อัปโหลดรูปพื้นหลัง'}
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadBgImage(file);
+                  e.target.value = '';
+                }}
+              />
+            </Button>
+
+            {bgForm.imageUrl && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">ตัวอย่าง:</Typography>
+                <Box mt={1}>
+                  <img src={bgForm.imageUrl} alt="Preview" style={{ maxHeight: 120, maxWidth: '100%', objectFit: 'cover', borderRadius: 8 }} />
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBgOpen(false)}>ยกเลิก</Button>
+          <Button onClick={handleBgSave} variant="contained" disabled={bgUploading}>บันทึก</Button>
+        </DialogActions>
+      </Dialog>
+
+      <LoadingOverlay active={bgUploading} message="กำลังอัปโหลดรูปพื้นหลัง..." />
+
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? 'แก้ไขช่วงรูปแสตมป์' : 'เพิ่มช่วงรูปแสตมป์'}</DialogTitle>
         <DialogContent>
@@ -198,6 +369,30 @@ const StampImageManagement = () => {
                 </Box>
               </Box>
             )}
+
+            {existingImages.length > 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  หรือใช้รูปที่เคยอัปโหลดแล้ว:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {existingImages.map((url, i) => (
+                    <Box
+                      key={i}
+                      component="img"
+                      src={url}
+                      alt="stamp option"
+                      onClick={() => setForm(f => ({ ...f, imageUrl: url }))}
+                      sx={{
+                        width: 44, height: 44, objectFit: 'contain', borderRadius: 1.5, p: 0.5,
+                        cursor: 'pointer', border: '2px solid', borderColor: form.imageUrl === url ? 'primary.main' : 'divider',
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -205,6 +400,8 @@ const StampImageManagement = () => {
           <Button onClick={handleSave} variant="contained" disabled={uploading}>บันทึก</Button>
         </DialogActions>
       </Dialog>
+
+      <LoadingOverlay active={uploading} message="กำลังอัปโหลดรูปแสตมป์..." />
     </Box>
   );
 };

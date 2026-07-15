@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Gift, AlertCircle, Star, ChevronLeft as ArrowLeft, ChevronRight as ArrowRight, History, X, Crown, Medal } from 'lucide-react';
+import { ChevronLeft, Gift, AlertCircle, Star, ChevronLeft as ArrowLeft, ChevronRight as ArrowRight, History, X } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -32,7 +32,14 @@ interface Redemption {
   created_at: string;
 }
 
-const PAGE_SIZE = 15; // 3 rows x 5 cols
+const PAGE_SIZE = 12; // 3 rows x 4 cols
+// Brand CI colors, cycled by stamp position when no custom stamp image is set.
+const STAMP_CI_COLORS = ['#7452d6', '#2273d9', '#21a45b', '#f7aa16', '#ef4f55', '#f6a800'];
+// Wavy "stamp seal" outline (12-petal ring) shared by the clip-path (real
+// stamps) and the dashed-outline SVG stroke (empty/future stamp slots) —
+// a plain CSS border can't follow a clip-path, so empty slots need this
+// same path drawn as an actual stroked <path> instead.
+const STAMP_SCALLOP_PATH = 'M0.9,0.5 A0.13,0.13 0 0 1 0.8464,0.7 A0.13,0.13 0 0 1 0.7,0.8464 A0.13,0.13 0 0 1 0.5,0.9 A0.13,0.13 0 0 1 0.3,0.8464 A0.13,0.13 0 0 1 0.1536,0.7 A0.13,0.13 0 0 1 0.1,0.5 A0.13,0.13 0 0 1 0.1536,0.3 A0.13,0.13 0 0 1 0.3,0.1536 A0.13,0.13 0 0 1 0.5,0.1 A0.13,0.13 0 0 1 0.7,0.1536 A0.13,0.13 0 0 1 0.8464,0.3 A0.13,0.13 0 0 1 0.9,0.5 Z';
 
 const Rewards = () => {
   const navigate = useNavigate();
@@ -54,6 +61,7 @@ const Rewards = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Redemption[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [pageBackgrounds, setPageBackgrounds] = useState<{ page_number: number; image_url: string }[]>([]);
 
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
@@ -92,6 +100,9 @@ const Rewards = () => {
 
   useEffect(() => {
     fetchRewards();
+    apiClient.get('/stamp-page-backgrounds')
+      .then(res => { if (res.data.success) setPageBackgrounds(res.data.backgrounds); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -113,36 +124,39 @@ const Rewards = () => {
     }
   };
 
-  const handleRedeem = async (reward: Reward) => {
+  const [confirmReward, setConfirmReward] = useState<Reward | null>(null);
+
+  const promptRedeem = (reward: Reward) => {
     if (!selectedChild?.id) return;
     if (availableCount < reward.stamp_cost) {
       setErrorMsg(lang === 'en' ? 'Not enough stamps for this reward' : 'ยอดแสตมป์สะสมไม่เพียงพอสำหรับการแลกรางวัลนี้');
       return;
     }
+    setConfirmReward(reward);
+  };
 
-    if (confirm(lang === 'en'
-      ? `Use ${reward.stamp_cost} stamps to redeem ${reward.name}?`
-      : `คุณต้องการใช้ ${reward.stamp_cost} แสตมป์ เพื่อแลก ${reward.name} ใช่หรือไม่?`)) {
-      setSubmitting(true);
-      setErrorMsg('');
-      try {
-        const response = await apiClient.post('/rewards/redeem', {
-          childId: selectedChild.id,
-          rewardId: reward.id
-        });
+  const handleRedeem = async (reward: Reward) => {
+    if (!selectedChild?.id) return;
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      const response = await apiClient.post('/rewards/redeem', {
+        childId: selectedChild.id,
+        rewardId: reward.id
+      });
 
-        if (response.data.success) {
-          setSuccessMsg(lang === 'en'
-            ? `Redeemed successfully! Your claim code: ${response.data.claimCode}`
-            : `แลกของรางวัลสำเร็จ! รหัสรับสิทธิ์ของคุณคือ: ${response.data.claimCode}`);
-          fetchRewards();
-          fetchStamps();
-        }
-      } catch (err: any) {
-        setErrorMsg(err.response?.data?.message || (lang === 'en' ? 'Something went wrong' : 'เกิดข้อผิดพลาดในการทำรายการ'));
-      } finally {
-        setSubmitting(false);
+      if (response.data.success) {
+        setSuccessMsg(lang === 'en'
+          ? `Redeemed successfully! Your claim code: ${response.data.claimCode}`
+          : `แลกของรางวัลสำเร็จ! รหัสรับสิทธิ์ของคุณคือ: ${response.data.claimCode}`);
+        fetchRewards();
+        fetchStamps();
       }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || (lang === 'en' ? 'Something went wrong' : 'เกิดข้อผิดพลาดในการทำรายการ'));
+    } finally {
+      setSubmitting(false);
+      setConfirmReward(null);
     }
   };
 
@@ -154,7 +168,9 @@ const Rewards = () => {
     const startIdx = Math.max(0, endIdx - PAGE_SIZE);
     const real = stamps.slice(startIdx, endIdx);
     const padCount = PAGE_SIZE - real.length;
-    return [...Array(padCount).fill(null), ...real];
+    // Real stamps read left-to-right, top-to-bottom like a normal stamp
+    // card; empty slots trail at the end instead of leading.
+    return [...real, ...Array(padCount).fill(null)];
   }, [stamps, pageIndex, totalCount]);
 
   const formatDate = (dateStr: string) =>
@@ -163,42 +179,83 @@ const Rewards = () => {
   const renderStampCell = (stamp: Stamp | null, i: number) => {
     if (!stamp) {
       return (
-        <div key={`empty-${i}`} className="aspect-square flex items-center justify-center">
-          <div className="w-11 h-11 rounded-full border-2 border-dashed border-slate-200" />
+        // Same two-level wrapper (outer auto-size flex + inner fixed
+        // w-16 h-16) as a real stamp cell below, so every cell in the row
+        // has an identical bounding box and lines up exactly regardless of
+        // which cells are empty vs. filled.
+        <div key={`empty-${i}`} className="flex items-center justify-center">
+          <div className="relative w-16 h-16 flex items-center justify-center">
+            {/* A plain CSS border can't follow clip-path, so the dashed
+                "future stamp" outline is drawn as an actual stroked path
+                instead, tracing the same wavy shape as real stamps. */}
+            <svg viewBox="0 0 1 1" className="w-14 h-14">
+              <path d={STAMP_SCALLOP_PATH} fill="none" stroke="#cbd5e1" strokeWidth="0.025" strokeDasharray="0.035 0.03" strokeLinecap="round" />
+            </svg>
+          </div>
         </div>
       );
     }
 
     const isMasked = stamp.status !== 'available';
+    const ciColor = STAMP_CI_COLORS[(stamp.position - 1) % STAMP_CI_COLORS.length];
     return (
-      <div key={stamp.id} className="aspect-square flex flex-col items-center justify-center">
-        <div className={`relative w-12 h-12 rounded-full flex items-center justify-center shadow-sm overflow-hidden ${isMasked ? 'grayscale opacity-50' : ''}`}
-          style={{ backgroundColor: stamp.image_url ? 'transparent' : '#1e1b2e' }}
-        >
-          {stamp.image_url ? (
-            <img src={stamp.image_url} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <Star size={22} className="text-yellow-400" fill="currentColor" />
+      <div key={stamp.id} className="flex items-center justify-center">
+        <div className="relative w-16 h-16">
+          <div className={`w-16 h-16 flex items-center justify-center shadow-sm overflow-hidden ${isMasked ? 'grayscale' : ''}`}
+            style={{ backgroundColor: stamp.image_url ? 'transparent' : ciColor, clipPath: 'url(#stampScallop)' }}
+          >
+            {stamp.image_url ? (
+              <img src={stamp.image_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Star size={28} className="text-white" fill="currentColor" />
+            )}
+          </div>
+          {/* "Used"/"Expired" reads as an ink stamp mark punched directly
+              onto the stamp itself, instead of a caption underneath. */}
+          {isMasked && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span
+                className="text-[9px] font-black text-white border-[1.5px] border-white px-1.5 py-0.5 rounded-sm uppercase tracking-wider bg-black/50"
+                style={{ transform: 'rotate(-16deg)' }}
+              >
+                {stamp.status === 'used' ? (lang === 'en' ? 'Used' : 'ใช้แล้ว') : (lang === 'en' ? 'Expired' : 'หมดอายุ')}
+              </span>
+            </div>
           )}
-        </div>
-        {isMasked && (
-          <span className="text-[9px] font-black mt-1 text-slate-400">
-            {stamp.status === 'used' ? (lang === 'en' ? 'Used' : 'ใช้แล้ว') : (lang === 'en' ? 'Expired' : 'หมดอายุ')}
+          {/* Sits on a non-clipped sibling so the round parent's
+              overflow-hidden doesn't cut the corner off this badge. */}
+          <span className="absolute -bottom-1.5 -right-1.5 min-w-[26px] h-[26px] px-[5px] rounded-full bg-white text-mellow-ink text-[14px] font-black flex items-center justify-center shadow-md border border-slate-100 leading-none">
+            {stamp.position}
           </span>
-        )}
+        </div>
       </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans">
+      {/* Shared clip-path def for the wavy/scalloped "stamp seal" edge — a
+          ring of 12 rounded petal-bumps instead of a smooth circle, evoking
+          a real stamp's perforated cut without boxing it into a square.
+          Defined once, referenced by every stamp cell via
+          clip-path: url(#stampScallop). objectBoundingBox units make it
+          scale to whatever box size it's applied to. */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <defs>
+          <clipPath id="stampScallop" clipPathUnits="objectBoundingBox">
+            <path d={STAMP_SCALLOP_PATH} />
+          </clipPath>
+        </defs>
+      </svg>
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
         <div className="text-center">
           <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">Mellow Reward Store</h1>
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">แลกรับของรางวัล</span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+            {lang === 'en' ? 'Redeem Rewards' : 'แลกรับของรางวัล'}
+          </span>
         </div>
         <button onClick={openHistory} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <History size={18} />
@@ -207,57 +264,84 @@ const Rewards = () => {
 
       <main className="p-4">
         {/* User Profile Banner */}
-        <div className="bg-gradient-to-r from-slate-100 to-slate-50 rounded-3xl p-5 shadow-sm mb-6 flex justify-between items-center">
-           <div>
-             <span className="text-sm font-bold text-slate-500">{selectedChild?.name}</span>
-             <h2 className="text-sm font-black text-slate-500 uppercase tracking-widest mt-1">
-               {lang === 'en' ? 'Stamps available to redeem' : 'แสตมป์ที่แลกได้'}
-             </h2>
-             <div className="text-4xl font-black text-mellow-ink mt-1">{availableCount}</div>
-
-             {!isPremium && nearestExpiryDate && expiringSoonCount > 0 && (
-               <div className="mt-2 text-xs font-bold text-amber-600 bg-amber-50 inline-block px-2.5 py-1 rounded-full">
-                 {lang === 'en'
-                   ? `${expiringSoonCount} expiring on ${formatDate(nearestExpiryDate)}`
-                   : `${expiringSoonCount} ดวงจะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
+        <div className="bg-gradient-to-r from-slate-100 to-slate-50 rounded-3xl p-4 shadow-sm mb-6">
+          <div className="flex justify-between items-center">
+             <div className="min-w-0">
+               {selectedChild?.nickname && (
+                 <p className="text-2xl font-black text-slate-800 leading-tight truncate">{selectedChild.nickname}</p>
+               )}
+               <div className="flex items-center gap-1.5 mt-1">
+                 <span className="text-xs font-bold text-slate-500 truncate">{selectedChild?.name}</span>
+                 {/* Membership tier is a product-name label, not translated copy. */}
+                 <span className={`shrink-0 text-xs font-black px-1.5 py-0.5 rounded-full ${isPremium ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+                   {isPremium ? 'Premium' : 'Regular'}
+                 </span>
                </div>
-             )}
-           </div>
-           <div className="text-center">
-             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 mx-auto border-4 border-white shadow-sm overflow-hidden ${isPremium ? 'bg-gradient-to-br from-amber-400 to-yellow-500' : 'bg-emerald-100'}`}>
-                {isPremium ? <Crown size={28} className="text-white" /> : <Medal size={28} className="text-emerald-600" />}
+               {!isPremium && nearestExpiryDate && expiringSoonCount > 0 && (
+                 <p className="mt-1 text-[11px] font-bold text-slate-400">
+                   {lang === 'en'
+                     ? `${expiringSoonCount} ${expiringSoonCount === 1 ? 'stamp' : 'stamps'} expiring on ${formatDate(nearestExpiryDate)}`
+                     : `มีแสตมป์ ${expiringSoonCount} ดวง จะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
+                 </p>
+               )}
              </div>
-             <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-full shadow-sm">
-               {isPremium ? 'Premium' : (lang === 'en' ? 'Regular' : 'สมาชิกทั่วไป')}
-             </span>
-           </div>
+             {/* The most prominent element on the page — everything else
+                 (name, membership) is secondary to "how many stamps do I have". */}
+             <div
+               className={`w-24 h-24 flex flex-col items-center justify-center shadow-lg shrink-0 ${isPremium ? 'bg-gradient-to-br from-amber-400 to-yellow-500' : 'bg-emerald-100'}`}
+               style={{ clipPath: 'url(#stampScallop)' }}
+             >
+               <span className={`text-[9px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
+                 {lang === 'en' ? 'Available' : 'พร้อมแลก'}
+               </span>
+               <span
+                 className={`text-3xl font-black leading-tight ${isPremium ? 'text-white' : 'text-emerald-700'}`}
+                 style={{ WebkitTextStroke: '0.6px currentColor' }}
+               >
+                 {availableCount}
+               </span>
+               <span className={`text-[9px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
+                 {lang === 'en' ? 'stamps' : 'แสตมป์'}
+               </span>
+             </div>
+          </div>
         </div>
 
-        {/* Stamps Grid */}
-        <div className="bg-white rounded-3xl p-5 shadow-sm mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <button
-              onClick={() => setPageIndex(p => Math.min(pageCount - 1, p + 1))}
-              disabled={pageIndex >= pageCount - 1}
-              className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform"
+        {/* Stamps Grid — page_number matches the "N / total" label shown
+            below, so a CRM-uploaded background swaps in per page. */}
+        {(() => {
+          const currentPageNumber = pageCount - pageIndex;
+          const pageBg = pageBackgrounds.find(b => b.page_number === currentPageNumber);
+          return (
+            <div
+              className={`rounded-3xl p-5 shadow-sm mb-6 ${pageBg ? 'bg-cover bg-center' : 'bg-white'}`}
+              style={pageBg ? { backgroundImage: `url(${pageBg.image_url})` } : undefined}
             >
-              <ArrowLeft size={16} />
-            </button>
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
-              {totalCount === 0 ? (lang === 'en' ? 'No stamps yet' : 'ยังไม่มีแสตมป์') : `${pageCount - pageIndex} / ${pageCount}`}
-            </span>
-            <button
-              onClick={() => setPageIndex(p => Math.max(0, p - 1))}
-              disabled={pageIndex <= 0}
-              className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform"
-            >
-              <ArrowRight size={16} />
-            </button>
-          </div>
-          <div className="grid grid-cols-5 gap-y-4 gap-x-2">
-            {currentPageCells.map((s, i) => renderStampCell(s, i))}
-          </div>
-        </div>
+              <div className="flex items-center justify-between mb-3">
+                <button
+                  onClick={() => setPageIndex(p => Math.min(pageCount - 1, p + 1))}
+                  disabled={pageIndex >= pageCount - 1}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform ${pageBg ? 'bg-white/80 backdrop-blur-sm' : 'bg-slate-100'}`}
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <span className={`text-[11px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${pageBg ? 'bg-white/80 backdrop-blur-sm text-slate-500' : 'text-slate-400'}`}>
+                  {totalCount === 0 ? (lang === 'en' ? 'No stamps yet' : 'ยังไม่มีแสตมป์') : `${currentPageNumber} / ${pageCount}`}
+                </span>
+                <button
+                  onClick={() => setPageIndex(p => Math.max(0, p - 1))}
+                  disabled={pageIndex <= 0}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform ${pageBg ? 'bg-white/80 backdrop-blur-sm' : 'bg-slate-100'}`}
+                >
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+              <div className="grid grid-cols-4 gap-y-5 gap-x-3">
+                {currentPageCells.map((s, i) => renderStampCell(s, i))}
+              </div>
+            </div>
+          );
+        })()}
 
         {errorMsg && (
           <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-3 text-sm font-bold border border-red-100">
@@ -274,12 +358,18 @@ const Rewards = () => {
         )}
 
         {/* Rewards Catalog */}
-        <h3 className="text-lg font-black text-slate-800 mb-4 px-2">ของรางวัลที่แลกได้</h3>
+        <h3 className="text-lg font-black text-slate-800 mb-4 px-2">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
 
         {loading ? (
-          <div className="text-center py-10 opacity-50">
-             <div className="w-8 h-8 border-4 border-slate-200 border-t-mellow-ink rounded-full animate-spin mx-auto mb-3" />
-             <p className="text-sm font-bold">กำลังโหลด...</p>
+          <div className="grid grid-cols-2 gap-3 animate-pulse">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-3xl p-3 shadow-sm border border-slate-100">
+                <div className="aspect-square bg-slate-100 rounded-2xl mb-3" />
+                <div className="h-3.5 w-3/4 bg-slate-200 rounded-full mb-2" />
+                <div className="h-2.5 w-full bg-slate-100 rounded-full mb-3" />
+                <div className="h-6 w-full bg-slate-100 rounded-xl" />
+              </div>
+            ))}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
@@ -300,11 +390,11 @@ const Rewards = () => {
                     <span className="text-[10px]">ดวง</span>
                   </div>
                   <button
-                    onClick={() => handleRedeem(reward)}
+                    onClick={() => promptRedeem(reward)}
                     disabled={submitting || availableCount < reward.stamp_cost}
                     className="px-3 py-1.5 bg-mellow-ink text-white text-[10px] font-bold rounded-xl disabled:opacity-30 active:scale-95 transition-transform"
                   >
-                    แลกเลย
+                    {lang === 'en' ? 'Redeem' : 'แลกเลย'}
                   </button>
                 </div>
               </div>
@@ -312,6 +402,46 @@ const Rewards = () => {
           </div>
         )}
       </main>
+
+      {confirmReward && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-slate-900/50 backdrop-blur-sm" onClick={() => !submitting && setConfirmReward(null)}>
+          <div className="relative w-full max-w-xs bg-white rounded-[28px] p-6 text-center shadow-2xl" onClick={e => e.stopPropagation()}>
+            {!submitting && (
+              <button onClick={() => setConfirmReward(null)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
+                <X size={16} />
+              </button>
+            )}
+            <div className="w-16 h-16 rounded-full bg-mellow-purple/10 flex items-center justify-center mx-auto mb-4">
+              <Gift size={26} className="text-mellow-purple" />
+            </div>
+            <h3 className="text-lg font-black text-slate-800 mb-2">
+              {lang === 'en' ? 'Confirm Redemption' : 'ยืนยันการแลกของรางวัล'}
+            </h3>
+            <p className="text-sm font-bold text-slate-500 leading-relaxed mb-1">
+              {lang === 'en'
+                ? `Use ${confirmReward.stamp_cost} stamps to redeem:`
+                : `ใช้ ${confirmReward.stamp_cost} แสตมป์ เพื่อแลก:`}
+            </p>
+            <p className="text-base font-black text-slate-800 mb-6">{confirmReward.name}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmReward(null)}
+                disabled={submitting}
+                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-black text-sm active:scale-95 transition-transform disabled:opacity-50"
+              >
+                {lang === 'en' ? 'Cancel' : 'ยกเลิก'}
+              </button>
+              <button
+                onClick={() => handleRedeem(confirmReward)}
+                disabled={submitting}
+                className="flex-1 py-3 bg-mellow-ink text-white rounded-xl font-black text-sm active:scale-95 transition-transform disabled:opacity-50"
+              >
+                {submitting ? (lang === 'en' ? 'Redeeming...' : 'กำลังแลก...') : (lang === 'en' ? 'Confirm' : 'ยืนยัน')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {historyOpen && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={() => setHistoryOpen(false)}>

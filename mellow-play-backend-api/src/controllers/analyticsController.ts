@@ -10,16 +10,52 @@ export class AnalyticsController {
 
   async getDashboardAnalytics(c: C) {
     try {
-      const range = (c.req.query('range') as 'week' | 'month' | 'year') || 'month';
+      const range = (c.req.query('range') as 'week' | 'month' | 'year' | 'custom') || 'month';
+      const startDate = c.req.query('startDate');
+      const endDate = c.req.query('endDate');
       const repo = this.repo(c);
-      const [demographics, topClasses, parents, trends, funnel] = await Promise.all([
+      const [demographics, topClasses, parents, parentRelationships, trends, funnel] = await Promise.all([
         repo.getDemographics(),
         repo.getTopClasses(5),
         repo.getParentStats(),
-        repo.getTrends(range),
+        repo.getParentRelationshipStats(),
+        repo.getTrends(range, startDate, endDate),
         repo.getCourseFunnel(),
       ]);
-      return c.json({ success: true, demographics, topClasses, parents, trends, funnel });
+      return c.json({ success: true, demographics, topClasses, parents, parentRelationships, trends, funnel });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  // Lightweight presence ping (not a full session/analytics system) — the
+  // consumer app calls this once per page load with a client-generated
+  // sessionId, and the Dashboard polls getActiveUsers to show a near-realtime
+  // "active now" count (distinct sessions pinged in the last 5 minutes).
+  async pingVisit(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const { sessionId, path } = await c.req.json();
+      if (!sessionId) return c.json({ success: false, message: 'sessionId required' }, 400);
+      await config.db.prepare(
+        `INSERT INTO Site_Visits (session_id, path) VALUES (?, ?)`
+      ).bind(sessionId, path ?? null).run();
+      return c.json({ success: true });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  async getActiveUsers(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const activeRow = await config.db.prepare(
+        `SELECT COUNT(DISTINCT session_id) as count FROM Site_Visits WHERE created_at >= datetime('now', '-5 minutes')`
+      ).first<any>();
+      const todayRow = await config.db.prepare(
+        `SELECT COUNT(DISTINCT session_id) as count FROM Site_Visits WHERE DATE(created_at) = DATE('now')`
+      ).first<any>();
+      return c.json({ success: true, activeNow: activeRow?.count || 0, visitsToday: todayRow?.count || 0 });
     } catch (e: any) {
       return c.json({ success: false, message: e.message }, 500);
     }

@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { HDService } from '../services/hdService';
 import { ConfigService } from '../services/configService';
 import { HDProfileRepository } from '../repositories/hdProfileRepository';
+import { UserRepository } from '../repositories/userRepository';
 
 export class ProfileController {
   async calculate(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -118,6 +119,61 @@ export class ProfileController {
       await hdProfileRepository.updateCustomPhoto(childId, avatarUrl);
 
       return c.json({ success: true, url: avatarUrl });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Parent's own avatar (distinct from a child's HD_Profiles avatar) —
+  // stored on Users.profile_image_url, shown small next to the Home menu
+  // button, Facebook-style, and used as prep for the future Community feature.
+  async uploadParentAvatar(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const payload = c.get('jwtPayload');
+      if (!payload?.userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const body = await c.req.formData();
+      const file = body.get('file') as File | null;
+      if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
+
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const key = `profiles/parent-${payload.userId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const buffer = await file.arrayBuffer();
+      await c.env.BUCKET.put(key, buffer, {
+        httpMetadata: { contentType: file.type || 'image/jpeg' },
+      });
+
+      const avatarUrl = `/api/v1/files/${key}`;
+
+      const config = new ConfigService(c.env);
+      const userRepository = new UserRepository(config.db);
+      await userRepository.updateAvatar(payload.userId, avatarUrl);
+
+      return c.json({ success: true, url: avatarUrl });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async transferCoupon(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const payload = c.get('jwtPayload');
+      if (!payload?.userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const { fromChildId, toChildId, couponTypeId, quantity } = await c.req.json();
+      if (!fromChildId || !toChildId || !couponTypeId || !quantity) {
+        return c.json({ success: false, message: 'fromChildId, toChildId, couponTypeId, quantity are required' }, 400);
+      }
+
+      const config = new ConfigService(c.env);
+      const userRepository = new UserRepository(config.db);
+      const result = await userRepository.transferChildCoupon(
+        parseInt(fromChildId), parseInt(toChildId), parseInt(couponTypeId), parseInt(quantity), payload.userId
+      );
+
+      if (!result.success) return c.json(result, 400);
+      return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

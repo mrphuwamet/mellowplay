@@ -82,6 +82,7 @@ export class AdminRepository {
     membershipType?: string;
     membershipExpiresAt?: string | null;
     profileImageUrl?: string;
+    displayName?: string;
     children?: Array<{ id?: number; full_name: string; nickname?: string; gender?: string; date_of_birth?: string }>;
   }): Promise<void> {
     await this.db.prepare(`
@@ -90,7 +91,7 @@ export class AdminRepository {
         membership_type = ?, membership_expires_at = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
-        application_date = ?, profile_image_url = ?
+        application_date = ?, profile_image_url = ?, display_name = ?
       WHERE id = ?
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
@@ -98,7 +99,7 @@ export class AdminRepository {
       data.membershipType ?? null, data.membershipExpiresAt ?? null,
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
-      data.applicationDate ?? null, data.profileImageUrl ?? null,
+      data.applicationDate ?? null, data.profileImageUrl ?? null, data.displayName ?? null,
       id
     ).run();
 
@@ -220,8 +221,17 @@ export class AdminRepository {
   }
 
   async getAllCrmUsers(): Promise<any[]> {
+    // password_hash deliberately excluded — never send it to the browser.
     const { results } = await this.db.prepare(`
-      SELECT cu.*, b.name as branch_name
+      SELECT cu.id, cu.email, cu.full_name, cu.role, cu.branch_id, cu.phone,
+             cu.national_id, cu.address, cu.salary, cu.salary_type, cu.start_date, cu.end_date,
+             cu.department, cu.position, cu.employment_type, cu.employment_status,
+             cu.bank_name, cu.bank_account_name, cu.bank_account_number, cu.profile_image_url,
+             cu.emergency_contact_name, cu.emergency_contact_phone, cu.note,
+             cu.work_days, cu.work_start_time, cu.work_end_time, cu.created_at,
+             cu.reset_token_expires_at,
+             CASE WHEN cu.reset_token IS NOT NULL THEN 1 ELSE 0 END as has_pending_reset,
+             b.name as branch_name
       FROM CRM_Users cu
       LEFT JOIN Branches b ON cu.branch_id = b.id
       ORDER BY cu.created_at DESC
@@ -229,36 +239,77 @@ export class AdminRepository {
     return results;
   }
 
+  // Manual-share password reset (no email service — internal org): generate
+  // a token + expiry, hand the link back to the admin to send however they
+  // like (LINE, in person, etc.), rather than emailing it automatically.
+  async setCrmUserResetToken(id: number, token: string, expiresAt: string): Promise<void> {
+    await this.db.prepare(
+      'UPDATE CRM_Users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?'
+    ).bind(token, expiresAt, id).run();
+  }
+
+  async clearCrmUserResetToken(id: number): Promise<void> {
+    await this.db.prepare(
+      'UPDATE CRM_Users SET reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'
+    ).bind(id).run();
+  }
+
+  async findCrmUserByResetToken(token: string): Promise<any> {
+    return await this.db.prepare(
+      'SELECT id, reset_token_expires_at FROM CRM_Users WHERE reset_token = ?'
+    ).bind(token).first();
+  }
+
+  async resetCrmUserPasswordByToken(id: number, passwordHash: string): Promise<void> {
+    await this.db.prepare(
+      'UPDATE CRM_Users SET password_hash = ?, reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'
+    ).bind(passwordHash, id).run();
+  }
+
+  // Field names below match the CRM frontend's payload (snake_case) exactly —
+  // CrmUserManagement.tsx's `form` state and this repo previously disagreed
+  // (camelCase here vs snake_case there), which made every create/update
+  // throw D1_TYPE_ERROR (binding `undefined`) and 500 unconditionally.
   async createCrmUser(data: any): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO CRM_Users (
         email, password_hash, full_name, role, branch_id,
-        phone, national_id, address, salary, start_date,
-        department, position, employment_type,
-        emergency_contact_name, emergency_contact_phone, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        phone, national_id, address, salary, salary_type, start_date, end_date,
+        department, position, employment_type, employment_status,
+        bank_name, bank_account_name, bank_account_number, profile_image_url,
+        emergency_contact_name, emergency_contact_phone, note,
+        work_days, work_start_time, work_end_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      data.email, data.passwordHash, data.fullName, data.role, data.branchId || null,
-      data.phone || null, data.nationalId || null, data.address || null, data.salary || null, data.startDate || null,
-      data.department || null, data.position || null, data.employmentType || null,
-      data.emergencyContactName || null, data.emergencyContactPhone || null, data.note || null
+      data.email, data.passwordHash, data.full_name, data.role, data.branch_id || null,
+      data.phone || null, data.national_id || null, data.address || null, data.salary || null,
+      data.salary_type || 'monthly', data.start_date || null, data.end_date || null,
+      data.department || null, data.position || null, data.employment_type || null, data.employment_status || 'active',
+      data.bank_name || null, data.bank_account_name || null, data.bank_account_number || null, data.profile_image_url || null,
+      data.emergency_contact_name || null, data.emergency_contact_phone || null, data.note || null,
+      JSON.stringify(data.work_days || []), data.work_start_time || '09:00', data.work_end_time || '18:00'
     ).run();
     return result.meta.last_row_id;
   }
 
   async updateCrmUser(id: number, data: any): Promise<void> {
     let query = `
-      UPDATE CRM_Users SET 
+      UPDATE CRM_Users SET
         email = ?, full_name = ?, role = ?, branch_id = ?,
-        phone = ?, national_id = ?, address = ?, salary = ?, start_date = ?,
-        department = ?, position = ?, employment_type = ?,
-        emergency_contact_name = ?, emergency_contact_phone = ?, note = ?
+        phone = ?, national_id = ?, address = ?, salary = ?, salary_type = ?, start_date = ?, end_date = ?,
+        department = ?, position = ?, employment_type = ?, employment_status = ?,
+        bank_name = ?, bank_account_name = ?, bank_account_number = ?, profile_image_url = ?,
+        emergency_contact_name = ?, emergency_contact_phone = ?, note = ?,
+        work_days = ?, work_start_time = ?, work_end_time = ?
     `;
     const params: any[] = [
-      data.email, data.fullName, data.role, data.branchId || null,
-      data.phone || null, data.nationalId || null, data.address || null, data.salary || null, data.startDate || null,
-      data.department || null, data.position || null, data.employmentType || null,
-      data.emergencyContactName || null, data.emergencyContactPhone || null, data.note || null
+      data.email, data.full_name, data.role, data.branch_id || null,
+      data.phone || null, data.national_id || null, data.address || null, data.salary || null,
+      data.salary_type || 'monthly', data.start_date || null, data.end_date || null,
+      data.department || null, data.position || null, data.employment_type || null, data.employment_status || 'active',
+      data.bank_name || null, data.bank_account_name || null, data.bank_account_number || null, data.profile_image_url || null,
+      data.emergency_contact_name || null, data.emergency_contact_phone || null, data.note || null,
+      JSON.stringify(data.work_days || []), data.work_start_time || '09:00', data.work_end_time || '18:00'
     ];
 
     if (data.passwordHash) {
@@ -364,15 +415,20 @@ export class AdminRepository {
     return await this.db.prepare('SELECT * FROM Branches WHERE id = ?').bind(id).first();
   }
 
-  async createBranch(d: { name: string; address?: string; phone?: string; email?: string; openTime?: string; closeTime?: string }): Promise<number> {
+  async createBranch(d: any): Promise<number> {
+    const openTime = d.open_time ?? d.openTime ?? null;
+    const closeTime = d.close_time ?? d.closeTime ?? null;
     const r = await this.db.prepare(`
       INSERT INTO Branches (name, address, phone, email, open_time, close_time)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(d.name, d.address ?? null, d.phone ?? null, d.email ?? null, d.openTime ?? null, d.closeTime ?? null).run();
+    `).bind(d.name, d.address ?? null, d.phone ?? null, d.email ?? null, openTime, closeTime).run();
     return r.meta.last_row_id as number;
   }
 
-  async updateBranch(id: number, d: { name?: string; address?: string; phone?: string; email?: string; openTime?: string; closeTime?: string; isActive?: boolean }): Promise<void> {
+  async updateBranch(id: number, d: any): Promise<void> {
+    const openTime = d.open_time ?? d.openTime ?? null;
+    const closeTime = d.close_time ?? d.closeTime ?? null;
+    const isActive = d.is_active ?? d.isActive;
     await this.db.prepare(`
       UPDATE Branches SET
         name = COALESCE(?, name),
@@ -384,8 +440,8 @@ export class AdminRepository {
         is_active = COALESCE(?, is_active)
       WHERE id = ?
     `).bind(d.name ?? null, d.address ?? null, d.phone ?? null, d.email ?? null,
-            d.openTime ?? null, d.closeTime ?? null,
-            d.isActive != null ? (d.isActive ? 1 : 0) : null, id).run();
+            openTime, closeTime,
+            isActive != null ? (isActive ? 1 : 0) : null, id).run();
   }
 
   async deleteBranch(id: number): Promise<void> {
@@ -448,6 +504,10 @@ export class AdminRepository {
     location_link?: string;
     stampsOnCompletion?: number;
     stampExpiryMonths?: number;
+    salesCommissionType?: string;
+    salesCommissionValue?: number;
+    teacherCommissionType?: string;
+    teacherCommissionValue?: number;
   }): Promise<number> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -469,7 +529,8 @@ export class AdminRepository {
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
         thumbnail_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, allow_repeat,
-        short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months
+        short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
+        sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
@@ -478,7 +539,8 @@ export class AdminRepository {
         1, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?
       )
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -494,7 +556,9 @@ export class AdminRepository {
       data.isExtraclass ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
-      data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12
+      data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
+      data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
+      data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null
     ).run();
     return result.meta.last_row_id;
   }
@@ -530,6 +594,10 @@ export class AdminRepository {
     location_link?: string;
     stampsOnCompletion?: number;
     stampExpiryMonths?: number;
+    salesCommissionType?: string;
+    salesCommissionValue?: number;
+    teacherCommissionType?: string;
+    teacherCommissionValue?: number;
   }): Promise<void> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -553,7 +621,9 @@ export class AdminRepository {
         thumbnail_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
         is_recommended = ?, is_extraclass = ?, allow_repeat = ?,
         short_description_en = ?, location = ?, location_link = ?,
-        stamps_on_completion = ?, stamp_expiry_months = ?
+        stamps_on_completion = ?, stamp_expiry_months = ?,
+        sales_commission_type = ?, sales_commission_value = ?,
+        teacher_commission_type = ?, teacher_commission_value = ?
       WHERE id = ?
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -570,6 +640,8 @@ export class AdminRepository {
       data.allowRepeat === false ? 0 : 1,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
+      data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
+      data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
       id
     ).run();
   }

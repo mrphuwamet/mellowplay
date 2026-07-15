@@ -3,6 +3,7 @@ import { X, Check, Upload, Loader2, Trash2 } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
 import apiClient from '../utils/apiClient';
 import { CHARACTER_AVATARS } from '../utils/characterAvatars';
+import LoadingOverlay from './LoadingOverlay';
 
 interface AvatarPickerModalProps {
   isOpen: boolean;
@@ -173,6 +174,8 @@ const AvatarPickerModal: React.FC<AvatarPickerModalProps> = ({
           <Check size={18} /> ยืนยันการเปลี่ยนแปลง
         </button>
       </div>
+
+      <LoadingOverlay active={isUploading} message="กำลังอัปโหลดรูปภาพ..." />
     </div>
   );
 };

@@ -28,7 +28,11 @@ interface RecordMilestoneProps {
   onSuccess: () => void;
 }
 
-interface BilingualSkill { th: string; en: string; }
+// type distinguishes course-level "skills" (achievement_skills_json) from
+// a per-report "today's highlight" observation (metrics_json) — both used
+// to just get flattened into one list on save, making it impossible to
+// show them as separate sections later (BookingDetailModal/ReportDetail).
+interface BilingualSkill { th: string; en: string; type?: 'achievement' | 'indicator'; }
 
 const skillKey = (s: BilingualSkill) => `${s.th}|${s.en}`;
 
@@ -140,14 +144,14 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  const toggleSkill = (skill: BilingualSkill) => {
+  const toggleSkill = (skill: BilingualSkill, type: 'achievement' | 'indicator') => {
     const key = skillKey(skill);
     const isSelected = formData.skills.some(s => skillKey(s) === key);
     setFormData({
       ...formData,
       skills: isSelected
         ? formData.skills.filter(s => skillKey(s) !== key)
-        : [...formData.skills, skill],
+        : [...formData.skills, { ...skill, type }],
     });
   };
 
@@ -320,7 +324,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
                         key={item.id}
                         icon={item.icon}
                         label={label}
-                        onClick={() => toggleSkill(item.skill)}
+                        onClick={() => toggleSkill(item.skill, 'achievement')}
                         color={isSelected ? "primary" : "default"}
                         variant={isSelected ? "filled" : "outlined"}
                         sx={{ py: 2.5, px: 1, borderRadius: 3, fontWeight: 700 }}
@@ -343,7 +347,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
                         key={item.id}
                         icon={item.icon}
                         label={label}
-                        onClick={() => toggleSkill(item.skill)}
+                        onClick={() => toggleSkill(item.skill, 'indicator')}
                         color={isSelected ? "info" : "default"}
                         variant={isSelected ? "filled" : "outlined"}
                         sx={{ py: 2.5, px: 1, borderRadius: 3, fontWeight: 700 }}

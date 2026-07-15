@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Cake } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
-import PromotionCountdown from './PromotionCountdown';
+import { formatCustomDate } from '../utils/dateFormat';
+import apiClient from '../utils/apiClient';
 
 interface BirthdayModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface BirthdayModalProps {
   dob: string;
 }
 
+// Fallback pool used only if the CRM-managed list (fetched below) is empty
+// or unreachable — the real source of truth is now Birthday_Wishes in CRM.
 const WISHES_TH = [
   'ขอให้มีความสุขมากๆ เติบโตแข็งแรง ฉลาด และร่าเริงทุกวันเลยนะ! 🎉',
   'สุขสันต์วันเกิดนะคะ/ครับ ขอให้ปีนี้เต็มไปด้วยรอยยิ้มและการผจญภัยใหม่ๆ! 🎈',
@@ -36,6 +39,14 @@ const calculateAge = (dobStr: string) => {
 
 const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, dob }) => {
   const { lang } = useTranslation();
+  const [remoteWishes, setRemoteWishes] = useState<{ message_th: string; message_en: string | null }[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    apiClient.get('/birthday-wishes')
+      .then(res => { if (res.data.success) setRemoteWishes(res.data.wishes); })
+      .catch(() => {});
+  }, [isOpen]);
 
   const confettiPieces = useMemo(() => Array.from({ length: 28 }, (_, i) => ({
     left: Math.random() * 100,
@@ -44,6 +55,17 @@ const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, do
     color: ['#f472b6', '#fbbf24', '#60a5fa', '#34d399', '#a78bfa'][i % 5],
     rotate: Math.round(Math.random() * 360),
   })), []);
+
+  // Hooks must run on every render regardless of isOpen, so this stays
+  // above the early return below.
+  const wish = useMemo(() => {
+    if (remoteWishes.length > 0) {
+      const picked = remoteWishes[Math.floor(Math.random() * remoteWishes.length)];
+      return (lang === 'en' && picked.message_en) || picked.message_th;
+    }
+    return (lang === 'en' ? WISHES_EN : WISHES_TH)[Math.floor(Math.random() * 5)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteWishes, lang]);
 
   if (!isOpen) return null;
 
@@ -59,9 +81,13 @@ const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, do
   const nextBirthdayYear = today.getFullYear() + (hasHadBirthdayThisYear ? 1 : 0);
   const nextBirthdayDate = new Date(nextBirthdayYear, dobDate.getMonth(), dobDate.getDate(), 0, 0, 0);
   const nextAge = nextBirthdayYear - dobDate.getFullYear();
+  const msRemaining = Math.max(0, nextBirthdayDate.getTime() - today.getTime());
+  const daysRemaining = Math.ceil(msRemaining / 86400000);
 
-  const wish = (lang === 'en' ? WISHES_EN : WISHES_TH)[Math.floor(Math.random() * 5)];
-  const dobFormatted = dobDate.toLocaleDateString(lang === 'en' ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dobFormatted = formatCustomDate(dobDate, lang, 'full');
+  // Thai copy reads more naturally as "ขวบ" for young children; from 15
+  // onward "ปี" is used instead. English has no such distinction.
+  const ageUnit = (n: number) => (lang === 'en' ? (n === 1 ? 'year old' : 'years old') : (n < 15 ? 'ขวบ' : 'ปี'));
 
   return (
     <div
@@ -72,6 +98,12 @@ const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, do
         @keyframes confetti-fall {
           0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
           100% { transform: translateY(340px) rotate(360deg); opacity: 0; }
+        }
+        @keyframes cake-shake {
+          0%, 96%, 100% { transform: rotate(0deg); }
+          97% { transform: rotate(-8deg); }
+          98% { transform: rotate(8deg); }
+          99% { transform: rotate(-5deg); }
         }
       `}</style>
       <div
@@ -100,16 +132,41 @@ const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, do
         </button>
 
         <div className="relative p-8 pt-10 text-center">
-          <div className={`text-6xl mb-4 ${isBirthMonth ? 'animate-bounce' : ''}`}>
-            {isBirthMonth ? '🎂' : '🎈'}
+          <div
+            className="relative w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-br from-mellow-yellow/30 to-mellow-purple/20 flex items-center justify-center shadow-inner"
+            style={isBirthMonth ? { animation: 'cake-shake 5s ease-in-out infinite' } : undefined}
+          >
+            <Cake size={46} className="text-mellow-purple" strokeWidth={1.75} />
           </div>
 
-          <h2 className="text-xl font-black text-slate-800 mb-1">{name}</h2>
-          <p className="text-sm font-bold text-slate-400 mb-4">{dobFormatted}</p>
+          {isBirthMonth && (
+            <p className="text-sm font-black text-mellow-red uppercase tracking-widest mb-1">
+              {isBirthDay
+                ? (lang === 'en' ? 'Happy Birthday!' : 'สุขสันต์วันเกิด!')
+                : (lang === 'en' ? 'Happy Birthday Month!' : 'สุขสันต์เดือนเกิด!')}
+            </p>
+          )}
 
-          <div className="inline-flex items-baseline gap-1.5 px-5 py-2 bg-mellow-purple/10 rounded-2xl mb-4">
-            <span className="text-3xl font-black text-mellow-purple">{age}</span>
-            <span className="text-sm font-bold text-mellow-purple">{lang === 'en' ? 'years old' : 'ปี'}</span>
+          <h2 className="text-xl font-black text-slate-800 mb-3">{name}</h2>
+
+          {/* Age — the headline element, no pill/box, just prominent centered text.
+              Each badge below is wrapped in its own block-level row so they
+              always stack on separate lines — two inline-flex badges placed
+              directly next to each other would otherwise sit side-by-side
+              whenever they both fit on one line. */}
+          <div className="mb-1">
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="text-4xl font-black text-mellow-purple">{age}</span>
+              <span className="text-base font-bold text-mellow-purple">{ageUnit(age)}</span>
+            </span>
+          </div>
+
+          {/* Birth date now reads below the age */}
+          <div className="mb-4">
+            <span className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-mellow-purple to-mellow-blue rounded-2xl shadow-lg shadow-mellow-purple/20">
+              <Cake size={18} className="text-white" strokeWidth={2.5} />
+              <span className="text-base font-black text-white tracking-wide">{dobFormatted}</span>
+            </span>
           </div>
 
           {isBirthDay ? (
@@ -118,12 +175,11 @@ const BirthdayModal: React.FC<BirthdayModalProps> = ({ isOpen, onClose, name, do
             </div>
           ) : (
             <div className="mt-2">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                {lang === 'en' ? `Countdown to turning ${nextAge}` : `นับถอยหลังสู่วัย ${nextAge} ปี`}
+              <p className="text-sm font-black text-mellow-purple">
+                {lang === 'en'
+                  ? `In ${daysRemaining} days, turning ${nextAge} ${ageUnit(nextAge)}`
+                  : `อีก ${daysRemaining} วัน จะอายุ ${nextAge} ${ageUnit(nextAge)}`}
               </p>
-              <div className="flex justify-center">
-                <PromotionCountdown validUntil={nextBirthdayDate.toISOString()} lang={lang} />
-              </div>
             </div>
           )}
         </div>

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS Users (
     application_date DATETIME,
     profile_image_url TEXT,
     google_id TEXT UNIQUE,
+    display_name TEXT, -- member-chosen name shown on comments (falls back to first_name if unset)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -119,6 +120,10 @@ CREATE TABLE IF NOT EXISTS Branches (
     phone TEXT,
     default_capacity INTEGER DEFAULT 4,
     is_active BOOLEAN DEFAULT 1,
+    address TEXT,
+    email TEXT,
+    open_time TEXT,
+    close_time TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -199,6 +204,17 @@ CREATE TABLE IF NOT EXISTS Courses (
     images_json TEXT,
     video_url TEXT,
     teacher_guide_url TEXT,
+
+    -- Per-course override for staff commission (CourseManagement.tsx),
+    -- consumed by hrRepository.generatePayout: teacher_commission_* overrides
+    -- the global operational_fee_type/value setting when set; sales_commission_*
+    -- has no fallback (a class booking earns no sales commission unless the
+    -- course explicitly sets one).
+    sales_commission_type TEXT,
+    sales_commission_value REAL,
+    teacher_commission_type TEXT,
+    teacher_commission_value REAL,
+
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES Course_Categories(id)
 );
@@ -314,12 +330,27 @@ CREATE TABLE IF NOT EXISTS CRM_Users (
     address TEXT,
     salary REAL,
     start_date DATE,
+    end_date DATE,
     department TEXT,
     position TEXT,
     employment_type TEXT,
     emergency_contact_name TEXT,
     emergency_contact_phone TEXT,
     note TEXT,
+    salary_type TEXT DEFAULT 'monthly',
+    employment_status TEXT DEFAULT 'active',
+    bank_name TEXT,
+    bank_account_name TEXT,
+    bank_account_number TEXT,
+    profile_image_url TEXT,
+    work_days TEXT DEFAULT '[]', -- JSON array, e.g. '["mon","tue"]'
+    work_start_time TEXT DEFAULT '09:00',
+    work_end_time TEXT DEFAULT '18:00',
+    -- Manual-share password reset: super_admin generates a link (no email
+    -- service involved — internal org, shared over LINE/etc. by hand) and
+    -- the staff member visits it to set their own new password.
+    reset_token TEXT,
+    reset_token_expires_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (branch_id) REFERENCES Branches(id)
 );
@@ -916,6 +947,9 @@ INSERT OR IGNORE INTO CouponTypes (id, name, color) VALUES (2, 'Little Junior Co
 -- ── News Feed ───────────────────────────────────────────────────────────────
 -- CRM-managed content shown in the Consumer app's Explore page under
 -- "ข่าวสาร" (news) / "สื่อความรู้" (media) — type distinguishes the two.
+-- image_urls holds a JSON array of image URLs for a multi-image "carousel"
+-- media post (TikTok/Instagram-style slideshow); image_url is kept as the
+-- single-image/legacy field and doubles as the thumbnail (first slide).
 CREATE TABLE IF NOT EXISTS News_Feed (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL DEFAULT 'news',
@@ -924,12 +958,72 @@ CREATE TABLE IF NOT EXISTS News_Feed (
     content TEXT,
     content_en TEXT,
     image_url TEXT,
+    image_urls TEXT,
     video_url TEXT,
     link_url TEXT,
     is_published BOOLEAN NOT NULL DEFAULT 1,
     display_order INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Site Visits (lightweight presence ping for the CRM Dashboard's
+-- "active now" widget — not a full analytics/session system) ──────────────────
+CREATE TABLE IF NOT EXISTS Site_Visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    path TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_site_visits_created_at ON Site_Visits(created_at);
+CREATE INDEX IF NOT EXISTS idx_site_visits_session_id ON Site_Visits(session_id);
+
+-- ── Birthday Wishes (CRM-managed pool the consumer app's birthday modal
+-- picks a random message from, instead of a hardcoded list) ───────────────────
+CREATE TABLE IF NOT EXISTS Birthday_Wishes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_th TEXT NOT NULL,
+    message_en TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO Birthday_Wishes (message_th, message_en) VALUES
+('ขอให้มีความสุขมากๆ เติบโตแข็งแรง ฉลาด และร่าเริงทุกวันเลยนะ! 🎉', 'Happy Birthday! May your year ahead be full of joy, laughter, and new adventures! 🎉'),
+('สุขสันต์วันเกิดนะคะ/ครับ ขอให้ปีนี้เต็มไปด้วยรอยยิ้มและการผจญภัยใหม่ๆ! 🎈', 'Wishing you a wonderful birthday filled with love and happiness! 🎈'),
+('ขอให้เติบโตเป็นเด็กดี มีความสุข และมีความฝันที่สวยงามเสมอ! 🌈', 'Grow big, stay curious, and keep shining bright! Happy Birthday! 🌈'),
+('สุขสันต์วันเกิด ขอให้วันนี้พิเศษที่สุดในรอบปีนะ! 🎂', 'Another year of growing and learning at Mellow Play — Happy Birthday! 🎂'),
+('อีกหนึ่งปีของการเติบโตและการเรียนรู้ที่ Mellow Play สุขสันต์วันเกิดนะ! ⭐', 'Happy Birthday! Hope today is as amazing as you are! ⭐');
+
+-- ── Stamp Page Backgrounds (CRM-uploadable background image per stamp
+-- "page" in the consumer app's Rewards stamp grid — page_number matches
+-- the page label already shown there, e.g. "2 / 3") ──────────────────────────
+CREATE TABLE IF NOT EXISTS Stamp_Page_Backgrounds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    page_number INTEGER NOT NULL UNIQUE,
+    image_url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── News Feed Likes / Comments (member-only, used by the TikTok-style
+-- media feed) ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS News_Feed_Likes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_feed_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(news_feed_id, user_id),
+    FOREIGN KEY (news_feed_id) REFERENCES News_Feed(id),
+    FOREIGN KEY (user_id) REFERENCES Users(id)
+);
+
+CREATE TABLE IF NOT EXISTS News_Feed_Comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_feed_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    comment_text TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (news_feed_id) REFERENCES News_Feed(id),
+    FOREIGN KEY (user_id) REFERENCES Users(id)
 );
 
 -- ── Initial Admin ──────────────────────────────────────────────────────────────

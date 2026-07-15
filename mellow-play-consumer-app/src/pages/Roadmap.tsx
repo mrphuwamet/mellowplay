@@ -10,6 +10,7 @@ import ChildAvatar from '../components/ChildAvatar';
 import { getCourseView } from '../utils/courseImage';
 import { trackCourseView } from '../utils/analytics';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
+import { stripHtml } from '../utils/stripHtml';
 
 const Roadmap = () => {
   const navigate = useNavigate();
@@ -128,11 +129,25 @@ const Roadmap = () => {
       <div className="px-5 max-w-lg mx-auto">
         
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 opacity-50">
-            <div className="w-10 h-10 border-4 border-mellow-purple/20 border-t-mellow-purple rounded-full animate-spin mb-4" />
-            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
-              {lang === 'en' ? 'Loading Timeline...' : 'กำลังโหลดข้อมูล...'}
-            </p>
+          <div className="relative animate-pulse">
+            <div className="absolute left-[27px] top-4 bottom-4 w-1 bg-slate-200 rounded-full" />
+            <div className="flex items-center gap-3 mb-6 relative z-10 bg-slate-50 py-2">
+              <div className="w-14 h-8 bg-slate-200 rounded-full flex-shrink-0" />
+              <div className="h-4 w-40 bg-slate-200 rounded-full" />
+            </div>
+            <div className="space-y-6">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="relative z-10 ml-14 p-2.5 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center gap-2.5">
+                  <div className="absolute -left-[35px] top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-200 rounded-full ring-4 ring-slate-50" />
+                  <div className="w-14 h-14 rounded-xl bg-slate-100 shrink-0" />
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="h-3.5 w-3/4 bg-slate-200 rounded-full" />
+                    <div className="h-2.5 w-1/2 bg-slate-100 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="relative">
@@ -261,9 +276,9 @@ const Roadmap = () => {
                       />
                     </div>
                     <div className="flex-1 flex flex-col min-w-0">
-                      <h4 className="font-bold text-slate-800 text-[15px] truncate">{course.name}</h4>
+                      <h4 className="font-bold text-slate-800 text-[15px] line-clamp-2">{course.name}</h4>
                       <p className="text-[12px] text-slate-500 line-clamp-2 mt-1 leading-snug">
-                        {course.short_description || course.description}
+                        {course.short_description || stripHtml(course.description || '')}
                       </p>
                       {course.alreadyCompleted && !!course.allow_repeat && (
                         <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-emerald-600">

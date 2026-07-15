@@ -10,6 +10,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import AddChild from './pages/AddChild';
+import ReportDetail from './pages/ReportDetail';
+import NewsDetail from './pages/NewsDetail';
+import NewsList from './pages/NewsList';
 import SettingsProfile from './pages/SettingsProfile';
 import Booking from './pages/Booking';
 import CourseList from './pages/CourseList';
@@ -17,16 +20,17 @@ import CourseDetail from './pages/CourseDetail';
 import BookingSuccess from './pages/BookingSuccess';
 import MyCoupons from './pages/MyCoupons';
 import PackagePurchaseSuccess from './pages/PackagePurchaseSuccess';
-import { Map, Star, Camera, Compass, Home as HomeIcon, Lock } from 'lucide-react';
+import { Map, Star, Camera, Compass, Home as HomeIcon, Lock, Users, X, Sparkles } from 'lucide-react';
 import { useChildStore } from './store/useChildStore';
 import { LanguageProvider, useTranslation } from './LanguageContext';
 import GuestUnlockModal from './components/GuestUnlockModal';
+import { pingVisit } from './utils/visitTracker';
 
 const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const fetchChildren = useChildStore(state => state.fetchChildren);
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');
@@ -36,6 +40,10 @@ const AppContent = () => {
       navigate('/login');
     }
   }, [location.pathname, navigate]);
+
+  React.useEffect(() => {
+    pingVisit(location.pathname);
+  }, [location.pathname]);
 
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');
@@ -51,6 +59,7 @@ const AppContent = () => {
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const showNav = ['/', '/journey', '/album', '/explore', '/rewards'].includes(location.pathname);
   const [lockedNavFeature, setLockedNavFeature] = React.useState<string | null>(null);
+  const [showCommunitySoon, setShowCommunitySoon] = React.useState(false);
 
   const guardedNav = (e: React.MouseEvent, label: string) => {
     if (isGuest) {
@@ -71,6 +80,9 @@ const AppContent = () => {
         <Route path="/know-my-child" element={<Navigate to="/" replace />} />
         <Route path="/know-my-child/:type" element={<Navigate to="/" replace />} />
         <Route path="/album" element={<Album />} />
+        <Route path="/report/:bookingId" element={<ReportDetail />} />
+        <Route path="/news/:id" element={<NewsDetail />} />
+        <Route path="/news-feed/:type" element={<NewsList />} />
         <Route path="/explore" element={<Explore />} />
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/settings" element={<SettingsProfile />} />
@@ -85,7 +97,7 @@ const AppContent = () => {
 
       {/* Shared Bottom Navigation */}
       {showNav && (
-        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] h-24 bg-white/90 backdrop-blur-xl rounded-t-[40px] shadow-[0_-15px_40px_-20px_rgba(0,0,0,0.15)] border-t border-white/40 flex justify-around items-center px-6 z-20">
+        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] h-24 bg-white/90 backdrop-blur-xl rounded-t-[40px] shadow-[0_-15px_40px_-20px_rgba(0,0,0,0.15)] border-t border-white/40 flex justify-around items-center px-3 z-20">
           <Link to="/" className={`flex flex-col items-center gap-1.5 transition-all active:scale-90 ${location.pathname === '/' ? 'text-mellow-red' : 'text-slate-400'}`}>
             <HomeIcon size={24} />
             <span className="text-[14px] font-black tracking-tighter">{t.nav.home}</span>
@@ -109,7 +121,40 @@ const AppContent = () => {
             {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
             <span className="text-[14px] font-black tracking-tighter">{t.nav.rewards}</span>
           </Link>
+          {/* Community — placeholder, feature not built yet */}
+          <button onClick={() => setShowCommunitySoon(true)} className="flex flex-col items-center gap-1 text-slate-400 active:scale-90 transition-transform">
+            <Users size={24} />
+            <span className="text-[14px] font-black tracking-tighter">{lang === 'en' ? 'Community' : 'ชุมชน'}</span>
+          </button>
         </nav>
+      )}
+
+      {showCommunitySoon && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setShowCommunitySoon(false)}
+        >
+          <div
+            className="relative w-full max-w-xs bg-white rounded-[28px] p-6 text-center shadow-2xl animate-in zoom-in-95 duration-300"
+            onClick={e => e.stopPropagation()}
+          >
+            <button onClick={() => setShowCommunitySoon(false)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
+              <X size={16} />
+            </button>
+            <div className="w-16 h-16 rounded-full bg-mellow-purple/10 flex items-center justify-center mx-auto mb-4 relative">
+              <Users size={26} className="text-mellow-purple" />
+              <Sparkles size={16} className="text-mellow-yellow absolute -top-1 -right-1" fill="currentColor" />
+            </div>
+            <h3 className="text-lg font-black text-slate-800 mb-2">
+              {lang === 'en' ? 'Coming Soon' : 'เร็วๆ นี้'}
+            </h3>
+            <p className="text-sm font-bold text-slate-500 leading-relaxed">
+              {lang === 'en'
+                ? "We're building a community space for families — stay tuned!"
+                : 'พื้นที่ชุมชนสำหรับครอบครัว Mellow Play กำลังจะมาเร็วๆ นี้ รอติดตามกันนะ!'}
+            </p>
+          </div>
+        </div>
       )}
 
       <GuestUnlockModal

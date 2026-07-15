@@ -59,6 +59,7 @@ import logo from './assets/logo.svg';
 
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import UserManagement from './pages/UserManagement';
 import BookingManagement from './pages/BookingManagement';
 import CrmUserManagement from './pages/CrmUserManagement';
@@ -91,6 +92,7 @@ import POSSalesHistory from './pages/POSSalesHistory';
 import RedemptionManagement from './pages/RedemptionManagement';
 import RewardsManagement from './pages/RewardsManagement';
 import NewsFeedManagement from './pages/NewsFeedManagement';
+import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
 import { SystemLogs } from './pages/SystemLogs';
 import {
@@ -102,6 +104,19 @@ import {
 } from './utils/rolePermissions';
 
 const drawerWidth = 280;
+
+// Static path lists per group, used only to decide which group should
+// auto-expand for the current URL — kept separate from the permission-
+// filtered menuEntries memo below so this doesn't need to be recomputed
+// per-permission-change.
+const GROUP_PATHS: Record<string, string[]> = {
+  people: ['/crm/staff', '/crm/parents'],
+  classes: ['/crm/courses', '/crm/calendars', '/crm/bookings'],
+  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed'],
+  shop: ['/crm/services', '/crm/products', '/crm/stock'],
+  finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
+  system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs'],
+};
 
 interface MenuItemConfig {
   text: string;
@@ -261,20 +276,22 @@ const AppContent = () => {
   const [permissionTick, setPermissionTick] = useState(0);
   const [roleLabelsMap, setRoleLabelsMap] = useState<Record<string, string>>(getRoleLabels());
   const [crmUnlocked, setCrmUnlocked] = useState(false);
-  const financePaths = ['/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'];
-  const shopPaths   = ['/crm/services', '/crm/products', '/crm/stock'];
-  const [financeGroupOpen, setFinanceGroupOpen] = useState(() =>
-    financePaths.some((p) => window.location.pathname === p)
-  );
-  const [shopGroupOpen, setShopGroupOpen] = useState(() =>
-    shopPaths.some((p) => window.location.pathname === p)
-  );
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const [key, paths] of Object.entries(GROUP_PATHS)) {
+      if (paths.some((p) => window.location.pathname === p)) initial[key] = true;
+    }
+    return initial;
+  });
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (financePaths.some((p) => location.pathname === p)) setFinanceGroupOpen(true);
-    if (shopPaths.some((p) => location.pathname === p)) setShopGroupOpen(true);
+    for (const [key, paths] of Object.entries(GROUP_PATHS)) {
+      if (paths.some((p) => location.pathname === p)) {
+        setOpenGroups((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+      }
+    }
   }, [location.pathname]);
 
   useEffect(() => {
@@ -286,7 +303,7 @@ const AppContent = () => {
       // Detect mode from URL if possible
       if (location.pathname.startsWith('/pos')) setIsPosMode(true);
       else if (location.pathname.startsWith('/crm')) setIsPosMode(false);
-    } else if (location.pathname !== '/login') {
+    } else if (location.pathname !== '/login' && location.pathname !== '/reset-password') {
       navigate('/login');
     }
     setLoading(false);
@@ -342,62 +359,65 @@ const AppContent = () => {
       return posItems.filter((item) => hasPermission(item.feature));
     }
 
-    const flatItems: MenuEntry[] = [
+    // Only the dashboard stays ungrouped at the top level — everything else
+    // is bucketed into a handful of collapsible groups so the sidebar reads
+    // as ~7 items instead of ~20 when the menu is fully expanded.
+    const filtered: MenuEntry[] = [
       { text: 'แดชบอร์ด', icon: <DashboardIcon />, path: '/crm', feature: 'dashboard' },
+    ];
+
+    const pushGroup = (groupKey: string, label: string, icon: React.ReactNode, itemsAll: MenuItemConfig[]) => {
+      const children = itemsAll.filter((item) => hasPermission(item.feature));
+      if (children.length > 0) {
+        filtered.push({ type: 'group', label, icon, groupKey, children } as MenuGroupConfig);
+      }
+    };
+
+    pushGroup('people', 'ผู้ใช้งาน', <PeopleIcon />, [
       { text: 'จัดการพนักงาน', icon: <BadgeIcon />, path: '/crm/staff', feature: 'crm_users' },
-      { text: 'จัดการผู้ใช้งาน', icon: <PeopleIcon />, path: '/crm/parents', feature: 'consumer_users' },
+      { text: 'จัดการผู้ใช้งาน (ลูกค้า)', icon: <PeopleIcon />, path: '/crm/parents', feature: 'consumer_users' },
+    ]);
+
+    pushGroup('classes', 'คลาสเรียนและการจอง', <BookingIcon />, [
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
+      { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
+      { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+    ]);
+
+    pushGroup('marketing', 'การตลาดและสิทธิประโยชน์', <CampaignMenuIcon />, [
       { text: 'จัดการแพ็คเกจ', icon: <PackageIcon />, path: '/crm/packages', feature: 'packages' },
       { text: 'จัดการคูปอง', icon: <TicketIcon />, path: '/crm/coupons', feature: 'packages' },
       { text: 'จัดการโปรโมชัน', icon: <PromoIcon />, path: '/crm/promotions', feature: 'packages' },
       { text: 'จัดการแคมเปญลดราคา', icon: <CampaignMenuIcon />, path: '/crm/sale-campaigns', feature: 'packages' },
-      { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
-      { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
       { text: 'จัดการของรางวัล', icon: <GiftMenuIcon />, path: '/crm/rewards', feature: 'bookings' },
-      { text: 'จัดการปฏิทิน',        icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
-      { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
+      { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
       { text: 'จัดการรูปแสตมป์', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
-    ];
+      { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
+      { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },
+    ]);
 
-    const filtered = flatItems.filter((e) => {
-      const item = e as MenuItemConfig;
-      return hasPermission(item.feature);
-    });
-
-    // Shop group
-    const shopChildrenAll: MenuItemConfig[] = [
-      { text: 'จัดการบริการ',        icon: <ServiceMenuIcon />, path: '/crm/services', feature: 'services' },
-      { text: 'จัดการรายการสินค้า',  icon: <ProductMenuIcon />, path: '/crm/products', feature: 'products' },
-      { text: 'จัดการสต๊อก',         icon: <StockMenuIcon />,   path: '/crm/stock',    feature: 'stock'    },
-    ];
-    const shopChildren = shopChildrenAll.filter(item => hasPermission(item.feature));
-    if (shopChildren.length > 0) {
-      filtered.push({
-        type: 'group',
-        label: 'สินค้าและบริการ',
-        icon: <ShopIcon />,
-        groupKey: 'shop',
-        children: shopChildren,
-      } as MenuGroupConfig);
-    }
+    pushGroup('shop', 'สินค้าและบริการ', <ShopIcon />, [
+      { text: 'จัดการบริการ', icon: <ServiceMenuIcon />, path: '/crm/services', feature: 'services' },
+      { text: 'จัดการรายการสินค้า', icon: <ProductMenuIcon />, path: '/crm/products', feature: 'products' },
+      { text: 'จัดการสต๊อก', icon: <StockMenuIcon />, path: '/crm/stock', feature: 'stock' },
+    ]);
 
     if (financeChildren.length > 0) {
       filtered.push({
         type: 'group',
-        label: 'การเงิน',
+        label: 'การเงินและบุคลากร',
         icon: <FinanceIcon />,
         groupKey: 'finance',
         children: financeChildren,
       } as MenuGroupConfig);
     }
 
-    const bottomItems: MenuItemConfig[] = [
+    pushGroup('system', 'ระบบ', <SettingsIcon />, [
       { text: 'รายงาน', icon: <ReportIcon />, path: '/crm/reports', feature: 'dashboard' },
       { text: 'ตั้งค่าระบบและสาขา', icon: <SettingsIcon />, path: '/crm/settings', feature: 'settings' },
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
       { text: 'System Logs', icon: <SecurityIcon />, path: '/crm/system-logs', feature: 'settings' },
-    ];
-    bottomItems.filter((item) => hasPermission(item.feature)).forEach((item) => filtered.push(item));
+    ]);
 
     return filtered;
   }, [isPosMode, permissionTick, currentUser, financeChildren]);
@@ -515,10 +535,7 @@ const AppContent = () => {
                 <React.Fragment key={group.groupKey}>
                   <ListItem disablePadding>
                     <ListItemButton
-                      onClick={() => {
-                        if (group.groupKey === 'finance') setFinanceGroupOpen((o) => !o);
-                        else if (group.groupKey === 'shop') setShopGroupOpen((o) => !o);
-                      }}
+                      onClick={() => setOpenGroups((prev) => ({ ...prev, [group.groupKey]: !prev[group.groupKey] }))}
                       sx={{
                         ml: 0,
                         mr: 1.5,
@@ -535,12 +552,12 @@ const AppContent = () => {
                     >
                       <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>{group.icon}</ListItemIcon>
                       <ListItemText primary={group.label} primaryTypographyProps={{ fontWeight: 600, fontSize: '0.875rem' }} />
-                      {(group.groupKey === 'finance' ? financeGroupOpen : shopGroupOpen)
+                      {openGroups[group.groupKey]
                         ? <ExpandLess sx={{ fontSize: 18 }} />
                         : <ExpandMore sx={{ fontSize: 18 }} />}
                     </ListItemButton>
                   </ListItem>
-                  <Collapse in={group.groupKey === 'finance' ? financeGroupOpen : shopGroupOpen} timeout="auto" unmountOnExit>
+                  <Collapse in={!!openGroups[group.groupKey]} timeout="auto" unmountOnExit>
                     <List disablePadding>
                       {group.children.map((child) => (
                         <ListItem key={child.text} disablePadding>
@@ -665,10 +682,14 @@ const AppContent = () => {
   };
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
-  if (!currentUser && location.pathname !== '/login') return null;
+  if (!currentUser && location.pathname !== '/login' && location.pathname !== '/reset-password') return null;
 
   if (location.pathname === '/login') {
     return <Routes><Route path="/login" element={<Login />} /></Routes>;
+  }
+
+  if (location.pathname === '/reset-password') {
+    return <Routes><Route path="/reset-password" element={<ResetPassword />} /></Routes>;
   }
 
   const needsPin = !isPosMode && !crmUnlocked;
@@ -750,6 +771,7 @@ const AppContent = () => {
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
             <Route path="/crm/news-feed"       element={protect('news_feed', <NewsFeedManagement />)} />
+            <Route path="/crm/birthday-wishes" element={protect('news_feed', <BirthdayWishManagement />)} />
             <Route path="/crm/stamp-images"    element={protect('stamp_images', <StampImageManagement />)} />
             <Route path="/crm/coupons"         element={protect('packages', <CouponManagement />)} />
             <Route path="/crm/promotions"      element={protect('packages', <PromotionManagement />)} />

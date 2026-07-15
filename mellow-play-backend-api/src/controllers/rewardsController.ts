@@ -175,6 +175,68 @@ export class RewardsController {
     }
   }
 
+  // ================= STAMP PAGE BACKGROUNDS =================
+  // Public (consumer app) — cheap, no auth needed, same trust level as the
+  // stamp image ranges above.
+  async getStampPageBackgrounds(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { results } = await config.db.prepare(
+        `SELECT * FROM Stamp_Page_Backgrounds ORDER BY page_number ASC`
+      ).all();
+      return c.json({ success: true, backgrounds: results });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async createStampPageBackground(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { pageNumber, imageUrl } = await c.req.json();
+      if (!pageNumber || !imageUrl) {
+        return c.json({ success: false, message: 'pageNumber, imageUrl required' }, 400);
+      }
+      const result = await config.db.prepare(`
+        INSERT INTO Stamp_Page_Backgrounds (page_number, image_url) VALUES (?, ?)
+      `).bind(pageNumber, imageUrl).run();
+      return c.json({ success: true, id: result.meta.last_row_id });
+    } catch (error: any) {
+      const message = error.message?.includes('UNIQUE')
+        ? 'หน้านี้มีการตั้งค่าพื้นหลังไว้แล้ว กรุณาแก้ไขรายการเดิมแทน'
+        : error.message;
+      return c.json({ success: false, message }, 500);
+    }
+  }
+
+  async updateStampPageBackground(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { pageNumber, imageUrl } = await c.req.json();
+      await config.db.prepare(`
+        UPDATE Stamp_Page_Backgrounds SET page_number = ?, image_url = ? WHERE id = ?
+      `).bind(pageNumber, imageUrl, id).run();
+      return c.json({ success: true });
+    } catch (error: any) {
+      const message = error.message?.includes('UNIQUE')
+        ? 'หน้านี้มีการตั้งค่าพื้นหลังไว้แล้ว กรุณาแก้ไขรายการเดิมแทน'
+        : error.message;
+      return c.json({ success: false, message }, 500);
+    }
+  }
+
+  async deleteStampPageBackground(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      await config.db.prepare(`DELETE FROM Stamp_Page_Backgrounds WHERE id = ?`).bind(id).run();
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   // ================= ADMIN (CRM) API =================
   async getAllRewards(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {

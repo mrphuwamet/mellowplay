@@ -52,7 +52,7 @@ export default function ChildCouponManagement({ childId, childName, open, onClos
     try {
       await axios.post(`${API_BASE}/children/${childId}/coupons/${couponTypeId}/balance`, {
         amount: balances[couponTypeId] || 0,
-        note: 'Adjusted via CRM'
+        type: 'set',
       });
       fetchCoupons();
     } catch (error) {

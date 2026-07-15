@@ -8,10 +8,11 @@ import {
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
   Feed as FeedIcon, Article as NewsIcon, PermMedia as MediaIcon,
-  CloudUpload as UploadIcon, Close as ClearIcon,
+  CloudUpload as UploadIcon, Close as ClearIcon, Translate as TranslateIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL } from '../config';
+import RichTextEditor from '../components/RichTextEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -23,6 +24,7 @@ interface NewsItem {
   content: string | null;
   content_en: string | null;
   image_url: string | null;
+  image_urls: string[] | null;
   video_url: string | null;
   link_url: string | null;
   is_published: number;
@@ -37,6 +39,7 @@ const emptyForm = {
   content: '',
   contentEn: '',
   imageUrl: '',
+  imageUrls: [] as string[],
   videoUrl: '',
   linkUrl: '',
   isPublished: true,
@@ -47,6 +50,15 @@ const getImageUrl = (url?: string | null) => {
   if (!url) return '';
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url;
   return `${API_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
+// Converts rich HTML content into paragraph-separated plain text before
+// sending to the translate API, which only understands plain text.
+const stripHtmlForTranslate = (html: string) => {
+  const withBreaks = html.replace(/<\/(p|div|h[1-6]|li)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n');
+  const div = document.createElement('div');
+  div.innerHTML = withBreaks;
+  return (div.textContent || '').split(/\n+/).map(l => l.trim()).filter(Boolean).join('\n');
 };
 
 const NewsFeedManagement = () => {
@@ -60,8 +72,12 @@ const NewsFeedManagement = () => {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingMulti, setUploadingMulti] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [translating, setTranslating] = useState<'title' | 'content' | null>(null);
   const [error, setError] = useState('');
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const multiImageInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -85,6 +101,7 @@ const NewsFeedManagement = () => {
       content: item.content || '',
       contentEn: item.content_en || '',
       imageUrl: item.image_url || '',
+      imageUrls: item.image_urls || [],
       videoUrl: item.video_url || '',
       linkUrl: item.link_url || '',
       isPublished: !!item.is_published,
@@ -110,13 +127,76 @@ const NewsFeedManagement = () => {
     }
   };
 
+  const uploadMultiImage = async (file: File) => {
+    setUploadingMulti(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'news-feed');
+      const res = await axios.post(`${API_BASE}/upload`, fd);
+      if (res.data.success) setForm(f => ({ ...f, imageUrls: [...f.imageUrls, res.data.url] }));
+      else setError('อัปโหลดรูปไม่สำเร็จ');
+    } catch {
+      setError('อัปโหลดรูปไม่สำเร็จ');
+    } finally {
+      setUploadingMulti(false);
+    }
+  };
+
+  const uploadVideo = async (file: File) => {
+    setUploadingVideo(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'news-feed');
+      const res = await axios.post(`${API_BASE}/upload`, fd);
+      if (res.data.success) setForm(f => ({ ...f, videoUrl: res.data.url }));
+      else setError('อัปโหลดวิดีโอไม่สำเร็จ');
+    } catch {
+      setError('อัปโหลดวิดีโอไม่สำเร็จ');
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
+  const translate = async (field: 'title' | 'content') => {
+    const sourceText = field === 'title' ? form.title : stripHtmlForTranslate(form.content);
+    if (!sourceText.trim()) return;
+    setTranslating(field);
+    try {
+      const res = await axios.post(`${API_BASE}/translate`, { text: sourceText, from: 'th', to: 'en' });
+      if (res.data.success) {
+        if (field === 'title') {
+          setForm(f => ({ ...f, titleEn: res.data.translatedText }));
+        } else {
+          // Rough draft only — wraps each translated line back into a <p>
+          // rather than trying to preserve original rich formatting, since
+          // the translation API only works on plain text.
+          const html = res.data.translatedText
+            .split(/\n+/).map((line: string) => line.trim()).filter(Boolean)
+            .map((line: string) => `<p>${line}</p>`).join('');
+          setForm(f => ({ ...f, contentEn: html || res.data.translatedText }));
+        }
+      } else {
+        setError(res.data.message || 'แปลภาษาไม่สำเร็จ');
+      }
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'แปลภาษาไม่สำเร็จ');
+    } finally {
+      setTranslating(null);
+    }
+  };
+
   const handleSave = async () => {
     setError('');
     if (!form.title.trim()) { setError('กรุณากรอกหัวข้อ'); return; }
     setSaving(true);
     try {
-      if (editTarget) await axios.put(`${API_BASE}/news-feed/${editTarget.id}`, form);
-      else await axios.post(`${API_BASE}/news-feed`, form);
+      // If only the multi-image slideshow was filled in, use its first
+      // photo as the single-image thumbnail shown on cards/lists elsewhere.
+      const payload = { ...form, imageUrl: form.imageUrl || form.imageUrls[0] || '' };
+      if (editTarget) await axios.put(`${API_BASE}/news-feed/${editTarget.id}`, payload);
+      else await axios.post(`${API_BASE}/news-feed`, payload);
       setDialogOpen(false);
       fetchData();
     } catch (e: any) {
@@ -243,7 +323,7 @@ const NewsFeedManagement = () => {
       </TableContainer>
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 'bold', pb: 1 }}>{editTarget ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหาใหม่'}</DialogTitle>
         <DialogContent dividers>
           <Box display="flex" flexDirection="column" gap={2.5} pt={1}>
@@ -260,7 +340,7 @@ const NewsFeedManagement = () => {
             </ToggleButtonGroup>
 
             <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพประกอบ</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพปก (Thumbnail)</Typography>
               <Box
                 onClick={() => imageInputRef.current?.click()}
                 sx={{
@@ -297,15 +377,125 @@ const NewsFeedManagement = () => {
               }} />
             </Box>
 
-            <TextField label="หัวข้อ (ภาษาไทย) *" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} fullWidth />
-            <TextField label="หัวข้อ (English)" value={form.titleEn} onChange={(e) => setForm(f => ({ ...f, titleEn: e.target.value }))} fullWidth />
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                รูปภาพหลายรูป (สไลด์ต่อกันแบบติ๊กตอก — ใช้กับ "สื่อความรู้")
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                {form.imageUrls.map((url, i) => (
+                  <Box key={i} sx={{ position: 'relative', width: 90, height: 90, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+                    <img src={getImageUrl(url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <Box sx={{ position: 'absolute', bottom: 3, left: 3, bgcolor: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, fontWeight: 800, px: 0.7, borderRadius: 0.75 }}>
+                      {i + 1}
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={() => setForm(f => ({ ...f, imageUrls: f.imageUrls.filter((_, idx) => idx !== i) }))}
+                      sx={{ position: 'absolute', top: 3, right: 3, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.4 }}
+                    >
+                      <ClearIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+                <Box
+                  onClick={() => multiImageInputRef.current?.click()}
+                  sx={{
+                    width: 90, height: 90, borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f9fafb',
+                    '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
+                  }}
+                >
+                  {uploadingMulti ? <CircularProgress size={18} /> : <AddIcon color="disabled" />}
+                </Box>
+              </Box>
+              <input type="file" hidden accept="image/*" ref={multiImageInputRef} onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) uploadMultiImage(file);
+                e.target.value = '';
+              }} />
+            </Box>
 
-            <TextField label="เนื้อหา (ภาษาไทย)" value={form.content} onChange={(e) => setForm(f => ({ ...f, content: e.target.value }))} fullWidth multiline rows={4} />
-            <TextField label="เนื้อหา (English)" value={form.contentEn} onChange={(e) => setForm(f => ({ ...f, contentEn: e.target.value }))} fullWidth multiline rows={4} />
+            <TextField label="หัวข้อ (ภาษาไทย) *" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} fullWidth />
+            <Box display="flex" gap={1} alignItems="flex-start">
+              <TextField label="หัวข้อ (English)" value={form.titleEn} onChange={(e) => setForm(f => ({ ...f, titleEn: e.target.value }))} fullWidth />
+              <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
+                <span>
+                  <IconButton onClick={() => translate('title')} disabled={translating === 'title' || !form.title.trim()} sx={{ mt: 0.5 }}>
+                    {translating === 'title' ? <CircularProgress size={18} /> : <TranslateIcon />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>เนื้อหา (ภาษาไทย)</Typography>
+              <RichTextEditor value={form.content} onChange={(html) => setForm(f => ({ ...f, content: html }))} placeholder="เขียนเนื้อหาข่าว..." />
+            </Box>
+            <Box>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>เนื้อหา (English)</Typography>
+                <Tooltip title="แปลจากภาษาไทยอัตโนมัติ (ฉบับร่าง)">
+                  <span>
+                    <Button
+                      size="small"
+                      startIcon={translating === 'content' ? <CircularProgress size={14} /> : <TranslateIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => translate('content')}
+                      disabled={translating === 'content' || !form.content.trim()}
+                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                    >
+                      แปลอัตโนมัติ
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+              <RichTextEditor value={form.contentEn} onChange={(html) => setForm(f => ({ ...f, contentEn: html }))} placeholder="Write the article content..." />
+            </Box>
 
             <Box display="flex" gap={2}>
-              <TextField label="ลิงก์วิดีโอ (ถ้ามี)" value={form.videoUrl} onChange={(e) => setForm(f => ({ ...f, videoUrl: e.target.value }))} fullWidth placeholder="https://..." />
               <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                วิดีโอ (วางลิงก์ YouTube หรืออัปโหลดไฟล์วีดีโอ — เล่นฝังอยู่ในเนื้อหาเลย)
+              </Typography>
+              <Box display="flex" gap={1} alignItems="flex-start">
+                <TextField
+                  label="ลิงก์วิดีโอ (YouTube หรืออื่นๆ)"
+                  value={form.videoUrl}
+                  onChange={(e) => setForm(f => ({ ...f, videoUrl: e.target.value }))}
+                  fullWidth
+                  placeholder="https://youtube.com/watch?v=..."
+                />
+                <Tooltip title="อัปโหลดไฟล์วีดีโอ">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      sx={{ borderRadius: 2, whiteSpace: 'nowrap', height: 56 }}
+                      disabled={uploadingVideo}
+                      startIcon={uploadingVideo ? <CircularProgress size={16} /> : <UploadIcon />}
+                    >
+                      อัปโหลด
+                      <input
+                        type="file"
+                        hidden
+                        accept="video/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadVideo(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+              {form.videoUrl && (
+                <Button size="small" onClick={() => setForm(f => ({ ...f, videoUrl: '' }))} sx={{ mt: 0.5, textTransform: 'none', color: 'text.disabled' }}>
+                  ลบวิดีโอ
+                </Button>
+              )}
             </Box>
 
             <TextField

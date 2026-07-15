@@ -151,6 +151,56 @@ export class HRRepository {
     await this.db.prepare('DELETE FROM Attendance_Records WHERE crm_user_id=? AND date=?').bind(crmUserId, date).run();
   }
 
+  // Supporting data for a human diligence-bonus decision (not an automatic
+  // pass/fail) — days worked, and which days were late/left early, each with
+  // the reason recorded in Attendance_Records.note. Pay period follows the
+  // 26th-of-prior-month → 25th-of-this-month convention used elsewhere
+  // (IncentiveTracking.tsx). Freelance staff have no fixed work_start/end_time
+  // to compare against, so late/early are left empty and only the raw log +
+  // day count are returned — the admin reviews it directly instead.
+  async getAttendanceSummary(crmUserId: number, month: number, year: number): Promise<any> {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const start = `${prevYear}-${String(prevMonth).padStart(2, '0')}-26`;
+    const end = `${year}-${String(month).padStart(2, '0')}-25`;
+
+    const staff = await this.db.prepare(
+      'SELECT employment_type, work_start_time, work_end_time FROM CRM_Users WHERE id=?'
+    ).bind(crmUserId).first<any>();
+
+    const { results: records } = await this.db.prepare(`
+      SELECT date, check_in, check_out, note FROM Attendance_Records
+      WHERE crm_user_id=? AND date >= ? AND date <= ?
+      ORDER BY date ASC
+    `).bind(crmUserId, start, end).all();
+
+    const isFreelance = staff?.employment_type === 'freelance';
+    const daysWorked = (records as any[]).filter(r => r.check_in).length;
+
+    const lateEntries: any[] = [];
+    const earlyLeaveEntries: any[] = [];
+    if (!isFreelance) {
+      for (const r of records as any[]) {
+        if (staff?.work_start_time && r.check_in && r.check_in > staff.work_start_time) {
+          lateEntries.push({ date: r.date, checkIn: r.check_in, scheduled: staff.work_start_time, note: r.note });
+        }
+        if (staff?.work_end_time && r.check_out && r.check_out < staff.work_end_time) {
+          earlyLeaveEntries.push({ date: r.date, checkOut: r.check_out, scheduled: staff.work_end_time, note: r.note });
+        }
+      }
+    }
+
+    return {
+      periodStart: start,
+      periodEnd: end,
+      isFreelance,
+      daysWorked,
+      lateEntries,
+      earlyLeaveEntries,
+      records,
+    };
+  }
+
   // ── Leave Requests ─────────────────────────────────────────────────────────
   async getLeaveRequests(crmUserId?: number): Promise<any[]> {
     let sql = `SELECT lr.*, cu.full_name AS staff_name, cu.role AS staff_role
@@ -228,9 +278,13 @@ export class HRRepository {
     const dateStart = `${year}-${String(month).padStart(2, '0')}-01`;
     const dateEnd   = `${year}-${String(month).padStart(2, '0')}-31`;
 
-    // ค่าปฏิบัติงาน: transactions where this staff was teaching
+    // ค่าปฏิบัติงาน (สอน): transactions where this staff was teaching — uses
+    // the course's own teacher_commission_type/value (CourseManagement.tsx)
+    // when set, otherwise falls back to the global operational_fee_type/value
+    // setting (the only rate that existed before per-course rates existed).
     const { results: teachTx } = await this.db.prepare(`
-      SELECT t.amount, t.course_id FROM Transactions t
+      SELECT t.amount, c.teacher_commission_type, c.teacher_commission_value
+      FROM Transactions t LEFT JOIN Courses c ON t.course_id = c.id
       WHERE t.teaching_staff_id=? AND DATE(t.created_at) BETWEEN ? AND ?
         AND t.type IN ('guest_sale','class_booking')
     `).bind(crmUserId, dateStart, dateEnd).all();
@@ -238,12 +292,30 @@ export class HRRepository {
     const feeSetting = await this.db.prepare("SELECT key, value FROM System_Settings WHERE key IN ('operational_fee_type','operational_fee_value')").all();
     const feeMap: Record<string, string> = {};
     for (const r of feeSetting.results as any[]) feeMap[r.key] = r.value;
-    const feeType = feeMap['operational_fee_type'] ?? 'percent';
-    const feeValue = parseFloat(feeMap['operational_fee_value'] ?? '10');
+    const defaultFeeType = feeMap['operational_fee_type'] ?? 'percent';
+    const defaultFeeValue = parseFloat(feeMap['operational_fee_value'] ?? '10');
 
     let incentive = 0;
     for (const tx of teachTx as any[]) {
+      const feeType = tx.teacher_commission_type ?? defaultFeeType;
+      const feeValue = tx.teacher_commission_value != null ? parseFloat(tx.teacher_commission_value) : defaultFeeValue;
       incentive += feeType === 'percent' ? (tx.amount * feeValue) / 100 : feeValue;
+    }
+
+    // ค่าคอมมิชชันขาย (จองคลาส): เฉพาะคลาสที่ตั้ง sales_commission ไว้ใน
+    // CourseManagement.tsx เท่านั้น — ไม่มีอัตรากลาง fallback เหมือนฝั่งสอน
+    // เพราะก่อนหน้านี้ไม่เคยมีคอมมิชชันขายสำหรับการจองคลาสเลย
+    const { results: classSaleTx } = await this.db.prepare(`
+      SELECT t.amount, c.sales_commission_type, c.sales_commission_value
+      FROM Transactions t JOIN Courses c ON t.course_id = c.id
+      WHERE t.sales_staff_id=? AND DATE(t.created_at) BETWEEN ? AND ?
+        AND t.type IN ('guest_sale','class_booking')
+        AND c.sales_commission_type IS NOT NULL
+    `).bind(crmUserId, dateStart, dateEnd).all();
+
+    for (const tx of classSaleTx as any[]) {
+      const v = parseFloat(tx.sales_commission_value ?? 0);
+      incentive += tx.sales_commission_type === 'percent' ? (tx.amount * v) / 100 : v;
     }
 
     // Package commission

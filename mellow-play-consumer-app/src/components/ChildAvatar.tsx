@@ -1,5 +1,6 @@
 import React from 'react';
 import { CHARACTER_AVATARS } from '../utils/characterAvatars';
+import { API_HOST } from '../utils/apiClient';
 
 interface ChildAvatarProps {
   avatarType?: string;
@@ -13,9 +14,13 @@ export const ChildAvatar: React.FC<ChildAvatarProps> = ({ avatarType, className 
   const isGirl = avatarType === 'girl' || avatarType === '👧' || avatarType === 'daughter';
 
   if (isUrl) {
+    // Uploaded photos come back as a path relative to the API worker
+    // (e.g. "/api/v1/files/..."), not the frontend's own origin — a bare
+    // <img src> would resolve it against this page's host instead and 404.
+    const src = avatarType!.startsWith('/api/v1/files/') ? `${API_HOST}${avatarType}` : avatarType;
     return (
       <div className={`rounded-full overflow-hidden shadow-inner flex items-center justify-center bg-slate-200 ${className}`}>
-        <img src={avatarType} alt="Avatar" className="w-full h-full object-cover" />
+        <img src={src} alt="Avatar" className="w-full h-full object-cover" />
       </div>
     );
   }

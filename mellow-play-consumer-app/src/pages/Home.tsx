@@ -1,11 +1,12 @@
 import React from 'react';
 import { useChildStore } from '../store/useChildStore';
-import { ChevronRight, FileText, Lock, Medal, Menu, LogOut, Settings, Ticket, Calendar, LogIn, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, ArrowRightLeft, Crown, Cake } from 'lucide-react';
+import { ChevronRight, ChevronLeft, FileText, Lock, Medal, Menu, LogOut, Settings, Ticket, Calendar, LogIn, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, ArrowRightLeft, Crown, Cake } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import QuickAccess from '../components/QuickAccess';
 import AnimatedClouds from '../components/AnimatedClouds';
 import CourseCard from '../components/CourseCard';
+import { useCouponTypes } from '../hooks/useCouponTypes';
 import AddChildModal from '../components/AddChildModal';
 import AvatarPickerModal from '../components/AvatarPickerModal';
 import BookingDetailModal from '../components/BookingDetailModal';
@@ -17,11 +18,13 @@ import defaultAvatar from '../assets/ui/default-avatar.svg';
 import apiClient from '../utils/apiClient';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
+import { resolveImageUrl } from '../utils/courseImage';
 
 const Home = () => {
   const { children, selectedChildId, isLoading: isStoreLoading, selectChild } = useChildStore();
   const navigate = useNavigate();
   const { t, lang, setLang } = useTranslation();
+  const couponTypes = useCouponTypes();
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isAddChildOpen, setIsAddChildOpen] = React.useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = React.useState(false);
@@ -35,6 +38,13 @@ const Home = () => {
   const [cancelBookingId, setCancelBookingId] = React.useState<number | null>(null);
   const [isDataLoading, setIsDataLoading] = React.useState(true);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
+
+  // Matches Explore.tsx's course-row scroll behavior: nudge by one
+  // card-step (240px card + 16px gap) and let CSS scroll-snap settle it centered.
+  const recommendedScrollRef = React.useRef<HTMLDivElement>(null);
+  const scrollRecommendedBy = (dir: 'left' | 'right') => {
+    recommendedScrollRef.current?.scrollBy({ left: dir === 'left' ? -256 : 256, behavior: 'smooth' });
+  };
 
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const userJson = localStorage.getItem('mellow_user');
@@ -67,7 +77,16 @@ const Home = () => {
         const [coursesRes, historyRes, pendingRes, upcomingRes] = await Promise.all([coursesReq, historyReq, pendingReq, upcomingReq]);
 
         if (coursesRes.data.success) {
-          setRecommendedCourses(coursesRes.data.courses.filter((c: any) => c.is_recommended === 1 || c.is_recommended === true));
+          const recommended = coursesRes.data.courses.filter((c: any) => c.is_recommended === 1 || c.is_recommended === true);
+          // Courses the child has never taken surface before ones they've
+          // already completed, so "recommended" doesn't just repeat history.
+          const takenIds = new Set(
+            historyRes.data.success
+              ? (currentChild ? historyRes.data.bookings.filter((b: any) => b.child_id === currentChild.id) : historyRes.data.bookings).map((b: any) => b.course_id)
+              : []
+          );
+          const sortedRecommended = [...recommended].sort((a: any, b: any) => Number(takenIds.has(a.id)) - Number(takenIds.has(b.id)));
+          setRecommendedCourses(sortedRecommended);
         }
 
         if (historyRes.data.success) {
@@ -191,6 +210,20 @@ const Home = () => {
 
           <div className="relative z-30">
             <div className="flex items-center gap-2 rounded-[28px] border border-white/40 bg-white/55 backdrop-blur-xl shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] p-2">
+              {!isGuest && (
+                <button
+                  onClick={() => navigate('/settings/profile')}
+                  className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-white/60 shadow-sm active:scale-95 transition-transform bg-slate-100 flex items-center justify-center"
+                  aria-label={t.home.menuTitle}
+                >
+                  {user?.avatarUrl ? (
+                    <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={20} className="text-slate-300" />
+                  )}
+                </button>
+              )}
+
               {isGuest && (
                 <button
                   onClick={() => navigate('/register')}
@@ -385,7 +418,7 @@ const Home = () => {
                               className="inline-flex items-center gap-1 text-[11px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full shadow-sm active:scale-95 transition-transform"
                             >
                               <Cake size={12} strokeWidth={2.5} />
-                              {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : 'ปี'}
+                              {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(currentChild.dob)) < 15 ? 'ขวบ' : 'ปี')}
                             </button>
                           )}
                           <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full shadow-sm ${
@@ -500,12 +533,12 @@ const Home = () => {
 
         {(isDataLoading || isBookingStatusLoading) ? (
           <div className="mb-8 px-5">
-            <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
-              {lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}
-            </h3>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-black text-lg leading-tight">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
+            </div>
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
               {[0, 1].map(i => (
-                <div key={i} className="flex-shrink-0 w-64 bg-white p-3 rounded-2xl shadow-sm animate-pulse">
+                <div key={i} className="flex-shrink-0 w-[240px] bg-white p-3 rounded-3xl shadow-sm animate-pulse">
                   <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 mb-3" />
                   <div className="h-3.5 w-3/4 bg-slate-100 rounded-full mb-2" />
                   <div className="h-2.5 w-full bg-slate-100 rounded-full mb-1" />
@@ -517,12 +550,30 @@ const Home = () => {
           </div>
         ) : recommendedCourses.length > 0 && (
           <div className="mb-8 px-5">
-            <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
-              {lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}
-            </h3>
-            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
+            <div className="flex justify-between items-center mb-3 gap-2">
+              <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => scrollRecommendedBy('left')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
+                    <ChevronLeft size={16} className="text-slate-500" />
+                  </button>
+                  <button onClick={() => scrollRecommendedBy('right')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
+                    <ChevronRight size={16} className="text-slate-500" />
+                  </button>
+                </div>
+                <button onClick={() => navigate('/courses/all')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                  {lang === 'en' ? 'View All' : 'ดูคลาสทั้งหมด'}
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div
+              ref={recommendedScrollRef}
+              style={{ scrollPaddingInline: 'calc(50% - 120px)' }}
+              className="flex items-stretch gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5 scroll-smooth snap-x snap-mandatory"
+            >
               {recommendedCourses.map((course) => (
-                <CourseCard key={course.id} course={course} bookingStatus={courseBookingStatus[course.id]} lang={lang} childCoupons={!isGuest ? currentChild?.coupons : undefined} />
+                <CourseCard key={course.id} course={course} bookingStatus={courseBookingStatus[course.id]} lang={lang} childCoupons={!isGuest ? currentChild?.coupons : undefined} couponTypes={couponTypes} />
               ))}
             </div>
           </div>

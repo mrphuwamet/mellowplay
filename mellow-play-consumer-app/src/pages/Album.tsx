@@ -4,6 +4,7 @@ import { ChevronLeft, Calendar, Download, Share2, Grid, List, Loader2, Play, Che
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
+import { formatCustomDate } from '../utils/dateFormat';
 
 const MAX_SELECTION = 30;
 const PAGE_SIZE = 30;
@@ -14,7 +15,6 @@ interface MediaItem {
   type: string;
   caption: string;
   dateKey: string; // ISO yyyy-mm-dd, for date filtering
-  dateLabel: string;
   completedAt: string;
 }
 
@@ -30,8 +30,10 @@ const Album = () => {
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [dateFilter, setDateFilter] = useState<string>('');
-  const dateInputRef = useRef<HTMLInputElement>(null);
+  const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState('');
+  const [draftEnd, setDraftEnd] = useState('');
 
   // Smart/incremental loading — render a capped number of items at a time
   // (like Apple Photos) instead of the whole library at once.
@@ -46,7 +48,10 @@ const Album = () => {
         const response = await apiClient.get(`/journey/album/${selectedChild.id}`);
         if (response.data.success) {
           const items: MediaItem[] = response.data.album.map((curr: any) => {
-            const d = new Date(curr.completed_at);
+            // Group/display by the class's actual scheduled date, not
+            // when the CRM staff happened to file the report.
+            const classDate = curr.class_date || curr.completed_at;
+            const d = new Date(classDate);
             const label = curr.course_name || curr.activity_title;
             return {
               id: curr.id,
@@ -54,8 +59,7 @@ const Album = () => {
               type: curr.media_type,
               caption: label,
               dateKey: d.toISOString().slice(0, 10),
-              dateLabel: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-              completedAt: curr.completed_at,
+              completedAt: classDate,
             };
           });
           // Newest first, top-left to bottom-right.
@@ -73,8 +77,8 @@ const Album = () => {
   }, [selectedChild]);
 
   const filteredMedia = useMemo(
-    () => dateFilter ? rawMedia.filter(m => m.dateKey === dateFilter) : rawMedia,
-    [rawMedia, dateFilter]
+    () => dateRange ? rawMedia.filter(m => m.dateKey >= dateRange.start && m.dateKey <= dateRange.end) : rawMedia,
+    [rawMedia, dateRange]
   );
   const totalMedia = filteredMedia.length;
 
@@ -85,16 +89,16 @@ const Album = () => {
       const groupKey = `${item.dateKey}-${item.caption}`;
       let group = groups.find(g => g.key === groupKey);
       if (!group) {
-        group = { key: groupKey, date: item.dateLabel, activity: item.caption, images: [] };
+        group = { key: groupKey, date: formatCustomDate(item.completedAt, lang, 'full'), activity: item.caption, images: [] };
         groups.push(group);
       }
       group.images.push(item);
     }
     return groups;
-  }, [filteredMedia]);
+  }, [filteredMedia, lang]);
 
   // Reset pagination whenever the underlying data view changes.
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [groupMode, dateFilter, rawMedia]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [groupMode, dateRange, rawMedia]);
 
   const visibleFlatMedia = filteredMedia.slice(0, visibleCount);
   const visibleGroups = useMemo(() => {
@@ -163,14 +167,27 @@ const Album = () => {
 
   if (isLoading) {
     return (
-      <div className="mellow-page flex items-center justify-center">
-        <Loader2 className="animate-spin text-mellow-blue" size={40} />
+      <div className="mellow-page animate-pulse">
+        <div className="h-[64px] px-5 bg-white/80 border-b border-black/5 flex items-center justify-between">
+          <div className="w-10 h-10 rounded-full bg-slate-200" />
+          <div className="h-4 w-24 bg-slate-200 rounded-full" />
+          <div className="w-10 h-10 rounded-full bg-slate-200" />
+        </div>
+        <div className="p-4">
+          <div className="h-3 w-20 bg-slate-200 rounded-full mb-3" />
+          <div className="grid grid-cols-3 gap-1.5">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="aspect-square rounded-[24px] bg-slate-200" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
 
   const renderThumb = (img: MediaItem) => {
     const isSelected = selectedIds.has(img.id);
+    const datetimeLabel = `${formatCustomDate(img.completedAt, lang, 'short')} ${new Date(img.completedAt).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'th-TH', { hour: '2-digit', minute: '2-digit' })}`;
     return (
       <div
         key={img.id}
@@ -182,31 +199,52 @@ const Album = () => {
           ${viewMode === 'grid' ? 'aspect-square' : 'aspect-[4/3]'}
           ${isSelected ? 'ring-4 ring-mellow-blue' : ''}
         `}>
-          <img
-            src={img.url}
-            alt={img.caption}
-            loading="lazy"
-            decoding="async"
-            className={`w-full h-full object-cover transition-transform duration-500 ${!selectMode ? 'group-hover:scale-110' : ''} ${isSelected ? 'opacity-80' : ''}`}
-          />
+          {img.type === 'video' ? (
+            <video
+              src={img.url}
+              preload="metadata"
+              muted
+              playsInline
+              // Some browsers (notably Safari/iOS) don't clip <video> to a
+              // parent's overflow-hidden + rounded corners, unlike <img> —
+              // so the radius has to be set on the element itself too.
+              className={`w-full h-full object-cover rounded-[24px] transition-transform duration-500 ${!selectMode ? 'group-hover:scale-110' : ''} ${isSelected ? 'opacity-80' : ''}`}
+            />
+          ) : (
+            <img
+              src={img.url}
+              alt={img.caption}
+              loading="lazy"
+              decoding="async"
+              className={`w-full h-full object-cover transition-transform duration-500 ${!selectMode ? 'group-hover:scale-110' : ''} ${isSelected ? 'opacity-80' : ''}`}
+            />
+          )}
           {img.type === 'video' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-              <div className="w-12 h-12 bg-white/85 rounded-full flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-12 h-12 bg-white/85 rounded-full flex items-center justify-center shadow-sm">
                 <Play size={20} className="text-mellow-blue fill-mellow-blue ml-0.5" />
               </div>
             </div>
           )}
 
-          {selectMode ? (
-            <div className="absolute top-2 right-2">
+          {!selectMode && (
+            <div className="absolute inset-0 rounded-[24px] bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 pointer-events-none">
+               <p className="text-white text-[14px] font-bold leading-tight">{datetimeLabel}</p>
+            </div>
+          )}
+
+          {selectMode && (
+            <div className="absolute top-2 right-2 z-10">
               {isSelected ? (
                 <CheckSquare size={22} className="text-white drop-shadow" fill="#4facfe" />
               ) : (
                 <Square size={22} className="text-white drop-shadow" />
               )}
             </div>
-          ) : (
-            <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          )}
+
+          {!selectMode && viewMode === 'grid' && (
+            <div className="absolute top-2 right-2 z-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={e => { e.stopPropagation(); downloadOne(img.url); }}
                 className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white"
@@ -222,28 +260,26 @@ const Album = () => {
             </div>
           )}
 
-          {!selectMode && (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 pointer-events-none">
-               <p className="text-white text-[14px] font-bold leading-tight">{img.caption}</p>
+          {/* List view: save/share centered on the thumbnail instead of a
+              below-image row — the course name is dropped here too since
+              the timeline group header above already shows it. */}
+          {!selectMode && viewMode === 'list' && (
+            <div className="absolute inset-0 rounded-[24px] flex items-center justify-center gap-3 bg-black/10">
+              <button
+                onClick={e => { e.stopPropagation(); downloadOne(img.url); }}
+                className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
+              >
+                <Download size={18} />
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); navigator.share ? navigator.share({ url: img.url }).catch(() => {}) : downloadOne(img.url); }}
+                className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
+              >
+                <Share2 size={18} />
+              </button>
             </div>
           )}
         </div>
-        {viewMode === 'list' && !selectMode && (
-           <div className="mt-3 px-2">
-              <p className="text-[14px] font-bold text-mellow-ink">{img.caption}</p>
-              <div className="flex gap-4 mt-2">
-                 <button onClick={e => { e.stopPropagation(); downloadOne(img.url); }} className="text-[14px] font-black text-mellow-blue uppercase tracking-widest flex items-center gap-1">
-                    <Download size={12} /> {t.album.save}
-                 </button>
-                 <button
-                   onClick={e => { e.stopPropagation(); navigator.share ? navigator.share({ url: img.url }).catch(() => {}) : downloadOne(img.url); }}
-                   className="text-[14px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"
-                 >
-                    <Share2 size={12} /> {t.album.share}
-                 </button>
-              </div>
-           </div>
-        )}
       </div>
     );
   };
@@ -270,34 +306,69 @@ const Album = () => {
       )}
 
       {/* Header */}
-      <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
-        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
-          <ChevronLeft size={24} className="mr-0.5" />
-        </button>
-        <div className="text-center">
-          <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">{t.album.title}</h1>
-          <span className="text-[14px] font-bold text-mellow-blue uppercase tracking-[0.2em]">{t.album.memoriesPrefix}{selectedChild?.name}{t.album.memoriesSuffix}</span>
+      <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-3 justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
+            <ChevronLeft size={24} className="mr-0.5" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5 truncate">{t.album.title}</h1>
+            <span className="text-[14px] font-bold text-mellow-blue uppercase tracking-[0.2em] truncate block">{t.album.memoriesPrefix}{selectedChild?.nickname}{t.album.memoriesSuffix}</span>
+          </div>
         </div>
-        <button
-          onClick={() => dateInputRef.current?.showPicker ? dateInputRef.current.showPicker() : dateInputRef.current?.click()}
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${dateFilter ? 'bg-mellow-blue text-white' : 'bg-slate-100 text-slate-400'}`}
-        >
-           <Calendar size={20} />
-           <input
-             ref={dateInputRef}
-             type="date"
-             value={dateFilter}
-             onChange={e => setDateFilter(e.target.value)}
-             className="sr-only"
-           />
-        </button>
+        <div className="relative shrink-0">
+          <button
+            onClick={() => {
+              setDraftStart(dateRange?.start || '');
+              setDraftEnd(dateRange?.end || '');
+              setPickerOpen(v => !v);
+            }}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${dateRange ? 'bg-mellow-blue text-white' : 'bg-slate-100 text-slate-400'}`}
+          >
+             <Calendar size={20} />
+          </button>
+          {pickerOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setPickerOpen(false)} />
+              <div className="absolute right-0 top-12 z-40 w-[260px] bg-white rounded-2xl shadow-xl border border-slate-100 p-4">
+                <label className="block text-[12px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.fromDate}</label>
+                <input
+                  type="date" value={draftStart} max={draftEnd || undefined}
+                  onChange={e => setDraftStart(e.target.value)}
+                  className="w-full mb-3 px-3 py-2 rounded-xl border border-slate-200 text-[14px] font-bold"
+                />
+                <label className="block text-[12px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.toDate}</label>
+                <input
+                  type="date" value={draftEnd} min={draftStart || undefined}
+                  onChange={e => setDraftEnd(e.target.value)}
+                  className="w-full mb-4 px-3 py-2 rounded-xl border border-slate-200 text-[14px] font-bold"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setDateRange(null); setPickerOpen(false); }}
+                    className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 text-[13px] font-black uppercase tracking-widest"
+                  >
+                    {t.album.clearDates}
+                  </button>
+                  <button
+                    onClick={() => { if (draftStart && draftEnd) { setDateRange({ start: draftStart, end: draftEnd }); setPickerOpen(false); } }}
+                    disabled={!draftStart || !draftEnd}
+                    className="flex-1 py-2 rounded-xl bg-mellow-purple text-white text-[13px] font-black uppercase tracking-widest disabled:opacity-40"
+                  >
+                    {t.album.apply}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
-      {dateFilter && (
+      {dateRange && (
         <div className="px-5 pt-3">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-mellow-blue/10 text-mellow-blue rounded-full text-[13px] font-bold">
-            {new Date(dateFilter).toLocaleDateString(lang === 'en' ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}
-            <button onClick={() => setDateFilter('')}><X size={14} /></button>
+            {formatCustomDate(dateRange.start, lang, 'short')} - {formatCustomDate(dateRange.end, lang, 'short')}
+            <button onClick={() => setDateRange(null)}><X size={14} /></button>
           </div>
         </div>
       )}
@@ -310,14 +381,14 @@ const Album = () => {
               <Calendar size={28} className="text-mellow-blue" />
             </div>
             <h3 className="font-black text-lg text-mellow-ink mb-1">
-              {dateFilter ? t.album.noPhotosForDate : t.album.noPhotosTitle}
+              {dateRange ? t.album.noPhotosForDate : t.album.noPhotosTitle}
             </h3>
-            {!dateFilter && <p className="text-sm text-slate-400 font-bold mb-5">{t.album.noPhotosDesc}</p>}
+            {!dateRange && <p className="text-sm text-slate-400 font-bold mb-5">{t.album.noPhotosDesc}</p>}
             <button
-              onClick={() => dateFilter ? setDateFilter('') : navigate('/explore')}
+              onClick={() => dateRange ? setDateRange(null) : navigate('/explore')}
               className="px-6 py-3 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest shadow-md active:scale-95 transition-all"
             >
-              {dateFilter ? t.album.allDates : t.album.bookNow}
+              {dateRange ? t.album.allDates : t.album.bookNow}
             </button>
           </div>
         ) : (

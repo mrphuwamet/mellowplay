@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, Calendar, MapPin, CheckCircle, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, Calendar, MapPin, CheckCircle, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, X, Star, ShoppingBag, Ticket } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -9,7 +9,9 @@ import { formatCalendarSummary } from '../utils/calendarUtils';
 import { getCourseView, resolveImageUrl } from '../utils/courseImage';
 import { trackCourseView } from '../utils/analytics';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
+import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 import TicketRequirementRow from '../components/TicketRequirementRow';
+import { stripHtml } from '../utils/stripHtml';
 
 const Explore = () => {
   const navigate = useNavigate();
@@ -18,12 +20,14 @@ const Explore = () => {
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
   const { statusMap: courseBookingStatus, isLoading: isBookingStatusLoading } = useCourseBookingStatus(user?.id, selectedChild?.id);
+  const couponTypes = useCouponTypes();
 
   const [courses, setCourses] = useState<any[]>([]);
   const [newsItems, setNewsItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<'all' | 'classes' | 'news' | 'media'>('all');
   const [videoModalUrl, setVideoModalUrl] = useState<string | null>(null);
+  const [showShopSoon, setShowShopSoon] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -38,16 +42,63 @@ const Explore = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const extraClasses = courses.filter(c => c.is_extraclass);
-  const regularClasses = courses.filter(c => !c.is_extraclass);
-  const newsOnly = newsItems.filter(n => n.type === 'news');
-  const mediaOnly = newsItems.filter(n => n.type === 'media');
+  // A course with only one-off (specific_date) calendar rules and no
+  // recurring (day_of_week) rule is a single-occurrence event — once every
+  // specific_date has passed, it's expired and shouldn't clutter discovery.
+  // Recurring weekly classes never "expire" this way.
+  const isCourseExpired = (course: any) => {
+    if (!course.calendar_summary_json) return false;
+    let rules: any[];
+    try { rules = JSON.parse(course.calendar_summary_json); } catch { return false; }
+    if (!rules || rules.length === 0) return false;
+    const hasRecurring = rules.some(r => r.day_of_week !== null && r.day_of_week !== undefined);
+    if (hasRecurring) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const hasFutureDate = rules.some(r => r.specific_date && new Date(r.specific_date) >= today);
+    return !hasFutureDate;
+  };
+
+  const byNewest = (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  // Extra classes lead the row (leftmost) since they're time-limited/special;
+  // regular classes follow, each group still newest-first internally.
+  const byExtraFirstThenNewest = (a: any, b: any) => (Number(!!b.is_extraclass) - Number(!!a.is_extraclass)) || byNewest(a, b);
+
+  const allClasses = courses.filter(c => !isCourseExpired(c)).sort(byExtraFirstThenNewest);
+  const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
+  const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
+
+  // Desktop mouse users can't drag-scroll a horizontal row, so give every
+  // horizontally-scrolling section its own </>-style nudge buttons. Cards
+  // are a fixed 240px + 16px gap; combined with snap-x/snap-center + the
+  // scroll-padding below, nudging by exactly one card-step lets native CSS
+  // scroll-snap settle the next card dead-center rather than at an arbitrary offset.
+  const CARD_STEP = 256;
+  const classesScrollRef = useRef<HTMLDivElement>(null);
+  const newsScrollRef = useRef<HTMLDivElement>(null);
+  const mediaScrollRef = useRef<HTMLDivElement>(null);
+  const scrollByAmount = (ref: React.RefObject<HTMLDivElement>, dir: 'left' | 'right') => {
+    ref.current?.scrollBy({ left: dir === 'left' ? -CARD_STEP : CARD_STEP, behavior: 'smooth' });
+  };
+  // Half a card's width so the first/last card can also reach true center
+  // instead of stopping short against the scroll container's edge.
+  const snapContainerStyle: React.CSSProperties = { scrollPaddingInline: 'calc(50% - 120px)' };
+  const ScrollNudgeButtons = ({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }) => (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <button onClick={() => scrollByAmount(scrollRef, 'left')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
+        <ChevronLeft size={16} className="text-slate-500" />
+      </button>
+      <button onClick={() => scrollByAmount(scrollRef, 'right')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
+        <ChevronRight size={16} className="text-slate-500" />
+      </button>
+    </div>
+  );
 
   const categories: { id: 'all' | 'classes' | 'news' | 'media'; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
     { id: 'all', label: lang === 'en' ? 'All' : 'ทั้งหมด', Icon: Sparkles, iconColor: 'text-mellow-red', activeBg: 'bg-mellow-red border-mellow-red' },
     { id: 'classes', label: lang === 'en' ? 'Classes' : 'คลาส', Icon: GraduationCap, iconColor: 'text-mellow-green', activeBg: 'bg-mellow-green border-mellow-green' },
     { id: 'news', label: lang === 'en' ? 'News' : 'ข่าวสาร', Icon: Tent, iconColor: 'text-mellow-blue', activeBg: 'bg-mellow-blue border-mellow-blue' },
-    { id: 'media', label: lang === 'en' ? 'Media' : 'สื่อความรู้', Icon: Tv, iconColor: 'text-mellow-purple', activeBg: 'bg-mellow-purple border-mellow-purple' },
+    { id: 'media', label: lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้', Icon: Tv, iconColor: 'text-mellow-purple', activeBg: 'bg-mellow-purple border-mellow-purple' },
   ];
 
   const renderCourseCardSkeletons = () => (
@@ -81,7 +132,7 @@ const Explore = () => {
       : 0;
 
     return (
-      <div key={course.id} onClick={() => navigate(`/course/${course.id}`)} className="flex-shrink-0 w-[240px] bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform">
+      <div key={course.id} onClick={() => navigate(`/course/${course.id}`)} className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex flex-col h-full">
          <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
             {view.url ? (
               <img src={view.url} alt={course.name} style={view.style} className={`w-full h-full object-cover ${isOneTimeBooked ? 'grayscale-[40%]' : ''}`} />
@@ -93,6 +144,12 @@ const Explore = () => {
             <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase ${tagColorClass} shadow-sm`}>
               {course.category_name}
             </div>
+            {!!course.is_extraclass && (
+              <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-lg text-[10px] font-black uppercase text-white shadow-sm">
+                <Star size={11} fill="currentColor" />
+                {lang === 'en' ? 'Extra' : 'พิเศษ'}
+              </div>
+            )}
             {bookingStatus && (
               <div className={`absolute top-2 right-2 text-white text-[9px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1 ${isOneTimeBooked ? 'bg-slate-400' : 'bg-emerald-500'}`}>
                 <CheckCircle size={9} />
@@ -100,10 +157,10 @@ const Explore = () => {
               </div>
             )}
          </div>
-         <div className="p-4">
-            <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 truncate">{course.name}</h4>
+         <div className="p-4 flex flex-col flex-1">
+            <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">{course.name}</h4>
             <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug mb-2">
-              {course.short_description || course.description}
+              {course.short_description || stripHtml(course.description || '')}
             </p>
             <div className="flex flex-wrap gap-2 mb-3">
                {course.age_min && course.age_max && (
@@ -123,6 +180,17 @@ const Explore = () => {
                   <span className="text-[16px] font-black text-mellow-red tracking-tight leading-none shrink-0">
                     ฿{discountedPrice.toLocaleString()}
                   </span>
+                  {(() => {
+                    const couponReq = getPrimaryCouponRequirement(course, couponTypes);
+                    return couponReq && (
+                      <span className="flex items-center gap-1 shrink-0 text-slate-300 font-bold text-[13px]">
+                        /
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: `${couponReq.color}20` }}>
+                          <Ticket size={11} style={{ color: couponReq.color }} />
+                        </span>
+                      </span>
+                    );
+                  })()}
                 </div>
                 {discountPercent > 0 && (
                   <span className="px-1.5 py-0.5 bg-mellow-red/10 text-mellow-red text-[10px] font-black rounded shrink-0">
@@ -149,7 +217,7 @@ const Explore = () => {
                 if (isOneTimeBooked) navigate(`/course/${course.id}`);
                 else { trackCourseView(course.id); navigate(`/booking?courseId=${course.id}`); }
               }}
-              className={`w-full py-2 text-[12px] font-bold rounded-xl transition-all ${
+              className={`w-full py-2 text-[12px] font-bold rounded-xl transition-all mt-auto ${
                 isOneTimeBooked
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-mellow-purple text-white active:scale-95'
@@ -162,20 +230,19 @@ const Explore = () => {
     );
   };
 
+
   const renderNewsCard = (item: any) => {
     const imageUrl = resolveImageUrl(item.image_url);
     const title = lang === 'en' && item.title_en ? item.title_en : item.title;
     const content = lang === 'en' && item.content_en ? item.content_en : item.content;
-    const isClickable = !!(item.video_url || item.link_url);
-    const handleClick = () => {
-      if (item.video_url) setVideoModalUrl(item.video_url);
-      else if (item.link_url) window.open(item.link_url, '_blank', 'noopener,noreferrer');
-    };
+    // Every card opens the full article page now, not just ones with a
+    // video/link — a plain text announcement previously had no way to be
+    // read in full, and this should feel like clicking into a real article.
     return (
       <div
         key={item.id}
-        onClick={handleClick}
-        className={`flex-shrink-0 w-[240px] bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden ${isClickable ? 'cursor-pointer active:scale-95 transition-transform' : ''}`}
+        onClick={() => navigate(`/news/${item.id}`)}
+        className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform"
       >
         <div className="aspect-[16/9] bg-slate-100 relative overflow-hidden">
           {imageUrl ? (
@@ -186,8 +253,8 @@ const Explore = () => {
             </div>
           )}
           {item.video_url && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-              <div className="w-10 h-10 bg-white/85 rounded-full flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-10 h-10 bg-white/85 rounded-full flex items-center justify-center shadow-sm">
                 <Play size={18} className="text-mellow-blue fill-mellow-blue ml-0.5" />
               </div>
             </div>
@@ -195,7 +262,7 @@ const Explore = () => {
         </div>
         <div className="p-4">
           <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1 line-clamp-2">{title}</h4>
-          {content && <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug">{content}</p>}
+          {content && <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
         </div>
       </div>
     );
@@ -209,15 +276,20 @@ const Explore = () => {
 
   return (
     <div className="mellow-page bg-[#fbfaf7]">
-      <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
-        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
-          <ChevronLeft size={24} className="mr-0.5" />
-        </button>
-        <div className="text-center absolute left-1/2 -translate-x-1/2 w-max">
-          <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">{t.explore.title}</h1>
-          <span className="text-[14px] font-bold text-mellow-yellow uppercase tracking-[0.2em]">{t.explore.subtitle}</span>
+      <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-3 justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
+            <ChevronLeft size={24} className="mr-0.5" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5 truncate">{t.explore.title}</h1>
+            <span className="text-[14px] font-bold text-mellow-yellow uppercase tracking-[0.2em]">{t.explore.subtitle}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setShowShopSoon(true)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
+             <ShoppingBag size={18} className="text-slate-400" />
+          </button>
           <button className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
              <Search size={20} className="text-slate-400" />
           </button>
@@ -245,52 +317,37 @@ const Explore = () => {
            })}
         </div>
 
-        {/* Extra Classes Section */}
-        {(activeCategory === 'all' || activeCategory === 'classes') && extraClasses.length > 0 && (
-          <section className="mb-8">
-             <div className="flex justify-between items-end mb-4 px-1">
-                <div>
-                   <h3 className="font-black text-lg leading-tight uppercase tracking-tight">Extra Classes</h3>
-                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">คลาสกิจกรรมพิเศษ</p>
-                </div>
-             </div>
-             
-             <div className="flex gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide">
-                {isBookingStatusLoading ? renderCourseCardSkeletons() : extraClasses.slice(0, 5).map(course => renderCourseCard(course, 'text-mellow-yellow-dark'))}
-
-                {!isBookingStatusLoading && extraClasses.length > 5 && (
-                  <div onClick={() => navigate('/courses/extra')} className="flex-shrink-0 w-[120px] bg-slate-50 rounded-3xl flex flex-col items-center justify-center cursor-pointer active:scale-95 transition-transform border border-slate-200">
-                     <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center mb-2">
-                       <ArrowRight size={20} className="text-slate-600" />
-                     </div>
-                     <span className="text-[13px] font-black text-slate-600">ดูเพิ่มเติม</span>
-                  </div>
-                )}
-             </div>
-          </section>
+        {loading && (
+          <>
+            <section className="mb-8 animate-pulse">
+              <div className="h-5 w-24 bg-slate-200 rounded-full mb-4" />
+              <div className="flex gap-4 overflow-x-hidden pb-4 -mx-5 px-5">{renderCourseCardSkeletons()}</div>
+            </section>
+            <section className="mb-8 animate-pulse">
+              <div className="h-5 w-20 bg-slate-200 rounded-full mb-4" />
+              <div className="flex gap-4 overflow-x-hidden pb-4 -mx-5 px-5">{renderCourseCardSkeletons()}</div>
+            </section>
+          </>
         )}
 
-        {/* Regular Classes Section */}
-        {(activeCategory === 'all' || activeCategory === 'classes') && regularClasses.length > 0 && (
+        {/* Classes Section — merged (extra classes are flagged via the badge
+            on the cover instead of a separate section); grows to the right
+            as more classes are added, no artificial 5-item cap. */}
+        {!loading && (activeCategory === 'all' || activeCategory === 'classes') && allClasses.length > 0 && (
           <section className="mb-8">
-             <div className="flex justify-between items-end mb-4 px-1">
-                <div>
-                   <h3 className="font-black text-lg leading-tight uppercase tracking-tight">Regular Classes</h3>
-                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">คลาสเรียนทั่วไป</p>
+             <div className="flex justify-between items-center mb-4 px-1 gap-2">
+                <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Classes' : 'คลาส'}</h3>
+                <div className="flex items-center gap-3">
+                  <ScrollNudgeButtons scrollRef={classesScrollRef} />
+                  <button onClick={() => navigate('/courses/all')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                    {lang === 'en' ? 'View All' : 'ดูคลาสทั้งหมด'}
+                    <ArrowRight size={14} />
+                  </button>
                 </div>
              </div>
-             
-             <div className="flex gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide">
-                {isBookingStatusLoading ? renderCourseCardSkeletons() : regularClasses.slice(0, 5).map(course => renderCourseCard(course, 'text-mellow-green-dark'))}
 
-                {!isBookingStatusLoading && regularClasses.length > 5 && (
-                  <div onClick={() => navigate('/courses/regular')} className="flex-shrink-0 w-[120px] bg-slate-50 rounded-3xl flex flex-col items-center justify-center cursor-pointer active:scale-95 transition-transform border border-slate-200">
-                     <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center mb-2">
-                       <ArrowRight size={20} className="text-slate-600" />
-                     </div>
-                     <span className="text-[13px] font-black text-slate-600">ดูเพิ่มเติม</span>
-                  </div>
-                )}
+             <div ref={classesScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+                {isBookingStatusLoading ? renderCourseCardSkeletons() : allClasses.map(course => renderCourseCard(course, course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'))}
              </div>
           </section>
         )}
@@ -298,28 +355,42 @@ const Explore = () => {
         {/* News Section */}
         {(activeCategory === 'all' || activeCategory === 'news') && newsOnly.length > 0 && (
           <section className="mb-8">
-             <div className="flex justify-between items-end mb-4 px-1">
+             <div className="flex justify-between items-end mb-4 px-1 gap-2">
                 <div>
                    <h3 className="font-black text-lg leading-tight uppercase tracking-tight">{lang === 'en' ? 'News' : 'ข่าวสาร'}</h3>
                    <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'Latest updates' : 'ข่าวสารล่าสุด'}</p>
                 </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <ScrollNudgeButtons scrollRef={newsScrollRef} />
+                  <button onClick={() => navigate('/news-feed/news')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
+                    {lang === 'en' ? 'View All' : 'ดูข่าวทั้งหมด'}
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
              </div>
-             <div className="flex gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide">
+             <div ref={newsScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {newsOnly.map(item => renderNewsCard(item))}
              </div>
           </section>
         )}
 
-        {/* Media Section */}
+        {/* Media ("เรื่องน่ารู้") Section */}
         {(activeCategory === 'all' || activeCategory === 'media') && mediaOnly.length > 0 && (
           <section className="mb-8">
-             <div className="flex justify-between items-end mb-4 px-1">
+             <div className="flex justify-between items-end mb-4 px-1 gap-2">
                 <div>
-                   <h3 className="font-black text-lg leading-tight uppercase tracking-tight">{lang === 'en' ? 'Media' : 'สื่อความรู้'}</h3>
-                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'Learning resources' : 'สื่อสำหรับผู้ปกครอง'}</p>
+                   <h3 className="font-black text-lg leading-tight uppercase tracking-tight">{lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้'}</h3>
+                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'For kids & families' : 'เรื่องน่ารู้สำหรับเด็ก และครอบครัว'}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <ScrollNudgeButtons scrollRef={mediaScrollRef} />
+                  <button onClick={() => navigate('/news-feed/media')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
+                    {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
+                    <ArrowRight size={14} />
+                  </button>
                 </div>
              </div>
-             <div className="flex gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide">
+             <div ref={mediaScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {mediaOnly.map(item => renderNewsCard(item))}
              </div>
           </section>
@@ -359,6 +430,34 @@ const Explore = () => {
                 <video src={videoModalUrl} controls autoPlay className="w-full h-full" />
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showShopSoon && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-slate-900/50 backdrop-blur-sm"
+          onClick={() => setShowShopSoon(false)}
+        >
+          <div
+            className="relative w-full max-w-xs bg-white rounded-[28px] p-6 text-center shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <button onClick={() => setShowShopSoon(false)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
+              <X size={16} />
+            </button>
+            <div className="w-16 h-16 rounded-full bg-mellow-purple/10 flex items-center justify-center mx-auto mb-4 relative">
+              <ShoppingBag size={26} className="text-mellow-purple" />
+              <Sparkles size={16} className="text-mellow-yellow absolute -top-1 -right-1" fill="currentColor" />
+            </div>
+            <h3 className="text-lg font-black text-slate-800 mb-2">
+              {lang === 'en' ? 'Coming Soon' : 'เร็วๆ นี้'}
+            </h3>
+            <p className="text-sm font-bold text-slate-500 leading-relaxed">
+              {lang === 'en'
+                ? "A shop for Mellow Play merchandise and goodies is on the way!"
+                : 'ร้านค้าสำหรับสินค้าและของที่ระลึกของ Mellow Play กำลังจะมาเร็วๆ นี้!'}
+            </p>
           </div>
         </div>
       )}

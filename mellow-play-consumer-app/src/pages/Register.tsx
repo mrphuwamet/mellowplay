@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Users } from 'lucide-react';
+import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Users, Camera } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -11,6 +11,7 @@ import FieldHint from '../components/FieldHint';
 import { cleanNamePrefix } from '../utils/nameUtils';
 import logo from '../assets/ui/logo.svg';
 import { TH } from 'country-flag-icons/react/3x2';
+import { formatCustomDate } from '../utils/dateFormat';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -41,10 +42,12 @@ const Register = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   // Form State
-  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'summary'>('consent');
+  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'avatar' | 'summary'>('consent');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     phone: '',
     prefix: '',
@@ -240,6 +243,26 @@ const Register = () => {
     try {
       const response = await apiClient.post('/auth/register', payload);
       if (response.data.success) {
+        // Registration itself doesn't return a session token, so briefly
+        // log in (without persisting anything) just to get a Bearer token
+        // for the one avatar-upload call. A failure here must never block
+        // the registration-success flow — the user can always set an
+        // avatar later from Settings.
+        if (avatarFile) {
+          try {
+            const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: formData.password });
+            if (loginRes.data.success) {
+              const fd = new FormData();
+              fd.append('file', avatarFile);
+              await apiClient.post('/profiles/avatar', fd, {
+                headers: { Authorization: `Bearer ${loginRes.data.token}`, 'Content-Type': 'multipart/form-data' },
+              });
+            }
+          } catch (avatarErr) {
+            console.error('Avatar upload during registration failed:', avatarErr);
+          }
+        }
+
         const loginUrl = '/login' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : '');
         navigate(loginUrl, { state: { message: 'Registration successful! Please login.' } });
       }
@@ -593,7 +616,7 @@ const Register = () => {
             setConfirmPassword(val);
             if (val.length === 6) {
               if (val === formData.password) {
-                setTimeout(() => setStep('summary'), 300);
+                setTimeout(() => setStep('avatar'), 300);
               } else {
                 setError(t.register.pinNotMatch);
                 setConfirmPassword('');
@@ -622,6 +645,58 @@ const Register = () => {
         >
           <ChevronLeft size={16} className="mr-1" /> {t.register.back}
         </button>
+      </div>
+    </div>
+  );
+
+  const renderStepAvatar = () => (
+    <div className="flex flex-col flex-1 pb-6">
+      <div className="flex flex-col items-center mt-4 mb-8">
+        <label className="relative w-32 h-32 cursor-pointer group block">
+          <div className="w-32 h-32 rounded-full bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden">
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <User size={56} className="text-slate-300" />
+            )}
+            <div className="absolute inset-0 bg-black/0 group-active:bg-black/10 transition-colors rounded-full" />
+          </div>
+          <div className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-mellow-purple text-white flex items-center justify-center shadow-lg border-2 border-white">
+            <Camera size={16} />
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setAvatarFile(file);
+              setAvatarPreview(URL.createObjectURL(file));
+            }}
+          />
+        </label>
+        {avatarPreview && (
+          <button
+            type="button"
+            onClick={() => { setAvatarFile(null); setAvatarPreview(null); }}
+            className="mt-3 text-xs font-bold text-slate-400 underline underline-offset-4"
+          >
+            {t.register.removePhoto}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-auto pt-4 flex flex-col gap-3">
+        {avatarPreview ? (
+          <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
+            {t.register.nextStep} <ArrowRight size={20} />
+          </button>
+        ) : (
+          <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
+            {t.register.skipForNow} <ArrowRight size={20} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -679,7 +754,7 @@ const Register = () => {
         <h3 className="text-sm font-black text-slate-800 mb-3">{t.register.parentInfoTitle}</h3>
         <div className="space-y-2 text-sm">
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.prefix} {formData.firstName} {formData.lastName}</span></p>
-          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.parentDobLabel}:</span> <span className="font-bold text-slate-800">{formData.dob}</span></p>
+          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.parentDobLabel}:</span> <span className="font-bold text-slate-800">{formatCustomDate(ddmmyyyyToISO(formData.dob), lang, 'full')}</span></p>
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
         </div>
@@ -691,7 +766,7 @@ const Register = () => {
           {children.filter(c => c.firstName && c.dob).map((child, i) => (
             <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
               <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{child.firstName} {child.lastName} {child.nickname && `(${child.nickname})`}</span></p>
-              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{child.dob}</span></p>
+              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{formatCustomDate(ddmmyyyyToISO(child.dob), lang, 'full')}</span></p>
               <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.relationship}:</span> <span className="font-bold text-slate-800">{child.relation === 'Other' ? child.customRelation : child.relation}</span></p>
             </div>
           ))}
@@ -718,6 +793,7 @@ const Register = () => {
       case 'info': return t.register.stepInfo;
       case 'otp': return t.register.stepOtp;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreate : t.register.stepPinConfirm;
+      case 'avatar': return t.register.stepAvatar;
       case 'consent': return t.register.stepConsent;
       case 'summary': return t.register.stepSummary;
       default: return '';
@@ -729,6 +805,7 @@ const Register = () => {
       case 'info': return t.register.stepInfoDesc;
       case 'otp': return `${t.register.stepOtpDesc} ${formData.phone}`;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreateDesc : t.register.stepPinConfirmDesc;
+      case 'avatar': return t.register.stepAvatarDesc;
       case 'consent': return t.register.stepConsentDesc;
       case 'summary': return t.register.stepSummaryDesc;
       default: return '';
@@ -748,10 +825,12 @@ const Register = () => {
               setStep('info');
             } else if (step === 'pin') {
               setStep('info');
-            } else if (step === 'summary') {
+            } else if (step === 'avatar') {
               setPinStep('create');
               setFormData({...formData, password: ''});
               setStep('pin');
+            } else if (step === 'summary') {
+              setStep('avatar');
             }
           }} 
           className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0"
@@ -778,6 +857,7 @@ const Register = () => {
         {step === 'info' && renderStepInfo()}
         {step === 'otp' && renderStepOtp()}
         {step === 'pin' && renderStepPin()}
+        {step === 'avatar' && renderStepAvatar()}
         {step === 'summary' && renderStepSummary()}
       </div>
 

@@ -25,6 +25,11 @@ import {
   Security as SecurityIcon,
   CameraAlt as CameraAltIcon,
   Schedule as ScheduleIcon2,
+  ChevronLeft as PrevMonthIcon,
+  ChevronRight as NextMonthIcon,
+  WatchLater as LateIcon,
+  ExitToApp as EarlyLeaveIcon,
+  EventAvailable as DaysWorkedIcon,
 } from '@mui/icons-material';
 import { Checkbox, FormGroup, FormControlLabel as FCL2, Divider as MuiDivider } from '@mui/material';
 import axios from 'axios';
@@ -44,6 +49,7 @@ interface CrmUser {
   salary?: number;
   salary_type?: 'daily' | 'monthly';
   start_date?: string;
+  end_date?: string;
   department?: string;
   position?: string;
   employment_type?: string;
@@ -78,6 +84,7 @@ const emptyForm = {
   position: '',
   employment_type: 'Full-time',
   employment_status: 'active',
+  end_date: '',
   bank_name: '',
   bank_account_name: '',
   bank_account_number: '',
@@ -103,6 +110,15 @@ const EMPLOYMENT_STATUSES = [
   { label: 'ลาออก', value: 'resigned' },
 ];
 
+// Freelance has no fixed work_days/work_start_time/work_end_time — their
+// schedule varies day to day, so the Work Schedule section falls back to
+// showing the attendance log instead of a fixed-hours picker for them.
+const EMPLOYMENT_TYPES = [
+  { label: 'ประจำ (Full-time)', value: 'Full-time' },
+  { label: 'พาร์ทไทม์ (Part-time)', value: 'Part-time' },
+  { label: 'ฟรีแลนซ์ (Freelance)', value: 'Freelance' },
+];
+
 const WORK_DAYS = [
   { key: 'mon', label: 'จ' },
   { key: 'tue', label: 'อ' },
@@ -121,6 +137,127 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
     <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.primary', textTransform: 'uppercase', letterSpacing: 0.5 }}>{title}</Typography>
   </Box>
 );
+
+const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const formatThaiDate = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${d} ${THAI_MONTHS[m - 1]} ${y + 543}`;
+};
+
+// Supporting data for a human diligence-bonus decision (not automatic) — days
+// worked, and which days were late/left early with the recorded reason, for
+// the 26th-of-prior-month → 25th-of-this-month pay period. Freelance staff
+// have no fixed schedule, so late/early aren't computed for them — just the
+// raw attendance log.
+const AttendanceSummaryPanel = ({ crmUserId }: { crmUserId: number }) => {
+  const now = new Date();
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(now.getFullYear());
+  const [summary, setSummary] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    axios.get(`${API_BASE}/crm-users/${crmUserId}/attendance-summary`, { params: { month, year } })
+      .then(res => { if (res.data.success) setSummary(res.data); })
+      .catch(() => setSummary(null))
+      .finally(() => setLoading(false));
+  }, [crmUserId, month, year]);
+
+  const prevPeriod = () => {
+    if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1);
+  };
+  const nextPeriod = () => {
+    if (month === now.getMonth() + 1 && year === now.getFullYear()) return;
+    if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1);
+  };
+  const isCurrentPeriod = month === now.getMonth() + 1 && year === now.getFullYear();
+
+  return (
+    <Paper sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <SectionHeader icon={<DaysWorkedIcon />} title="สรุปการเข้างาน (ข้อมูลประกอบการพิจารณาเบี้ยขยัน)" />
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton size="small" onClick={prevPeriod}><PrevMonthIcon fontSize="small" /></IconButton>
+          <IconButton size="small" onClick={nextPeriod} disabled={isCurrentPeriod}><NextMonthIcon fontSize="small" /></IconButton>
+        </Box>
+      </Box>
+
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+      ) : !summary ? (
+        <Typography variant="body2" color="text.disabled">ไม่สามารถโหลดข้อมูลได้</Typography>
+      ) : (
+        <>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            รอบ {formatThaiDate(summary.periodStart)} – {formatThaiDate(summary.periodEnd)}
+            {summary.isFreelance && ' · พนักงานฟรีแลนซ์ (ไม่มีตารางเวลาคงที่ให้เทียบ)'}
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <Chip
+              icon={<DaysWorkedIcon fontSize="small" />}
+              label={`มาทำงาน ${summary.daysWorked} วัน`}
+              color="success" variant="outlined" sx={{ fontWeight: 700 }}
+            />
+            {!summary.isFreelance && (
+              <>
+                <Chip
+                  icon={<LateIcon fontSize="small" />}
+                  label={`สาย ${summary.lateEntries.length} วัน`}
+                  color={summary.lateEntries.length > 0 ? 'warning' : 'default'} variant="outlined" sx={{ fontWeight: 700 }}
+                />
+                <Chip
+                  icon={<EarlyLeaveIcon fontSize="small" />}
+                  label={`ออกก่อน ${summary.earlyLeaveEntries.length} วัน`}
+                  color={summary.earlyLeaveEntries.length > 0 ? 'warning' : 'default'} variant="outlined" sx={{ fontWeight: 700 }}
+                />
+              </>
+            )}
+          </Box>
+
+          {!summary.isFreelance && summary.lateEntries.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>วันที่มาสาย</Typography>
+              {summary.lateEntries.map((e: any, i: number) => (
+                <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="caption">{formatThaiDate(e.date)} — เข้างาน {e.checkIn} (ปกติ {e.scheduled})</Typography>
+                  <Typography variant="caption" color={e.note ? 'text.primary' : 'text.disabled'}>{e.note || 'ยังไม่ระบุเหตุผล'}</Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {!summary.isFreelance && summary.earlyLeaveEntries.length > 0 && (
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>วันที่ออกก่อนเวลา</Typography>
+              {summary.earlyLeaveEntries.map((e: any, i: number) => (
+                <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="caption">{formatThaiDate(e.date)} — ออกงาน {e.checkOut} (ปกติ {e.scheduled})</Typography>
+                  <Typography variant="caption" color={e.note ? 'text.primary' : 'text.disabled'}>{e.note || 'ยังไม่ระบุเหตุผล'}</Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {summary.isFreelance && (
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>Log การเข้างานในรอบนี้</Typography>
+              {summary.records.length === 0 ? (
+                <Typography variant="caption" color="text.disabled">ยังไม่มีบันทึกการเข้างานในรอบนี้</Typography>
+              ) : summary.records.map((r: any, i: number) => (
+                <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="caption">{formatThaiDate(r.date)} — {r.check_in || '-'} ถึง {r.check_out || '-'}</Typography>
+                  {r.note && <Typography variant="caption" color="text.secondary">{r.note}</Typography>}
+                </Box>
+              ))}
+            </Box>
+          )}
+        </>
+      )}
+    </Paper>
+  );
+};
 
 const CrmUserManagement = () => {
   const [users, setUsers] = useState<CrmUser[]>([]);
@@ -146,6 +283,11 @@ const CrmUserManagement = () => {
   const [resetting, setResetting] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Generated reset link — internal org, no email service, so the link is
+  // shown to the admin to copy and send however's convenient (LINE, etc.)
+  const [generatedLink, setGeneratedLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const roleOptions = useMemo(() => [
     { label: 'Super Admin (ดูแลระบบทั้งหมด)', value: 'super_admin' },
@@ -210,6 +352,7 @@ const CrmUserManagement = () => {
       salary: user.salary?.toString() || '',
       salary_type: user.salary_type || 'monthly',
       start_date: user.start_date || '',
+      end_date: user.end_date || '',
       department: user.department || '',
       position: user.position || '',
       employment_type: user.employment_type || 'Full-time',
@@ -247,46 +390,37 @@ const CrmUserManagement = () => {
       setError('กรุณากรอกชื่อและอีเมล');
       return;
     }
-    if (!form.salary_type) {
-      setError('กรุณาเลือกประเภทเงินเดือน');
-      return;
-    }
-    if (!form.bank_name) {
-      setError('กรุณาเลือกธนาคาร');
-      return;
-    }
-    if (!form.bank_account_name.trim()) {
-      setError('กรุณากรอกชื่อบัญชีธนาคาร');
-      return;
-    }
-    if (!form.bank_account_number.trim()) {
-      setError('กรุณากรอกเลขบัญชีธนาคาร');
+    if (!editUser && !form.password.trim()) {
+      setError('กรุณาตั้งรหัสผ่าน');
       return;
     }
 
     setSaving(true);
     try {
+      let profileImageUrl = form.profile_image_url;
+      if (profileImageFile) {
+        const fd = new FormData();
+        fd.append('file', profileImageFile);
+        fd.append('folder', 'crm-avatars');
+        const uploadRes = await axios.post(`${API_BASE}/upload`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        profileImageUrl = uploadRes.data.url;
+      }
+
       const payload: any = {
         ...form,
         salary: parseFloat(form.salary) || null,
         bank_account_number: form.bank_account_number.trim(),
+        profile_image_url: profileImageUrl,
       };
+      // Never send an empty password on edit — the backend treats a blank
+      // value as "don't change" only if the key is falsy, which '' already is.
 
-      let savedId: number;
       if (editUser) {
         await axios.put(`${API_BASE}/crm-users/${editUser.id}`, payload);
-        savedId = editUser.id;
       } else {
-        const res = await axios.post(`${API_BASE}/crm-users`, payload);
-        savedId = res.data.user?.id ?? res.data.id;
-      }
-
-      if (profileImageFile && savedId) {
-        const fd = new FormData();
-        fd.append('avatar', profileImageFile);
-        await axios.post(`${API_BASE}/crm-users/${savedId}/upload-avatar`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        await axios.post(`${API_BASE}/crm-users`, payload);
       }
 
       handleClose();
@@ -307,10 +441,8 @@ const CrmUserManagement = () => {
       const res = await axios.post(`${API_BASE}/crm-users/${userToReset.id}/reset-password`);
       setResetDialogOpen(false);
       const expiresAt = res.data.expires_at;
-      const expiryNote = expiresAt
-        ? ` · ลิงก์หมดอายุ ${new Date(expiresAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
-        : '';
-      setSuccessMsg(`ส่งลิงก์ไปยัง ${userToReset.email} แล้ว${expiryNote} — รหัสผ่านเดิมยังใช้งานได้จนกว่าจะรีเซ็ตสำเร็จ`);
+      setGeneratedLink({ url: res.data.resetLink, expiresAt });
+      setLinkCopied(false);
       // Update pending state in list without full reload
       setUsers(prev => prev.map(u => u.id === userToReset.id
         ? { ...u, has_pending_reset: true, reset_token_expires_at: expiresAt ?? u.reset_token_expires_at }
@@ -321,11 +453,21 @@ const CrmUserManagement = () => {
       }
     } catch (e: any) {
       const msg = e?.response?.data?.message;
-      setError(msg || 'ไม่สามารถส่งอีเมลได้ กรุณาลองใหม่');
+      setError(msg || 'ไม่สามารถสร้างลิงก์ได้ กรุณาลองใหม่');
       setResetDialogOpen(false);
     } finally {
       setResetting(false);
       setUserToReset(null);
+    }
+  };
+
+  const copyGeneratedLink = async () => {
+    if (!generatedLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedLink.url);
+      setLinkCopied(true);
+    } catch {
+      /* clipboard API unavailable — user can still select-and-copy manually */
     }
   };
 
@@ -469,6 +611,19 @@ const CrmUserManagement = () => {
                 <Grid item xs={12} sm={6}>
                   <TextField label="เลขบัตรประชาชน" fullWidth value={form.national_id} onChange={e => !readOnly && setForm({ ...form, national_id: e.target.value })} InputProps={{ readOnly }} />
                 </Grid>
+                {!readOnly && (
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label={editUser ? 'ตั้งรหัสผ่านใหม่' : 'รหัสผ่าน *'}
+                      type="password"
+                      fullWidth
+                      value={form.password}
+                      onChange={e => setForm({ ...form, password: e.target.value })}
+                      helperText={editUser ? 'เว้นว่างไว้เพื่อไม่เปลี่ยนรหัสผ่านเดิม' : undefined}
+                      autoComplete="new-password"
+                    />
+                  </Grid>
+                )}
               </Grid>
             </Paper>
 
@@ -503,18 +658,17 @@ const CrmUserManagement = () => {
               <SectionHeader icon={<BankIcon />} title="ข้อมูลบัญชีธนาคาร" />
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={4}>
-                  <FormControl fullWidth required>
-                    <InputLabel>ธนาคาร *</InputLabel>
-                    <Select value={form.bank_name} label="ธนาคาร *" onChange={e => !readOnly && setForm({ ...form, bank_name: e.target.value })} inputProps={{ readOnly }}>
+                  <FormControl fullWidth>
+                    <InputLabel>ธนาคาร</InputLabel>
+                    <Select value={form.bank_name} label="ธนาคาร" onChange={e => !readOnly && setForm({ ...form, bank_name: e.target.value })} inputProps={{ readOnly }}>
                       {BANKS.map(b => <MenuItem key={b.value} value={b.value}>{b.label}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <TextField
-                    label="ชื่อบัญชี *"
+                    label="ชื่อบัญชี"
                     fullWidth
-                    required
                     value={form.bank_account_name}
                     onChange={e => !readOnly && setForm({ ...form, bank_account_name: e.target.value })}
                     InputProps={{ readOnly }}
@@ -522,9 +676,8 @@ const CrmUserManagement = () => {
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <TextField
-                    label="เลขบัญชี *"
+                    label="เลขบัญชี"
                     fullWidth
-                    required
                     value={form.bank_account_number}
                     onChange={e => {
                       if (!readOnly && /^\d*$/.test(e.target.value)) {
@@ -539,7 +692,7 @@ const CrmUserManagement = () => {
             </Paper>
 
             {/* รายละเอียดการจ้างงาน */}
-            <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
               <SectionHeader icon={<EmploymentIcon />} title="รายละเอียดการจ้างงาน" />
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
@@ -547,6 +700,14 @@ const CrmUserManagement = () => {
                     <InputLabel>สถานะการจ้างงาน</InputLabel>
                     <Select value={form.employment_status} label="สถานะการจ้างงาน" onChange={e => !readOnly && setForm({ ...form, employment_status: e.target.value })} inputProps={{ readOnly }}>
                       {EMPLOYMENT_STATUSES.map(s => <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>ประเภทการจ้างงาน</InputLabel>
+                    <Select value={form.employment_type} label="ประเภทการจ้างงาน" onChange={e => !readOnly && setForm({ ...form, employment_type: e.target.value })} inputProps={{ readOnly }}>
+                      {EMPLOYMENT_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -561,69 +722,93 @@ const CrmUserManagement = () => {
                     InputProps={{ readOnly }}
                   />
                 </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="วันที่สิ้นสุด"
+                    fullWidth
+                    type="date"
+                    value={form.end_date}
+                    onChange={e => !readOnly && setForm({ ...form, end_date: e.target.value })}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{ readOnly }}
+                    helperText="เว้นว่างไว้ถ้ายังทำงานอยู่"
+                  />
+                </Grid>
               </Grid>
             </Paper>
 
             {/* Work Schedule */}
-            <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
               <SectionHeader icon={<ScheduleIcon2 />} title="ตารางเวลาทำงาน" />
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 600 }}>วันทำงาน</Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {WORK_DAYS.map((d) => {
-                    const checked = (form.work_days as string[]).includes(d.key);
-                    return (
-                      <Box
-                        key={d.key}
-                        onClick={() => {
-                          if (readOnly) return;
-                          const current = form.work_days as string[];
-                          const next = checked ? current.filter((x) => x !== d.key) : [...current, d.key];
-                          setForm({ ...form, work_days: next });
-                        }}
-                        sx={{
-                          width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          cursor: readOnly ? 'default' : 'pointer',
-                          fontWeight: 700, fontSize: '0.8rem',
-                          bgcolor: checked ? 'primary.main' : 'grey.100',
-                          color: checked ? 'white' : 'text.secondary',
-                          border: '2px solid',
-                          borderColor: checked ? 'primary.main' : 'grey.300',
-                          transition: 'all 0.15s',
-                          '&:hover': readOnly ? {} : { bgcolor: checked ? 'primary.dark' : 'grey.200' },
-                        }}
-                      >
-                        {d.label}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              </Box>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <TextField
-                    label="เวลาเข้างาน"
-                    type="time"
-                    fullWidth
-                    value={form.work_start_time}
-                    onChange={e => !readOnly && setForm({ ...form, work_start_time: e.target.value })}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{ readOnly }}
-                  />
-                </Grid>
-                <Grid item xs={6}>
-                  <TextField
-                    label="เวลาออกงาน"
-                    type="time"
-                    fullWidth
-                    value={form.work_end_time}
-                    onChange={e => !readOnly && setForm({ ...form, work_end_time: e.target.value })}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{ readOnly }}
-                  />
-                </Grid>
-              </Grid>
+              {form.employment_type === 'Freelance' ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  พนักงานฟรีแลนซ์ไม่มีตารางเวลาคงที่ — ระบบจะอ้างอิงจาก Log การเข้างานแทน (ดูสรุปด้านล่าง)
+                </Typography>
+              ) : (
+                <>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 600 }}>วันทำงาน</Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {WORK_DAYS.map((d) => {
+                        const checked = (form.work_days as string[]).includes(d.key);
+                        return (
+                          <Box
+                            key={d.key}
+                            onClick={() => {
+                              if (readOnly) return;
+                              const current = form.work_days as string[];
+                              const next = checked ? current.filter((x) => x !== d.key) : [...current, d.key];
+                              setForm({ ...form, work_days: next });
+                            }}
+                            sx={{
+                              width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: readOnly ? 'default' : 'pointer',
+                              fontWeight: 700, fontSize: '0.8rem',
+                              bgcolor: checked ? 'primary.main' : 'grey.100',
+                              color: checked ? 'white' : 'text.secondary',
+                              border: '2px solid',
+                              borderColor: checked ? 'primary.main' : 'grey.300',
+                              transition: 'all 0.15s',
+                              '&:hover': readOnly ? {} : { bgcolor: checked ? 'primary.dark' : 'grey.200' },
+                            }}
+                          >
+                            {d.label}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <TextField
+                        label="เวลาเข้างาน"
+                        type="time"
+                        fullWidth
+                        value={form.work_start_time}
+                        onChange={e => !readOnly && setForm({ ...form, work_start_time: e.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{ readOnly }}
+                      />
+                    </Grid>
+                    <Grid item xs={6}>
+                      <TextField
+                        label="เวลาออกงาน"
+                        type="time"
+                        fullWidth
+                        value={form.work_end_time}
+                        onChange={e => !readOnly && setForm({ ...form, work_end_time: e.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{ readOnly }}
+                      />
+                    </Grid>
+                  </Grid>
+                </>
+              )}
             </Paper>
+
+            {/* Attendance summary — supporting data for a manual diligence-bonus
+                decision (not automatic), for the 26th-25th pay period */}
+            {editUser && <AttendanceSummaryPanel crmUserId={editUser.id} />}
           </Grid>
 
           {/* Right column */}
@@ -631,7 +816,7 @@ const CrmUserManagement = () => {
             <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
               <SectionHeader icon={<PaymentIcon />} title="เงินเดือน" />
               <FormControl component="fieldset" sx={{ mb: 2 }}>
-                <FormLabel component="legend" sx={{ fontSize: '0.75rem', mb: 0.5 }}>ประเภทเงินเดือน *</FormLabel>
+                <FormLabel component="legend" sx={{ fontSize: '0.75rem', mb: 0.5 }}>ประเภทเงินเดือน</FormLabel>
                 <RadioGroup
                   row
                   value={form.salary_type}
@@ -674,7 +859,7 @@ const CrmUserManagement = () => {
                 )}
 
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  ส่งลิงก์รีเซ็ตรหัสผ่านไปยังอีเมลของพนักงาน
+                  สร้างลิงก์ตั้งรหัสผ่านใหม่ให้คัดลอกส่งให้พนักงานเอง (LINE, บอกด้วยปาก ฯลฯ) — ไม่มีการส่งอีเมลอัตโนมัติ
                 </Typography>
                 <Button
                   variant="outlined"
@@ -684,7 +869,7 @@ const CrmUserManagement = () => {
                   onClick={() => handleResetClick(editUser)}
                   sx={{ borderRadius: 2, mb: editUser.has_pending_reset ? 1 : 0 }}
                 >
-                  {editUser.has_pending_reset ? 'ส่งลิงก์ใหม่อีกครั้ง' : 'รีเซ็ตรหัสผ่าน'}
+                  {editUser.has_pending_reset ? 'สร้างลิงก์ใหม่อีกครั้ง' : 'สร้างลิงก์ตั้งรหัสผ่านใหม่'}
                 </Button>
                 {editUser.has_pending_reset && (
                   <Button
@@ -783,16 +968,16 @@ const CrmUserManagement = () => {
       <Dialog open={resetDialogOpen} onClose={() => !resetting && setResetDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
           <LockResetIcon color="warning" />
-          รีเซ็ตรหัสผ่าน
+          สร้างลิงก์ตั้งรหัสผ่านใหม่
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            ระบบจะส่งลิงก์รีเซ็ตรหัสผ่านไปยังอีเมล:
+            สร้างลิงก์สำหรับ:
           </Typography>
-          <Typography variant="body1" sx={{ fontWeight: 700 }}>{userToReset?.email}</Typography>
+          <Typography variant="body1" sx={{ fontWeight: 700 }}>{userToReset?.full_name} ({userToReset?.email})</Typography>
           <Box sx={{ mt: 2, p: 1.5, bgcolor: 'info.50', borderRadius: 2, border: '1px solid', borderColor: 'info.200' }}>
             <Typography variant="caption" color="info.dark" sx={{ display: 'block', lineHeight: 1.6 }}>
-              ℹ️ รหัสผ่านเดิมจะยังคงใช้งานได้ตามปกติ จนกว่าพนักงานจะกดลิงก์และตั้งรหัสใหม่สำเร็จ
+              ℹ️ ลิงก์จะหมดอายุใน 48 ชั่วโมง และรหัสผ่านเดิมจะยังคงใช้งานได้ตามปกติจนกว่าจะตั้งรหัสใหม่สำเร็จ — คัดลอกลิงก์แล้วส่งให้พนักงานเองผ่านช่องทางที่สะดวก (LINE, ต่อหน้า ฯลฯ)
             </Typography>
           </Box>
         </DialogContent>
@@ -805,8 +990,29 @@ const CrmUserManagement = () => {
             disabled={resetting}
             startIcon={resetting ? <CircularProgress size={16} color="inherit" /> : <LockResetIcon />}
           >
-            {resetting ? 'กำลังส่ง...' : 'ส่งอีเมล'}
+            {resetting ? 'กำลังสร้าง...' : 'สร้างลิงก์'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!generatedLink} onClose={() => setGeneratedLink(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ลิงก์ตั้งรหัสผ่านใหม่พร้อมแล้ว</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            คัดลอกลิงก์นี้แล้วส่งให้พนักงานเองผ่านช่องทางที่สะดวก (LINE, ต่อหน้า ฯลฯ)
+            {generatedLink && (
+              <> — หมดอายุ {new Date(generatedLink.expiresAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</>
+            )}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField fullWidth size="small" value={generatedLink?.url || ''} InputProps={{ readOnly: true }} />
+            <Button variant="contained" onClick={copyGeneratedLink} sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}>
+              {linkCopied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setGeneratedLink(null)} variant="outlined">ปิด</Button>
         </DialogActions>
       </Dialog>
     </Box>

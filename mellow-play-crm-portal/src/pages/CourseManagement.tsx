@@ -41,10 +41,21 @@ import {
   AutoStories as SkillsLibIcon,
   AspectRatio as CropIcon,
   CheckCircle as SavedIcon,
+  Translate as TranslateIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
 import FocalPointPicker from '../components/FocalPointPicker';
+import RichTextEditor from '../components/RichTextEditor';
+
+// Converts rich HTML content into paragraph-separated plain text before
+// sending to the translate API, which only understands plain text.
+const stripHtmlForTranslate = (html: string) => {
+  const withBreaks = html.replace(/<\/(p|div|h[1-6]|li)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n');
+  const div = document.createElement('div');
+  div.innerHTML = withBreaks;
+  return (div.textContent || '').split(/\n+/).map(l => l.trim()).filter(Boolean).join('\n');
+};
 
 interface ImageViewDef {
   key: string;
@@ -223,6 +234,36 @@ const CourseManagement = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [courseReviews, setCourseReviews] = useState<any[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [translatingField, setTranslatingField] = useState<'name' | 'shortDescription' | 'description' | null>(null);
+
+  const translateField = async (field: 'name' | 'shortDescription' | 'description') => {
+    const sourceText = field === 'description' ? stripHtmlForTranslate(formData.description) : formData[field];
+    if (!sourceText.trim()) return;
+    setTranslatingField(field);
+    try {
+      const res = await axios.post(`${API_BASE}/translate`, { text: sourceText, from: 'th', to: 'en' });
+      if (res.data.success) {
+        if (field === 'description') {
+          // Rich content is translated as plain text (draft only), then
+          // wrapped back into paragraphs — original formatting isn't
+          // preserved, the admin can re-format the English version if needed.
+          const html = String(res.data.translatedText)
+            .split(/\n+/).map((l: string) => l.trim()).filter(Boolean)
+            .map((l: string) => `<p>${l}</p>`).join('');
+          setFormData(f => ({ ...f, descriptionEn: html || res.data.translatedText }));
+        } else {
+          const enField = `${field}En` as 'nameEn' | 'shortDescriptionEn';
+          setFormData(f => ({ ...f, [enField]: res.data.translatedText }));
+        }
+      } else {
+        setSaveError(res.data.message || 'แปลภาษาไม่สำเร็จ');
+      }
+    } catch (e: any) {
+      setSaveError(e.response?.data?.message || 'แปลภาษาไม่สำเร็จ');
+    } finally {
+      setTranslatingField(null);
+    }
+  };
 
   const [formData, setFormData] = useState({
     id: 0,
@@ -797,8 +838,10 @@ const CourseManagement = () => {
         {saveError && <Alert severity="error" onClose={() => setSaveError(null)} sx={{ mb: 3 }}>{saveError}</Alert>}
 
         <Grid container spacing={3}>
-          {/* ── Left column ── */}
-          <Grid item xs={12} md={8}>
+          {/* Single full-width column now — the media/guide summary boxes
+              that used to live in a separate right sidebar are folded into
+              Basic Info below instead, so the whole form uses the full width. */}
+          <Grid item xs={12}>
 
             {/* Basic Info */}
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
@@ -842,25 +885,37 @@ const CourseManagement = () => {
                   <TextField label="🇹🇭 ชื่อคลาส (ภาษาไทย) *" fullWidth value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
                 </Grid>
                 <Grid item xs={12}>
-                  <TextField label="🇬🇧 Class Name (English)" fullWidth value={formData.nameEn} onChange={e => setFormData({ ...formData, nameEn: e.target.value })} />
+                  <Box sx={{ position: 'relative' }}>
+                    <TextField label="🇬🇧 Class Name (English)" fullWidth value={formData.nameEn} onChange={e => setFormData({ ...formData, nameEn: e.target.value })} />
+                    <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => translateField('name')}
+                          disabled={translatingField === 'name' || !formData.name.trim()}
+                          sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}
+                        >
+                          {translatingField === 'name' ? <CircularProgress size={16} /> : <TranslateIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControlLabel
-                    control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />}
-                    label="คลาสแนะนำ"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControlLabel
-                    control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
-                    label="Extra Class"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControlLabel
-                    control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
-                    label="เข้าร่วมซ้ำได้"
-                  />
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                    <FormControlLabel
+                      control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />}
+                      label="คลาสแนะนำ"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
+                      label="คลาสพิเศษ"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
+                      label="อนุญาตให้เข้าร่วมซ้ำ"
+                    />
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
@@ -882,6 +937,71 @@ const CourseManagement = () => {
                     onChange={e => setFormData({ ...formData, stampExpiryMonths: Math.max(1, parseInt(e.target.value) || 12) })}
                     helperText="วันหมดอายุจริงจะปัดขึ้นเป็นสิ้นเดือน 6 หรือสิ้นปี"
                   />
+                </Grid>
+
+                {/* Media + Teacher Guide — moved here from a separate right
+                    sidebar column to reclaim horizontal width; the full
+                    media editor still lives in the modal opened below. */}
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>สื่อประกอบคลาส</Typography>
+                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 1.5 }}>
+                    <Box sx={{ width: 56, height: 56, borderRadius: 2, overflow: 'hidden', bgcolor: '#f1f5f9', flexShrink: 0, border: '1px solid #eee' }}>
+                      {formData.thumbnailUrl ? (
+                        <img src={getImageUrl(formData.thumbnailUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                      ) : (
+                        <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <ImageIcon color="disabled" fontSize="small" />
+                        </Box>
+                      )}
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {mergedImages.length > 0 ? `รูปภาพ ${mergedImages.length} รูป` : 'ยังไม่มีรูปภาพ'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {formData.videoUrl ? 'มีวิดีโอ' : 'ยังไม่มีวิดีโอ'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Button
+                    fullWidth variant="outlined" size="small" startIcon={<ImageIcon />}
+                    onClick={() => { setMediaModalTab('media'); setMediaModalOpen(true); }}
+                  >
+                    จัดการรูปภาพและวิดีโอ
+                  </Button>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>คู่มือการสอน</Typography>
+                  {formData.teacherGuideUrl ? (
+                    <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <GuideIcon fontSize="small" color="action" />
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>มีไฟล์คู่มือแล้ว</Typography>
+                      </Box>
+                      <Box>
+                        <IconButton size="small" color="primary" onClick={() => window.open(formData.teacherGuideUrl, '_blank')}><PreviewIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => setFormData({ ...formData, teacherGuideUrl: '' })}><ClearIcon fontSize="small" /></IconButton>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      onClick={() => guideInputRef.current?.click()}
+                      sx={{ py: 2.5, border: '2px dashed #e2e8f0', borderRadius: 2, textAlign: 'center', cursor: 'pointer', '&:hover': { bgcolor: '#f8fafc', borderColor: 'primary.main' } }}
+                    >
+                      <UploadIcon color="disabled" sx={{ fontSize: 22, mb: 0.5 }} />
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>อัปโหลดคู่มือ PDF</Typography>
+                      <Typography variant="caption" color="text.secondary">คลิกเพื่อเลือกไฟล์</Typography>
+                    </Box>
+                  )}
+                  <input type="file" hidden accept="application/pdf" ref={guideInputRef} onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setGuideUploading(true);
+                    const url = await uploadFile(file, 'guides');
+                    if (url) setFormData(f => ({ ...f, teacherGuideUrl: url }));
+                    setGuideUploading(false);
+                    e.target.value = '';
+                  }} />
                 </Grid>
               </Grid>
             </Paper>
@@ -956,6 +1076,18 @@ const CourseManagement = () => {
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ position: 'relative' }}>
                     <TextField label="🇬🇧 รายละเอียดอย่างย่อ (ภาษาอังกฤษ) - แสดงบนการ์ด" multiline rows={3} fullWidth value={formData.shortDescriptionEn} onChange={e => setFormData({ ...formData, shortDescriptionEn: e.target.value })} />
+                    <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => translateField('shortDescription')}
+                          disabled={translatingField === 'shortDescription' || !formData.shortDescription.trim()}
+                          sx={{ position: 'absolute', top: 6, right: 40, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}
+                        >
+                          {translatingField === 'shortDescription' ? <CircularProgress size={16} /> : <TranslateIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                     <Tooltip title="Expand">
                       <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'en', field: 'shortDescription' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
                         <ExpandIcon fontSize="small" />
@@ -964,24 +1096,37 @@ const CourseManagement = () => {
                   </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ position: 'relative' }}>
-                    <TextField label="🇹🇭 รายละเอียด (ภาษาไทย)" multiline rows={4} fullWidth value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
-                    <Tooltip title="ขยาย">
-                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'th', field: 'description' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
-                        <ExpandIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                    🇹🇭 รายละเอียด (ภาษาไทย)
+                  </Typography>
+                  <RichTextEditor
+                    value={formData.description}
+                    onChange={(html) => setFormData({ ...formData, description: html })}
+                    placeholder="กรอกรายละเอียดคลาส..."
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ position: 'relative' }}>
-                    <TextField label="🇬🇧 Description (English)" multiline rows={4} fullWidth value={formData.descriptionEn} onChange={e => setFormData({ ...formData, descriptionEn: e.target.value })} />
-                    <Tooltip title="Expand">
-                      <IconButton size="small" onClick={() => setDescExpandModal({ open: true, lang: 'en', field: 'description' })} sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}>
-                        <ExpandIcon fontSize="small" />
-                      </IconButton>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>🇬🇧 Description (English)</Typography>
+                    <Tooltip title="แปลจากภาษาไทยอัตโนมัติ (ฉบับร่าง)">
+                      <span>
+                        <Button
+                          size="small"
+                          startIcon={translatingField === 'description' ? <CircularProgress size={14} /> : <TranslateIcon sx={{ fontSize: 16 }} />}
+                          onClick={() => translateField('description')}
+                          disabled={translatingField === 'description' || !formData.description.trim()}
+                          sx={{ textTransform: 'none', fontWeight: 700 }}
+                        >
+                          แปลอัตโนมัติ
+                        </Button>
+                      </span>
                     </Tooltip>
                   </Box>
+                  <RichTextEditor
+                    value={formData.descriptionEn}
+                    onChange={(html) => setFormData({ ...formData, descriptionEn: html })}
+                    placeholder="Write class description..."
+                  />
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>ระยะเวลาเรียน</Typography>
@@ -1209,40 +1354,10 @@ const CourseManagement = () => {
             </Paper>
           </Grid>
 
-          {/* ── Right column ── */}
-          <Grid item xs={12} md={4}>
-
-            {/* Media summary — full editor lives in the "จัดการรูปภาพและวิดีโอ" modal below */}
-            <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
-              <SectionLabel icon={<ImageIcon />} title="สื่อประกอบคลาส" />
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
-                <Box sx={{ width: 72, height: 72, borderRadius: 2, overflow: 'hidden', bgcolor: '#f1f5f9', flexShrink: 0, border: '1px solid #eee' }}>
-                  {formData.thumbnailUrl ? (
-                    <img src={getImageUrl(formData.thumbnailUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
-                  ) : (
-                    <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <ImageIcon color="disabled" fontSize="small" />
-                    </Box>
-                  )}
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    {mergedImages.length > 0 ? `รูปภาพ ${mergedImages.length} รูป` : 'ยังไม่มีรูปภาพ'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    {formData.videoUrl ? 'มีวิดีโอ' : 'ยังไม่มีวิดีโอ'}
-                  </Typography>
-                </Box>
-              </Box>
-              <Button
-                fullWidth variant="outlined" startIcon={<ImageIcon />}
-                onClick={() => { setMediaModalTab('media'); setMediaModalOpen(true); }}
-              >
-                จัดการรูปภาพและวิดีโอ
-              </Button>
-            </Paper>
-
-            {/* Media management modal — left sidebar nav + right content panel */}
+          {/* Media summary + Teacher Guide boxes now live inside "ข้อมูลพื้นฐาน"
+              above; the full media editor is still this modal (physical
+              JSX position doesn't matter for a Dialog — it portals regardless). */}
+          <Grid item xs={12}>
             <Dialog open={mediaModalOpen} onClose={() => setMediaModalOpen(false)} maxWidth="md" fullWidth>
               <DialogTitle sx={{ fontWeight: 800, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 จัดการรูปภาพและวิดีโอ
@@ -1506,41 +1621,6 @@ const CourseManagement = () => {
                 <Button variant="contained" onClick={() => setPosterModalImage(null)}>เสร็จสิ้น</Button>
               </DialogActions>
             </Dialog>
-
-            {/* Teacher Guide */}
-            <Paper sx={{ p: 3, borderRadius: 3 }}>
-              <SectionLabel icon={<GuideIcon />} title="คู่มือการสอน" />
-              {formData.teacherGuideUrl ? (
-                <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <GuideIcon fontSize="small" color="action" />
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>มีไฟล์คู่มือแล้ว</Typography>
-                  </Box>
-                  <Box>
-                    <IconButton size="small" color="primary" onClick={() => window.open(formData.teacherGuideUrl, '_blank')}><PreviewIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => setFormData({ ...formData, teacherGuideUrl: '' })}><ClearIcon fontSize="small" /></IconButton>
-                  </Box>
-                </Box>
-              ) : (
-                <Box
-                  onClick={() => guideInputRef.current?.click()}
-                  sx={{ py: 5, border: '2px dashed #e2e8f0', borderRadius: 2, textAlign: 'center', cursor: 'pointer', '&:hover': { bgcolor: '#f8fafc', borderColor: 'primary.main' } }}
-                >
-                  <UploadIcon color="disabled" sx={{ fontSize: 28, mb: 0.5 }} />
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>อัปโหลดคู่มือ PDF</Typography>
-                  <Typography variant="caption" color="text.secondary">คลิกเพื่อเลือกไฟล์</Typography>
-                </Box>
-              )}
-              <input type="file" hidden accept="application/pdf" ref={guideInputRef} onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setGuideUploading(true);
-                const url = await uploadFile(file, 'guides');
-                if (url) setFormData(f => ({ ...f, teacherGuideUrl: url }));
-                setGuideUploading(false);
-                e.target.value = '';
-              }} />
-            </Paper>
           </Grid>
 
           {editCourse && (
@@ -1603,20 +1683,24 @@ const CourseManagement = () => {
           </Button>
         </Box>
 
-        {/* Description expand dialog */}
+        {/* Short-description expand dialog — description itself no longer
+            uses this, since RichTextEditor already has its own scroll area;
+            this was previously hardcoded to always show/edit `description`
+            regardless of which field's Expand button was clicked, so
+            expanding "Short Description" silently edited the wrong field. */}
         <Dialog open={!!descExpandModal?.open} onClose={() => setDescExpandModal(null)} fullWidth maxWidth="md">
           <DialogTitle sx={{ fontWeight: 800, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {descExpandModal?.lang === 'th' ? '🇹🇭 รายละเอียดคลาส (ภาษาไทย)' : '🇬🇧 Class Description (English)'}
+            {descExpandModal?.lang === 'th' ? '🇹🇭 รายละเอียดอย่างย่อ (ภาษาไทย)' : '🇬🇧 Short Description (English)'}
             <IconButton onClick={() => setDescExpandModal(null)}><ClearIcon /></IconButton>
           </DialogTitle>
           <DialogContent>
             <TextField
               multiline rows={16} fullWidth autoFocus sx={{ mt: 1 }}
-              placeholder={descExpandModal?.lang === 'th' ? 'กรอกรายละเอียดคลาสภาษาไทย...' : 'Enter class description in English...'}
-              value={descExpandModal?.lang === 'th' ? formData.description : formData.descriptionEn}
+              placeholder={descExpandModal?.lang === 'th' ? 'กรอกรายละเอียดอย่างย่อภาษาไทย...' : 'Enter short description in English...'}
+              value={descExpandModal?.lang === 'th' ? formData.shortDescription : formData.shortDescriptionEn}
               onChange={e => descExpandModal?.lang === 'th'
-                ? setFormData({ ...formData, description: e.target.value })
-                : setFormData({ ...formData, descriptionEn: e.target.value })
+                ? setFormData({ ...formData, shortDescription: e.target.value })
+                : setFormData({ ...formData, shortDescriptionEn: e.target.value })
               }
             />
           </DialogContent>

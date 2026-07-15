@@ -62,7 +62,9 @@ export const ChildJourneyDialog: React.FC<ChildJourneyDialogProps> = ({ open, on
     }
   };
 
-  const getSkills = (skillsStr: string): string[] => {
+  type BilingualSkill = string | { th: string; en: string; type?: 'achievement' | 'indicator' };
+
+  const getSkills = (skillsStr: string): BilingualSkill[] => {
     if (!skillsStr) return [];
     try {
       const parsed = JSON.parse(skillsStr);
@@ -72,6 +74,10 @@ export const ChildJourneyDialog: React.FC<ChildJourneyDialogProps> = ({ open, on
       return typeof skillsStr === 'string' ? skillsStr.split(',').map(s => s.trim()) : [];
     }
   };
+
+  // Skills are { th, en } pairs; render the Thai label (this dialog is
+  // CRM-only, no language toggle) instead of the raw object.
+  const skillLabel = (s: BilingualSkill) => (typeof s === 'string' ? s : (s.th || s.en));
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -98,7 +104,9 @@ export const ChildJourneyDialog: React.FC<ChildJourneyDialogProps> = ({ open, on
               const dateObj = new Date(item.completed_at);
               const dateStr = dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
               const timeStr = dateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-              const skills = getSkills(item.skills_learned);
+              const allSkills = getSkills(item.skills_learned);
+              const skillItems = allSkills.filter(s => typeof s === 'string' || s.type !== 'indicator');
+              const indicatorItems = allSkills.filter(s => typeof s !== 'string' && s.type === 'indicator');
               
               return (
                 <Paper key={item.id} sx={{ p: 3, borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
@@ -114,11 +122,20 @@ export const ChildJourneyDialog: React.FC<ChildJourneyDialogProps> = ({ open, on
                       
                       <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>{item.node_title || 'กิจกรรมพัฒนาทักษะ'}</Typography>
                       
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-                        {skills.map((skill, idx) => (
-                          <Chip key={idx} label={skill} size="small" color="secondary" variant="outlined" sx={{ fontWeight: 700 }} />
-                        ))}
-                      </Box>
+                      {skillItems.length > 0 && (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                          {skillItems.map((skill, idx) => (
+                            <Chip key={idx} label={skillLabel(skill)} size="small" color="secondary" variant="outlined" sx={{ fontWeight: 700 }} />
+                          ))}
+                        </Box>
+                      )}
+                      {indicatorItems.length > 0 && (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+                          {indicatorItems.map((skill, idx) => (
+                            <Chip key={idx} label={skillLabel(skill)} size="small" color="warning" variant="outlined" sx={{ fontWeight: 700 }} />
+                          ))}
+                        </Box>
+                      )}
                       
                       <Box sx={{ bgcolor: '#f5f5f5', p: 2, borderRadius: 2 }}>
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, mb: 0.5, display: 'block' }}>

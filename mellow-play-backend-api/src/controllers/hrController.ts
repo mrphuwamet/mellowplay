@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { HRRepository } from '../repositories/hrRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { sendAlert } from '../services/alertService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -107,6 +108,9 @@ export class HRController {
 
       return c.json({ success: true, id: purchaseId, paymentUrl: data.url });
     } catch (error: any) {
+      await sendAlert(new ConfigService(c.env).db, 'Payment Error (Package Purchase)', {
+        purchaseId, error: error.message,
+      });
       return c.json({ success: false, message: 'ระบบชำระเงินขัดข้อง กรุณาลองใหม่อีกครั้ง หรือติดต่อพนักงาน' }, 500);
     }
   }
@@ -198,6 +202,19 @@ export class HRController {
       if (!userId || !date) return c.json({ success: false, message: 'userId and date required' }, 400);
       await this.repo(c).deleteAttendance(parseInt(userId), date);
       return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+  async getAttendanceSummary(c: C) {
+    try {
+      const id = parseInt(c.req.param('id'));
+      const { month, year } = c.req.query();
+      const now = new Date();
+      const summary = await this.repo(c).getAttendanceSummary(
+        id,
+        month ? parseInt(month) : now.getMonth() + 1,
+        year ? parseInt(year) : now.getFullYear(),
+      );
+      return c.json({ success: true, ...summary });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

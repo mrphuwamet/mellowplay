@@ -14,6 +14,7 @@ import wechatpayIcon from '../assets/payment-icon/wechat-pay-logo.png';
 import shopeepayIcon from '../assets/payment-icon/shopeepay.png';
 import truewalletIcon from '../assets/payment-icon/truewallet.webp';
 import { getCourseView, type CourseImageViews } from '../utils/courseImage';
+import { stripHtml } from '../utils/stripHtml';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
@@ -81,6 +82,7 @@ const Booking = () => {
   const [customAgeMin, setCustomAgeMin] = useState<number | ''>('');
   const [customAgeMax, setCustomAgeMax] = useState<number | ''>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [childCourseStatus, setChildCourseStatus] = useState<Record<number, 'upcoming' | 'completed'>>({});
 
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
@@ -163,7 +165,10 @@ const Booking = () => {
   if (hasBranch) flowSteps.push('branch');
   flowSteps.push('date', 'payment');
   
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  // Lazy-init straight to the child step when arriving with a pre-selected
+  // course (e.g. "Book Now" from a course card) — otherwise the course-list
+  // step renders for one frame before the async fetch below jumps forward.
+  const [currentStepIndex, setCurrentStepIndex] = useState(() => preSelectedCourseId ? 1 : 0);
   const currentStep = flowSteps[currentStepIndex];
 
   // Auto skip branch
@@ -174,6 +179,46 @@ const Booking = () => {
       }
     }
   }, [selectedCourse, branches, hasBranch]);
+
+  // Per-child status for THIS course, so Step 2 can disable children who
+  // can't book it: already registered (upcoming), or already attended on a
+  // non-repeatable course. Attended-but-repeatable stays selectable, just badged.
+  useEffect(() => {
+    if (!selectedCourse) {
+      setChildCourseStatus({});
+      return;
+    }
+    const userJson = localStorage.getItem('mellow_user');
+    const userId = userJson ? JSON.parse(userJson).id : null;
+    if (!userId) return;
+
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const [historyRes, upcomingRes] = await Promise.all([
+          apiClient.get(`/profiles/bookings/history?userId=${userId}`),
+          apiClient.get(`/profiles/bookings/upcoming?userId=${userId}`),
+        ]);
+        if (cancelled) return;
+        const map: Record<number, 'upcoming' | 'completed'> = {};
+        if (historyRes.data.success) {
+          for (const b of historyRes.data.bookings) {
+            if (b.course_id === selectedCourse.id) map[b.child_id] = 'completed';
+          }
+        }
+        if (upcomingRes.data.success) {
+          for (const b of upcomingRes.data.bookings) {
+            if (b.course_id === selectedCourse.id) map[b.child_id] = 'upcoming';
+          }
+        }
+        setChildCourseStatus(map);
+      } catch (err) {
+        console.error('Failed to fetch child course status:', err);
+      }
+    };
+    fetchStatus();
+    return () => { cancelled = true; };
+  }, [selectedCourse]);
 
   useEffect(() => {
     if (!selectedCourse) {
@@ -197,14 +242,19 @@ const Booking = () => {
     const fetchUpcoming = async () => {
       if (!selectedCourse) return;
       if (!selectedBranch && !selectedCourse.is_extraclass) return;
-      
+
       setUpcomingDates([]);
       setSelectedDateObj(null);
       setSelectedSlot(null);
+
+      // A course with no calendar bound has no real schedule at all — it
+      // must show zero slots, not silently borrow calendar #1's.
+      if (!selectedCourse.calendar_id) return;
+
       try {
         const response = await apiClient.get('/admin/calendar-slots/upcoming', {
           params: {
-            calendarId: selectedCourse.calendar_id || 1,
+            calendarId: selectedCourse.calendar_id,
             branchId: selectedBranch?.id
           }
         });
@@ -293,7 +343,7 @@ const Booking = () => {
         branchId: selectedBranch?.id || null,
         scheduledAt,
         ageGroup,
-        calendarId: selectedCourse.calendar_id || 1,
+        calendarId: selectedCourse.calendar_id,
         slotDate: selectedDateObj.date,
         slotStartTime: selectedSlot.startTime,
         paymentStatus: isFreeBooking ? 'paid' : (paymentMethod === 'coupon' ? 'prepaid' : 'pending_payment'),
@@ -392,41 +442,62 @@ const Booking = () => {
 
       {successBooking ? (
         <main className="p-5 flex flex-col items-center justify-center min-h-[70vh]">
-          <div className="w-20 h-20 rounded-full bg-mellow-green/10 flex items-center justify-center text-mellow-green mb-6 animate-bounce">
+          <div className="w-20 h-20 rounded-full bg-mellow-green/10 flex items-center justify-center text-mellow-green mb-6">
             <CheckCircle size={56} />
           </div>
           <h2 className="text-2xl font-black text-slate-800 text-center mb-2">{t.booking?.bookingSuccess || 'ยืนยันการจองสำเร็จ!'}</h2>
           <p className="text-slate-500 font-bold text-[14px] text-center mb-6">{t.booking?.bookingSuccessDesc || 'คูปองของคุณถูกหักออก 1 สแตมป์เรียบร้อยแล้ว'}</p>
-          <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] space-y-4 mb-8">
-            <div className="flex items-center justify-between border-b border-dashed border-slate-200 pb-3">
-              <span className="text-slate-400 text-xs font-black uppercase tracking-wider">{t.booking?.bookingId || 'รหัสการจอง'}</span>
-              <span className="text-mellow-purple font-black text-sm">#BK-{successBooking.id}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.childInClass || 'เด็กผู้เข้าคลาส'}</span>
-              <span className="text-slate-700 font-black text-sm">{successBooking.childName}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.course || 'Class'}</span>
-              <span className="text-slate-700 font-black text-sm">{successBooking.courseName}</span>
-            </div>
-            {selectedBranch && (
-              <div>
-                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.branch || 'สาขา'}</span>
-                <span className="text-slate-700 font-black text-sm">{successBooking.branchName}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-6">
-              <div>
-                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.date || 'วันที่'}</span>
-                <span className="text-slate-700 font-black text-sm">{successBooking.date}</span>
+          <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-br from-mellow-green/10 to-mellow-blue/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
+            <div className="relative z-10 space-y-4">
+              <div className="flex items-center justify-between border-b border-dashed border-slate-200 pb-3">
+                <span className="text-slate-400 text-xs font-black uppercase tracking-wider">{t.booking?.bookingId || 'รหัสการจอง'}</span>
+                <span className="text-mellow-purple font-black text-sm">#BK-{successBooking.id}</span>
               </div>
               <div>
-                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.time || 'เวลา'}</span>
-                <span className="text-slate-700 font-black text-sm">{successBooking.time} น.</span>
+                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.childInClass || 'เด็กผู้เข้าคลาส'}</span>
+                <span className="text-slate-700 font-black text-sm">{successBooking.childName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.course || 'Class'}</span>
+                <span className="text-slate-700 font-black text-sm">{successBooking.courseName}</span>
+              </div>
+              {(!selectedCourse?.is_extraclass || selectedCourse?.location) && (
+                <div>
+                  <span className="text-slate-400 text-xs font-bold block mb-1 flex items-center gap-1">
+                    <MapPin size={11} className="text-orange-400" />
+                    {lang === 'en' ? 'Location' : 'สถานที่'}
+                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-700 font-black text-sm">
+                      {selectedCourse?.is_extraclass ? selectedCourse.location : (successBooking.branchName || 'Mellow Play (Little Walk Pattaya)')}
+                    </span>
+                    <a
+                      href={selectedCourse?.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 px-3 py-1 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg text-[11px] font-black transition-colors"
+                    >
+                      {lang === 'en' ? 'Map' : 'เส้นทาง'}
+                    </a>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-6">
+                <div>
+                  <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.date || 'วันที่'}</span>
+                  <span className="text-slate-700 font-black text-sm">{successBooking.date}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.time || 'เวลา'}</span>
+                  <span className="text-slate-700 font-black text-sm">{successBooking.time} น.</span>
+                </div>
               </div>
             </div>
           </div>
+          <p className="text-[11px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
+            📸 {lang === 'en' ? 'Please screenshot this screen for easy reference.' : 'โปรดแคปหน้าจอนี้ไว้เพื่อดูข้อมูลอย่างง่าย'}
+          </p>
           <button onClick={() => navigate('/')} className="w-full py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg shadow-mellow-purple/20 active:scale-95 transition-transform">
             {t.booking?.backToHome || 'กลับสู่หน้าหลัก'}
           </button>
@@ -462,7 +533,7 @@ const Booking = () => {
                        <div>
                          <p className="text-sm font-black text-slate-800">{selectedCourse.name}</p>
                          <p className="text-xs font-bold text-slate-500 mt-1 line-clamp-2">
-                           {selectedCourse.description}
+                           {stripHtml(selectedCourse.description || '')}
                          </p>
                        </div>
                         <button 
@@ -654,7 +725,18 @@ const Booking = () => {
               </div>
 
               {isLoading ? (
-                <div className="h-32 flex items-center justify-center"><div className="animate-spin w-8 h-8 border-4 border-mellow-purple border-t-transparent rounded-full" /></div>
+                <div className="grid grid-cols-1 gap-3 animate-pulse">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="rounded-2xl border border-slate-100 bg-white overflow-hidden flex items-stretch">
+                      <div className="w-[95px] shrink-0 bg-slate-200" />
+                      <div className="flex-1 p-3 space-y-2">
+                        <div className="h-3.5 w-3/4 bg-slate-200 rounded-full" />
+                        <div className="h-2.5 w-full bg-slate-100 rounded-full" />
+                        <div className="h-2.5 w-1/2 bg-slate-100 rounded-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
                   {filteredCourses.length === 0 ? (
@@ -694,7 +776,7 @@ const Booking = () => {
                           {/* Content */}
                           <div className="flex-1 p-3 flex flex-col gap-1.5 min-w-0">
                             <p className="text-[13px] font-black text-slate-800 leading-tight line-clamp-1">{course.name}</p>
-                            <p className="text-[11px] text-slate-500 font-medium line-clamp-2 leading-snug">{course.description}</p>
+                            <p className="text-[11px] text-slate-500 font-medium line-clamp-2 leading-snug">{stripHtml(course.description || '')}</p>
                             {/* Price row + Detail button */}
                             <div className="mt-auto pt-1 flex items-end justify-between gap-2">
                               <div>
@@ -758,18 +840,38 @@ const Booking = () => {
               <div className="grid grid-cols-2 gap-3">
                 {children.map(child => {
                   const isSelected = selectedChildren.some(c => c.id === child.id);
+                  const status = childCourseStatus[child.id];
+                  const isNonRepeatableTaken = status === 'completed' && !selectedCourse?.allow_repeat;
+                  const isDisabled = status === 'upcoming' || isNonRepeatableTaken;
+                  const statusLabel = status === 'upcoming'
+                    ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
+                    : status === 'completed'
+                      ? (lang === 'en' ? 'Already Attended' : 'เคยเข้าร่วมแล้ว')
+                      : null;
                   return (
-                    <button key={child.id} onClick={() => {
+                    <button key={child.id} disabled={isDisabled} onClick={() => {
+                      if (isDisabled) return;
                       setSelectedChildren(prev => {
                         if (prev.some(c => c.id === child.id)) return prev.filter(c => c.id !== child.id);
                         return [...prev, child];
                       });
-                    }} className={`p-4 rounded-2xl border text-left flex flex-col gap-2 transition-all ${isSelected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 opacity-70'}`}>
+                    }} className={`relative p-4 rounded-2xl border text-left flex flex-col gap-2 transition-all ${
+                      isDisabled ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : isSelected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 opacity-70'
+                    }`}>
+                      {statusLabel && (
+                        <span className={`absolute -top-2 left-3 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide shadow-sm ${
+                          status === 'upcoming' ? 'bg-emerald-500 text-white' : 'bg-slate-400 text-white'
+                        }`}>
+                          {statusLabel}
+                        </span>
+                      )}
                       <div className="flex justify-between items-start w-full">
                         <ChildAvatar avatarType={child.avatar} className="w-12 h-12" />
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-mellow-purple border-mellow-purple text-white' : 'border-slate-200'}`}>
-                          {isSelected && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><polyline points="20 6 9 17 4 12"></polyline></svg>}
-                        </div>
+                        {!isDisabled && (
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-mellow-purple border-mellow-purple text-white' : 'border-slate-200'}`}>
+                            {isSelected && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <b className="text-[15px] font-black text-slate-800 block leading-tight">{child.nickname || child.name.split(' ')[0]}</b>
@@ -1020,7 +1122,10 @@ const Booking = () => {
                    )}
                  </div>
 
-                 <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{selectedCourse.description}</p>
+                 <div
+                   className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
+                   dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
+                 />
               </div>
               <button onClick={() => setIsCourseModalOpen(false)} className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl active:scale-95 transition-transform">
                  {t.booking?.closeWindow || 'ปิดหน้าต่าง'}

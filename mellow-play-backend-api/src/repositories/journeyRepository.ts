@@ -72,14 +72,15 @@ export class JourneyRepository {
     // LEFT JOIN Roadmap_Nodes — node_id is normally null (see Child_Journey
     // schema note), so an inner join here would silently drop every photo.
     const { results } = await this.db.prepare(`
-      SELECT m.*, j.completed_at, j.booking_id, COALESCE(n.title, c.name) as activity_title, c.name as course_name
+      SELECT m.*, j.completed_at, j.booking_id, COALESCE(n.title, c.name) as activity_title, c.name as course_name,
+        COALESCE(b.scheduled_at, j.completed_at) as class_date
       FROM Journey_Media m
       JOIN Child_Journey j ON m.journey_id = j.id
       LEFT JOIN Roadmap_Nodes n ON j.node_id = n.id
       LEFT JOIN Bookings b ON j.booking_id = b.id
       LEFT JOIN Courses c ON b.course_id = c.id
       WHERE j.child_id = ?
-      ORDER BY j.completed_at DESC
+      ORDER BY class_date DESC
     `).bind(childId).all();
     return results;
   }

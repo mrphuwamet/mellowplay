@@ -11,6 +11,8 @@ export interface Bindings {
   GOOGLE_CLIENT_ID: string;
   BEAM_API_KEY: string;
   BEAM_MERCHANT_ID: string;
+  ANTHROPIC_API_KEY?: string;
+  GOOGLE_AI_API_KEY?: string;
 }
 
 export type Variables = {

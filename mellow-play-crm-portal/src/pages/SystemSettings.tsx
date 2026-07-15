@@ -14,6 +14,9 @@ import {
   AccessTime as TimeIcon,
   Settings as SettingsIcon,
   VpnKey as KeyIcon,
+  PlayCircleOutline as TestIcon,
+  CheckCircle as SuccessIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -30,15 +33,31 @@ interface Branch {
 }
 
 
+type IntegrationService = 'beam' | 'sms' | 'discord' | 'claude' | 'gemini';
+
 // sensitive: true fields use the "type a new value to change it" masked
 // pattern; non-sensitive ones (just a display label, not a credential) are
 // pre-filled with their real current value and edited directly.
-const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean }[] = [
-  { key: 'beam_api_key', label: 'Beam API Key', sensitive: true },
-  { key: 'beam_merchant_id', label: 'Beam Merchant ID', sensitive: true },
-  { key: 'sms_api_key', label: 'SMS API Key (ThaiBulkSMS)', sensitive: true },
-  { key: 'sms_api_secret', label: 'SMS API Secret (ThaiBulkSMS)', sensitive: true },
-  { key: 'sms_sender_name', label: 'SMS Sender Name (ชื่อผู้ส่ง ที่ลงทะเบียนกับ ThaiBulkSMS)', sensitive: false },
+const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean; hint?: string; service: IntegrationService }[] = [
+  { key: 'beam_api_key', label: 'Beam API Key', sensitive: true, service: 'beam' },
+  { key: 'beam_merchant_id', label: 'Beam Merchant ID', sensitive: true, service: 'beam' },
+  { key: 'sms_api_key', label: 'SMS API Key (ThaiBulkSMS)', sensitive: true, service: 'sms' },
+  { key: 'sms_api_secret', label: 'SMS API Secret (ThaiBulkSMS)', sensitive: true, service: 'sms' },
+  { key: 'sms_sender_name', label: 'SMS Sender Name (ชื่อผู้ส่ง ที่ลงทะเบียนกับ ThaiBulkSMS)', sensitive: false, service: 'sms' },
+  {
+    key: 'discord_webhook_url', label: 'Discord Webhook URL (แจ้งเตือน error อัตโนมัติ)', sensitive: true, service: 'discord',
+    hint: 'วิธีสร้าง: เปิด Discord → เข้า server/channel ที่จะรับแจ้งเตือน → คลิกฟันเฟือง (Edit Channel) → Integrations → Webhooks → New Webhook → ตั้งชื่อ (เช่น "Mellow Play Alerts") → กด Copy Webhook URL แล้วมาวางที่นี่',
+  },
+  { key: 'anthropic_api_key', label: 'Anthropic API Key (Claude)', sensitive: true, service: 'claude' },
+  { key: 'google_ai_api_key', label: 'Google AI API Key (Gemini)', sensitive: true, service: 'gemini' },
+];
+
+const SERVICE_GROUPS: { service: IntegrationService; label: string }[] = [
+  { service: 'beam', label: 'Beam Checkout (จ่ายเงิน)' },
+  { service: 'sms', label: 'SMS (ThaiBulkSMS)' },
+  { service: 'discord', label: 'Discord Webhook (แจ้งเตือน)' },
+  { service: 'claude', label: 'Claude (Anthropic) — สำหรับแปลภาษาอัตโนมัติ' },
+  { service: 'gemini', label: 'Gemini (Google AI) — สำหรับแปลภาษาอัตโนมัติ' },
 ];
 
 const SystemSettings = () => {
@@ -62,6 +81,33 @@ const SystemSettings = () => {
   const [integrationKeys, setIntegrationKeys] = useState<{ [key: string]: { masked: string; isSet: boolean } }>({});
   const [keyEdits, setKeyEdits] = useState<{ [key: string]: string }>({});
   const [savingKeys, setSavingKeys] = useState(false);
+
+  // "Test Connection" — always tests whatever is currently SAVED (DB
+  // override or Cloudflare secret fallback), not unsaved text still sitting
+  // in the fields above, so remind the admin to save first if they've typed
+  // a new value that hasn't been saved yet.
+  const [testStatus, setTestStatus] = useState<{ [service: string]: { loading: boolean; success?: boolean; message?: string } }>({});
+  const [smsTestPhone, setSmsTestPhone] = useState('');
+  const [smsTestDialogOpen, setSmsTestDialogOpen] = useState(false);
+
+  const runTest = async (service: IntegrationService, phone?: string) => {
+    setTestStatus(prev => ({ ...prev, [service]: { loading: true } }));
+    try {
+      const { data } = await axios.post(`${API_BASE}/integration-keys/test`, { service, phone });
+      setTestStatus(prev => ({ ...prev, [service]: { loading: false, success: data.success, message: data.message } }));
+    } catch (e: any) {
+      setTestStatus(prev => ({ ...prev, [service]: { loading: false, success: false, message: e.response?.data?.message || e.message } }));
+    }
+  };
+
+  const handleTestClick = (service: IntegrationService) => {
+    if (service === 'sms') {
+      setSmsTestPhone('');
+      setSmsTestDialogOpen(true);
+      return;
+    }
+    runTest(service);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -208,29 +254,85 @@ const SystemSettings = () => {
             <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <KeyIcon color="primary" /> คีย์เชื่อมต่อระบบ (Beam / SMS)
+                  <KeyIcon color="primary" /> คีย์เชื่อมต่อระบบ (Beam / SMS / AI)
                 </Typography>
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                 เห็นได้เฉพาะ Super Admin — พิมพ์ค่าใหม่เพื่อเปลี่ยน ถ้าไม่พิมพ์อะไรจะไม่มีผลกับค่าที่ตั้งไว้เดิม
               </Typography>
-              <Stack spacing={2}>
-                {INTEGRATION_KEY_FIELDS.map(({ key, label, sensitive }) => (
-                  <TextField
-                    key={key}
-                    label={label}
-                    fullWidth
-                    size="small"
-                    value={keyEdits[key] ?? ''}
-                    onChange={(e) => setKeyEdits(prev => ({ ...prev, [key]: e.target.value }))}
-                    placeholder={sensitive ? (integrationKeys[key]?.isSet ? `ตั้งค่าไว้แล้ว (${integrationKeys[key].masked})` : 'ยังไม่ได้ตั้งค่า') : undefined}
-                    helperText={
-                      sensitive
-                        ? (integrationKeys[key]?.isSet ? `ปัจจุบัน: ${integrationKeys[key].masked}` : 'ยังไม่ได้ตั้งค่า — ระบบจะ fallback ไปใช้ค่าจาก Cloudflare secret แทน')
-                        : (integrationKeys[key]?.isSet ? undefined : 'ยังไม่ได้ตั้งค่า — ระบบจะใช้ค่าเริ่มต้น "Demo" ไปก่อน')
-                    }
-                  />
-                ))}
+
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                  ผู้ให้บริการ AI แปลภาษา (ใช้กับปุ่ม "แปลอัตโนมัติ" ในเครื่องมือเขียนข่าว)
+                </Typography>
+                <FormControl size="small" sx={{ minWidth: 240 }}>
+                  <Select
+                    value={keyEdits['translation_provider'] ?? integrationKeys['translation_provider']?.masked ?? 'claude'}
+                    onChange={(e) => setKeyEdits(prev => ({ ...prev, translation_provider: e.target.value as string }))}
+                  >
+                    <MenuItem value="claude">Claude (Anthropic)</MenuItem>
+                    <MenuItem value="gemini">Gemini (Google AI)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+              <Divider sx={{ mb: 3 }} />
+
+              <Stack spacing={3}>
+                {SERVICE_GROUPS.map(({ service, label: serviceLabel }) => {
+                  const status = testStatus[service];
+                  return (
+                    <Box key={service}>
+                      <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                        {serviceLabel}
+                      </Typography>
+                      <Stack spacing={2}>
+                        {INTEGRATION_KEY_FIELDS.filter(f => f.service === service).map(({ key, label, sensitive, hint }) => (
+                          <Box key={key}>
+                            <TextField
+                              label={label}
+                              fullWidth
+                              size="small"
+                              value={keyEdits[key] ?? ''}
+                              onChange={(e) => setKeyEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                              placeholder={sensitive ? (integrationKeys[key]?.isSet ? `ตั้งค่าไว้แล้ว (${integrationKeys[key].masked})` : 'ยังไม่ได้ตั้งค่า') : undefined}
+                              helperText={
+                                sensitive
+                                  ? (integrationKeys[key]?.isSet ? `ปัจจุบัน: ${integrationKeys[key].masked}` : (!hint ? 'ยังไม่ได้ตั้งค่า — ระบบจะ fallback ไปใช้ค่าจาก Cloudflare secret แทน' : undefined))
+                                  : (integrationKeys[key]?.isSet ? undefined : 'ยังไม่ได้ตั้งค่า — ระบบจะใช้ค่าเริ่มต้น "Demo" ไปก่อน')
+                              }
+                            />
+                            {hint && !integrationKeys[key]?.isSet && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, pl: 1.5, lineHeight: 1.6 }}>
+                                💡 {hint}
+                              </Typography>
+                            )}
+                          </Box>
+                        ))}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={status?.loading ? <CircularProgress size={14} /> : <TestIcon />}
+                            onClick={() => handleTestClick(service)}
+                            disabled={status?.loading}
+                            sx={{ borderRadius: 2, fontWeight: 700 }}
+                          >
+                            ทดสอบการเชื่อมต่อ
+                          </Button>
+                          {status && !status.loading && status.success !== undefined && (
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              {status.success ? <SuccessIcon color="success" fontSize="small" /> : <ErrorIcon color="error" fontSize="small" />}
+                              <Typography variant="caption" sx={{ fontWeight: 700, color: status.success ? 'success.main' : 'error.main' }}>
+                                {status.message}
+                              </Typography>
+                            </Stack>
+                          )}
+                        </Box>
+                      </Stack>
+                    </Box>
+                  );
+                })}
+                <Divider />
                 <Box>
                   <Button
                     variant="contained"
@@ -293,6 +395,36 @@ const SystemSettings = () => {
         </DialogActions>
       </Dialog>
       
+      {/* SMS test — the only way to verify a live SMS provider key is to
+          actually send a message (costs money), so ask for a target phone
+          number rather than sending to some hardcoded default. */}
+      <Dialog open={smsTestDialogOpen} onClose={() => setSmsTestDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>ทดสอบส่ง SMS</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            ระบบจะส่ง SMS จริงไปที่เบอร์นี้เพื่อทดสอบการเชื่อมต่อ (มีค่าใช้จ่ายตามปกติ)
+          </Typography>
+          <TextField
+            label="เบอร์โทรศัพท์"
+            fullWidth
+            autoFocus
+            placeholder="08XXXXXXXX"
+            value={smsTestPhone}
+            onChange={(e) => setSmsTestPhone(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setSmsTestDialogOpen(false)}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            disabled={!smsTestPhone.trim()}
+            onClick={() => { setSmsTestDialogOpen(false); runTest('sms', smsTestPhone.trim()); }}
+          >
+            ส่งทดสอบ
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Confirm Dialog */}
       <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>ยืนยันการลบ</DialogTitle>

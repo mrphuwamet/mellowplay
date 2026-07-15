@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -9,12 +9,14 @@ import { trackCourseView } from '../utils/analytics';
 import PosterCarousel from '../components/PosterCarousel';
 import PromotionCountdown from '../components/PromotionCountdown';
 import { useChildStore } from '../store/useChildStore';
+import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 
 const CourseDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { lang, setLang, t } = useTranslation();
   const selectedChild = useChildStore(state => state.getSelectedChild());
+  const couponTypes = useCouponTypes();
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [upcomingSlots, setUpcomingSlots] = useState<any[]>([]);
@@ -49,7 +51,26 @@ const CourseDetail = () => {
   }, [id]);
 
   if (loading) {
-    return <div className="mellow-page bg-[#fbfaf7] min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-mellow-yellow border-t-transparent rounded-full animate-spin"></div></div>;
+    return (
+      <div className="mellow-page bg-[#fbfaf7] min-h-screen animate-pulse">
+        <div className="h-[64px] px-5 bg-white flex items-center gap-2">
+          <div className="w-10 h-10 rounded-full bg-slate-100" />
+          <div className="w-10 h-10 rounded-full bg-slate-100" />
+        </div>
+        <div className="w-full aspect-[4/3] bg-slate-200" />
+        <div className="p-5 space-y-4">
+          <div className="h-6 w-3/4 bg-slate-200 rounded-full" />
+          <div className="space-y-2">
+            <div className="h-3.5 w-full bg-slate-100 rounded-full" />
+            <div className="h-3.5 w-full bg-slate-100 rounded-full" />
+            <div className="h-3.5 w-2/3 bg-slate-100 rounded-full" />
+          </div>
+          <div className="h-16 w-full bg-slate-100 rounded-2xl" />
+          <div className="h-16 w-full bg-slate-100 rounded-2xl" />
+          <div className="h-12 w-full bg-slate-200 rounded-xl mt-6" />
+        </div>
+      </div>
+    );
   }
 
   if (!course) {
@@ -178,6 +199,22 @@ const CourseDetail = () => {
                 ฿{discountedPrice.toLocaleString()}
               </span>
             </div>
+            {/* Bookable either with coupons or cash — spelled out as an
+                explicit "N [coupon icon] OR ฿price" choice here, vs. the
+                compact "/" separator used on the card. */}
+            {(() => {
+              const couponReq = getPrimaryCouponRequirement(course, couponTypes);
+              return couponReq && (
+                <div className="flex items-center justify-end gap-1.5 mt-1">
+                  <span className="text-xs font-black text-slate-600">{couponReq.count}</span>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${couponReq.color}20` }}>
+                    <Ticket size={13} style={{ color: couponReq.color }} />
+                  </span>
+                  <span className="text-xs font-bold text-slate-400 mx-0.5">{lang === 'en' ? 'OR' : 'หรือ'}</span>
+                  <span className="text-xs font-black text-slate-500">{lang === 'en' ? 'pay in cash above' : 'จ่ายเป็นเงินสดด้านบน'}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -227,13 +264,18 @@ const CourseDetail = () => {
           )}
         </div>
 
-        {/* Description */}
+        {/* Description — authored via the CRM's rich-text writer tool (same
+            one used for news/media articles), so it's rendered as markup
+            rather than plain text. whitespace-pre-wrap on the container
+            keeps older plain-text descriptions (saved before this existed,
+            with no HTML tags) still readable with their line breaks. */}
         {course.description && (
           <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
-            <p className="text-[14px] text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">
-              {lang === 'en' && course.description_en ? course.description_en : course.description}
-            </p>
+            <div
+              className="prose-news whitespace-pre-wrap text-[14px] text-slate-600 leading-relaxed font-medium"
+              dangerouslySetInnerHTML={{ __html: (lang === 'en' && course.description_en ? course.description_en : course.description) || '' }}
+            />
           </div>
         )}
 
@@ -290,7 +332,7 @@ const CourseDetail = () => {
                <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
              )
           ) : (
-            <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'No linked calendar' : 'ไม่มีการผูกปฏิทิน'}</p>
+            <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
           )}
         </div>
       </main>

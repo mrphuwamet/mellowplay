@@ -41,7 +41,18 @@ const CourseList = () => {
 
       <main className="p-5">
         {loading ? (
-          <div className="flex justify-center p-10"><div className="w-6 h-6 border-2 border-mellow-yellow border-t-transparent rounded-full animate-spin"></div></div>
+          <div className="flex flex-col gap-4 animate-pulse">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full">
+                <div className="w-28 h-28 bg-slate-200 shrink-0" />
+                <div className="flex-1 min-w-0 p-4 space-y-2">
+                  <div className="h-4 w-3/4 bg-slate-200 rounded-full" />
+                  <div className="h-3 w-1/2 bg-slate-100 rounded-full" />
+                  <div className="h-3 w-2/3 bg-slate-100 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col gap-4">
             {courses.map(course => {
@@ -61,7 +72,7 @@ const CourseList = () => {
                     </div>
                  </div>
                  <div className="flex-1 min-w-0 p-4 flex flex-col">
-                    <h4 className="font-black text-[16px] text-slate-800 leading-tight truncate">{course.name}</h4>
+                    <h4 className="font-black text-[16px] text-slate-800 leading-tight">{course.name}</h4>
                     {course.name_en && <p className="text-[12px] text-slate-400 font-bold truncate">{course.name_en}</p>}
 
                     <div className="flex flex-wrap gap-2 mt-2">

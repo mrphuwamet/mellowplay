@@ -60,6 +60,31 @@ b, strong {
   }
 }
 
+/* Shared styling for admin-authored rich HTML (CRM's contentEditable writer
+   tool) — used by both news/media articles and now course descriptions.
+   Without this, Tailwind's preflight strips list bullets/heading weight
+   entirely, so formatting typed into the CRM editor silently disappears here. */
+@layer components {
+  .prose-news h3 {
+    @apply text-lg font-black text-slate-800 mt-4 mb-2;
+  }
+  .prose-news p {
+    @apply mb-3 whitespace-pre-wrap;
+  }
+  .prose-news ul {
+    @apply list-disc pl-5 mb-3 space-y-1;
+  }
+  .prose-news ol {
+    @apply list-decimal pl-5 mb-3 space-y-1;
+  }
+  .prose-news a {
+    @apply text-mellow-blue underline;
+  }
+  .prose-news img {
+    @apply rounded-xl my-3 max-w-full;
+  }
+}
+
 @keyframes float-slow {
   0% { transform: translateX(-100%) translateY(0); }
   50% { transform: translateX(250%) translateY(-20px); }

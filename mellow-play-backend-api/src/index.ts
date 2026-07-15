@@ -19,9 +19,11 @@ import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
 import { NewsFeedController } from './controllers/newsFeedController';
+import { BirthdayWishController } from './controllers/birthdayWishController';
 import { AnalyticsController } from './controllers/analyticsController';
 import { ConfigService } from './services/configService';
 import { AuthService } from './services/authService';
+import { sendAlert } from './services/alertService';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
 const authController = new AuthController();
@@ -40,6 +42,7 @@ const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
 const newsFeedController       = new NewsFeedController();
+const birthdayWishController   = new BirthdayWishController();
 const analyticsController      = new AnalyticsController();
 
 app.use('*', cors({
@@ -222,6 +225,14 @@ app.post('/api/v1/auth/admin/login', (c) => authController.adminLogin(c));
 app.post('/api/v1/auth/forgot-password/request-otp', (c) => authController.forgotPasswordRequestOtp(c));
 app.post('/api/v1/auth/forgot-password/verify-otp', (c) => authController.forgotPasswordVerifyOtp(c));
 app.post('/api/v1/auth/forgot-password/reset', (c) => authController.forgotPasswordReset(c));
+app.post('/api/v1/auth/crm/reset-password', (c) => authController.crmResetPassword(c));
+app.get('/api/v1/auth/me', (c) => authController.getMe(c));
+app.post('/api/v1/auth/phone-change/request-current-otp', (c) => authController.requestPhoneChangeCurrentOtp(c));
+app.post('/api/v1/auth/phone-change/verify-current-otp', (c) => authController.verifyPhoneChangeCurrentOtp(c));
+app.post('/api/v1/auth/phone-change/request-new-otp', (c) => authController.requestPhoneChangeNewOtp(c));
+app.post('/api/v1/auth/phone-change/confirm', (c) => authController.confirmPhoneChange(c));
+app.post('/api/v1/auth/link-google', (c) => authController.linkGoogle(c));
+app.post('/api/v1/auth/unlink-google', (c) => authController.unlinkGoogle(c));
 
 // --- Protected Routes (Require JWT) ---
 app.use('/api/v1/profiles', async (c, next) => {
@@ -252,6 +263,8 @@ app.put('/api/v1/profiles/children/:childId', (c) => profileController.updateChi
 app.put('/api/v1/profiles/:childId/avatar', (c) => profileController.updateAvatar(c));
 app.post('/api/v1/profiles/:childId/upload-avatar', (c) => profileController.uploadAvatar(c));
 app.delete('/api/v1/profiles/:childId/photo', (c) => profileController.deletePhoto(c));
+app.post('/api/v1/profiles/coupons/transfer', (c) => profileController.transferCoupon(c));
+app.post('/api/v1/profiles/avatar', (c) => profileController.uploadParentAvatar(c));
 app.get('/api/v1/profiles/bookings/pending', (c) => profileController.getPendingBookings(c));
 app.get('/api/v1/profiles/bookings/upcoming', (c) => profileController.getUpcomingBookings(c));
 app.get('/api/v1/profiles/bookings/history', (c) => profileController.getHistoryBookings(c));
@@ -340,6 +353,9 @@ app.get('/api/v1/admin/crm-users', (c) => adminController.getCrmUsers(c));
 app.post('/api/v1/admin/crm-users', (c) => adminController.createCrmUser(c));
 app.put('/api/v1/admin/crm-users/:id', (c) => adminController.updateCrmUser(c));
 app.delete('/api/v1/admin/crm-users/:id', (c) => adminController.deleteCrmUser(c));
+app.post('/api/v1/admin/crm-users/:id/reset-password', (c) => adminController.resetCrmUserPassword(c));
+app.delete('/api/v1/admin/crm-users/:id/reset-token', (c) => adminController.revokeCrmUserResetToken(c));
+app.get('/api/v1/admin/crm-users/:id/attendance-summary', (c) => hrController.getAttendanceSummary(c));
 
 app.get('/api/v1/admin/courses', (c) => adminController.getCourses(c));
 app.post('/api/v1/admin/courses', (c) => adminController.createCourse(c));
@@ -367,14 +383,29 @@ app.put('/api/v1/admin/rewards/:id', (c) => rewardsController.updateReward(c));
 app.delete('/api/v1/admin/rewards/:id', (c) => rewardsController.deleteReward(c));
 
 app.get('/api/v1/children/:childId/stamps', (c) => rewardsController.getChildStamps(c));
+app.get('/api/v1/stamp-page-backgrounds', (c) => rewardsController.getStampPageBackgrounds(c));
 
 app.get   ('/api/v1/admin/stamp-image-ranges',     (c) => rewardsController.getStampImageRanges(c));
 app.post  ('/api/v1/admin/stamp-image-ranges',     (c) => rewardsController.createStampImageRange(c));
 app.put   ('/api/v1/admin/stamp-image-ranges/:id', (c) => rewardsController.updateStampImageRange(c));
 app.delete('/api/v1/admin/stamp-image-ranges/:id', (c) => rewardsController.deleteStampImageRange(c));
 
+app.get   ('/api/v1/admin/stamp-page-backgrounds',     (c) => rewardsController.getStampPageBackgrounds(c));
+app.post  ('/api/v1/admin/stamp-page-backgrounds',     (c) => rewardsController.createStampPageBackground(c));
+app.put   ('/api/v1/admin/stamp-page-backgrounds/:id', (c) => rewardsController.updateStampPageBackground(c));
+app.delete('/api/v1/admin/stamp-page-backgrounds/:id', (c) => rewardsController.deleteStampPageBackground(c));
+
 // ================= NEWS FEED (ข่าวสาร / สื่อความรู้) =================
 app.get('/api/v1/news-feed', (c) => newsFeedController.getPublished(c));
+app.get('/api/v1/news-feed/:id', (c) => newsFeedController.getOne(c));
+app.post('/api/v1/news-feed/:id/like', (c) => newsFeedController.toggleLike(c));
+app.get('/api/v1/news-feed/:id/comments', (c) => newsFeedController.getComments(c));
+app.post('/api/v1/news-feed/:id/comments', (c) => newsFeedController.addComment(c));
+app.get('/api/v1/birthday-wishes', (c) => birthdayWishController.getActive(c));
+app.get('/api/v1/admin/birthday-wishes', (c) => birthdayWishController.getAll(c));
+app.post('/api/v1/admin/birthday-wishes', (c) => birthdayWishController.create(c));
+app.put('/api/v1/admin/birthday-wishes/:id', (c) => birthdayWishController.update(c));
+app.delete('/api/v1/admin/birthday-wishes/:id', (c) => birthdayWishController.delete(c));
 app.get('/api/v1/admin/news-feed', (c) => newsFeedController.getAll(c));
 app.post('/api/v1/admin/news-feed', (c) => newsFeedController.create(c));
 app.put('/api/v1/admin/news-feed/:id', (c) => newsFeedController.update(c));
@@ -382,6 +413,8 @@ app.delete('/api/v1/admin/news-feed/:id', (c) => newsFeedController.delete(c));
 
 // ================= ANALYTICS (Dashboard + course views/reviews) =================
 app.get ('/api/v1/admin/analytics',                (c) => analyticsController.getDashboardAnalytics(c));
+app.get ('/api/v1/admin/analytics/active-users',   (c) => analyticsController.getActiveUsers(c));
+app.post('/api/v1/visits/ping',                    (c) => analyticsController.pingVisit(c));
 app.post('/api/v1/courses/:courseId/view',         (c) => analyticsController.recordCourseView(c));
 app.get ('/api/v1/courses/:courseId/reviews',      (c) => analyticsController.getCourseReviews(c));
 app.post('/api/v1/courses/reviews',                (c) => analyticsController.createCourseReview(c));
@@ -398,6 +431,7 @@ app.get('/api/v1/admin/children/:childId/coupons', (c) => couponController.getCh
 app.post('/api/v1/admin/children/:childId/coupons/:couponTypeId/balance', (c) => couponController.updateChildCouponBalance(c));
 
 app.post('/api/v1/admin/upload', (c) => adminController.uploadFile(c));
+app.post('/api/v1/admin/translate', (c) => adminController.translateText(c));
 app.get('/api/v1/files/*', (c) => adminController.serveFile(c));
 
 app.get('/api/v1/admin/my-schedule', (c) => adminController.getMySchedule(c));
@@ -411,6 +445,7 @@ app.get('/api/v1/admin/settings', (c) => adminController.getSystemSettings(c));
 app.post('/api/v1/admin/settings', (c) => adminController.updateSystemSetting(c));
 app.get('/api/v1/admin/integration-keys', (c) => adminController.getIntegrationKeys(c));
 app.put('/api/v1/admin/integration-keys', (c) => adminController.updateIntegrationKeys(c));
+app.post('/api/v1/admin/integration-keys/test', (c) => adminController.testIntegration(c));
 
 app.get   ('/api/v1/admin/branches',              (c) => adminController.getBranches(c));
 app.post  ('/api/v1/admin/branches',              (c) => adminController.createBranch(c));
@@ -586,5 +621,19 @@ app.post('/api/v1/redemptions',                    (c) => redemptionController.c
 app.get ('/api/v1/redemptions/child/:childId',     (c) => redemptionController.listByChild(c));
 app.get ('/api/v1/admin/redemptions/pending',      (c) => redemptionController.listPending(c));
 app.post('/api/v1/admin/redemptions/:id/claim',    (c) => redemptionController.claim(c));
+
+// Backstop for anything that throws instead of being caught inline (most
+// controllers here catch their own errors and return a 500 JSON body, which
+// never reaches this — see the explicit sendAlert() calls at the known
+// Payment/SMS/booking failure points instead for those).
+app.onError((err, c) => {
+  console.error('Unhandled error:', err);
+  const config = new ConfigService(c.env);
+  sendAlert(config.db, 'Unhandled API Error', {
+    path: `${c.req.method} ${c.req.path}`,
+    error: err.message,
+  }).catch(() => {});
+  return c.json({ success: false, message: 'Internal server error' }, 500);
+});
 
 export default app;

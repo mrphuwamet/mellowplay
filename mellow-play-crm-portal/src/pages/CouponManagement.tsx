@@ -24,7 +24,7 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
-import { Add, Edit, Delete } from '@mui/icons-material';
+import { Add, Edit, Delete, LocalActivity as CouponIcon } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL } from '../config';
 
@@ -34,7 +34,7 @@ const CouponManagement = () => {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
-  const [formData, setFormData] = useState({ name: '', color: '#A78BFA', icon_url: '' });
+  const [formData, setFormData] = useState({ name: '', color: '#A78BFA' });
 
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [couponToDelete, setCouponToDelete] = useState<any>(null);
@@ -59,10 +59,10 @@ const CouponManagement = () => {
   const handleOpen = (coupon?: any) => {
     if (coupon) {
       setEditingCoupon(coupon);
-      setFormData({ name: coupon.name, color: coupon.color, icon_url: coupon.icon_url || '' });
+      setFormData({ name: coupon.name, color: coupon.color });
     } else {
       setEditingCoupon(null);
-      setFormData({ name: '', color: '#A78BFA', icon_url: '' });
+      setFormData({ name: '', color: '#A78BFA' });
     }
     setOpen(true);
   };
@@ -130,8 +130,7 @@ const CouponManagement = () => {
           <TableHead>
             <TableRow>
               <TableCell>ไอดี</TableCell>
-              <TableCell>สี (Color)</TableCell>
-              <TableCell>รูป/ไอคอน</TableCell>
+              <TableCell>ไอคอน</TableCell>
               <TableCell>ชื่อคูปอง</TableCell>
               <TableCell>จัดการ</TableCell>
             </TableRow>
@@ -141,10 +140,12 @@ const CouponManagement = () => {
               <TableRow key={coupon.id}>
                 <TableCell>{coupon.id}</TableCell>
                 <TableCell>
-                  <Box sx={{ width: 24, height: 24, bgcolor: coupon.color, borderRadius: 1 }} />
-                </TableCell>
-                <TableCell>
-                  {coupon.icon_url ? <img src={coupon.icon_url} alt="icon" width={32} /> : '-'}
+                  <Box sx={{
+                    width: 36, height: 36, borderRadius: '50%', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', bgcolor: `${coupon.color}20`,
+                  }}>
+                    <CouponIcon sx={{ color: coupon.color }} />
+                  </Box>
                 </TableCell>
                 <TableCell>{coupon.name}</TableCell>
                 <TableCell>
@@ -161,6 +162,14 @@ const CouponManagement = () => {
         <DialogTitle>{editingCoupon ? 'แก้ไขคูปอง' : 'เพิ่มคูปองใหม่'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+              <Box sx={{
+                width: 64, height: 64, borderRadius: '50%', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', bgcolor: `${formData.color}20`,
+              }}>
+                <CouponIcon sx={{ color: formData.color, fontSize: 32 }} />
+              </Box>
+            </Box>
             <TextField
               label="ชื่อคูปอง"
               fullWidth
@@ -175,26 +184,17 @@ const CouponManagement = () => {
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <Box sx={{ width: 20, height: 20, bgcolor: formData.color, borderRadius: '50%', border: '1px solid #ccc' }} />
+                    <Box
+                      component="input"
+                      type="color"
+                      value={/^#[0-9A-Fa-f]{6}$/.test(formData.color) ? formData.color : '#A78BFA'}
+                      onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                      sx={{ width: 28, height: 28, border: 'none', borderRadius: '50%', p: 0, cursor: 'pointer' }}
+                    />
                   </InputAdornment>
                 ),
               }}
             />
-            <TextField
-              label="URL รูป/ไอคอน (ตัวเลือก)"
-              fullWidth
-              value={formData.icon_url}
-              onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
-              placeholder="https://example.com/icon.png"
-            />
-            {formData.icon_url && (
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="caption" color="textSecondary">ตัวอย่างรูป/ไอคอน:</Typography>
-                <Box mt={1}>
-                  <img src={formData.icon_url} alt="Preview" style={{ maxHeight: 64, objectFit: 'contain' }} />
-                </Box>
-              </Box>
-            )}
           </Box>
         </DialogContent>
         <DialogActions>
