@@ -1,5 +1,5 @@
 import { Context } from 'hono';
-import { Bindings, Variables } from '../types';
+import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { HRRepository } from '../repositories/hrRepository';
 

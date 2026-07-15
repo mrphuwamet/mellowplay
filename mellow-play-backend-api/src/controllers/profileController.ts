@@ -62,7 +62,7 @@ export class ProfileController {
         return c.json({ success: false, message: 'Nickname and gender are required' }, 400);
       }
 
-      const userRepository = new (require('../repositories/userRepository').UserRepository)(config.db);
+      const userRepository = new UserRepository(config.db);
       const childId = await userRepository.addSingleChild(userId, childData);
       
       return c.json({ success: true, childId });

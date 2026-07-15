@@ -43,6 +43,12 @@ export class HRController {
   }
 
   async purchasePackage(c: C) {
+    // Declared outside try{} so the catch block below (which alerts on
+    // purchaseId) can still see it — it was previously scoped inside try{},
+    // so any failure after the purchase row was created crashed with an
+    // unrelated ReferenceError instead of alerting admins and returning
+    // the intended graceful error response.
+    let purchaseId: number | undefined;
     try {
       const config = new ConfigService(c.env);
       const packageId = parseInt(c.req.param('id'));
@@ -52,7 +58,7 @@ export class HRController {
       const pkg = await this.repo(c).getPackageById(packageId);
       if (!pkg || !pkg.active) return c.json({ success: false, message: 'Package not found' }, 404);
 
-      const purchaseId = await this.repo(c).createPackagePurchase({
+      purchaseId = await this.repo(c).createPackagePurchase({
         packageId, childId: parseInt(childId), userId: userId ? parseInt(userId) : undefined, amount: pkg.price,
       });
 

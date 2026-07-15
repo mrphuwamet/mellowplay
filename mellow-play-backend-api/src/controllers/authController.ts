@@ -143,9 +143,13 @@ export class AuthController {
   }
 
   async login(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    // Declared outside the try block so the catch below (which reports
+    // config.isDev) can still see it — it was previously scoped inside
+    // try{}, so any login failure crashed with an unrelated ReferenceError
+    // instead of the intended graceful JSON error response.
+    const config = new ConfigService(c.env);
     try {
       console.log('Login attempt started');
-      const config = new ConfigService(c.env);
       const body = await c.req.json();
       console.log('Request body parsed:', JSON.stringify(body));
       
