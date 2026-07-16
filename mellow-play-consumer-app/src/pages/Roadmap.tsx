@@ -107,8 +107,8 @@ const Roadmap = () => {
   return (
     <div className="min-h-screen bg-slate-50 pb-24 font-sans selection:bg-mellow-purple/20">
       
-      {/* Header */}
-      <div className="bg-white rounded-b-[32px] shadow-sm mb-6 pt-6 pb-6 px-6 relative overflow-hidden">
+      {/* Header — pinned like Album/Explore/Rewards so it doesn't scroll away */}
+      <div className="bg-white rounded-b-[32px] shadow-sm mb-6 pt-6 pb-6 px-6 sticky top-0 z-30 overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-mellow-purple/5 to-mellow-blue/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
         
         <div className="relative z-10 flex items-center gap-4">
