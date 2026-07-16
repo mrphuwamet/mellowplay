@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   Alert,
+  AppBar,
   Avatar,
   Box,
   Button,
@@ -12,11 +13,13 @@ import {
   DialogTitle,
   Divider,
   Drawer,
+  IconButton,
   List,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Toolbar,
   Typography,
   CircularProgress
 } from '@mui/material';
@@ -31,6 +34,7 @@ import {
   EventNote as BookingIcon,
   ExpandLess,
   ExpandMore,
+  Menu as MenuIcon,
   HistoryEdu as ReportIcon,
   Logout as LogoutIcon,
   MonetizationOn as IncentiveIcon,
@@ -276,6 +280,7 @@ const AppContent = () => {
   const [permissionTick, setPermissionTick] = useState(0);
   const [roleLabelsMap, setRoleLabelsMap] = useState<Record<string, string>>(getRoleLabels());
   const [crmUnlocked, setCrmUnlocked] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const [key, paths] of Object.entries(GROUP_PATHS)) {
@@ -292,6 +297,12 @@ const AppContent = () => {
         setOpenGroups((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
       }
     }
+  }, [location.pathname]);
+
+  // Close the mobile nav drawer after picking a page — otherwise it stays
+  // open covering the new page until manually dismissed.
+  useEffect(() => {
+    setMobileOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -708,7 +719,46 @@ const AppContent = () => {
           userSelect: needsPin ? 'none' : 'auto',
         }}
       >
+        {/* ── Mobile top bar — the permanent sidebar is hidden below `sm`,
+            so this is the only way to open navigation on a phone. ── */}
+        <AppBar
+          position="fixed"
+          elevation={0}
+          sx={{
+            display: { xs: 'flex', sm: 'none' },
+            bgcolor: isDarkMode ? '#1e293b' : 'white',
+            color: isDarkMode ? 'white' : 'text.primary',
+            borderBottom: '1px solid',
+            borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f3f9',
+          }}
+        >
+          <Toolbar sx={{ gap: 1.5 }}>
+            <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ color: 'inherit' }}>
+              <MenuIcon />
+            </IconButton>
+            <img src={logo} alt="Mellow Play" style={{ height: 28, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {isPosMode ? 'POS' : 'CRM'}
+            </Typography>
+          </Toolbar>
+        </AppBar>
+
         <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
+          {/* Mobile: temporary/overlay drawer, toggled by the hamburger above */}
+          <Drawer
+            variant="temporary"
+            open={mobileOpen}
+            onClose={() => setMobileOpen(false)}
+            ModalProps={{ keepMounted: true }}
+            sx={{
+              display: { xs: 'block', sm: 'none' },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            }}
+          >
+            {drawer}
+          </Drawer>
+
+          {/* Desktop: always-visible sidebar */}
           <Drawer
             variant="permanent"
             sx={{
@@ -727,8 +777,12 @@ const AppContent = () => {
           </Drawer>
         </Box>
 
-        <Box component="main" sx={{ flexGrow: 1, p: 4, width: { sm: `calc(100% - ${drawerWidth}px)` } }}>
-          <Container maxWidth={isPosMode ? false : 'xl'}>
+        <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, sm: 4 }, width: { sm: `calc(100% - ${drawerWidth}px)` }, minWidth: 0 }}>
+          {/* Spacer matching the fixed mobile AppBar's height, so content
+              doesn't render underneath it — invisible on sm+ since the
+              AppBar itself is hidden there. */}
+          <Toolbar sx={{ display: { xs: 'flex', sm: 'none' } }} />
+          <Container maxWidth={isPosMode ? false : 'xl'} disableGutters sx={{ px: { xs: 0, sm: 2 } }}>
             {/* ── Routes only render after PIN unlock — prevents any API calls ── */}
             {!needsPin && (
           <Routes>
