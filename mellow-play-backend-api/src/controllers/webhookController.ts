@@ -3,7 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { HRRepository } from '../repositories/hrRepository';
 import { SystemLogger } from '../utils/logger';
-import { sendAlert } from '../services/alertService';
+import { sendAlert, sendNotification } from '../services/alertService';
 
 // Beam's own docs (docs.beamcheckout.com/webhook) describe the webhook body
 // as the same shape as GET /v1/api/charges/{chargeId} — a Charge object with
@@ -138,6 +138,33 @@ export class WebhookController {
         }
 
         await logger.info('beam-webhook', `Confirmed payment for booking(s) ${bookingsToUpdate.join(', ')} (status=${status})`);
+
+        try {
+          const { results: bookingDetails } = await config.db.prepare(`
+            SELECT b.scheduled_at, co.name as course_name, COALESCE(hp.nickname, '(ลูกค้าทั่วไป)') as child_nickname
+            FROM Bookings b
+            JOIN Courses co ON b.course_id = co.id
+            LEFT JOIN Children c ON b.child_id = c.id AND b.child_id != 0
+            LEFT JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
+            WHERE b.id IN (${bookingsToUpdate.join(',')})
+          `).all();
+          const rows = bookingDetails as any[];
+          const childNames = rows.map(r => r.child_nickname).filter(Boolean).join(', ') || '-';
+          // Beam amounts are in satang (hundredths of THB) — see the
+          // netAmount computed in adminController.createBooking.
+          const amountThb = (totalAmount / 100).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+          await sendNotification(config.db, 'การจองสำเร็จ (ชำระเงินแล้ว)', {
+            'คลาส': rows[0]?.course_name ?? '-',
+            'เด็ก': childNames,
+            'วันเวลา': rows[0]?.scheduled_at ?? '-',
+            'ยอดชำระ': `${amountThb} บาท`,
+            'ช่องทางชำระ': paymentMethod,
+            'เวลาชำระ': new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+            'รหัสจอง': bookingsToUpdate.join(', '),
+          });
+        } catch { /* notification must never block webhook processing */ }
+
         return c.json({ success: true, message: 'Webhook processed successfully' });
       }
 

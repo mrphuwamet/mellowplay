@@ -533,23 +533,35 @@ export class AdminController {
         }
       }
 
-      try {
-        const realChildIds = parsedChildIds.filter((id: number) => id > 0);
-        let childNames = 'ผู้เยี่ยมชม (Guest)';
-        if (realChildIds.length > 0) {
-          const { results } = await db.prepare(`
-            SELECT p.nickname FROM Children c JOIN HD_Profiles p ON c.hd_profile_id = p.id
-            WHERE c.id IN (${realChildIds.join(',')})
-          `).all();
-          childNames = (results as any[]).map(r => r.nickname).filter(Boolean).join(', ') || childNames;
-        }
-        await sendNotification(config.db, 'การจองใหม่', {
-          'คลาส': courseRow?.name ?? `#${courseId}`,
-          'เด็ก': childNames,
-          'วันเวลา': scheduledAt,
-          'รหัสจอง': bookingIds.join(', '),
-        });
-      } catch { /* notification must never block a successful booking */ }
+      // Only notify once payment is actually settled — free/coupon bookings
+      // settle immediately (shouldBypassPayment), but a real cash booking is
+      // still just "pending_payment" at this point and only becomes paid
+      // asynchronously via the Beam webhook (see webhookController.ts,
+      // which sends its own notification once that actually happens).
+      if (shouldBypassPayment) {
+        try {
+          const realChildIds = parsedChildIds.filter((id: number) => id > 0);
+          let childNames = 'ผู้เยี่ยมชม (Guest)';
+          if (realChildIds.length > 0) {
+            const { results } = await db.prepare(`
+              SELECT p.nickname FROM Children c JOIN HD_Profiles p ON c.hd_profile_id = p.id
+              WHERE c.id IN (${realChildIds.join(',')})
+            `).all();
+            childNames = (results as any[]).map(r => r.nickname).filter(Boolean).join(', ') || childNames;
+          }
+          const totalAmount = pricePerChild * parsedChildIds.length;
+          const methodLabel = paymentMethod === 'coupon' ? 'คูปอง (Coupon)' : (isFree ? 'ฟรี (Free)' : (paymentMethod || 'อื่นๆ'));
+          await sendNotification(config.db, 'การจองสำเร็จ (ชำระเงินแล้ว)', {
+            'คลาส': courseRow?.name ?? `#${courseId}`,
+            'เด็ก': childNames,
+            'วันเวลา': scheduledAt,
+            'ยอดชำระ': `${totalAmount.toLocaleString('th-TH')} บาท`,
+            'ช่องทางชำระ': methodLabel,
+            'เวลาชำระ': new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+            'รหัสจอง': bookingIds.join(', '),
+          });
+        } catch { /* notification must never block a successful booking */ }
+      }
 
       return c.json({ success: true, id: firstId, bookingIds, paymentUrl: beamPaymentUrl });
     } catch (error: any) {
