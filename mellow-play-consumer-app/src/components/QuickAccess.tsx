@@ -47,14 +47,14 @@ const QuickAccess = () => {
               {item.isComingSoon && (
                 <div className="absolute -top-2 bg-mellow-red text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-20">Coming Soon</div>
               )}
-              <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] ${!item.isComingSoon ? 'group-hover:shadow-xl' : ''} transition-all relative overflow-hidden`}>
-                <div className={`absolute inset-0 bg-white/10 ${!item.isComingSoon ? 'group-active:bg-black/10' : ''} transition-colors`} />
-                <Icon size={24} className="relative z-10" />
+              <div className="relative">
+                <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] ${!item.isComingSoon ? 'group-hover:shadow-xl' : ''} transition-all relative overflow-hidden`}>
+                  <div className={`absolute inset-0 bg-white/10 ${!item.isComingSoon ? 'group-active:bg-black/10' : ''} transition-colors`} />
+                  <Icon size={24} className={`relative z-10 ${isGuest && item.gated ? 'opacity-40' : ''}`} />
+                </div>
                 {isGuest && item.gated && (
-                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                    <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-sm">
-                      <Lock size={14} className="text-slate-700" strokeWidth={2.5} />
-                    </div>
+                  <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center">
+                    <Lock size={11} className="text-slate-700" strokeWidth={2.5} />
                   </div>
                 )}
               </div>

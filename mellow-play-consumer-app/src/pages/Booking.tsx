@@ -1126,6 +1126,28 @@ const Booking = () => {
                    className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
                    dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
                  />
+
+                 {/* Skills — same full, uncollapsed list as the course detail page,
+                     skills only (never the internal "indicator"/ตัวชี้วัด entries). */}
+                 {(() => {
+                   let achievementSkills: { th: string; en?: string }[] = [];
+                   try { achievementSkills = (selectedCourse as any).achievement_skills_json ? JSON.parse((selectedCourse as any).achievement_skills_json) : []; } catch { /* ignore malformed json */ }
+                   return achievementSkills.length > 0 && (
+                     <div className="mt-4">
+                       <h3 className="text-[13px] font-black text-slate-800 mb-2">
+                         {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
+                       </h3>
+                       <div className="flex flex-wrap gap-2">
+                         {achievementSkills.map((skill, i) => (
+                           <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[12px] font-bold">
+                             <Sparkles size={12} />
+                             {lang === 'en' && skill.en ? skill.en : skill.th}
+                           </span>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 })()}
               </div>
               <button onClick={() => setIsCourseModalOpen(false)} className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl active:scale-95 transition-transform">
                  {t.booking?.closeWindow || 'ปิดหน้าต่าง'}
