@@ -13,6 +13,7 @@ import logo from '../assets/ui/logo.svg';
 import { TH } from 'country-flag-icons/react/3x2';
 import { formatCustomDate } from '../utils/dateFormat';
 import { getOtpErrorMessage } from '../utils/otpError';
+import { useChildStore } from '../store/useChildStore';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -44,6 +45,7 @@ const Register = () => {
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
   const { t, lang } = useTranslation();
+  const fetchChildren = useChildStore(state => state.fetchChildren);
 
   // Form State
   const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'avatar' | 'summary'>('consent');
@@ -271,26 +273,44 @@ const Register = () => {
     try {
       const response = await apiClient.post('/auth/register', payload);
       if (response.data.success) {
-        // Registration itself doesn't return a session token, so briefly
-        // log in (without persisting anything) just to get a Bearer token
-        // for the one avatar-upload call. A failure here must never block
-        // the registration-success flow — the user can always set an
-        // avatar later from Settings.
-        if (avatarFile) {
-          try {
-            const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: formData.password });
-            if (loginRes.data.success) {
-              const fd = new FormData();
-              fd.append('file', avatarFile);
-              await apiClient.post('/profiles/avatar', fd, {
-                headers: { Authorization: `Bearer ${loginRes.data.token}`, 'Content-Type': 'multipart/form-data' },
-              });
+        // Registration itself doesn't return a session token, so log in
+        // immediately with the credentials just created — this is what lets
+        // the user skip the login screen entirely instead of re-entering
+        // their phone + PIN right after already typing it into this form.
+        try {
+          const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: formData.password });
+          if (loginRes.data.success) {
+            if (avatarFile) {
+              try {
+                const fd = new FormData();
+                fd.append('file', avatarFile);
+                await apiClient.post('/profiles/avatar', fd, {
+                  headers: { Authorization: `Bearer ${loginRes.data.token}`, 'Content-Type': 'multipart/form-data' },
+                });
+              } catch (avatarErr) {
+                // Never block the auto-login flow — the user can always set
+                // an avatar later from Settings.
+                console.error('Avatar upload during registration failed:', avatarErr);
+              }
             }
-          } catch (avatarErr) {
-            console.error('Avatar upload during registration failed:', avatarErr);
+
+            localStorage.setItem('mellow_token', loginRes.data.token);
+            localStorage.setItem('mellow_user', JSON.stringify(loginRes.data.user));
+            localStorage.removeItem('mellow_guest');
+            await fetchChildren(loginRes.data.user.id);
+
+            // Preserve the original intent — e.g. someone who hit Register
+            // mid-booking (redirect=/booking?courseId=5) lands right back on
+            // that class instead of a generic home screen.
+            navigate(redirect ? decodeURIComponent(redirect) : '/', { replace: true });
+            return;
           }
+        } catch (autoLoginErr) {
+          console.error('Auto-login after registration failed:', autoLoginErr);
         }
 
+        // Auto-login didn't work (rare) — fall back to the old flow so
+        // registration success is never blocked by this convenience step.
         const loginUrl = '/login' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : '');
         navigate(loginUrl, { state: { message: 'Registration successful! Please login.' } });
       }

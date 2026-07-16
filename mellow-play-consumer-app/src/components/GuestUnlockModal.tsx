@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Lock, Sparkles, X } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 
@@ -11,9 +11,15 @@ interface GuestUnlockModalProps {
 
 const GuestUnlockModal: React.FC<GuestUnlockModalProps> = ({ isOpen, onClose, featureLabel }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { lang } = useTranslation();
 
   if (!isOpen) return null;
+
+  // Carries the page the guest was actually trying to reach (e.g. /journey,
+  // /album) through registration/login, so they land back on it afterward
+  // instead of a generic Home screen.
+  const redirectParam = `?redirect=${encodeURIComponent(location.pathname)}`;
 
   return (
     <div
@@ -44,13 +50,13 @@ const GuestUnlockModal: React.FC<GuestUnlockModalProps> = ({ isOpen, onClose, fe
 
         <div className="flex flex-col gap-2.5">
           <button
-            onClick={() => navigate('/register')}
+            onClick={() => navigate(`/register${redirectParam}`)}
             className="w-full py-3 rounded-2xl font-black text-white bg-mellow-purple shadow-lg shadow-mellow-purple/30 active:scale-95 transition-all uppercase tracking-wide text-sm"
           >
             {lang === 'en' ? 'Sign Up' : 'สมัครสมาชิก'}
           </button>
           <button
-            onClick={() => navigate('/login')}
+            onClick={() => navigate(`/login${redirectParam}`)}
             className="w-full py-3 rounded-2xl font-bold text-mellow-purple bg-mellow-purple/10 active:scale-95 transition-all uppercase tracking-wide text-sm"
           >
             {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
