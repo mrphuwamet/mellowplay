@@ -103,6 +103,11 @@ const STATUS_META: Record<string, { label: string; color: string; fgColor: strin
   confirmed:      { label: 'ชำระแล้ว',    color: 'info',    fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)' },
   confirmed_paid: { label: 'ชำระแล้ว',    color: 'info',    fgColor: '#0277bd', bgColor: 'rgba(2,119,189,0.1)' },
   pending:        { label: 'รอดำเนินการ', color: 'warning', fgColor: '#e65100', bgColor: 'rgba(230,81,0,0.1)' },
+  // Booking.tsx actually sends status='pending_payment' (not 'pending') for
+  // every real unpaid cash booking — this key was missing, so the raw code
+  // string fell straight through getStatusInfo's fallback and showed up
+  // unstyled/untranslated in the list instead of a proper Thai label.
+  pending_payment:{ label: 'รอชำระเงิน',   color: 'warning', fgColor: '#e65100', bgColor: 'rgba(230,81,0,0.1)' },
   awaiting_report:{ label: 'รอกรอกรายงาน', color: 'warning', fgColor: '#b45309', bgColor: 'rgba(180,83,9,0.1)' },
   cancelled:      { label: 'ยกเลิก',      color: 'error',   fgColor: '#c62828', bgColor: 'rgba(198,40,40,0.1)' },
 };
@@ -1103,7 +1108,7 @@ const BookingManagement = () => {
     return {
       total: bookings.length,
       confirmed: (counts['confirmed'] || 0) + (counts['confirmed_paid'] || 0),
-      pending: counts['pending'] || 0,
+      pending: (counts['pending'] || 0) + (counts['pending_payment'] || 0),
       completed: counts['completed'] || 0,
       cancelled: counts['cancelled'] || 0,
     };
@@ -1225,6 +1230,9 @@ const BookingManagement = () => {
     if (statusFilter === 'all') return bookings;
     // 'confirmed' is a legacy alias for 'confirmed_paid' — match both so old rows aren't hidden.
     if (statusFilter === 'confirmed_paid') return bookings.filter(b => b.status === 'confirmed_paid' || b.status === 'confirmed');
+    // Real unpaid bookings are created with status='pending_payment' (see
+    // Booking.tsx), not 'pending' — match both under the same filter tab.
+    if (statusFilter === 'pending') return bookings.filter(b => b.status === 'pending' || b.status === 'pending_payment');
     return bookings.filter(b => b.status === statusFilter);
   }, [bookings, statusFilter]);
 
