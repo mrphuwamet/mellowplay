@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Phone, ShieldCheck, Loader2, ArrowRight } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
+import { getOtpErrorMessage } from '../utils/otpError';
 
 interface PhoneChangeModalProps {
   isOpen: boolean;
@@ -50,7 +51,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
         setStep('currentOtp');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || (lang === 'en' ? 'Something went wrong.' : 'เกิดข้อผิดพลาด'));
+      setError(getOtpErrorMessage(err, lang, lang === 'en' ? 'Something went wrong.' : 'เกิดข้อผิดพลาด'));
     } finally {
       setIsBusy(false);
     }
@@ -79,7 +80,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
       await apiClient.post('/auth/phone-change/verify-current-otp', { otp: currentOtp });
       setStep('newPhone');
     } catch (err: any) {
-      setError(err.response?.data?.message || (lang === 'en' ? 'Invalid code.' : 'รหัสไม่ถูกต้อง'));
+      setError(getOtpErrorMessage(err, lang, lang === 'en' ? 'Invalid code.' : 'รหัสไม่ถูกต้อง'));
     } finally {
       setIsBusy(false);
     }
@@ -97,7 +98,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
       setResendTimer(60);
       setStep('newOtp');
     } catch (err: any) {
-      setError(err.response?.data?.message || (lang === 'en' ? 'Something went wrong.' : 'เกิดข้อผิดพลาด'));
+      setError(getOtpErrorMessage(err, lang, lang === 'en' ? 'Something went wrong.' : 'เกิดข้อผิดพลาด'));
     } finally {
       setIsBusy(false);
     }
@@ -112,7 +113,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
       onSuccess(res.data.phone || newPhone);
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || (lang === 'en' ? 'Invalid code.' : 'รหัสไม่ถูกต้อง'));
+      setError(getOtpErrorMessage(err, lang, lang === 'en' ? 'Invalid code.' : 'รหัสไม่ถูกต้อง'));
     } finally {
       setIsBusy(false);
     }

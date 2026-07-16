@@ -12,6 +12,7 @@ import { cleanNamePrefix } from '../utils/nameUtils';
 import logo from '../assets/ui/logo.svg';
 import { TH } from 'country-flag-icons/react/3x2';
 import { formatCustomDate } from '../utils/dateFormat';
+import { getOtpErrorMessage } from '../utils/otpError';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -151,7 +152,7 @@ const Register = () => {
         }
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || t.register.otpFailed);
+      setError(getOtpErrorMessage(err, lang, t.register.otpFailed));
       setFormData(prev => ({ ...prev, otp: '' }));
     } finally {
       setIsLoading(false);
@@ -179,7 +180,7 @@ const Register = () => {
         setStep('pin');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || t.register.invalidOtp);
+      setError(getOtpErrorMessage(err, lang, t.register.invalidOtp));
       setFormData(prev => ({ ...prev, otp: '' }));
     } finally {
       setIsLoading(false);

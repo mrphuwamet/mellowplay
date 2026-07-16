@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { Toast } from '../components/Toast';
@@ -7,6 +7,7 @@ import { useTranslation, LanguageToggle } from '../LanguageContext';
 import logo from '../assets/ui/logo.svg';
 import PinInput from '../components/PinInput';
 import PinPad from '../components/PinPad';
+import { getOtpErrorMessage } from '../utils/otpError';
 
 type Step = 'phone' | 'otp' | 'pin';
 
@@ -25,22 +26,33 @@ const ForgotPassword = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [otpRef, setOtpRef] = useState('');
+  const [resendTimer, setResendTimer] = useState(60);
+
+  // Resend countdown — same 60s pattern as Register.tsx / PhoneChangeModal.tsx.
+  useEffect(() => {
+    if (step !== 'otp' || resendTimer <= 0) return;
+    const interval = setInterval(() => setResendTimer(prev => prev - 1), 1000);
+    return () => clearInterval(interval);
+  }, [step, resendTimer]);
 
   const handleRequestOtp = async () => {
     if (!phone.trim()) {
       setError(t.register?.otpFailed || 'Phone number required');
       return;
     }
+    if (step === 'otp' && resendTimer > 0) return; // Prevent spam
 
     setIsLoading(true);
     setError('');
-    
+
     try {
       const res = await apiClient.post('/auth/forgot-password/request-otp', { phone });
-      
+
       if (res.data.success) {
         setSuccessMessage(t.login.otpSent || 'OTP sent successfully');
         setOtpRef(res.data.ref || '');
+        setOtp('');
+        setResendTimer(60);
         if (res.data.debug_otp) {
           // Dev mode
           setOtp(res.data.debug_otp);
@@ -50,7 +62,7 @@ const ForgotPassword = () => {
         setError(res.data.message || t.login.loginFailed);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || t.login.loginFailed);
+      setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
     } finally {
       setIsLoading(false);
     }
@@ -76,7 +88,7 @@ const ForgotPassword = () => {
         setError(res.data.message || t.register?.invalidOtp || 'Invalid OTP');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || t.register?.invalidOtp || 'Invalid OTP');
+      setError(getOtpErrorMessage(err, lang, t.register?.invalidOtp || 'Invalid OTP'));
     } finally {
       setIsLoading(false);
     }
@@ -102,7 +114,7 @@ const ForgotPassword = () => {
         setError(res.data.message || t.login.loginFailed);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || t.login.loginFailed);
+      setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
     } finally {
       setIsLoading(false);
     }
@@ -204,6 +216,24 @@ const ForgotPassword = () => {
             >
               {isLoading ? <Loader2 className="animate-spin mx-auto" /> : <>{t.register?.nextStep || 'Next'} <ArrowRight size={20} /></>}
             </button>
+
+            <p className="text-center text-slate-400 text-xs font-bold mt-2">
+              {resendTimer > 0 ? (
+                <span>{(t.register?.resendWaitLabel || 'Please wait {{seconds}} seconds to resend').replace('{{seconds}}', String(resendTimer))}</span>
+              ) : (
+                <>
+                  {t.register?.didntReceive || "Didn't receive code?"}{' '}
+                  <button
+                    type="button"
+                    onClick={handleRequestOtp}
+                    disabled={isLoading}
+                    className="text-mellow-purple underline font-black"
+                  >
+                    {lang === 'en' ? 'Resend' : 'ส่งรหัสอีกครั้ง'}
+                  </button>
+                </>
+              )}
+            </p>
           </>
         )}
 
