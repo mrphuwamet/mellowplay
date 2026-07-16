@@ -20,12 +20,15 @@ const CourseDetail = () => {
   const couponTypes = useCouponTypes();
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
   const [upcomingSlots, setUpcomingSlots] = useState<any[]>([]);
   const [showAllSlots, setShowAllSlots] = useState(false);
   const [showGuestModal, setShowGuestModal] = useState(false);
 
   useEffect(() => {
     const fetchCourse = async () => {
+      setLoading(true);
+      setFetchError('');
       try {
         const res = await apiClient.get('/admin/courses');
         if (res.data.success) {
@@ -35,9 +38,15 @@ const CourseDetail = () => {
             const slotsRes = await apiClient.get(`/admin/calendar-slots/upcoming?calendarId=${found.calendar_id}`);
             if (slotsRes.data.success) setUpcomingSlots(slotsRes.data.upcoming || []);
           }
+        } else {
+          setFetchError(res.data.message || 'request failed');
         }
-      } catch (err) {
+      } catch (err: any) {
+        // Distinguish "the request itself failed" (network/CORS/timeout —
+        // shows up identically to "course genuinely doesn't exist" without
+        // this) from a real 404, since the two need very different fixes.
         console.error(err);
+        setFetchError(err?.message || 'network error');
       } finally {
         setLoading(false);
       }
@@ -81,7 +90,12 @@ const CourseDetail = () => {
           <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><ChevronLeft size={24} /></button>
           <button onClick={() => navigate('/')} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><Home size={20} /></button>
         </header>
-        <div className="p-10 text-center text-slate-500 font-bold">ไม่พบคลาสเรียน</div>
+        <div className="p-10 text-center text-slate-500 font-bold space-y-2">
+          <p>{fetchError ? (lang === 'en' ? 'Failed to load class data.' : 'โหลดข้อมูลคลาสไม่สำเร็จ') : (lang === 'en' ? 'Class not found.' : 'ไม่พบคลาสเรียน')}</p>
+          <p className="text-[11px] text-slate-400 font-mono break-all">
+            id={id || '(none)'}{fetchError ? ` · ${fetchError}` : ''}
+          </p>
+        </div>
       </div>
     );
   }
