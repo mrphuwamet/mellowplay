@@ -97,6 +97,10 @@ const Register = () => {
     return () => clearInterval(interval);
   }, [step, resendTimer]);
 
+  // Red border/ring on whichever fields currently have an error, so the
+  // problem is visible right on the input, not just in the floating hint.
+  const errClass = (hasErr?: string) => hasErr ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-100';
+
   const validateInfoStep = () => {
     const errs: typeof fieldErrors = {};
     if (!formData.prefix) errs.prefix = t.register.requiredPrefix;
@@ -118,7 +122,30 @@ const Register = () => {
     setFieldErrors(errs);
     setChildErrors(cErrs);
 
-    return Object.keys(errs).length === 0 && !cErrs.some((e) => Object.keys(e).length > 0);
+    const isValid = Object.keys(errs).length === 0 && !cErrs.some((e) => Object.keys(e).length > 0);
+
+    if (!isValid) {
+      // Scroll to the first invalid field, in on-screen order (parent
+      // fields, then each child in turn) — otherwise an error at the very
+      // top of a long form (e.g. missing prefix) is invisible if the user
+      // was scrolled down filling in a child's details.
+      let targetId: string | null = null;
+      for (const key of ['prefix', 'firstName', 'lastName', 'phone', 'email'] as const) {
+        if (errs[key]) { targetId = `reg-${key}`; break; }
+      }
+      if (!targetId) {
+        outer: for (let i = 0; i < cErrs.length; i++) {
+          for (const key of ['firstName', 'nickname', 'gender', 'dob', 'customRelation'] as const) {
+            if (cErrs[i][key]) { targetId = `reg-child-${i}-${key}`; break outer; }
+          }
+        }
+      }
+      if (targetId) {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    return isValid;
   };
 
   const handleRequestOtp = async (e?: React.FormEvent) => {
@@ -283,9 +310,10 @@ const Register = () => {
             <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.prefixLabel}</label>
             <FieldHint message={fieldErrors.prefix} />
             <select
+              id="reg-prefix"
               value={formData.prefix}
               onChange={(e) => { setFormData({...formData, prefix: e.target.value}); setFieldErrors(prev => ({...prev, prefix: undefined})); }}
-              className="w-full px-3 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+              className={`w-full px-3 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.prefix)}`}
             >
               <option value="" disabled>{t.register.selectTitle}</option>
               <option value="นาย">{t.register.prefixMr}</option>
@@ -301,11 +329,12 @@ const Register = () => {
                 <User size={18} />
               </div>
               <input
+                id="reg-firstName"
                 type="text"
                 placeholder={t.register.firstName}
               value={formData.firstName}
               onChange={(e) => { setFormData({...formData, firstName: e.target.value}); setFieldErrors(prev => ({...prev, firstName: undefined})); }}
-              className="w-full pl-11 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+              className={`w-full pl-11 pr-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.firstName)}`}
             />
           </div>
          </div>
@@ -315,11 +344,12 @@ const Register = () => {
         <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
         <FieldHint message={fieldErrors.lastName} />
         <input
+          id="reg-lastName"
           type="text"
           placeholder={t.register.lastName}
           value={formData.lastName}
           onChange={(e) => { setFormData({...formData, lastName: e.target.value}); setFieldErrors(prev => ({...prev, lastName: undefined})); }}
-          className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+          className={`w-full px-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.lastName)}`}
         />
       </div>
 
@@ -346,11 +376,12 @@ const Register = () => {
               <Phone size={20} />
             </div>
             <input
+              id="reg-phone"
               type="tel"
               placeholder={t.register.phone}
               value={formData.phone}
               onChange={(e) => { setFormData({...formData, phone: e.target.value}); setFieldErrors(prev => ({...prev, phone: undefined})); }}
-              className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+              className={`w-full pl-12 pr-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.phone)}`}
             />
           </div>
         </div>
@@ -364,11 +395,12 @@ const Register = () => {
             <Mail size={20} />
           </div>
           <input
+            id="reg-email"
             type="email"
             placeholder={t.register.email}
             value={formData.email}
             onChange={(e) => { setFormData({...formData, email: e.target.value}); setFieldErrors(prev => ({...prev, email: undefined})); }}
-            className="w-full pl-12 pr-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+            className={`w-full pl-12 pr-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.email)}`}
           />
         </div>
       </div>
@@ -432,11 +464,12 @@ const Register = () => {
                       <User size={18} />
                     </div>
                     <input
+                      id={`reg-child-${index}-firstName`}
                       type="text"
                       placeholder={t.register.firstName}
                       value={child.firstName}
                       onChange={(e) => handleChildChange(index, 'firstName', e.target.value)}
-                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.firstName)}`}
                     />
                   </div>
                 </div>
@@ -469,11 +502,12 @@ const Register = () => {
                       <User size={18} />
                     </div>
                     <input
+                      id={`reg-child-${index}-nickname`}
                       type="text"
                       placeholder={t.register.nickname}
                       value={child.nickname}
                       onChange={(e) => handleChildChange(index, 'nickname', e.target.value)}
-                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.nickname)}`}
                     />
                   </div>
                 </div>
@@ -481,9 +515,10 @@ const Register = () => {
                   <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.genderLabel}</label>
                   <FieldHint message={childErrors[index]?.gender} />
                   <select
+                    id={`reg-child-${index}-gender`}
                     value={child.gender}
                     onChange={(e) => handleChildChange(index, 'gender', e.target.value)}
-                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    className={`w-full px-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.gender)}`}
                   >
                     <option value="" disabled>{t.register.selectGender}</option>
                     <option value="Boy">{t.register.genderBoy}</option>
@@ -493,14 +528,14 @@ const Register = () => {
                 </div>
               </div>
 
-              <div className="relative">
+              <div className="relative" id={`reg-child-${index}-dob`}>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.dateOfBirth}</label>
                 <FieldHint message={childErrors[index]?.dob} />
                 <DateField
                   value={child.dob}
                   onChange={(v) => handleChildChange(index, 'dob', v)}
                   placeholder={t.register.dobPlaceholder}
-                  className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                  className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.dob)}`}
                   iconSize={18}
                 />
               </div>
@@ -529,11 +564,12 @@ const Register = () => {
                 <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
                   <FieldHint message={childErrors[index]?.customRelation} />
                   <input
+                    id={`reg-child-${index}-customRelation`}
                     type="text"
                     placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
                     value={child.customRelation || ''}
                     onChange={(e) => handleChildChange(index, 'customRelation', e.target.value)}
-                    className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    className={`w-full px-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.customRelation)}`}
                   />
                 </div>
               )}
