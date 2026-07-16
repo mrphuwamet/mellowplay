@@ -2,8 +2,8 @@ import { API_URL } from '../config';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Paper, Typography, Box, CircularProgress,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Chip, Avatar, Button, IconButton,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
+  Chip, Avatar, Button, IconButton, InputAdornment,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Alert, Grid, Divider, Switch,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -33,6 +33,7 @@ import {
   FiberNew as NewIcon,
   LocalActivity as CouponIcon,
   CheckCircle as ActiveIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import ChildCouponManagement from './ChildCouponManagement';
@@ -185,6 +186,9 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
 const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isEditing, setIsEditing] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -1358,6 +1362,18 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   }
 
   // ─── Table / List view ────────────────────────────────────────────────────────
+  const filteredUsers = users.filter(u => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      `${u.first_name} ${u.last_name}`.toLowerCase().includes(q) ||
+      (u.phone || '').includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      String(u.id).includes(q)
+    );
+  });
+  const pagedUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
@@ -1375,6 +1391,16 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       {successMsg && <Alert severity="success" onClose={() => setSuccessMsg(null)} sx={{ mb: 3 }}>{successMsg}</Alert>}
       {error      && <Alert severity="error"   onClose={() => setError(null)}      sx={{ mb: 3 }}>{error}</Alert>}
 
+      <TextField
+        placeholder="ค้นหาชื่อ, เบอร์โทร, อีเมล หรือรหัสผู้ใช้..."
+        size="small"
+        fullWidth
+        value={searchQuery}
+        onChange={e => { setSearchQuery(e.target.value); setPage(0); }}
+        sx={{ mb: 2, bgcolor: 'white' }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="disabled" /></InputAdornment> }}
+      />
+
       <TableContainer component={Paper} sx={{ boxShadow: '0 4px 20px 0 rgba(0,0,0,0.05)', borderRadius: 4 }}>
         <Table>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -1388,13 +1414,15 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.length === 0 ? (
+            {pagedUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
-                  <Typography variant="body2" color="text.secondary">ไม่พบข้อมูลผู้ใช้งาน</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {searchQuery ? 'ไม่พบผู้ใช้งานที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลผู้ใช้งาน'}
+                  </Typography>
                 </TableCell>
               </TableRow>
-            ) : users.map((user) => (
+            ) : pagedUsers.map((user) => (
               <TableRow key={user.id} hover>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1437,6 +1465,17 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filteredUsers.length}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[10, 25, 50]}
+          labelRowsPerPage="แถวต่อหน้า"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} จาก ${count}`}
+        />
       </TableContainer>
       {couponChildId && (
         <ChildCouponManagement

@@ -2,8 +2,8 @@ import { API_URL } from '../config';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paper, Typography, Box, CircularProgress,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Chip, Avatar, Button, IconButton,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
+  Chip, Avatar, Button, IconButton, InputAdornment,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Alert, Grid,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -30,6 +30,7 @@ import {
   WatchLater as LateIcon,
   ExitToApp as EarlyLeaveIcon,
   EventAvailable as DaysWorkedIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { Checkbox, FormGroup, FormControlLabel as FCL2, Divider as MuiDivider } from '@mui/material';
 import axios from 'axios';
@@ -263,6 +264,9 @@ const CrmUserManagement = () => {
   const [users, setUsers] = useState<CrmUser[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isEditing, setIsEditing] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   const [editUser, setEditUser] = useState<CrmUser | null>(null);
@@ -901,6 +905,19 @@ const CrmUserManagement = () => {
     );
   }
 
+  const filteredUsers = users.filter(u => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      u.full_name.toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.phone || '').includes(q) ||
+      (u.position || '').toLowerCase().includes(q) ||
+      (u.branch_name || '').toLowerCase().includes(q)
+    );
+  });
+  const pagedUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
@@ -910,6 +927,16 @@ const CrmUserManagement = () => {
 
       {successMsg && <Alert severity="success" onClose={() => setSuccessMsg(null)} sx={{ mb: 3 }}>{successMsg}</Alert>}
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>{error}</Alert>}
+
+      <TextField
+        placeholder="ค้นหาชื่อ, อีเมล, เบอร์โทร, ตำแหน่ง หรือสาขา..."
+        size="small"
+        fullWidth
+        value={searchQuery}
+        onChange={e => { setSearchQuery(e.target.value); setPage(0); }}
+        sx={{ mb: 2, bgcolor: 'white' }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="disabled" /></InputAdornment> }}
+      />
 
       <TableContainer component={Paper} sx={{ borderRadius: 4 }}>
         <Table>
@@ -922,7 +949,15 @@ const CrmUserManagement = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.map((user) => (
+            {pagedUsers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center" sx={{ py: 8 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {searchQuery ? 'ไม่พบพนักงานที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลพนักงาน'}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : pagedUsers.map((user) => (
               <TableRow key={user.id} hover>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -952,6 +987,17 @@ const CrmUserManagement = () => {
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filteredUsers.length}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[10, 25, 50]}
+          labelRowsPerPage="แถวต่อหน้า"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} จาก ${count}`}
+        />
       </TableContainer>
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
