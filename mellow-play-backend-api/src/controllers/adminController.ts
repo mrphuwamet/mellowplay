@@ -178,8 +178,17 @@ export class AdminController {
       const { childId, childIds, courseId, branchId, scheduledAt, isGuest, status,
               calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode } = await c.req.json();
       
-      if (!courseId || !branchId || !scheduledAt)
-        return c.json({ success: false, message: 'courseId, branchId, scheduledAt required' }, 400);
+      if (!courseId || !scheduledAt)
+        return c.json({ success: false, message: 'courseId, scheduledAt required' }, 400);
+
+      const db = config.db;
+
+      // Extra classes have a one-off `location` field instead of a branch,
+      // so branchId is legitimately absent for them — only regular courses
+      // must have one.
+      const courseForBranchCheck = await db.prepare('SELECT is_extraclass FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      if (!courseForBranchCheck?.is_extraclass && !branchId)
+        return c.json({ success: false, message: 'branchId required' }, 400);
 
       let ids = childIds ? childIds : (childId ? [childId] : []);
       if (isGuest) ids = [0];
@@ -188,8 +197,6 @@ export class AdminController {
       if (parsedChildIds.length === 0) {
         return c.json({ success: false, message: 'No children selected' }, 400);
       }
-
-      const db = config.db;
 
       // Check for duplicates
       for (const parsedChildId of parsedChildIds) {
@@ -353,7 +360,7 @@ export class AdminController {
         const id = await adminRepo.createBooking({
           childId: parsedChildId,
           courseId: parseInt(courseId),
-          branchId: parseInt(branchId),
+          branchId: branchId ? parseInt(branchId) : null,
           scheduledAt,
           ageGroup: ageGroup || 'junior',
           status: targetStatus,

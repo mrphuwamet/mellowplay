@@ -159,7 +159,7 @@ Dashboard ของ CRM แสดง funnel "เข้าชม → จอง �
 **Consumer app (`mellow-play-consumer-app`)**:
 - ถอด dependency `@line/liff` ที่ติดตั้งไว้แต่ไม่เคยใช้งาน
 - เพิ่ม video player modal ในหน้า Explore (รองรับทั้งวิดีโอ YouTube และไฟล์วิดีโอตรง) ให้กดเล่นวิดีโอในฟีดข่าวได้จริง
-- เพิ่มการนับ "เข้าชม" (view tracking) ที่จุดกด "จองเลย"/"จองเพิ่ม" บนการ์ดคอร์สทุกจุด (Explore, CourseCard ที่ใช้ร่วมกันใน Home/CourseList, Roadmap) ไม่ใช่แค่ตอนเปิดหน้ารายละเอียดคอร์สเท่านั้น
+- เพิ่มการนับ "เข้าชม" (view tracking) ที่จุดกด "จองเลย"/"จองเลย" บนการ์ดคอร์สทุกจุด (Explore, CourseCard ที่ใช้ร่วมกันใน Home/CourseList, Roadmap) ไม่ใช่แค่ตอนเปิดหน้ารายละเอียดคอร์สเท่านั้น
 - ลบไฟล์ตาย `pages/Report.tsx`, `components/ReportDisplay.tsx`
 
 **หมายเหตุสำคัญก่อนขึ้น production**:

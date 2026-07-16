@@ -196,7 +196,7 @@ export class AdminRepository {
   async createBooking(data: {
     childId: number;
     courseId: number;
-    branchId: number;
+    branchId: number | null;
     scheduledAt: string;
     ageGroup: string;
     status: string;

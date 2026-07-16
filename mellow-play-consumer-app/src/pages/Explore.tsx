@@ -223,7 +223,7 @@ const Explore = () => {
                   : 'bg-mellow-purple text-white active:scale-95'
               }`}
             >
-              {isOneTimeBooked ? statusLabel : (lang === 'en' ? 'Book Now' : 'จองเพิ่ม')}
+              {isOneTimeBooked ? statusLabel : (lang === 'en' ? 'Book Now' : 'จองเลย')}
             </button>
          </div>
       </div>

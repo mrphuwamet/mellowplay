@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Sparkles } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -105,6 +105,11 @@ const CourseDetail = () => {
   const shortDescription = rawShortDescription && rawShortDescription.length > 500
     ? rawShortDescription.slice(0, 500).trim() + '…'
     : rawShortDescription;
+
+  // Skills only — Skills_Library entries of type "achievement", not "indicator"
+  // (ตัวชี้วัด), which the CRM tracks separately for internal progress reports.
+  let achievementSkills: { th: string; en?: string }[] = [];
+  try { achievementSkills = course.achievement_skills_json ? JSON.parse(course.achievement_skills_json) : []; } catch { /* ignore malformed json */ }
 
   const discountAmount = course.active_campaign_discount_amount || 0;
   const discountedPrice = Math.max(0, (course.original_price || 0) - discountAmount);
@@ -276,6 +281,25 @@ const CourseDetail = () => {
               className="prose-news whitespace-pre-wrap text-[14px] text-slate-600 leading-relaxed font-medium"
               dangerouslySetInnerHTML={{ __html: (lang === 'en' && course.description_en ? course.description_en : course.description) || '' }}
             />
+          </div>
+        )}
+
+        {/* Skills — deliberately full, uncollapsed list (unlike the
+            short/long description above), and skills only, never the
+            internal "indicator" (ตัวชี้วัด) entries from the same library. */}
+        {achievementSkills.length > 0 && (
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-[16px] font-black text-slate-800 mb-3">
+              {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {achievementSkills.map((skill, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[13px] font-bold">
+                  <Sparkles size={13} />
+                  {lang === 'en' && skill.en ? skill.en : skill.th}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 

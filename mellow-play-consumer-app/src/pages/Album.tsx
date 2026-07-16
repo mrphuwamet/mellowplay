@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Calendar, Download, Share2, Grid, List, Loader2, Play, CheckSquare, Square, X } from 'lucide-react';
+import { ChevronLeft, Calendar, Download, Share2, Grid, List, Loader2, Play, CheckSquare, Square, X, AlertCircle } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
@@ -42,7 +42,11 @@ const Album = () => {
 
   useEffect(() => {
     const fetchAlbum = async () => {
-      if (!selectedChild) return;
+      if (!selectedChild) {
+        setRawMedia([]);
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
         const response = await apiClient.get(`/journey/album/${selectedChild.id}`);
@@ -180,6 +184,33 @@ const Album = () => {
               <div key={i} className="aspect-square rounded-[24px] bg-slate-200" />
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // No child selected — guests never have one, and neither does a logged-in
+  // user who hasn't added a child yet. Mirrors Roadmap's guest/empty state
+  // so the two nav tabs feel consistent instead of this one looking broken.
+  if (!selectedChild) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center pb-24">
+        <div className="bg-white p-8 rounded-[32px] shadow-sm max-w-sm w-full">
+          <div className="w-16 h-16 bg-mellow-purple/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="text-mellow-purple" size={32} />
+          </div>
+          <h2 className="text-xl font-black text-slate-800 mb-2">
+            {lang === 'en' ? 'Select a Child' : 'กรุณาเลือกข้อมูลเด็ก'}
+          </h2>
+          <p className="text-slate-500 mb-6">
+            {lang === 'en' ? 'Please select a child profile first.' : 'โปรดเลือกข้อมูลเด็กก่อนเพื่อดูอัลบั้มภาพ'}
+          </p>
+          <button
+            onClick={() => navigate('/')}
+            className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold"
+          >
+            {lang === 'en' ? 'Back to Home' : 'กลับไปหน้าหลัก'}
+          </button>
         </div>
       </div>
     );

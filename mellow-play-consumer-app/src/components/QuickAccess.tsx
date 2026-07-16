@@ -51,8 +51,10 @@ const QuickAccess = () => {
                 <div className={`absolute inset-0 bg-white/10 ${!item.isComingSoon ? 'group-active:bg-black/10' : ''} transition-colors`} />
                 <Icon size={24} className="relative z-10" />
                 {isGuest && item.gated && (
-                  <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                    <Lock size={16} className="text-white" />
+                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                    <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-sm">
+                      <Lock size={14} className="text-slate-700" strokeWidth={2.5} />
+                    </div>
                   </div>
                 )}
               </div>

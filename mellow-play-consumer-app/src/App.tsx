@@ -32,12 +32,23 @@ const AppContent = () => {
   const fetchChildren = useChildStore(state => state.fetchChildren);
   const { t, lang } = useTranslation();
 
+  // Bumped to force a re-render after silently flipping the guest flag below —
+  // components read `mellow_guest` straight from localStorage on every render,
+  // so they need this component to re-render for the change to show up.
+  const [, forceGuestRerender] = React.useState(0);
+
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');
     const isGuest = localStorage.getItem('mellow_guest') === 'true';
+    const isAuthPage = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/forgot-password';
 
-    if (!token && !isGuest && location.pathname !== '/login' && location.pathname !== '/register' && location.pathname !== '/forgot-password') {
-      navigate('/login');
+    if (!token && !isGuest && !isAuthPage) {
+      // A visitor with no session — most often someone opening a link shared
+      // from outside the app — should land straight on the page they opened
+      // instead of being bounced to the login screen first. Drop them into
+      // guest mode instead; gated features still prompt sign-up/login on use.
+      localStorage.setItem('mellow_guest', 'true');
+      forceGuestRerender(n => n + 1);
     }
   }, [location.pathname, navigate]);
 
