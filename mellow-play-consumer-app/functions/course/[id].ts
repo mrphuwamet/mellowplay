@@ -8,7 +8,21 @@
 // Real visitors (anyone not matching the bot user-agent list) fall through
 // to `next()`, which serves the normal built SPA untouched.
 
-const BOT_USER_AGENT = /facebookexternalhit|Facebot|LinkedInBot|Twitterbot|WhatsApp|Slackbot|Discordbot|TelegramBot|Pinterest|line-poker|Line\/|vkShare|W3C_Validator|Googlebot|bingbot|SkypeUriPreview/i;
+// LINE's actual link-preview crawler identifies itself as
+// "facebookexternalhit/1.1;line-poker/1.0" (confirmed via LINE's own
+// developer community) — already covered by "facebookexternalhit" alone,
+// with "line-poker" as a belt-and-suspenders match on the same request.
+//
+// The generic "Line/" token that used to sit here was the actual bug behind
+// the "link posted in a LINE chat/OpenChat won't open — infinite loading"
+// reports: LINE's own in-app BROWSER (used by a real person tapping the
+// link, not a crawler) sends a UA like "...Line/11.15.0" too. Matching on
+// that meant a real visitor got served this crawler-only stub instead of
+// the app — and since the stub's meta-refresh points at this exact same
+// URL, and the UA never changes, it just kept re-matching and redirecting
+// to itself forever. Nothing to do with LIFF; this ran on every request
+// before the SPA (or LIFF) ever got a chance to load.
+const BOT_USER_AGENT = /facebookexternalhit|Facebot|LinkedInBot|Twitterbot|WhatsApp|Slackbot|Discordbot|TelegramBot|Pinterest|line-poker|vkShare|W3C_Validator|Googlebot|bingbot|SkypeUriPreview/i;
 
 const API_BASE = 'https://api.mellowplay.co/api/v1';
 const SITE_URL = 'https://mellowplay.co';
