@@ -883,10 +883,32 @@ export class AdminController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  // This route is intentionally public (see ADMIN_PUBLIC_ROUTES in index.ts)
+  // so a guest/consumer can cancel a booking they just created mid-checkout
+  // (Booking.tsx's "Cancel / Edit Order" — there's no account/token to check
+  // for a guest booking at all). It previously had NO checks whatsoever
+  // beyond that — anyone who knew or guessed a booking id could hard-delete
+  // ANY booking, confirmed and paid or not. Now: no token needed to delete a
+  // still-pending_payment booking (the actual self-cancel use case), but
+  // anything else requires a real super_admin CRM token, verified here
+  // manually since this route bypasses the global requireCrmAuth middleware.
   async deleteBooking(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      await new AdminRepository(config.db).deleteBooking(parseInt(c.req.param('id')));
+      const id = parseInt(c.req.param('id'));
+      const booking = await config.db.prepare('SELECT status FROM Bookings WHERE id = ?').bind(id).first<{ status: string }>();
+      if (!booking) return c.json({ success: false, message: 'Booking not found' }, 404);
+
+      if (booking.status !== 'pending_payment' && booking.status !== 'pending') {
+        const authHeader = c.req.header('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+        if (!payload || payload.type !== 'admin' || payload.role !== 'super_admin') {
+          return c.json({ success: false, message: 'Forbidden — only a super admin can delete a non-pending booking' }, 403);
+        }
+      }
+
+      await new AdminRepository(config.db).deleteBooking(id);
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
@@ -1563,7 +1585,12 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
       const { status, scheduledAt, paidAt } = await c.req.json();
-      const allowed = ['pending','confirmed_paid','awaiting_report','completed','cancelled'];
+      // Every status value actually used anywhere in the system (both the
+      // 'pending'/'pending_payment' naming variants included — the two are
+      // used inconsistently across the codebase for the same conceptual
+      // state) — a Super Admin correcting a booking needs to be able to set
+      // any of them, not a limited subset.
+      const allowed = ['pending_payment', 'pending', 'confirmed', 'confirmed_paid', 'awaiting_report', 'completed', 'cancelled'];
       if (!allowed.includes(status)) return c.json({ success: false, message: 'invalid status' }, 400);
 
       // scheduledAt/paidAt are optional overrides for Super Admin error-correction
@@ -1579,8 +1606,11 @@ export class AdminController {
       // like it still had room when it didn't.
       const sets = ['status = ?'];
       const binds: any[] = [status];
-      if (status === 'confirmed_paid') sets.push("payment_status = 'paid'");
-      else if (status === 'pending') sets.push("payment_status = 'pending'");
+      if (status === 'confirmed_paid' || status === 'confirmed' || status === 'completed' || status === 'awaiting_report') {
+        sets.push("payment_status = 'paid'");
+      } else if (status === 'pending' || status === 'pending_payment') {
+        sets.push("payment_status = 'pending'");
+      }
       if (scheduledAt) { sets.push('scheduled_at = ?'); binds.push(scheduledAt); }
       if (paidAt) { sets.push('paid_at = ?'); binds.push(paidAt); }
       binds.push(id);
