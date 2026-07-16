@@ -128,6 +128,52 @@ export class AdminController {
     }
   }
 
+  // Edits a child that came from the consumer app's own HD registration
+  // (Children/HD_Profiles) — the CRM previously locked these rows
+  // completely read-only (only CRM-created walk-in children were editable),
+  // so staff had no way to fix a wrong nickname/gender/relation for a real
+  // customer's kid. full_name/date_of_birth stay locked here since they
+  // feed the Human Design chart calculation.
+  async updateChildProfile(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const childId = parseInt(c.req.param('id'));
+      const { nickname, gender, relation } = await c.req.json();
+      await adminRepo.updateHdChild(childId, { nickname, gender, relation });
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // CRM-driven avatar upload for a user's own profile photo (distinct from
+  // profileController.uploadAvatar, which is for a CHILD's HD profile photo
+  // and relies on the consumer's own JWT). The CRM frontend already POSTs
+  // here with an 'avatar' file field; this endpoint never existed, so every
+  // CRM-side profile photo upload silently 404'd.
+  async uploadUserAvatar(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const id = parseInt(c.req.param('id'));
+      const body = await c.req.formData();
+      const file = body.get('avatar') as File | null;
+      if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
+
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const key = `profiles/user-${id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const buffer = await file.arrayBuffer();
+      await c.env.BUCKET.put(key, buffer, { httpMetadata: { contentType: file.type || 'image/jpeg' } });
+
+      const avatarUrl = `/api/v1/files/${key}`;
+      const config = new ConfigService(c.env);
+      await config.db.prepare('UPDATE Users SET profile_image_url = ? WHERE id = ?').bind(avatarUrl, id).run();
+
+      return c.json({ success: true, url: avatarUrl });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async resetUserPassword(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);

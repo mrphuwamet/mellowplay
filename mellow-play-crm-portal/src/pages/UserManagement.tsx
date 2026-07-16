@@ -47,6 +47,8 @@ interface Child {
   nickname: string;
   gender: string;
   date_of_birth: string;
+  relation?: string;
+  avatar?: string;
   is_hd?: boolean;
 }
 
@@ -101,7 +103,7 @@ const emptyForm = {
   pdpa_consent: false,
   marketing_consent: '',
   application_date: '',
-  membership_type: 'regular',
+  membership_type: 'standard',
   membership_expires_at: '',
   profile_image_url: '',
 };
@@ -126,12 +128,26 @@ const emptyChild: Child = {
   nickname: '',
   gender: '',
   date_of_birth: '',
+  relation: '',
 };
 
+// Consumer app's own registration flow (Register.tsx) stores these exact
+// capitalized strings on HD_Profiles.gender/.relation — matching them here
+// isn't a style choice, it's required for a real customer's child data to
+// render as anything other than a blank Select (mismatched value = MUI shows
+// nothing selected).
 const GENDERS = [
-  { label: 'ชาย', value: 'male' },
-  { label: 'หญิง', value: 'female' },
-  { label: 'ไม่ระบุ', value: 'other' },
+  { label: 'ชาย', value: 'Boy' },
+  { label: 'หญิง', value: 'Girl' },
+  { label: 'ไม่ระบุ', value: 'Other' },
+];
+
+const CHILD_RELATIONSHIPS = [
+  { label: 'ไม่ระบุ', value: '' },
+  { label: 'บิดา', value: 'Father' },
+  { label: 'มารดา', value: 'Mother' },
+  { label: 'ญาติ', value: 'Relative' },
+  { label: 'อื่นๆ', value: 'Other' },
 ];
 
 const RELATIONSHIPS = [
@@ -141,8 +157,11 @@ const RELATIONSHIPS = [
   { label: 'อื่นๆ', value: 'other' },
 ];
 
+// Users.membership_type's real DB default is 'standard' (see schema.sql) —
+// this used to say 'regular', which never matched any actual row, so the
+// dropdown always rendered blank for every non-premium member.
 const MEMBERSHIP_TYPES = [
-  { label: 'Regular', value: 'regular' },
+  { label: 'Standard', value: 'standard' },
   { label: 'Premium Member', value: 'premium' },
 ];
 
@@ -179,6 +198,15 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState('');
+
+  // Child photo — uploads immediately on pick (unlike the parent's own
+  // photo above, which stages a File and only uploads on Save) because it
+  // targets a different, already-existing endpoint keyed by child id
+  // (profileController.uploadAvatar) rather than something bundled into
+  // this form's own save payload.
+  const childFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingChildIndex, setUploadingChildIndex] = useState<number | null>(null);
+  const [childPhotoUploading, setChildPhotoUploading] = useState(false);
 
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -307,9 +335,13 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         relationship: d.relationship ?? '',
         line_id: d.line_id ?? '',
         pdpa_consent: d.pdpa_consent ?? false,
-        marketing_consent: d.marketing_consent == null ? '' : String(d.marketing_consent),
+        // D1/SQLite has no real boolean — marketing_consent comes back as
+        // integer 0/1, not JS true/false, so String(1) === "1" never matched
+        // the RadioGroup's "true"/"false" values and the field always
+        // rendered with neither option selected. Coerce through truthiness first.
+        marketing_consent: d.marketing_consent == null ? '' : (d.marketing_consent ? 'true' : 'false'),
         application_date: d.application_date ? d.application_date.substring(0, 10) : '',
-        membership_type: d.membership_type ?? 'regular',
+        membership_type: d.membership_type ?? 'standard',
         membership_expires_at: d.membership_expires_at ? d.membership_expires_at.substring(0, 10) : '',
         profile_image_url: d.profile_image_url ?? '',
       });
@@ -322,6 +354,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         nickname: c.nickname ?? '',
         gender: c.gender ?? '',
         date_of_birth: c.date_of_birth ? c.date_of_birth.substring(0, 10) : '',
+        relation: c.relation ?? '',
+        avatar: c.avatar ?? '',
         is_hd: Boolean(c.is_hd),
       })));
     } catch {
@@ -335,7 +369,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         pdpa_consent: false,
         marketing_consent: '',
         application_date: '',
-        membership_type: 'regular',
+        membership_type: 'standard',
         membership_expires_at: user.membership_expires_at ? user.membership_expires_at.substring(0, 10) : '',
         profile_image_url: '',
       });
@@ -358,6 +392,32 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const removeChild = (index: number) => setChildren(prev => prev.filter((_, i) => i !== index));
   const updateChild = (index: number, field: keyof Child, value: string) =>
     setChildren(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c));
+
+  const triggerChildPhotoUpload = (index: number) => {
+    setUploadingChildIndex(index);
+    childFileInputRef.current?.click();
+  };
+
+  const handleChildPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const index = uploadingChildIndex;
+    e.target.value = '';
+    const child = index != null ? children[index] : null;
+    if (!file || !child?.id) return;
+    setChildPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await axios.post(`${API_URL}/api/v1/profiles/${child.id}/upload-avatar`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (data.success) updateChild(index!, 'avatar', data.url);
+    } catch (e: any) {
+      alert('อัปโหลดรูปไม่สำเร็จ: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setChildPhotoUploading(false);
+    }
+  };
 
   const handleSave = async () => {
     setError(null);
@@ -395,6 +455,16 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       }
+      // HD-registered children (is_hd) live outside the CRM's own
+      // User_CRM_Children table (User.children payload above only touches
+      // that one) — persist their nickname/gender/relation edits separately.
+      await Promise.all(
+        children.filter(c => c.is_hd && c.id).map(c =>
+          axios.put(`${API_BASE}/children/${c.id}`, {
+            nickname: c.nickname, gender: c.gender, relation: c.relation || null,
+          })
+        )
+      );
       handleClose();
       fetchUsers();
     } catch (e: any) {
@@ -603,6 +673,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                 </IconButton>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleProfileImageChange} />
+              <input ref={childFileInputRef} type="file" accept="image/*" hidden onChange={handleChildPhotoChange} />
             </Box>
             <Box sx={{ pb: 0.5, flex: 1, minWidth: 0 }}>
               <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }} noWrap>{displayName}</Typography>
@@ -661,9 +732,22 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                       <Box sx={{ bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Avatar sx={{ width: 26, height: 26, bgcolor: 'primary.main', fontSize: '0.75rem', fontWeight: 800 }}>
-                              {index + 1}
-                            </Avatar>
+                            <Box sx={{ position: 'relative' }}>
+                              <Avatar src={child.avatar || undefined} sx={{ width: 26, height: 26, bgcolor: 'primary.main', fontSize: '0.75rem', fontWeight: 800 }}>
+                                {index + 1}
+                              </Avatar>
+                              {!readOnly && child.id && (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => triggerChildPhotoUpload(index)}
+                                  title="เปลี่ยนรูปเด็ก"
+                                  disabled={childPhotoUploading}
+                                  sx={{ position: 'absolute', bottom: -6, right: -6, bgcolor: 'white', boxShadow: 1, width: 18, height: 18, '&:hover': { bgcolor: 'grey.100' } }}
+                                >
+                                  <CameraAltIcon sx={{ fontSize: 10 }} />
+                                </IconButton>
+                              )}
+                            </Box>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>
                               เด็กคนที่ {index + 1}
                               {child.full_name && (
@@ -723,18 +807,17 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                             <TextField
                               label="ชื่อเล่น" fullWidth size="small"
                               value={child.nickname}
-                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'nickname', e.target.value)}
-                              InputProps={{ readOnly: readOnly || child.is_hd }}
-                              disabled={child.is_hd}
+                              onChange={e => !readOnly && updateChild(index, 'nickname', e.target.value)}
+                              InputProps={{ readOnly }}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
-                            <FormControl fullWidth size="small" disabled={child.is_hd}>
+                            <FormControl fullWidth size="small">
                               <InputLabel>เพศ</InputLabel>
                               <Select
                                 value={child.gender} label="เพศ"
-                                onChange={e => !readOnly && !child.is_hd && updateChild(index, 'gender', e.target.value)}
-                                inputProps={{ readOnly: readOnly || child.is_hd }}
+                                onChange={e => !readOnly && updateChild(index, 'gender', e.target.value)}
+                                inputProps={{ readOnly }}
                               >
                                 {GENDERS.map(g => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
                               </Select>
@@ -742,13 +825,25 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label="วัน/เดือน/ปีเกิด" fullWidth size="small" type="date"
+                              label={`วัน/เดือน/ปีเกิด ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : ''}`} fullWidth size="small" type="date"
                               value={child.date_of_birth}
                               onChange={e => !readOnly && !child.is_hd && updateChild(index, 'date_of_birth', e.target.value)}
                               InputLabelProps={{ shrink: true }}
                               InputProps={{ readOnly: readOnly || child.is_hd }}
                               disabled={child.is_hd}
                             />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>ความสัมพันธ์เด็ก</InputLabel>
+                              <Select
+                                value={child.relation || ''} label="ความสัมพันธ์เด็ก"
+                                onChange={e => !readOnly && updateChild(index, 'relation', e.target.value)}
+                                inputProps={{ readOnly }}
+                              >
+                                {CHILD_RELATIONSHIPS.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+                              </Select>
+                            </FormControl>
                           </Grid>
                         </Grid>
                       </Box>
@@ -873,7 +968,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                         onChange={e => !readOnly && setForm({
                           ...form,
                           membership_type: e.target.value,
-                          membership_expires_at: e.target.value === 'regular' ? '' : form.membership_expires_at,
+                          membership_expires_at: e.target.value === 'standard' ? '' : form.membership_expires_at,
                         })}
                         inputProps={{ readOnly }}
                       >

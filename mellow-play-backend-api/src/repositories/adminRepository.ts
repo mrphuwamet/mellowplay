@@ -54,7 +54,8 @@ export class AdminRepository {
     ).bind(id).all();
 
     const { results: hdChildren } = await this.db.prepare(`
-      SELECT c.id, hp.name as full_name, hp.nickname, hp.gender, hp.birth_date as date_of_birth, 1 as is_hd
+      SELECT c.id, hp.name as full_name, hp.nickname, hp.gender, hp.birth_date as date_of_birth,
+             hp.relation, COALESCE(c.avatar, c.custom_photo_url) as avatar, 1 as is_hd
       FROM Children c
       JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
       WHERE hp.user_id = ?
@@ -113,6 +114,20 @@ export class AdminRepository {
         `).bind(id, child.full_name, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null).run();
       }
     }
+  }
+
+  // Editing a child that came from the consumer app's own HD registration
+  // (Children/HD_Profiles) is deliberately narrower than a CRM-created
+  // child: full_name and date_of_birth feed the Human Design chart
+  // calculation (hd_type/hd_strategy/hd_authority etc.), so changing them
+  // here without recalculating the whole chart would leave it inconsistent.
+  // nickname/gender/relation are just display metadata — safe to edit directly.
+  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string }): Promise<void> {
+    const child = await this.db.prepare('SELECT hd_profile_id FROM Children WHERE id = ?').bind(childId).first<{ hd_profile_id: number }>();
+    if (!child) throw new Error('Child not found');
+    await this.db.prepare(`
+      UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ? WHERE id = ?
+    `).bind(data.nickname ?? null, data.gender ?? null, data.relation ?? null, child.hd_profile_id).run();
   }
 
   // ── User Coupon CRUD ──────────────────────────────────────────────────────
