@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { AdminRepository } from '../repositories/adminRepository';
+import { UserRepository } from '../repositories/userRepository';
 import { ConfigService } from '../services/configService';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
@@ -19,6 +20,45 @@ export class AdminController {
       return c.json({ success: true, stats });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // CRM-only manual customer creation — a staff-driven alternative to the
+  // consumer app's OTP self-registration flow (useful when SMS delivery is
+  // unreliable, or for walk-in/phone signups). Reuses the exact same
+  // UserRepository.createWithChildren() the consumer app's /auth/register
+  // uses; children are added afterward via the existing per-user "add
+  // child" action already in UserManagement, so this only needs the parent
+  // account fields.
+  async createUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      if (!c.get('crmUser')) {
+        return c.json({ success: false, message: 'Forbidden' }, 403);
+      }
+      const { phone, password, prefix, firstName, lastName, dob, email, lineId, address } = await c.req.json();
+
+      if (!phone || !password || !firstName || !lastName) {
+        return c.json({ success: false, message: 'phone, password, firstName, lastName required' }, 400);
+      }
+
+      const config = new ConfigService(c.env);
+      const userRepository = new UserRepository(config.db);
+      const passwordHash = await AuthService.hashPassword(password);
+
+      const userId = await userRepository.createWithChildren(
+        phone, passwordHash, firstName, lastName, [],
+        email || undefined, lineId || undefined,
+        true, false, address || undefined, prefix || undefined, dob || undefined
+      );
+      return c.json({ success: true, userId });
+    } catch (error: any) {
+      let message = error.message;
+      if (message.includes('UNIQUE constraint failed: Users.email')) {
+        message = 'อีเมลนี้ถูกใช้งานแล้ว (Email is already registered)';
+      } else if (message.includes('UNIQUE constraint failed: Users.phone')) {
+        message = 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว (Phone number is already registered)';
+      }
+      return c.json({ success: false, message }, 500);
     }
   }
 

@@ -21,6 +21,7 @@ import {
   LockReset as LockResetIcon,
   CameraAlt as CameraAltIcon,
   Add as AddIcon,
+  PersonAdd as PersonAddIcon,
   Delete as DeleteIcon,
   VerifiedUser as ConsentIcon,
   History as HistoryIcon,
@@ -105,6 +106,21 @@ const emptyForm = {
   profile_image_url: '',
 };
 
+// Manual customer creation (staff-driven alternative to the consumer app's
+// OTP self-registration) — deliberately just the parent-account fields;
+// children get added afterward via the existing per-user "add child" flow.
+const emptyCreateForm = {
+  phone: '',
+  password: '',
+  prefix: '',
+  first_name: '',
+  last_name: '',
+  dob: '',
+  email: '',
+  line_id: '',
+  address: '',
+};
+
 const emptyChild: Child = {
   full_name: '',
   nickname: '',
@@ -173,6 +189,11 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [membershipHistory, setMembershipHistory] = useState<MembershipHistoryEntry[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
 
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState(emptyCreateForm);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const [journeyChildId, setJourneyChildId] = useState<number | null>(null);
   const [journeyChildName, setJourneyChildName] = useState<string>('');
   
@@ -200,6 +221,41 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       if (res.data.success) setUsers(res.data.users);
     } catch (e) { console.error('Failed to fetch users', e); }
     finally { setLoading(false); }
+  };
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setCreateForm(emptyCreateForm);
+    setCreateError(null);
+  };
+
+  const handleCreateUser = async () => {
+    if (!createForm.phone.trim() || !createForm.password.trim() || !createForm.first_name.trim() || !createForm.last_name.trim()) {
+      setCreateError('กรุณากรอกเบอร์โทร, รหัส PIN, ชื่อ และนามสกุลให้ครบ');
+      return;
+    }
+    setCreateSaving(true);
+    setCreateError(null);
+    try {
+      await axios.post(`${API_BASE}/users`, {
+        phone: createForm.phone.trim(),
+        password: createForm.password.trim(),
+        prefix: createForm.prefix || undefined,
+        firstName: createForm.first_name.trim(),
+        lastName: createForm.last_name.trim(),
+        dob: createForm.dob || undefined,
+        email: createForm.email.trim() || undefined,
+        lineId: createForm.line_id.trim() || undefined,
+        address: createForm.address.trim() || undefined,
+      });
+      closeCreate();
+      setSuccessMsg('เพิ่มลูกค้าใหม่สำเร็จ');
+      fetchUsers();
+    } catch (e: any) {
+      setCreateError(e?.response?.data?.message || 'ไม่สามารถเพิ่มลูกค้าได้');
+    } finally {
+      setCreateSaving(false);
+    }
   };
 
   const fetchCouponTypes = async () => {
@@ -1211,6 +1267,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>จัดการผู้ใช้งาน</Typography>
+        <Button
+          variant="contained"
+          startIcon={<PersonAddIcon />}
+          onClick={() => setCreateOpen(true)}
+          sx={{ borderRadius: 2, fontWeight: 700 }}
+        >
+          เพิ่มลูกค้า
+        </Button>
       </Box>
 
       {successMsg && <Alert severity="success" onClose={() => setSuccessMsg(null)} sx={{ mb: 3 }}>{successMsg}</Alert>}
@@ -1319,6 +1383,75 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             }}
           >
             คัดลอกลิงก์
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Customer Dialog — manual creation, bypassing OTP self-registration */}
+      <Dialog open={createOpen} onClose={closeCreate} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>เพิ่มลูกค้าใหม่</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            สร้างบัญชีลูกค้าโดยตรงจากหลังบ้าน (ไม่ต้องยืนยัน OTP) — ใช้เมื่อลูกค้าสมัครเองผ่านแอปไม่ได้ เช่น SMS ส่งไม่สำเร็จ
+            หลังสร้างแล้วสามารถเพิ่มข้อมูลบุตรได้จากหน้าแก้ไขผู้ใช้งาน และลูกค้าสามารถใช้เบอร์โทร + PIN ที่ตั้งไว้ล็อกอินได้ทันที
+          </Typography>
+          {createError && <Alert severity="error" onClose={() => setCreateError(null)} sx={{ mb: 2 }}>{createError}</Alert>}
+          <Grid container spacing={2}>
+            <Grid item xs={4}>
+              <FormControl fullWidth>
+                <InputLabel>คำนำหน้า</InputLabel>
+                <Select
+                  label="คำนำหน้า"
+                  value={createForm.prefix}
+                  onChange={(e) => setCreateForm({ ...createForm, prefix: e.target.value })}
+                >
+                  <MenuItem value="">-</MenuItem>
+                  <MenuItem value="นาย">นาย</MenuItem>
+                  <MenuItem value="นาง">นาง</MenuItem>
+                  <MenuItem value="นางสาว">นางสาว</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={8}>
+              <TextField label="เบอร์โทรศัพท์ *" fullWidth value={createForm.phone} onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField label="ชื่อจริง *" fullWidth value={createForm.first_name} onChange={(e) => setCreateForm({ ...createForm, first_name: e.target.value })} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField label="นามสกุล *" fullWidth value={createForm.last_name} onChange={(e) => setCreateForm({ ...createForm, last_name: e.target.value })} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="PIN เข้าสู่ระบบ *"
+                fullWidth
+                type="text"
+                value={createForm.password}
+                onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                helperText="ลูกค้าใช้เบอร์โทร + PIN นี้ล็อกอิน (แนะนำ 6 หลัก) เปลี่ยนภายหลังได้จาก 'ลืมรหัสผ่าน'"
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="วันเกิด (ผู้ปกครอง)" fullWidth type="date" InputLabelProps={{ shrink: true }}
+                value={createForm.dob} onChange={(e) => setCreateForm({ ...createForm, dob: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField label="อีเมล" fullWidth value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField label="LINE ID" fullWidth value={createForm.line_id} onChange={(e) => setCreateForm({ ...createForm, line_id: e.target.value })} />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField label="ที่อยู่" fullWidth multiline rows={2} value={createForm.address} onChange={(e) => setCreateForm({ ...createForm, address: e.target.value })} />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={closeCreate} disabled={createSaving}>ยกเลิก</Button>
+          <Button variant="contained" onClick={handleCreateUser} disabled={createSaving} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            {createSaving ? <CircularProgress size={18} sx={{ color: 'white' }} /> : 'สร้างบัญชี'}
           </Button>
         </DialogActions>
       </Dialog>
