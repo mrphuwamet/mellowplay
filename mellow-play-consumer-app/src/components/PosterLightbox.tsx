@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { PosterImage } from './PosterCarousel';
 
@@ -41,7 +42,13 @@ const PosterLightbox: React.FC<PosterLightboxProps> = ({ images, startIndex, alt
     setDragOffsetPx(0);
   };
 
-  return (
+  // Rendered via a portal straight to <body> — this is `position: fixed`,
+  // but an ancestor using an animate-in transform (e.g. the Booking course
+  // modal's slide-in) turns that ancestor into the CSS containing block for
+  // fixed descendants, shrinking this to the modal's box instead of the
+  // real viewport and clipping the close button off the edge. A portal
+  // sidesteps that regardless of which ancestor this gets opened from.
+  return createPortal(
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
       <div className="flex items-center justify-between px-4 h-14 shrink-0">
         <span className="text-white text-[13px] font-bold">{index + 1} / {images.length}</span>
@@ -83,7 +90,8 @@ const PosterLightbox: React.FC<PosterLightboxProps> = ({ images, startIndex, alt
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };
 
