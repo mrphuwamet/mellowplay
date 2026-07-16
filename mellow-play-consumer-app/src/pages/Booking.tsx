@@ -984,14 +984,14 @@ const Booking = () => {
                   <h3 className="text-lg font-black text-slate-800 mb-3">{t.booking?.stepTime || 'เลือกรอบเวลา'}</h3>
                   <div className="grid grid-cols-2 gap-3">
                     {selectedDateObj.slots.map(slot => (
-                      <button key={slot.startTime} disabled={slot.available === 0} onClick={() => { setSelectedSlot(slot); setCurrentStepIndex(currentStepIndex + 1); }} className={`p-4 rounded-2xl border text-left transition-all relative overflow-hidden ${slot.available === 0 ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : selectedSlot?.startTime === slot.startTime ? 'bg-mellow-purple/5 border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 hover:border-mellow-purple/30'}`}>
-                        <div className="flex flex-col gap-1.5 relative z-10">
-                          <span className="text-lg font-black text-slate-700 block">{slot.startTime}</span>
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full self-start ${slot.available === 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                      <button key={slot.startTime} disabled={slot.available === 0} onClick={() => { setSelectedSlot(slot); setCurrentStepIndex(currentStepIndex + 1); }} className={`p-[5px] rounded-2xl border text-left transition-all relative overflow-hidden ${slot.available === 0 ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : selectedSlot?.startTime === slot.startTime ? 'bg-mellow-purple/5 border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 hover:border-mellow-purple/30'}`}>
+                        <div className="flex items-center justify-between gap-2 relative z-10">
+                          <span className="text-xl font-black text-slate-700">{slot.startTime}</span>
+                          <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${slot.available === 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
                             {slot.available === 0 ? (t.booking?.full || 'เต็มแล้ว') : (
                               <>
                                 {t.booking?.availableSeats || 'ว่าง'} {slot.available}
-                                <Users size={11} strokeWidth={2.5} />
+                                <Users size={13} strokeWidth={2.5} />
                               </>
                             )}
                           </span>
