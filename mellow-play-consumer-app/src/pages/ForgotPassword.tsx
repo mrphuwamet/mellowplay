@@ -234,6 +234,9 @@ const ForgotPassword = () => {
                 </>
               )}
             </p>
+            <p className="text-center text-slate-300 text-[11px] font-bold">
+              {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
+            </p>
           </>
         )}
 
