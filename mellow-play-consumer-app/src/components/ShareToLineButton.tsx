@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { isInLineApp, shareToLine } from '../utils/lineShare';
+import React, { useEffect, useState } from 'react';
+import { isInLineApp, isLineShareAvailable, shareToLine } from '../utils/lineShare';
 import { Toast } from './Toast';
 import { useTranslation } from '../LanguageContext';
 
@@ -9,16 +9,38 @@ interface ShareToLineButtonProps {
   className?: string;
 }
 
-// Shown only inside LINE's in-app browser (checked via user agent, not by
-// calling liff.init() — see isInLineApp's comment for why that matters).
-// The actual LIFF init + shareTargetPicker feature-detection is deferred
-// until the user taps this, not done eagerly on page load.
+// Must work both inside LINE's in-app browser and in a normal browser.
+// Inside LINE: show immediately, no eager liff.init() — the first init()
+// call in a LINE webview session does a real redirect through LINE's
+// domain to bootstrap it, which drops whatever path the user was on if
+// done on every page load (see lineShare.ts's isInLineApp comment).
+// Outside LINE: liff.init() doesn't do that redirect, so it's safe (and
+// necessary) to eagerly feature-detect shareTargetPicker to decide whether
+// to show the button at all.
 const ShareToLineButton: React.FC<ShareToLineButtonProps> = ({ text, label, className }) => {
   const { lang } = useTranslation();
+  const inLine = isInLineApp();
+  const [available, setAvailable] = useState(inLine);
+  const [checked, setChecked] = useState(inLine);
   const [sharing, setSharing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  if (!isInLineApp()) return null;
+  useEffect(() => {
+    if (inLine) return;
+    let cancelled = false;
+    isLineShareAvailable().then((ok) => {
+      if (!cancelled) {
+        setAvailable(ok);
+        setChecked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!checked || !available) return null;
 
   const handleClick = async () => {
     if (sharing) return;

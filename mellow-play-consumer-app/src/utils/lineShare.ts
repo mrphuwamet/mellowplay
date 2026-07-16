@@ -37,17 +37,30 @@ const getLiff = async () => {
   return liffInitPromise;
 };
 
-// Cheap, init-free check for whether we're inside LINE's in-app browser
-// (it sets a distinctive "Line/x.x.x" token in the user agent). Deciding
-// whether to SHOW the button from this alone — instead of eagerly calling
-// liff.init() on every page mount to feature-detect — matters because the
-// first liff.init() call inside LINE does a real page redirect through
-// LINE's own domain to bootstrap the session, which drops whatever path
-// the user was on. Doing that eagerly on every course/booking page view
-// bounced users back to Home on every single visit; now it only runs when
-// they actually tap "share", and the redirect (if any) is recovered via the
-// liff.state restoration in App.tsx.
+// Cheap, init-free check for whether we're inside LINE's in-app browser (it
+// sets a distinctive "Line/x.x.x" token in the user agent). This is used to
+// decide *when it's safe to eagerly call liff.init()* — not whether to show
+// the button. The first liff.init() call inside LINE's own in-app browser
+// does a real page redirect through LINE's domain to bootstrap the session,
+// which drops whatever path the user was on (bounced every course/booking
+// page view back to Home). liff.init() from a normal external browser does
+// NOT do that redirect, so it's safe to call eagerly there.
 export const isInLineApp = (): boolean => /\bLine\//.test(navigator.userAgent);
+
+// Feature-detects rather than assuming "not in LINE = never available" —
+// LIFF's shareTargetPicker can work from an external browser too (LINE
+// hands off to its own app/QR flow), which is why this must still exist
+// alongside isInLineApp: outside LINE, this eager check is safe and is the
+// only way to know whether to show the button at all.
+export const isLineShareAvailable = async (): Promise<boolean> => {
+  try {
+    const liff = await getLiff();
+    if (!liff) return false;
+    return liff.isApiAvailable('shareTargetPicker');
+  } catch {
+    return false;
+  }
+};
 
 export type ShareResult = { status: 'sent' | 'cancelled' | 'unavailable' | 'error'; message?: string };
 
