@@ -37,19 +37,17 @@ const getLiff = async () => {
   return liffInitPromise;
 };
 
-// Feature-detects rather than assuming "inside LINE = available, outside =
-// not" — shareTargetPicker can work from an external browser too (LINE
-// handles the hand-off), so this is the one source of truth for whether to
-// show the share button at all.
-export const isLineShareAvailable = async (): Promise<boolean> => {
-  try {
-    const liff = await getLiff();
-    if (!liff) return false;
-    return liff.isApiAvailable('shareTargetPicker');
-  } catch {
-    return false;
-  }
-};
+// Cheap, init-free check for whether we're inside LINE's in-app browser
+// (it sets a distinctive "Line/x.x.x" token in the user agent). Deciding
+// whether to SHOW the button from this alone — instead of eagerly calling
+// liff.init() on every page mount to feature-detect — matters because the
+// first liff.init() call inside LINE does a real page redirect through
+// LINE's own domain to bootstrap the session, which drops whatever path
+// the user was on. Doing that eagerly on every course/booking page view
+// bounced users back to Home on every single visit; now it only runs when
+// they actually tap "share", and the redirect (if any) is recovered via the
+// liff.state restoration in App.tsx.
+export const isInLineApp = (): boolean => /\bLine\//.test(navigator.userAgent);
 
 export type ShareResult = { status: 'sent' | 'cancelled' | 'unavailable' | 'error'; message?: string };
 

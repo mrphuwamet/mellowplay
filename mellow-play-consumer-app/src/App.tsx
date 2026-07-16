@@ -37,6 +37,22 @@ const AppContent = () => {
   // so they need this component to re-render for the change to show up.
   const [, forceGuestRerender] = React.useState(0);
 
+  // LINE's in-app browser bootstraps a LIFF session the first time any page
+  // calls liff.init() (e.g. the LINE-share button on Course Detail) — that
+  // bootstrap is a real page redirect through LINE's own domain, and it
+  // lands back on this app's registered root URL, dropping whatever deep
+  // path (like /course/5) the user actually opened. LINE preserves that
+  // original path in a `liff.state` query param on the return redirect
+  // specifically so apps can restore it — without this, every deep link
+  // opened inside LINE would silently bounce to Home instead.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const liffState = params.get('liff.state');
+    if (liffState) {
+      navigate(liffState.startsWith('/') ? liffState : `/${liffState}`, { replace: true });
+    }
+  }, []);
+
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');
     const isGuest = localStorage.getItem('mellow_guest') === 'true';

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { isLineShareAvailable, shareToLine } from '../utils/lineShare';
+import React, { useState } from 'react';
+import { isInLineApp, shareToLine } from '../utils/lineShare';
 
 interface ShareToLineButtonProps {
   text: string;
@@ -7,29 +7,14 @@ interface ShareToLineButtonProps {
   className?: string;
 }
 
-// Renders nothing until availability is confirmed, and stays hidden entirely
-// if LIFF share isn't available (plain browser without the LINE hand-off,
-// LIFF ID not configured yet, old LINE app version, etc.) — a locked-looking
-// or dead button is worse than no button at all.
+// Shown only inside LINE's in-app browser (checked via user agent, not by
+// calling liff.init() — see isInLineApp's comment for why that matters).
+// The actual LIFF init + shareTargetPicker feature-detection is deferred
+// until the user taps this, not done eagerly on page load.
 const ShareToLineButton: React.FC<ShareToLineButtonProps> = ({ text, label, className }) => {
-  const [available, setAvailable] = useState(false);
-  const [checked, setChecked] = useState(false);
   const [sharing, setSharing] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    isLineShareAvailable().then((ok) => {
-      if (!cancelled) {
-        setAvailable(ok);
-        setChecked(true);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!checked || !available) return null;
+  if (!isInLineApp()) return null;
 
   const handleClick = async () => {
     if (sharing) return;
