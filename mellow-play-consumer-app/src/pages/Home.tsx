@@ -400,7 +400,7 @@ const Home = () => {
                     {t.home.greeting}
                   </p>
                   {isGuest ? (
-                    <h2 className="text-[22px] leading-none font-black text-slate-800 mb-2">Explorer</h2>
+                    <h2 className="text-[22px] leading-none font-black text-slate-800 mb-2">{t.home.guestName}</h2>
                   ) : (
                     <div className="flex flex-col gap-1.5">
                       <button

@@ -225,6 +225,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       tryNew: 'My child bravely tried something new today',
       learningJourney: 'Learning Journey',
       greeting: 'Today at Mellow',
+      guestName: 'Explorer',
       quickAccess: {
         title: '',
         album: 'Album',
@@ -696,6 +697,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       tryNew: 'วันนี้น้องกล้าลองสิ่งใหม่ด้วยตัวเอง',
       learningJourney: 'เส้นทางการเรียนรู้',
       greeting: 'ยินดีต้อนรับสู่ Mellow Play',
+      guestName: 'นักสำรวจ',
       quickAccess: {
         title: '',
         album: 'อัลบั้ม',
