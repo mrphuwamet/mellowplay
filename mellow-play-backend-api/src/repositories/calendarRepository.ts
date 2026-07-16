@@ -1,3 +1,23 @@
+// A booking occupies a seat if EITHER signal says so — status (confirmed/
+// confirmed_paid/completed/awaiting_report) or payment_status (paid/prepaid,
+// the latter being coupon-paid bookings) — plus a short grace window for a
+// booking still mid-checkout, so two people can't grab the same last seat
+// at once. Checking only one of the two fields previously undercounted
+// occupied seats whenever they drifted out of sync with each other:
+// coupon-paid bookings (status='confirmed', payment_status='prepaid') were
+// never counted at all, and a booking manually corrected to confirmed_paid
+// via the CRM's force-status tool without payment_status also being synced
+// (see adminController.updateBookingStatus) stayed invisible to capacity
+// too — a real customer's confirmed seat looked open to everyone else.
+const OCCUPIES_SEAT_SQL = `
+  b.status != 'cancelled'
+  AND (
+    b.status IN ('confirmed', 'confirmed_paid', 'completed', 'awaiting_report')
+    OR b.payment_status IN ('paid', 'prepaid')
+    OR ((b.status = 'pending_payment' OR b.payment_status = 'pending') AND (strftime('%s', 'now') - strftime('%s', b.created_at)) < 300)
+  )
+`;
+
 export class CalendarRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -101,8 +121,7 @@ export class CalendarRepository {
           SELECT COUNT(*) as cnt FROM Bookings b
           JOIN Courses c ON b.course_id = c.id
           WHERE c.calendar_id=? AND SUBSTR(b.scheduled_at, 1, 10)=? AND SUBSTR(b.scheduled_at, 12, 5)=?
-            AND b.status != 'cancelled'
-            AND (b.payment_status = 'paid' OR (b.payment_status = 'pending' AND (strftime('%s', 'now') - strftime('%s', b.created_at)) < 300))
+            AND ${OCCUPIES_SEAT_SQL}
         `).bind(calendarId, date, start).all();
         const booked = (bookings[0] as any)?.cnt ?? 0;
         slots.push({
@@ -134,10 +153,9 @@ export class CalendarRepository {
         SELECT SUBSTR(b.scheduled_at, 1, 10) as slot_date, SUBSTR(b.scheduled_at, 12, 5) as slot_start_time, COUNT(*) as cnt 
         FROM Bookings b
         JOIN Courses c ON b.course_id = c.id
-        WHERE c.calendar_id=? ${branchId ? `AND b.branch_id=${branchId}` : ''} 
-          AND SUBSTR(b.scheduled_at, 1, 10) >= ? AND SUBSTR(b.scheduled_at, 1, 10) <= ? 
-          AND b.status != 'cancelled' 
-          AND (b.payment_status = 'paid' OR (b.payment_status = 'pending' AND (strftime('%s', 'now') - strftime('%s', b.created_at)) < 300))
+        WHERE c.calendar_id=? ${branchId ? `AND b.branch_id=${branchId}` : ''}
+          AND SUBSTR(b.scheduled_at, 1, 10) >= ? AND SUBSTR(b.scheduled_at, 1, 10) <= ?
+          AND ${OCCUPIES_SEAT_SQL}
         GROUP BY SUBSTR(b.scheduled_at, 1, 10), SUBSTR(b.scheduled_at, 12, 5)
     `;
 

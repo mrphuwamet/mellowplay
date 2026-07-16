@@ -1569,8 +1569,18 @@ export class AdminController {
       // scheduledAt/paidAt are optional overrides for Super Admin error-correction
       // (e.g. backdating a payment or fixing a wrong class date) — normal status
       // changes (complete/cancel) omit them and only the status column updates.
+      //
+      // payment_status is kept in sync with status here — this endpoint used to
+      // touch status alone, so forcing a booking to confirmed_paid (e.g. to
+      // correct one the Beam webhook missed — see webhookController.ts) left
+      // payment_status stuck at its old value. The class-capacity count reads
+      // payment_status, not status, so that mismatch made a genuinely paid,
+      // confirmed booking invisible to seat availability — the class looked
+      // like it still had room when it didn't.
       const sets = ['status = ?'];
       const binds: any[] = [status];
+      if (status === 'confirmed_paid') sets.push("payment_status = 'paid'");
+      else if (status === 'pending') sets.push("payment_status = 'pending'");
       if (scheduledAt) { sets.push('scheduled_at = ?'); binds.push(scheduledAt); }
       if (paidAt) { sets.push('paid_at = ?'); binds.push(paidAt); }
       binds.push(id);
