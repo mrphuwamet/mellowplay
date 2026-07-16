@@ -64,21 +64,48 @@ export const isLineShareAvailable = async (): Promise<boolean> => {
 
 export type ShareResult = { status: 'sent' | 'cancelled' | 'unavailable' | 'error'; message?: string };
 
+// The very first liff.init() call in a fresh LINE in-app-browser session can
+// still trigger the redirect-bootstrap described above even when it's
+// deferred to click-time (share also requires re-consenting to a chat
+// message-sending scope the first time) — the tab visibly flickers/reloads
+// and tears down the click's JS context before shareTargetPicker ever
+// opens, so the share silently goes nowhere. Stash the pending text before
+// calling in, so whoever restores state after the redirect (App.tsx) can
+// retry it automatically once LIFF is actually initialized.
+const PENDING_SHARE_KEY = 'mellow_pending_line_share';
+
 // Plain text messages only — deliberately not Flex Messages, whose JSON
 // schema is easy to get subtly wrong. `liff.shareTargetPicker` resolves to
 // `undefined` when the user closes the picker without sending; that's a
 // normal cancel, not a failure.
 export const shareToLine = async (text: string): Promise<ShareResult> => {
   try {
+    sessionStorage.setItem(PENDING_SHARE_KEY, text);
     const liff = await getLiff();
     if (!liff || !liff.isApiAvailable('shareTargetPicker')) {
+      sessionStorage.removeItem(PENDING_SHARE_KEY);
       return { status: 'unavailable' };
     }
     const result = await liff.shareTargetPicker([{ type: 'text', text }]);
+    sessionStorage.removeItem(PENDING_SHARE_KEY);
     if (!result) return { status: 'cancelled' };
     return { status: 'sent' };
   } catch (err: any) {
+    sessionStorage.removeItem(PENDING_SHARE_KEY);
     console.error('LINE share failed:', err);
     return { status: 'error', message: err?.message };
   }
+};
+
+// Called once from App.tsx on every fresh mount — if a share attempt never
+// got the chance to clear its pending flag (because the redirect above tore
+// the page down mid-flight), it's still there when the page comes back, so
+// retry it. LIFF's session context is now actually established, so this
+// second attempt goes through as a normal share instead of triggering
+// another redirect.
+export const retryPendingLineShare = (): void => {
+  const pending = sessionStorage.getItem(PENDING_SHARE_KEY);
+  if (!pending) return;
+  sessionStorage.removeItem(PENDING_SHARE_KEY);
+  shareToLine(pending).catch(() => {});
 };

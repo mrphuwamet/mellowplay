@@ -25,6 +25,7 @@ import { useChildStore } from './store/useChildStore';
 import { LanguageProvider, useTranslation } from './LanguageContext';
 import GuestUnlockModal from './components/GuestUnlockModal';
 import { pingVisit } from './utils/visitTracker';
+import { retryPendingLineShare } from './utils/lineShare';
 
 const AppContent = () => {
   const location = useLocation();
@@ -51,6 +52,13 @@ const AppContent = () => {
     if (liffState) {
       navigate(liffState.startsWith('/') ? liffState : `/${liffState}`, { replace: true });
     }
+
+    // The same redirect can interrupt a share button tap mid-flight (the
+    // click's own liff.init() call triggers it) — the tab visibly flickers
+    // and the share never opens. If shareToLine() left a pending share
+    // behind because it got torn down before finishing, retry it now; LIFF
+    // is actually initialized this time, so it goes through normally.
+    retryPendingLineShare();
   }, []);
 
   React.useEffect(() => {
