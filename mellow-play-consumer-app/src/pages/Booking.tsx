@@ -987,8 +987,13 @@ const Booking = () => {
                       <button key={slot.startTime} disabled={slot.available === 0} onClick={() => { setSelectedSlot(slot); setCurrentStepIndex(currentStepIndex + 1); }} className={`p-4 rounded-2xl border text-left transition-all relative overflow-hidden ${slot.available === 0 ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : selectedSlot?.startTime === slot.startTime ? 'bg-mellow-purple/5 border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 hover:border-mellow-purple/30'}`}>
                         <div className="flex flex-col gap-1.5 relative z-10">
                           <span className="text-lg font-black text-slate-700 block">{slot.startTime}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full self-start ${slot.available === 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
-                            {slot.available === 0 ? (t.booking?.full || 'เต็มแล้ว') : `${t.booking?.availableSeats || 'ว่าง'} ${slot.available} ${t.booking?.seats || 'ที่'}`}
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full self-start ${slot.available === 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                            {slot.available === 0 ? (t.booking?.full || 'เต็มแล้ว') : (
+                              <>
+                                {t.booking?.availableSeats || 'ว่าง'} {slot.available}
+                                <Users size={11} strokeWidth={2.5} />
+                              </>
+                            )}
                           </span>
                         </div>
                         <Clock size={40} className="absolute -right-2 -bottom-2 text-slate-100 opacity-50 z-0" strokeWidth={1} />

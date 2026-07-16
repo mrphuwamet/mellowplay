@@ -351,8 +351,15 @@ const CourseDetail = () => {
                                    {slot.startTime} - {slot.endTime}
                                  </span>
                                </div>
-                               <div className={`px-3 py-1.5 rounded-lg text-[15px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
-                                 {isFull ? (lang === 'en' ? 'Full' : 'เต็มแล้ว') : (lang === 'en' ? `${slot.available} spots left` : `ว่าง ${slot.available} ที่`)}
+                               <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[15px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                                 {isFull ? (
+                                   (lang === 'en' ? 'Full' : 'เต็มแล้ว')
+                                 ) : (
+                                   <>
+                                     {lang === 'en' ? `${slot.available} left` : `ว่าง ${slot.available}`}
+                                     <Users size={14} strokeWidth={2.5} />
+                                   </>
+                                 )}
                                </div>
                              </div>
                            );
