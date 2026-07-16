@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { isInLineApp, shareToLine } from '../utils/lineShare';
+import { Toast } from './Toast';
+import { useTranslation } from '../LanguageContext';
 
 interface ShareToLineButtonProps {
   text: string;
@@ -12,7 +14,9 @@ interface ShareToLineButtonProps {
 // The actual LIFF init + shareTargetPicker feature-detection is deferred
 // until the user taps this, not done eagerly on page load.
 const ShareToLineButton: React.FC<ShareToLineButtonProps> = ({ text, label, className }) => {
+  const { lang } = useTranslation();
   const [sharing, setSharing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   if (!isInLineApp()) return null;
 
@@ -20,16 +24,29 @@ const ShareToLineButton: React.FC<ShareToLineButtonProps> = ({ text, label, clas
     if (sharing) return;
     setSharing(true);
     try {
-      await shareToLine(text);
+      const result = await shareToLine(text);
+      // 'sent' — LINE's own picker UI already gave feedback; 'cancelled' —
+      // the user closed the picker on purpose, also not an error. Only
+      // 'unavailable' (the LIFF app's "Share target picker" permission
+      // likely isn't enabled in the LINE Developers Console) and 'error'
+      // deserve a message — otherwise tapping share and seeing nothing
+      // happen looks broken with no way to tell what went wrong.
+      if (result.status === 'unavailable' || result.status === 'error') {
+        console.error('LINE share unavailable:', result);
+        setErrorMsg(lang === 'en' ? 'Unable to share right now.' : 'ไม่สามารถแชร์ได้ในขณะนี้');
+      }
     } finally {
       setSharing(false);
     }
   };
 
   return (
-    <button type="button" onClick={handleClick} disabled={sharing} className={className} style={sharing ? { opacity: 0.6 } : undefined}>
-      {label}
-    </button>
+    <>
+      <button type="button" onClick={handleClick} disabled={sharing} className={className} style={sharing ? { opacity: 0.6 } : undefined}>
+        {label}
+      </button>
+      <Toast message={errorMsg} type="error" onClose={() => setErrorMsg('')} />
+    </>
   );
 };
 
