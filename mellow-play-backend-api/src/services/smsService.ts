@@ -31,6 +31,15 @@ export class SmsService {
   }
 
   private async send(phone: string, message: string): Promise<{ ok: boolean; detail?: string }> {
+    // A hanging ThaiBulkSMS call used to run until Cloudflare killed the
+    // Worker for exceeding its execution limit — the client just saw a raw
+    // connection failure (no JSON body, so the frontend can't show a real
+    // message) and the code never reached the sendAlert() call below it,
+    // so nobody got notified either. Aborting on a timeout guarantees a
+    // clean, fast, structured failure response every time instead.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+
     try {
       const auth = btoa(`${this.apiKey}:${this.apiSecret}`);
       const response = await fetch(this.apiUrl, {
@@ -44,7 +53,8 @@ export class SmsService {
           'msisdn': phone,
           'message': message,
           'sender': this.senderName,
-        })
+        }),
+        signal: controller.signal,
       });
 
       const result = await response.json() as any;
@@ -56,8 +66,11 @@ export class SmsService {
         return { ok: false, detail: result?.error?.message || result?.message || JSON.stringify(result) };
       }
     } catch (error: any) {
+      const detail = error?.name === 'AbortError' ? 'ThaiBulkSMS did not respond in time' : error.message;
       console.error('SMS Service Error:', error);
-      return { ok: false, detail: error.message };
+      return { ok: false, detail };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }
