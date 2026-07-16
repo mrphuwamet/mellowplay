@@ -1130,12 +1130,21 @@ const BookingManagement = () => {
 
   // ── Super Admin force-status patch (error correction) ────────────────────
   const [forceStatusBooking, setForceStatusBooking] = useState<Booking | null>(null);
-  const [forceStatusValue, setForceStatusValue] = useState<'pending' | 'confirmed_paid'>('confirmed_paid');
+  const [forceStatusValue, setForceStatusValue] = useState<string>('confirmed_paid');
   const [forceScheduledAt, setForceScheduledAt] = useState('');
   const [forcePaidAt, setForcePaidAt] = useState('');
   const [forceStatusLoading, setForceStatusLoading] = useState(false);
   const [forceStatusError, setForceStatusError] = useState('');
   const [forceStatusSuccess, setForceStatusSuccess] = useState(false);
+
+  // Super Admin hard-delete — requires typing "ยืนยัน" verbatim before the
+  // delete button enables at all, since this permanently removes the row
+  // (unlike Cancel, which just sets status='cancelled' and keeps history).
+  const DELETE_CONFIRM_WORD = 'ยืนยัน';
+  const [deleteBookingTarget, setDeleteBookingTarget] = useState<Booking | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // <input type="datetime-local"> requires "YYYY-MM-DDTHH:MM" — stored dates
   // use a space separator ("YYYY-MM-DD HH:MM:SS"), so convert both ways.
@@ -1173,6 +1182,27 @@ const BookingManagement = () => {
       setForceStatusError(e.response?.data?.message || 'เกิดข้อผิดพลาด ไม่สามารถบันทึกได้');
     } finally {
       setForceStatusLoading(false);
+    }
+  };
+
+  const openDeleteBooking = (b: Booking) => {
+    setDeleteBookingTarget(b);
+    setDeleteConfirmText('');
+    setDeleteError('');
+  };
+
+  const submitDeleteBooking = async () => {
+    if (!deleteBookingTarget || deleteConfirmText !== DELETE_CONFIRM_WORD) return;
+    setDeleteLoading(true);
+    setDeleteError('');
+    try {
+      await axios.delete(`${API_BASE}/bookings/${deleteBookingTarget.id}`);
+      setDeleteBookingTarget(null);
+      fetchBookings();
+    } catch (e: any) {
+      setDeleteError(e.response?.data?.message || 'เกิดข้อผิดพลาด ไม่สามารถลบได้');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -1438,10 +1468,15 @@ const BookingManagement = () => {
             <Select
               label="สถานะ"
               value={forceStatusValue}
-              onChange={e => setForceStatusValue(e.target.value as 'pending' | 'confirmed_paid')}
+              onChange={e => setForceStatusValue(e.target.value)}
             >
-              <MenuItem value="pending">รอจ่ายเงิน</MenuItem>
-              <MenuItem value="confirmed_paid">จ่ายเงินแล้ว</MenuItem>
+              <MenuItem value="pending_payment">รอจ่ายเงิน (pending_payment)</MenuItem>
+              <MenuItem value="pending">รอจ่ายเงิน (pending)</MenuItem>
+              <MenuItem value="confirmed">ยืนยันแล้ว (confirmed)</MenuItem>
+              <MenuItem value="confirmed_paid">จ่ายเงินแล้ว (confirmed_paid)</MenuItem>
+              <MenuItem value="awaiting_report">รอรายงานผล (awaiting_report)</MenuItem>
+              <MenuItem value="completed">จบคลาสแล้ว (completed)</MenuItem>
+              <MenuItem value="cancelled">ยกเลิกแล้ว (cancelled)</MenuItem>
             </Select>
           </FormControl>
           <TextField
@@ -1463,9 +1498,49 @@ const BookingManagement = () => {
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            color="error"
+            disabled={forceStatusLoading}
+            onClick={() => { const b = forceStatusBooking; setForceStatusBooking(null); if (b) openDeleteBooking(b); }}
+            sx={{ mr: 'auto' }}
+          >
+            ลบถาวร...
+          </Button>
           <Button onClick={() => setForceStatusBooking(null)} disabled={forceStatusLoading}>ยกเลิก</Button>
           <Button variant="contained" color="warning" onClick={submitForceStatus} disabled={forceStatusLoading}>
             {forceStatusLoading ? <CircularProgress size={18} /> : 'บันทึก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Super Admin: permanent hard-delete, gated behind typing the
+          confirm word verbatim — this removes the row entirely (unlike
+          Cancel, which keeps it as status='cancelled' for history/reporting). */}
+      <Dialog open={!!deleteBookingTarget} onClose={() => { if (!deleteLoading) setDeleteBookingTarget(null); }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>ลบการจองถาวร (Super Admin)</DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            การลบนี้ถาวรและกู้คืนไม่ได้ — ข้อมูลการจอง #{deleteBookingTarget?.id} ({deleteBookingTarget?.course_name} • {deleteBookingTarget?.child_name}) จะหายไปทั้งหมด
+            ถ้าต้องการแค่ยกเลิกการจองแต่เก็บประวัติไว้ ให้ใช้ปุ่ม "ยกเลิก" แทน
+          </Alert>
+          {deleteError && <Alert severity="error" sx={{ mb: 2 }}>{deleteError}</Alert>}
+          <TextField
+            label={`พิมพ์ "${DELETE_CONFIRM_WORD}" เพื่อยืนยัน`}
+            fullWidth
+            autoFocus
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteBookingTarget(null)} disabled={deleteLoading}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={submitDeleteBooking}
+            disabled={deleteLoading || deleteConfirmText !== DELETE_CONFIRM_WORD}
+          >
+            {deleteLoading ? <CircularProgress size={18} /> : 'ลบถาวร'}
           </Button>
         </DialogActions>
       </Dialog>
