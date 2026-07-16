@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, X, Smartphone, Wallet, QrCode, Search, Share2 } from 'lucide-react';
+import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2 } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
@@ -171,6 +171,18 @@ const Booking = () => {
   // step renders for one frame before the async fetch below jumps forward.
   const [currentStepIndex, setCurrentStepIndex] = useState(() => preSelectedCourseId ? 1 : 0);
   const currentStep = flowSteps[currentStepIndex];
+
+  // Guests could browse straight through the whole flow and only hit a wall
+  // at final submit (or not even then) — gate as soon as they try to move
+  // past course browsing, whether by picking a course card or arriving via
+  // a preSelectedCourseId deep link (which skips straight to the child step).
+  const isGuest = localStorage.getItem('mellow_guest') === 'true';
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  useEffect(() => {
+    if (isGuest && currentStepIndex > 0) {
+      setShowGuestModal(true);
+    }
+  }, [isGuest, currentStepIndex]);
 
   // Auto skip branch
   useEffect(() => {
@@ -1097,9 +1109,17 @@ const Booking = () => {
       )}
             {/* Course Details Modal */}
       {isCourseModalOpen && selectedCourse && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsCourseModalOpen(false)} />
-          <div className="bg-white rounded-[32px] w-[calc(100vw-48px)] max-w-sm max-h-[80vh] overflow-y-auto relative z-10 animate-in slide-in-from-bottom-8 duration-300">
+          {/* Frame is sized off the viewport (20px margin on every side) instead
+              of a fixed max-height — the close button below lives outside the
+              scrolling inner content, so it stays put instead of scrolling
+              away with it. */}
+          <div className="relative z-10 bg-white rounded-[32px] w-[calc(100vw-40px)] max-w-sm h-[calc(100vh-40px)] overflow-hidden animate-in zoom-in-95 duration-300">
+            <button onClick={() => setIsCourseModalOpen(false)} className="absolute top-4 right-4 z-20 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center backdrop-blur-md">
+              <X size={18} />
+            </button>
+            <div className="w-full h-full overflow-y-auto rounded-[32px]">
             {selectedCourse.poster_images && selectedCourse.poster_images.length > 0 ? (
               <PosterCarousel images={selectedCourse.poster_images} alt={selectedCourse.name} className="w-full" rounded="rounded-t-[32px]" />
             ) : getCourseView(selectedCourse, 'card').url && (
@@ -1107,9 +1127,6 @@ const Booking = () => {
                  <img src={getCourseView(selectedCourse, 'card').url} style={getCourseView(selectedCourse, 'card').style} className="w-full h-full object-cover" />
                </div>
             )}
-            <button onClick={() => setIsCourseModalOpen(false)} className="absolute top-4 right-4 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center backdrop-blur-md">
-              <X size={18} />
-            </button>
             <div className="p-6 space-y-4">
               <div>
                  <h2 className="text-xl font-black text-slate-800 leading-tight mb-2">{selectedCourse.name}</h2>
@@ -1167,6 +1184,7 @@ const Booking = () => {
                  {t.booking?.closeWindow || 'ปิดหน้าต่าง'}
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -1198,7 +1216,46 @@ const Booking = () => {
       )}
 
       <AddChildModal isOpen={isAddChildOpen} onClose={() => setIsAddChildOpen(false)} />
-      
+
+      {/* Guest Gate — same "Please Register First" pattern as CourseDetail.tsx,
+          triggered here instead by the step advancing (covers both picking a
+          course card and arriving via a preSelectedCourseId deep link). */}
+      {showGuestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] p-6 w-full max-w-[340px] shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users size={32} className="text-mellow-yellow-dark" />
+            </div>
+            <h3 className="text-[20px] font-black text-slate-800 mb-2">
+              {lang === 'en' ? 'Please Register First' : 'กรุณาสมัครสมาชิกก่อน'}
+            </h3>
+            <p className="text-[14px] text-slate-500 font-medium mb-6">
+              {lang === 'en'
+                ? 'Register now to book this class and track your child\'s journey!'
+                : 'สมัครสมาชิกเพื่อทำการจองคลาสเรียนและติดตามพัฒนาการของน้องๆ'}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
+                className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+              >
+                {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowGuestModal(false);
+                  const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
+                  navigate(`/register?redirect=${encodeURIComponent(redirectTo)}`);
+                }}
+                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
+              >
+                {t.common?.register || 'สมัครสมาชิก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Promo Error Modal */}
       {promoErrorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">

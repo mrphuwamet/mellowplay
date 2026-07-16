@@ -33,6 +33,7 @@ interface ChildInput {
 
 interface ChildFieldErrors {
   firstName?: string;
+  lastName?: string;
   nickname?: string;
   gender?: string;
   dob?: string;
@@ -108,12 +109,20 @@ const Register = () => {
     if (!formData.prefix) errs.prefix = t.register.requiredPrefix;
     if (!formData.firstName.trim()) errs.firstName = t.register.requiredFirstName;
     if (!formData.lastName.trim()) errs.lastName = t.register.requiredLastName;
-    if (!formData.phone.trim()) errs.phone = t.register.requiredPhone;
+    if (!formData.phone.trim()) {
+      errs.phone = t.register.requiredPhone;
+    } else if (formData.phone.replace(/\D/g, '').length !== 10) {
+      // Thai mobile numbers are always 10 digits — catches typos/missing
+      // digits here instead of only failing later when OTP send/verify
+      // rejects a malformed number with a much less specific error.
+      errs.phone = lang === 'en' ? 'Phone number must be 10 digits' : 'เบอร์โทรศัพท์ต้องมี 10 หลัก';
+    }
     if (!formData.email.trim()) errs.email = t.register.requiredEmail;
 
     const cErrs: ChildFieldErrors[] = children.map((c) => {
       const e: ChildFieldErrors = {};
       if (!c.firstName.trim()) e.firstName = t.register.requiredFirstName;
+      if (!c.lastName.trim()) e.lastName = t.register.requiredLastName;
       if (!c.nickname.trim()) e.nickname = t.register.requiredNickname;
       if (!c.gender) e.gender = t.register.requiredGender;
       if (!c.dob) e.dob = t.register.requiredDob;
@@ -137,7 +146,7 @@ const Register = () => {
       }
       if (!targetId) {
         outer: for (let i = 0; i < cErrs.length; i++) {
-          for (const key of ['firstName', 'nickname', 'gender', 'dob', 'customRelation'] as const) {
+          for (const key of ['firstName', 'lastName', 'nickname', 'gender', 'dob', 'customRelation'] as const) {
             if (cErrs[i][key]) { targetId = `reg-child-${i}-${key}`; break outer; }
           }
         }
@@ -181,7 +190,28 @@ const Register = () => {
         }
       }
     } catch (err: any) {
-      setError(getOtpErrorMessage(err, lang, t.register.otpFailed));
+      // A duplicate phone/email is a validation problem with a specific
+      // field, not a generic system error — pin it to that field as a
+      // persistent hint (cleared once the user edits the field, same as
+      // every other field error) and scroll to it, instead of a toast that
+      // auto-dismisses and leaves no indication of which input is wrong.
+      const status = err?.response?.status;
+      const backendMessage = err?.response?.data?.message;
+      if (status && status < 500 && backendMessage) {
+        const isPhoneIssue = backendMessage.includes('เบอร์โทรศัพท์') || /phone/i.test(backendMessage);
+        const isEmailIssue = backendMessage.includes('อีเมล') || /email/i.test(backendMessage);
+        if (isPhoneIssue) {
+          setFieldErrors(prev => ({ ...prev, phone: backendMessage }));
+          document.getElementById('reg-phone')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (isEmailIssue) {
+          setFieldErrors(prev => ({ ...prev, email: backendMessage }));
+          document.getElementById('reg-email')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          setError(backendMessage);
+        }
+      } else {
+        setError(getOtpErrorMessage(err, lang, t.register.otpFailed));
+      }
       setFormData(prev => ({ ...prev, otp: '' }));
     } finally {
       setIsLoading(false);
@@ -495,16 +525,18 @@ const Register = () => {
                 </div>
                 <div className="relative">
                   <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
+                  <FieldHint message={childErrors[index]?.lastName} />
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                       <User size={18} />
                     </div>
                     <input
+                      id={`reg-child-${index}-lastName`}
                       type="text"
                       placeholder={t.register.lastName}
                       value={child.lastName}
                       onChange={(e) => handleChildChange(index, 'lastName', e.target.value)}
-                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.lastName)}`}
                     />
                   </div>
                 </div>
@@ -872,20 +904,24 @@ const Register = () => {
     }
   };
 
-  // The consent (terms/PDPA) step packs a scrollable policy box, two
-  // checkboxes, and two buttons into one screen — the full-size header used
-  // by every other step pushed the buttons below the fold on smaller
-  // phones. Only this step gets the compact header (logo up top, no
-  // description line); the rest are unaffected.
-  const isConsentStep = step === 'consent';
+  // The consent (terms/PDPA) and info (parent + children details) steps are
+  // both long, content-heavy forms — the full-size header used by the
+  // shorter steps pushed content below the fold on smaller phones. Both get
+  // the compact header (logo up top, no description line); the rest of the
+  // steps are unaffected.
+  const useCompactHeader = step === 'consent' || step === 'info';
 
   return (
     <div className="mellow-page flex flex-col px-8 bg-white">
-      <header className={`flex justify-between items-center ${isConsentStep ? 'pt-4 mb-2' : 'pt-10 mb-8'}`}>
+      <header className={`flex justify-between items-center ${useCompactHeader ? 'pt-4 mb-2' : 'pt-10 mb-8'}`}>
         <button
           onClick={() => {
             if (step === 'consent') {
-              navigate('/login');
+              // A guest who tapped "Register" from a course/feature they
+              // were looking at, then changes their mind here, expects Back
+              // to return them there — not to a login screen they never
+              // asked for.
+              navigate(-1);
             } else if (step === 'info') {
               setStep('consent');
             } else if (step === 'otp') {
@@ -907,7 +943,7 @@ const Register = () => {
         <LanguageToggle />
       </header>
 
-      {isConsentStep ? (
+      {useCompactHeader ? (
         <div className="text-center mb-3">
           <img src={logo} alt="Mellow Play" className="h-7 mx-auto mb-2" />
           <h1 className="text-base font-black text-mellow-ink">
