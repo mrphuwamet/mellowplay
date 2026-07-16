@@ -13,6 +13,8 @@ const BOT_USER_AGENT = /facebookexternalhit|Facebot|LinkedInBot|Twitterbot|Whats
 const API_BASE = 'https://api.mellowplay.co/api/v1';
 const SITE_URL = 'https://mellowplay.co';
 const DEFAULT_IMAGE = `${SITE_URL}/web-app-manifest-512x512.png`;
+// The site-wide fallback image's real, verified dimensions (public/web-app-manifest-512x512.png).
+const DEFAULT_IMAGE_META = { width: 512, height: 512, type: 'image/png' };
 
 function escapeHtml(value: string): string {
   return value
@@ -25,6 +27,78 @@ function escapeHtml(value: string): string {
 
 function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+type ImageMeta = { width: number; height: number; type: string } | null;
+
+// PNG: 8-byte signature, then the IHDR chunk always comes first —
+// 4-byte length + "IHDR" + 4-byte width + 4-byte height, big-endian.
+function parsePng(buf: Uint8Array): ImageMeta {
+  if (buf.length < 24) return null;
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) return null;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20), type: 'image/png' };
+}
+
+// JPEG: scan markers after the SOI (0xFFD8) until a Start-Of-Frame marker
+// (0xC0–0xCF, excluding the non-frame 0xC4/0xC8/0xCC codes), whose payload
+// starts with precision(1)/height(2)/width(2), big-endian.
+function parseJpeg(buf: Uint8Array): ImageMeta {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let offset = 2;
+  while (offset + 4 <= buf.length) {
+    if (buf[offset] !== 0xff) {
+      offset++;
+      continue;
+    }
+    const marker = buf[offset + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+      offset += 2;
+      continue;
+    }
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      if (offset + 9 > buf.length) return null; // truncated — caller may fetch more
+      return { height: view.getUint16(offset + 5), width: view.getUint16(offset + 7), type: 'image/jpeg' };
+    }
+    const segmentLength = view.getUint16(offset + 2);
+    offset += 2 + segmentLength;
+  }
+  return null; // not found in what we have yet
+}
+
+// Reads the image in bounded chunks (never the whole file for a large
+// photo) and stops as soon as either parser succeeds, so a wrong/guessed
+// og:image:width|height is never sent — only a real parsed value, or none
+// at all (Facebook/LINE/Twitter all handle a missing width/height fine;
+// they just can't optimize the crop ahead of time).
+async function probeImageMeta(url: string): Promise<ImageMeta> {
+  const MAX_BYTES = 65536;
+  try {
+    const res = await fetch(url);
+    if (!res.ok || !res.body) return null;
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(0);
+    try {
+      while (buf.length < MAX_BYTES) {
+        const { done, value } = await reader.read();
+        if (value && value.length) {
+          const merged = new Uint8Array(buf.length + value.length);
+          merged.set(buf);
+          merged.set(value, buf.length);
+          buf = merged;
+        }
+        const meta = parsePng(buf) || parseJpeg(buf);
+        if (meta) return meta;
+        if (done) break;
+      }
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+    return parsePng(buf) || parseJpeg(buf);
+  } catch {
+    return null;
+  }
 }
 
 // Untyped on purpose — this file isn't part of the Vite/tsconfig build (only
@@ -52,8 +126,16 @@ export const onRequestGet = async (context: any) => {
     const name = escapeHtml(course.name || 'Mellow Play');
     const rawDescription = course.short_description || course.description || '';
     const description = escapeHtml(stripHtml(rawDescription).slice(0, 200)) || 'Mellow Play — คลาสเรียนและกิจกรรมสำหรับเด็ก';
-    const image = escapeHtml(course.thumbnail_url || DEFAULT_IMAGE);
+    const imageUrl = course.thumbnail_url || DEFAULT_IMAGE;
+    const image = escapeHtml(imageUrl);
+    const imageMeta = course.thumbnail_url ? await probeImageMeta(imageUrl) : DEFAULT_IMAGE_META;
     const pageUrl = escapeHtml(`${SITE_URL}/course/${id}`);
+
+    const imageMetaTags = imageMeta
+      ? `<meta property="og:image:width" content="${imageMeta.width}" />
+<meta property="og:image:height" content="${imageMeta.height}" />
+<meta property="og:image:type" content="${imageMeta.type}" />`
+      : '';
 
     const html = `<!DOCTYPE html>
 <html lang="th">
@@ -67,6 +149,7 @@ export const onRequestGet = async (context: any) => {
 <meta property="og:title" content="${name}" />
 <meta property="og:description" content="${description}" />
 <meta property="og:image" content="${image}" />
+${imageMetaTags}
 <meta property="og:url" content="${pageUrl}" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${name}" />
