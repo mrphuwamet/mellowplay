@@ -157,7 +157,7 @@ const Dashboard = () => {
   const MEMBERSHIP_LABELS: Record<string, string> = { premium: 'พรีเมียม', regular: 'ทั่วไป' };
   const membershipTypeData = (analytics?.parents?.byMembershipType || []).map((p: any) => ({ name: MEMBERSHIP_LABELS[p.type] || p.type, value: p.count }));
 
-  const RELATIONSHIP_LABELS: Record<string, string> = { father: 'บิดา', mother: 'มารดา', grandparent: 'ปู่/ย่า/ตา/ยาย', other: 'อื่นๆ', unspecified: 'ไม่ระบุ' };
+  const RELATIONSHIP_LABELS: Record<string, string> = { father: 'บิดา', mother: 'มารดา', relative: 'ญาติ', other: 'อื่นๆ', unspecified: 'ไม่ระบุ' };
   const parentRelationshipData = (analytics?.parentRelationships || []).map((r: any) => ({ name: RELATIONSHIP_LABELS[r.relationship] || r.relationship, value: r.count }));
 
   const funnelWithRate = (analytics?.funnel || []).map((f: any) => ({

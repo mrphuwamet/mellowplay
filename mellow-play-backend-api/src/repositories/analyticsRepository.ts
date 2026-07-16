@@ -64,12 +64,32 @@ export class AnalyticsRepository {
     return { total: totalRow?.total || 0, byMembershipType: byType };
   }
 
-  // Parent type by relationship to the child (บิดา/มารดา/ปู่ย่าตายาย/อื่นๆ —
-  // see UserManagement.tsx's RELATIONSHIPS), separate from membership type.
+  // Parent type by relationship to the child (บิดา/มารดา/ญาติ/อื่นๆ). This
+  // used to read Users.relationship — a field only ever set by hand from
+  // the CRM's edit-user form, which staff essentially never filled in, so
+  // the chart showed "unspecified" for almost everyone even though every
+  // consumer-app registration already records this per child in
+  // HD_Profiles.relation ('Father'/'Mother'/'Relative'/'Other', or a custom
+  // free-text value when the parent picked "Other" and typed their own).
+  // Each user's earliest child record is taken as their representative
+  // relation so a parent with multiple kids is still counted exactly once.
   async getParentRelationshipStats(): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT COALESCE(NULLIF(TRIM(relationship), ''), 'unspecified') as relationship, COUNT(*) as count
-      FROM Users
+      SELECT
+        CASE
+          WHEN primary_relation IS NULL OR TRIM(primary_relation) = '' THEN 'unspecified'
+          WHEN LOWER(TRIM(primary_relation)) = 'father' THEN 'father'
+          WHEN LOWER(TRIM(primary_relation)) = 'mother' THEN 'mother'
+          WHEN LOWER(TRIM(primary_relation)) = 'relative' THEN 'relative'
+          ELSE 'other'
+        END as relationship,
+        COUNT(*) as count
+      FROM (
+        SELECT (
+          SELECT relation FROM HD_Profiles WHERE user_id = u.id ORDER BY id LIMIT 1
+        ) as primary_relation
+        FROM Users u
+      ) t
       GROUP BY relationship
     `).all<any>();
     return results;
