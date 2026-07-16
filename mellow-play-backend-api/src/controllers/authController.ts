@@ -566,6 +566,40 @@ export class AuthController {
     }
   }
 
+  // Self-service PIN change from the profile settings page — requires the
+  // current PIN rather than an OTP, since the user is already signed in
+  // (identity from the JWT) and re-entering the current PIN is the standard
+  // "prove you're still you" check for a security-sensitive change.
+  async changePassword(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const userId = await this.getAuthedUserId(c, config);
+      if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const { currentPassword, newPassword } = await c.req.json();
+      if (!currentPassword || !newPassword) {
+        return c.json({ success: false, message: 'currentPassword and newPassword required' }, 400);
+      }
+      if (!/^\d{6}$/.test(newPassword)) {
+        return c.json({ success: false, message: 'PIN ใหม่ต้องเป็นตัวเลข 6 หลัก' }, 400);
+      }
+
+      const userRepository = new UserRepository(config.db);
+      const user = await userRepository.findById(userId);
+      if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+
+      const isValid = await AuthService.verifyPassword(currentPassword, user.password_hash);
+      if (!isValid) return c.json({ success: false, message: 'PIN ปัจจุบันไม่ถูกต้อง' }, 400);
+
+      const passwordHash = await AuthService.hashPassword(newPassword);
+      await userRepository.updatePassword(user.phone, passwordHash);
+
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   // ─── Phone change (self-service) ──────────────────────────────────────────
   // Two OTP steps: first the CURRENT phone (proves the requester is the
   // account owner, not just someone who guessed the new number), then the

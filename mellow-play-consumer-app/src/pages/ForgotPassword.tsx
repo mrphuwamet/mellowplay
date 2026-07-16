@@ -49,14 +49,27 @@ const ForgotPassword = () => {
       const res = await apiClient.post('/auth/forgot-password/request-otp', { phone });
 
       if (res.data.success) {
-        setSuccessMessage(t.login.otpSent || 'OTP sent successfully');
         setOtpRef(res.data.ref || '');
         setOtp('');
-        setResendTimer(60);
+
+        // debug_otp only comes back when OTP verification is switched off
+        // system-wide (CRM > System Settings) — the customer was never
+        // actually sent a code, so skip straight past the OTP screen
+        // instead of making them guess one.
         if (res.data.debug_otp) {
-          // Dev mode
-          setOtp(res.data.debug_otp);
+          const verifyRes = await apiClient.post('/auth/forgot-password/verify-otp', { phone, otp: res.data.debug_otp });
+          if (verifyRes.data.success) {
+            setOtp(res.data.debug_otp);
+            setPinStep('create');
+            setNewPin('');
+            setConfirmPin('');
+            setStep('pin');
+            return;
+          }
         }
+
+        setSuccessMessage(t.login.otpSent || 'OTP sent successfully');
+        setResendTimer(60);
         setStep('otp');
       } else {
         setError(res.data.message || t.login.loginFailed);

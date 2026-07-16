@@ -8,6 +8,7 @@ import EditChildModal from '../components/EditChildModal';
 import AddChildModal from '../components/AddChildModal';
 import { ChildAvatar } from '../components/ChildAvatar';
 import PhoneChangeModal from '../components/PhoneChangeModal';
+import ChangePinModal from '../components/ChangePinModal';
 import { resolveImageUrl } from '../utils/courseImage';
 
 const SettingsProfile = () => {
@@ -32,6 +33,7 @@ const SettingsProfile = () => {
 
   const [account, setAccount] = useState<{ phoneVerified: boolean; hasGoogleLinked: boolean } | null>(null);
   const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const googleButtonRef = useRef<HTMLDivElement>(null);
 
@@ -372,6 +374,15 @@ const SettingsProfile = () => {
             {lang === 'en' ? 'Manage how you sign in to Mellow Play.' : 'จัดการวิธีเข้าสู่ระบบบัญชี Mellow Play ของคุณ'}
           </p>
 
+          <button
+            type="button"
+            onClick={() => setIsPinModalOpen(true)}
+            className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl mb-3 active:scale-[0.98] transition-transform"
+          >
+            <span className="font-black text-slate-800 text-[14px]">{lang === 'en' ? 'Change PIN' : 'เปลี่ยน PIN'}</span>
+            <span className="text-mellow-purple font-bold text-xs">{lang === 'en' ? 'Change' : 'เปลี่ยน'}</span>
+          </button>
+
           <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
             {account?.hasGoogleLinked ? (
               <div className="flex items-center justify-between gap-3">
@@ -497,6 +508,15 @@ const SettingsProfile = () => {
           }
           setAccount(a => a ? { ...a, phoneVerified: true } : a);
           setSuccess(lang === 'en' ? 'Phone number updated!' : 'เปลี่ยนเบอร์โทรศัพท์เรียบร้อยแล้ว');
+        }}
+      />
+
+      <ChangePinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={() => {
+          setIsPinModalOpen(false);
+          setSuccess(lang === 'en' ? 'PIN changed successfully!' : 'เปลี่ยน PIN เรียบร้อยแล้ว');
         }}
       />
     </div>

@@ -82,7 +82,6 @@ const Register = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [debugOtp, setDebugOtp] = useState('');
   const [otpRef, setOtpRef] = useState('');
   
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -183,11 +182,21 @@ const Register = () => {
       if (response.data.success) {
         setFormData(prev => ({ ...prev, otp: '' }));
         setOtpRef(response.data.ref || '');
+
+        // debug_otp only ever comes back when OTP verification is switched
+        // off system-wide (CRM > System Settings) — in that case the
+        // customer was never actually sent a code, so making them type one
+        // in would just be a dead end. Verify silently with the value the
+        // backend already generated and skip straight to PIN setup.
+        if (response.data.debug_otp) {
+          await apiClient.post('/auth/verify-otp', { phone: formData.phone, otp: response.data.debug_otp });
+          setPrevPhone(formData.phone);
+          setStep('pin');
+          return;
+        }
+
         setStep('otp');
         setResendTimer(60);
-        if (response.data.debug_otp) {
-          setDebugOtp(response.data.debug_otp);
-        }
       }
     } catch (err: any) {
       // A duplicate phone/email is a validation problem with a specific
@@ -658,12 +667,6 @@ const Register = () => {
       {otpRef && (
         <div className="text-center text-sm font-black text-slate-600 bg-slate-50 border border-slate-100 py-3 rounded-2xl">
           {t.register.referenceCode}: {otpRef}
-        </div>
-      )}
-
-      {debugOtp && (
-        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl text-center text-[14px] font-black uppercase tracking-widest">
-           Debug OTP: {debugOtp}
         </div>
       )}
 

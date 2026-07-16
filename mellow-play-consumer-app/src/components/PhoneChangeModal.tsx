@@ -44,12 +44,23 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
       const res = await apiClient.post('/auth/phone-change/request-current-otp');
       if (res.data.skipIdentityStep) {
         setStep('newPhone');
-      } else {
-        setCurrentPhone(res.data.phone || '');
-        setCurrentRef(res.data.ref || '');
-        setResendTimer(60);
-        setStep('currentOtp');
+        return;
       }
+
+      // debug_otp only comes back when OTP verification is switched off
+      // system-wide (CRM > System Settings) — nothing was actually texted,
+      // so skip straight past this step instead of making the customer
+      // guess a code they never received.
+      if (res.data.debug_otp) {
+        await apiClient.post('/auth/phone-change/verify-current-otp', { otp: res.data.debug_otp });
+        setStep('newPhone');
+        return;
+      }
+
+      setCurrentPhone(res.data.phone || '');
+      setCurrentRef(res.data.ref || '');
+      setResendTimer(60);
+      setStep('currentOtp');
     } catch (err: any) {
       setError(getOtpErrorMessage(err, lang, lang === 'en' ? 'Something went wrong.' : 'เกิดข้อผิดพลาด'));
     } finally {
@@ -93,6 +104,16 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
     setError('');
     try {
       const res = await apiClient.post('/auth/phone-change/request-new-otp', { newPhone });
+
+      // Same as above — OTP is off system-wide, so complete the change
+      // immediately instead of showing a code the customer never received.
+      if (res.data.debug_otp) {
+        const confirmRes = await apiClient.post('/auth/phone-change/confirm', { otp: res.data.debug_otp });
+        onSuccess(confirmRes.data.phone || newPhone);
+        onClose();
+        return;
+      }
+
       setNewRef(res.data.ref || '');
       setNewOtp('');
       setResendTimer(60);

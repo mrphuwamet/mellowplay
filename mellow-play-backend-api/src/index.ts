@@ -227,6 +227,7 @@ app.post('/api/v1/auth/forgot-password/verify-otp', (c) => authController.forgot
 app.post('/api/v1/auth/forgot-password/reset', (c) => authController.forgotPasswordReset(c));
 app.post('/api/v1/auth/crm/reset-password', (c) => authController.crmResetPassword(c));
 app.get('/api/v1/auth/me', (c) => authController.getMe(c));
+app.post('/api/v1/auth/change-password', (c) => authController.changePassword(c));
 app.post('/api/v1/auth/phone-change/request-current-otp', (c) => authController.requestPhoneChangeCurrentOtp(c));
 app.post('/api/v1/auth/phone-change/verify-current-otp', (c) => authController.verifyPhoneChangeCurrentOtp(c));
 app.post('/api/v1/auth/phone-change/request-new-otp', (c) => authController.requestPhoneChangeNewOtp(c));
