@@ -113,23 +113,41 @@ const AppContent = () => {
             <HomeIcon size={24} />
             <span className="text-[14px] font-black tracking-tighter">{t.nav.home}</span>
           </Link>
-          <Link to="/journey" onClick={e => guardedNav(e, t.nav.journey)} className={`relative flex flex-col items-center gap-1 transition-colors ${location.pathname === '/journey' ? 'text-mellow-purple' : 'text-slate-400'}`}>
-            <Map size={24} />
-            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
+          <Link to="/journey" onClick={e => guardedNav(e, t.nav.journey)} className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/journey' ? 'text-mellow-purple' : 'text-slate-400'}`}>
+            <div className="relative">
+              <Map size={24} />
+              {isGuest && (
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center">
+                  <Lock size={9} className="text-slate-600" strokeWidth={3} />
+                </div>
+              )}
+            </div>
             <span className="text-[14px] font-black tracking-tighter">{t.nav.journey}</span>
           </Link>
-          <Link to="/album" onClick={e => guardedNav(e, t.nav.album)} className={`relative flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/album' ? 'text-mellow-blue' : 'text-slate-400'}`}>
-            <Camera size={24} />
-            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
+          <Link to="/album" onClick={e => guardedNav(e, t.nav.album)} className={`flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/album' ? 'text-mellow-blue' : 'text-slate-400'}`}>
+            <div className="relative">
+              <Camera size={24} />
+              {isGuest && (
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center">
+                  <Lock size={9} className="text-slate-600" strokeWidth={3} />
+                </div>
+              )}
+            </div>
             <span className="text-[14px] font-black tracking-tighter">{t.nav.album}</span>
           </Link>
           <Link to="/explore" className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/explore' ? 'text-mellow-yellow' : 'text-slate-400'}`}>
             <Compass size={24} />
             <span className="text-[14px] font-black tracking-tighter">{t.nav.explore}</span>
           </Link>
-          <Link to="/rewards" onClick={e => guardedNav(e, t.nav.rewards)} className={`relative flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/rewards' ? 'text-mellow-green' : 'text-slate-400'}`}>
-            <Star size={24} />
-            {isGuest && <Lock size={10} className="absolute -top-0.5 right-2 text-slate-400" />}
+          <Link to="/rewards" onClick={e => guardedNav(e, t.nav.rewards)} className={`flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/rewards' ? 'text-mellow-green' : 'text-slate-400'}`}>
+            <div className="relative">
+              <Star size={24} />
+              {isGuest && (
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center">
+                  <Lock size={9} className="text-slate-600" strokeWidth={3} />
+                </div>
+              )}
+            </div>
             <span className="text-[14px] font-black tracking-tighter">{t.nav.rewards}</span>
           </Link>
           {/* Community — placeholder, feature not built yet */}
