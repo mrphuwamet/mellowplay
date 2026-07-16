@@ -1094,12 +1094,14 @@ export class AdminController {
   // overwrite the real secret with "••••1234".
   private static INTEGRATION_KEYS = [
     'beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name', 'discord_webhook_url',
-    'anthropic_api_key', 'google_ai_api_key', 'translation_provider',
+    'anthropic_api_key', 'google_ai_api_key', 'translation_provider', 'line_liff_id',
   ] as const;
   // sms_sender_name is the registered ThaiBulkSMS sender ID shown to
   // recipients — a display label, not a credential, so it isn't masked.
   // translation_provider is a plain choice ('claude' | 'gemini'), not a secret either.
-  private static NON_SENSITIVE_KEYS = new Set(['sms_sender_name', 'translation_provider']);
+  // line_liff_id is meant to be embedded in the consumer app's client-side JS
+  // (liff.init({ liffId })), so it's public by design — not a secret either.
+  private static NON_SENSITIVE_KEYS = new Set(['sms_sender_name', 'translation_provider', 'line_liff_id']);
 
   private mask(key: string, value: string): string {
     if (!value) return '';
@@ -1119,6 +1121,7 @@ export class AdminController {
         sms_api_key: c.env.SMS_API_KEY, sms_api_secret: c.env.SMS_API_SECRET,
         sms_sender_name: 'Demo', discord_webhook_url: '',
         anthropic_api_key: '', google_ai_api_key: '', translation_provider: 'claude',
+        line_liff_id: '',
       };
       const keys: Record<string, { masked: string; isSet: boolean }> = {};
       for (const key of AdminController.INTEGRATION_KEYS) {
@@ -1148,6 +1151,21 @@ export class AdminController {
         }
       }
       return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Public (no auth) — the consumer app needs the LIFF ID client-side to call
+  // liff.init(). Deliberately its own tiny endpoint rather than reusing
+  // getIntegrationKeys, since that one is super_admin-only and also returns
+  // masked previews of actual secrets (Beam/SMS/Discord/AI keys).
+  async getPublicLiffConfig(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+      const liffId = await settingsRepo.getOverridable('line_liff_id', c.env.LINE_LIFF_ID || '');
+      return c.json({ success: true, liffId: liffId || null });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

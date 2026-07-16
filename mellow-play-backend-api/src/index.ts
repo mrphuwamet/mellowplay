@@ -600,6 +600,7 @@ app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusie
 app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
+app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));
 
 // ── Promotions CRUD ──────────────────────────────────────────────────────────
 app.get   ('/api/v1/admin/promotions',          (c) => adminController.getPromotions(c));

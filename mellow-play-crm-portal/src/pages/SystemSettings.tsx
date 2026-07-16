@@ -33,7 +33,7 @@ interface Branch {
 }
 
 
-type IntegrationService = 'beam' | 'sms' | 'discord' | 'claude' | 'gemini';
+type IntegrationService = 'beam' | 'sms' | 'discord' | 'claude' | 'gemini' | 'line';
 
 // sensitive: true fields use the "type a new value to change it" masked
 // pattern; non-sensitive ones (just a display label, not a credential) are
@@ -50,14 +50,19 @@ const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean; 
   },
   { key: 'anthropic_api_key', label: 'Anthropic API Key (Claude)', sensitive: true, service: 'claude' },
   { key: 'google_ai_api_key', label: 'Google AI API Key (Gemini)', sensitive: true, service: 'gemini' },
+  {
+    key: 'line_liff_id', label: 'LINE LIFF ID', sensitive: false, service: 'line',
+    hint: 'จาก LINE Developers Console → LIFF app ที่สร้างไว้ → คัดลอกค่า "LIFF ID" (ไม่ใช่ Channel Secret) มาวางที่นี่ ไม่ใช่ความลับ ใช้ฝั่งเว็บแอปได้เลย',
+  },
 ];
 
-const SERVICE_GROUPS: { service: IntegrationService; label: string }[] = [
+const SERVICE_GROUPS: { service: IntegrationService; label: string; hideTest?: boolean }[] = [
   { service: 'beam', label: 'Beam Checkout (จ่ายเงิน)' },
   { service: 'sms', label: 'SMS (ThaiBulkSMS)' },
   { service: 'discord', label: 'Discord Webhook (แจ้งเตือน)' },
   { service: 'claude', label: 'Claude (Anthropic) — สำหรับแปลภาษาอัตโนมัติ' },
   { service: 'gemini', label: 'Gemini (Google AI) — สำหรับแปลภาษาอัตโนมัติ' },
+  { service: 'line', label: 'LINE LIFF (แชร์ไป LINE จากในแอปลูกค้า)', hideTest: true },
 ];
 
 const SystemSettings = () => {
@@ -80,7 +85,9 @@ const SystemSettings = () => {
   // never sent back so the masked placeholder can't overwrite the real secret.
   const [integrationKeys, setIntegrationKeys] = useState<{ [key: string]: { masked: string; isSet: boolean } }>({});
   const [keyEdits, setKeyEdits] = useState<{ [key: string]: string }>({});
-  const [savingKeys, setSavingKeys] = useState(false);
+  // Keyed per section (service name, or 'translation_provider') so saving
+  // one section's keys doesn't spinner/lock the others.
+  const [savingKeys, setSavingKeys] = useState<{ [group: string]: boolean }>({});
 
   // "Test Connection" — always tests whatever is currently SAVED (DB
   // override or Cloudflare secret fallback), not unsaved text still sitting
@@ -149,16 +156,23 @@ const SystemSettings = () => {
     setKeyEdits(prev => ({ ...prev, ...prefill }));
   };
 
-  const handleSaveIntegrationKeys = async () => {
+  // Saves only the given keys' staged edits, under its own group id — so
+  // e.g. saving the Beam section never touches SMS/Discord/AI fields, and
+  // each section gets its own independent loading state.
+  const handleSaveIntegrationKeys = async (groupId: string, keys: string[]) => {
     const payload: { [key: string]: string } = {};
-    for (const { key } of INTEGRATION_KEY_FIELDS) {
+    for (const key of keys) {
       if (keyEdits[key]?.trim()) payload[key] = keyEdits[key].trim();
     }
     if (Object.keys(payload).length === 0) return;
-    setSavingKeys(true);
+    setSavingKeys(prev => ({ ...prev, [groupId]: true }));
     try {
       await axios.put(`${API_BASE}/integration-keys`, payload);
-      setKeyEdits({});
+      setKeyEdits(prev => {
+        const next = { ...prev };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       const keysRes = await axios.get(`${API_BASE}/integration-keys`);
       if (keysRes.data.success) {
         setIntegrationKeys(keysRes.data.keys);
@@ -167,7 +181,7 @@ const SystemSettings = () => {
     } catch (e: any) {
       alert('บันทึกคีย์ไม่สำเร็จ: ' + (e.response?.data?.message || e.message));
     } finally {
-      setSavingKeys(false);
+      setSavingKeys(prev => ({ ...prev, [groupId]: false }));
     }
   };
 
@@ -254,7 +268,7 @@ const SystemSettings = () => {
             <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <KeyIcon color="primary" /> คีย์เชื่อมต่อระบบ (Beam / SMS / AI)
+                  <KeyIcon color="primary" /> คีย์เชื่อมต่อระบบ (Beam / SMS / AI / LINE)
                 </Typography>
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
@@ -265,20 +279,31 @@ const SystemSettings = () => {
                 <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
                   ผู้ให้บริการ AI แปลภาษา (ใช้กับปุ่ม "แปลอัตโนมัติ" ในเครื่องมือเขียนข่าว)
                 </Typography>
-                <FormControl size="small" sx={{ minWidth: 240 }}>
-                  <Select
-                    value={keyEdits['translation_provider'] ?? integrationKeys['translation_provider']?.masked ?? 'claude'}
-                    onChange={(e) => setKeyEdits(prev => ({ ...prev, translation_provider: e.target.value as string }))}
+                <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                  <FormControl size="small" sx={{ minWidth: 240 }}>
+                    <Select
+                      value={keyEdits['translation_provider'] ?? integrationKeys['translation_provider']?.masked ?? 'claude'}
+                      onChange={(e) => setKeyEdits(prev => ({ ...prev, translation_provider: e.target.value as string }))}
+                    >
+                      <MenuItem value="claude">Claude (Anthropic)</MenuItem>
+                      <MenuItem value="gemini">Gemini (Google AI)</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() => handleSaveIntegrationKeys('translation_provider', ['translation_provider'])}
+                    disabled={savingKeys['translation_provider'] || !keyEdits['translation_provider']?.trim()}
+                    sx={{ borderRadius: 2, fontWeight: 700 }}
                   >
-                    <MenuItem value="claude">Claude (Anthropic)</MenuItem>
-                    <MenuItem value="gemini">Gemini (Google AI)</MenuItem>
-                  </Select>
-                </FormControl>
+                    {savingKeys['translation_provider'] ? <CircularProgress size={16} sx={{ color: 'white' }} /> : 'บันทึก'}
+                  </Button>
+                </Stack>
               </Box>
               <Divider sx={{ mb: 3 }} />
 
               <Stack spacing={3}>
-                {SERVICE_GROUPS.map(({ service, label: serviceLabel }) => {
+                {SERVICE_GROUPS.map(({ service, label: serviceLabel, hideTest }) => {
                   const status = testStatus[service];
                   return (
                     <Box key={service}>
@@ -298,7 +323,11 @@ const SystemSettings = () => {
                               helperText={
                                 sensitive
                                   ? (integrationKeys[key]?.isSet ? `ปัจจุบัน: ${integrationKeys[key].masked}` : (!hint ? 'ยังไม่ได้ตั้งค่า — ระบบจะ fallback ไปใช้ค่าจาก Cloudflare secret แทน' : undefined))
-                                  : (integrationKeys[key]?.isSet ? undefined : 'ยังไม่ได้ตั้งค่า — ระบบจะใช้ค่าเริ่มต้น "Demo" ไปก่อน')
+                                  : (integrationKeys[key]?.isSet
+                                      ? undefined
+                                      : key === 'sms_sender_name'
+                                        ? 'ยังไม่ได้ตั้งค่า — ระบบจะใช้ค่าเริ่มต้น "Demo" ไปก่อน'
+                                        : 'ยังไม่ได้ตั้งค่า')
                               }
                             />
                             {hint && !integrationKeys[key]?.isSet && (
@@ -309,17 +338,34 @@ const SystemSettings = () => {
                           </Box>
                         ))}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            startIcon={status?.loading ? <CircularProgress size={14} /> : <TestIcon />}
-                            onClick={() => handleTestClick(service)}
-                            disabled={status?.loading}
-                            sx={{ borderRadius: 2, fontWeight: 700 }}
-                          >
-                            ทดสอบการเชื่อมต่อ
-                          </Button>
-                          {status && !status.loading && status.success !== undefined && (
+                          {(() => {
+                            const groupKeys = INTEGRATION_KEY_FIELDS.filter(f => f.service === service).map(f => f.key);
+                            const hasEdits = groupKeys.some(k => keyEdits[k]?.trim());
+                            return (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={() => handleSaveIntegrationKeys(service, groupKeys)}
+                                disabled={savingKeys[service] || !hasEdits}
+                                sx={{ borderRadius: 2, fontWeight: 700 }}
+                              >
+                                {savingKeys[service] ? <CircularProgress size={16} sx={{ color: 'white' }} /> : 'บันทึก'}
+                              </Button>
+                            );
+                          })()}
+                          {!hideTest && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={status?.loading ? <CircularProgress size={14} /> : <TestIcon />}
+                              onClick={() => handleTestClick(service)}
+                              disabled={status?.loading}
+                              sx={{ borderRadius: 2, fontWeight: 700 }}
+                            >
+                              ทดสอบการเชื่อมต่อ
+                            </Button>
+                          )}
+                          {!hideTest && status && !status.loading && status.success !== undefined && (
                             <Stack direction="row" spacing={0.75} alignItems="center">
                               {status.success ? <SuccessIcon color="success" fontSize="small" /> : <ErrorIcon color="error" fontSize="small" />}
                               <Typography variant="caption" sx={{ fontWeight: 700, color: status.success ? 'success.main' : 'error.main' }}>
@@ -332,17 +378,6 @@ const SystemSettings = () => {
                     </Box>
                   );
                 })}
-                <Divider />
-                <Box>
-                  <Button
-                    variant="contained"
-                    onClick={handleSaveIntegrationKeys}
-                    disabled={savingKeys || Object.values(keyEdits).every(v => !v?.trim())}
-                    sx={{ borderRadius: 2, fontWeight: 700 }}
-                  >
-                    {savingKeys ? <CircularProgress size={18} sx={{ color: 'white' }} /> : 'บันทึกคีย์'}
-                  </Button>
-                </Box>
               </Stack>
             </Paper>
           )}
