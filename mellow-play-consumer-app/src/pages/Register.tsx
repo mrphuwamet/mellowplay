@@ -183,13 +183,10 @@ const Register = () => {
         setFormData(prev => ({ ...prev, otp: '' }));
         setOtpRef(response.data.ref || '');
 
-        // debug_otp only ever comes back when OTP verification is switched
-        // off system-wide (CRM > System Settings) — in that case the
-        // customer was never actually sent a code, so making them type one
-        // in would just be a dead end. Verify silently with the value the
-        // backend already generated and skip straight to PIN setup.
-        if (response.data.debug_otp) {
-          await apiClient.post('/auth/verify-otp', { phone: formData.phone, otp: response.data.debug_otp });
+        // otpRequired is false when OTP verification is switched off
+        // system-wide (CRM > System Settings) — no code was ever sent, so
+        // skip straight to PIN setup instead of showing an OTP screen.
+        if (response.data.otpRequired === false) {
           setPrevPhone(formData.phone);
           setStep('pin');
           return;

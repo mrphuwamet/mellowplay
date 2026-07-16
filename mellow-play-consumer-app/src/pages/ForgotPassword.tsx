@@ -52,20 +52,16 @@ const ForgotPassword = () => {
         setOtpRef(res.data.ref || '');
         setOtp('');
 
-        // debug_otp only comes back when OTP verification is switched off
-        // system-wide (CRM > System Settings) — the customer was never
-        // actually sent a code, so skip straight past the OTP screen
-        // instead of making them guess one.
-        if (res.data.debug_otp) {
-          const verifyRes = await apiClient.post('/auth/forgot-password/verify-otp', { phone, otp: res.data.debug_otp });
-          if (verifyRes.data.success) {
-            setOtp(res.data.debug_otp);
-            setPinStep('create');
-            setNewPin('');
-            setConfirmPin('');
-            setStep('pin');
-            return;
-          }
+        // otpRequired is false when OTP verification is switched off
+        // system-wide (CRM > System Settings) — no code was ever sent, so
+        // skip straight past the OTP screen to PIN setup. The reset call
+        // below re-checks otpEnabled server-side, so an empty otp is fine.
+        if (res.data.otpRequired === false) {
+          setPinStep('create');
+          setNewPin('');
+          setConfirmPin('');
+          setStep('pin');
+          return;
         }
 
         setSuccessMessage(t.login.otpSent || 'OTP sent successfully');

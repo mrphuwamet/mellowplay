@@ -33,37 +33,38 @@ export class AuthController {
       const rateLimit = await enforceOtpRequestLimit(config.kv, phone);
       if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
 
-      const otp = AuthService.generateOTP();
-      const ref = AuthService.generateRefCode();
-      
-      // Store OTP and Ref in KV with 5-min expiry
-      await config.kv.put(`otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
-      
-      // Check if real OTP is enabled in database
+      // OTP switched off system-wide (CRM > System Settings) — nothing to
+      // send or verify, so tell the frontend to skip the OTP screen
+      // entirely instead of generating a code nobody actually needs to type.
       const otpEnabled = await settingsRepo.isOtpEnabled();
-      let sent = false;
-
-      if (otpEnabled) {
-        // Send SMS via ThaiBulkSMS
-        const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
-        const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
-        const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
-        const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
-        sent = await smsService.sendOtp(phone, otp, ref);
-      } else {
-        console.log(`[TEST MODE] OTP for ${phone}: ${otp} (Ref: ${ref})`);
+      if (!otpEnabled) {
+        return c.json({ success: true, otpRequired: false });
       }
 
-      if (otpEnabled && !sent && !config.isDev) {
+      const otp = AuthService.generateOTP();
+      const ref = AuthService.generateRefCode();
+
+      // Store OTP and Ref in KV with 5-min expiry
+      await config.kv.put(`otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
+
+      // Send SMS via ThaiBulkSMS
+      const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
+      const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
+      const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
+      const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
+      const sent = await smsService.sendOtp(phone, otp, ref);
+
+      if (!sent && !config.isDev) {
         await sendAlert(config.db, 'SMS Send Failed (Registration OTP)', { phone });
         return c.json({ success: false, message: 'Failed to send SMS' }, 500);
       }
-      
-      return c.json({ 
-        success: true, 
-        message: otpEnabled ? 'OTP sent via SMS' : 'OTP generated (Test Mode)',
+
+      return c.json({
+        success: true,
+        otpRequired: true,
+        message: 'OTP sent via SMS',
         ref,
-        ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {})
+        ...(config.isDev ? { debug_otp: otp } : {})
       });
     } catch (error: any) {
       console.error('requestOtp error:', error);
@@ -394,35 +395,34 @@ export class AuthController {
       const rateLimit = await enforceOtpRequestLimit(config.kv, `forgot_pw:${phone}`);
       if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
 
-      const otp = AuthService.generateOTP();
-      const ref = AuthService.generateRefCode();
-      
-      // Store OTP and Ref in KV
-      await config.kv.put(`forgot_pw_otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
-      
       const otpEnabled = await settingsRepo.isOtpEnabled();
-      let sent = false;
-
-      if (otpEnabled) {
-        const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
-        const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
-        const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
-        const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
-        sent = await smsService.sendOtp(phone, otp, ref);
-      } else {
-        console.log(`[TEST MODE] Forgot PW OTP for ${phone}: ${otp} (Ref: ${ref})`);
+      if (!otpEnabled) {
+        return c.json({ success: true, otpRequired: false });
       }
 
-      if (otpEnabled && !sent && !config.isDev) {
+      const otp = AuthService.generateOTP();
+      const ref = AuthService.generateRefCode();
+
+      // Store OTP and Ref in KV
+      await config.kv.put(`forgot_pw_otp:${phone}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
+
+      const smsApiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
+      const smsApiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
+      const smsSenderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
+      const smsService = new SmsService(smsApiKey, smsApiSecret, smsSenderName);
+      const sent = await smsService.sendOtp(phone, otp, ref);
+
+      if (!sent && !config.isDev) {
         await sendAlert(config.db, 'SMS Send Failed (Forgot Password OTP)', { phone });
         return c.json({ success: false, message: 'Failed to send SMS' }, 500);
       }
-      
-      return c.json({ 
-        success: true, 
-        message: otpEnabled ? 'OTP sent via SMS' : 'OTP generated (Test Mode)',
+
+      return c.json({
+        success: true,
+        otpRequired: true,
+        message: 'OTP sent via SMS',
         ref,
-        ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {})
+        ...(config.isDev ? { debug_otp: otp } : {})
       });
     } catch (error: any) {
       console.error('forgotPasswordRequestOtp error:', error);
@@ -463,25 +463,32 @@ export class AuthController {
   async forgotPasswordReset(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
       const { phone, otp, newPassword } = await c.req.json();
 
-      const otpKey = `forgot_pw_otp:${phone}`;
-      const storedOtpData = await config.kv.get(otpKey);
+      // Mirrors forgotPasswordRequestOtp's own otpEnabled check — since no
+      // OTP was ever generated for this request when OTP is off, there's
+      // nothing in KV to match against here either.
+      const otpEnabled = await settingsRepo.isOtpEnabled();
+      if (otpEnabled) {
+        const otpKey = `forgot_pw_otp:${phone}`;
+        const storedOtpData = await config.kv.get(otpKey);
 
-      if (!storedOtpData) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
+        if (!storedOtpData) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
 
-      const verifyLimit = await enforceOtpVerifyLimit(config.kv, otpKey);
-      if (!verifyLimit.ok) return c.json({ success: false, message: verifyLimit.message }, 429);
+        const verifyLimit = await enforceOtpVerifyLimit(config.kv, otpKey);
+        if (!verifyLimit.ok) return c.json({ success: false, message: verifyLimit.message }, 429);
 
-      let storedOtp = storedOtpData;
-      try {
-        const parsed = JSON.parse(storedOtpData);
-        storedOtp = parsed.otp;
-      } catch (e) {
-        // Fallback for simple string format
+        let storedOtp = storedOtpData;
+        try {
+          const parsed = JSON.parse(storedOtpData);
+          storedOtp = parsed.otp;
+        } catch (e) {
+          // Fallback for simple string format
+        }
+
+        if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
       }
-
-      if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
 
       const userRepository = new UserRepository(config.db);
       const user = await userRepository.findByPhone(phone);
@@ -647,21 +654,32 @@ export class AuthController {
       if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
 
       const settingsRepo = new SettingsRepository(config.db);
+
+      // OTP switched off system-wide — nothing to verify, so mark identity
+      // as confirmed directly and let the frontend skip straight to the
+      // new-phone step instead of showing a code nobody was sent.
+      const otpEnabled = await settingsRepo.isOtpEnabled();
+      if (!otpEnabled) {
+        await config.kv.put(`phone_change_authorized:${userId}`, '1', { expirationTtl: 600 });
+        return c.json({ success: true, otpRequired: false });
+      }
+
       const otp = AuthService.generateOTP();
       const ref = AuthService.generateRefCode();
       await config.kv.put(`phone_change_current_otp:${userId}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
 
-      const { otpEnabled, sent } = await this.sendOtpSms(config, settingsRepo, user.phone, otp, ref);
-      if (otpEnabled && !sent && !config.isDev) {
+      const { sent } = await this.sendOtpSms(config, settingsRepo, user.phone, otp, ref);
+      if (!sent && !config.isDev) {
         await sendAlert(config.db, 'SMS Send Failed (Phone Change - Identity OTP)', { userId });
         return c.json({ success: false, message: 'Failed to send SMS' }, 500);
       }
 
       return c.json({
         success: true,
+        otpRequired: true,
         phone: user.phone,
         ref,
-        ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {}),
+        ...(config.isDev ? { debug_otp: otp } : {}),
       });
     } catch (error: any) {
       console.error('requestPhoneChangeCurrentOtp error:', error);
@@ -725,20 +743,34 @@ export class AuthController {
       if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
 
       const settingsRepo = new SettingsRepository(config.db);
+
+      // OTP switched off system-wide — there's nothing left to verify at
+      // this point (identity already confirmed above), so complete the
+      // phone change immediately rather than round-tripping through a
+      // confirm step with a code nobody was sent.
+      const otpEnabled = await settingsRepo.isOtpEnabled();
+      if (!otpEnabled) {
+        await userRepository.updatePhone(userId, newPhone);
+        await config.kv.delete(`phone_change_authorized:${userId}`);
+        const updated = await userRepository.findById(userId);
+        return c.json({ success: true, otpRequired: false, phone: updated.phone });
+      }
+
       const otp = AuthService.generateOTP();
       const ref = AuthService.generateRefCode();
       await config.kv.put(`phone_change_new_otp:${userId}`, JSON.stringify({ otp, ref, newPhone }), { expirationTtl: 300 });
 
-      const { otpEnabled, sent } = await this.sendOtpSms(config, settingsRepo, newPhone, otp, ref);
-      if (otpEnabled && !sent && !config.isDev) {
+      const { sent } = await this.sendOtpSms(config, settingsRepo, newPhone, otp, ref);
+      if (!sent && !config.isDev) {
         await sendAlert(config.db, 'SMS Send Failed (Phone Change - New Phone OTP)', { userId, newPhone });
         return c.json({ success: false, message: 'Failed to send SMS' }, 500);
       }
 
       return c.json({
         success: true,
+        otpRequired: true,
         ref,
-        ...((config.isDev || !otpEnabled) ? { debug_otp: otp } : {}),
+        ...(config.isDev ? { debug_otp: otp } : {}),
       });
     } catch (error: any) {
       console.error('requestPhoneChangeNewOtp error:', error);

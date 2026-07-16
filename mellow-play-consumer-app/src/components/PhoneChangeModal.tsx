@@ -47,12 +47,10 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
         return;
       }
 
-      // debug_otp only comes back when OTP verification is switched off
-      // system-wide (CRM > System Settings) — nothing was actually texted,
-      // so skip straight past this step instead of making the customer
-      // guess a code they never received.
-      if (res.data.debug_otp) {
-        await apiClient.post('/auth/phone-change/verify-current-otp', { otp: res.data.debug_otp });
+      // otpRequired is false when OTP verification is switched off
+      // system-wide (CRM > System Settings) — the backend already marks
+      // identity as confirmed in that case, so just move on.
+      if (res.data.otpRequired === false) {
         setStep('newPhone');
         return;
       }
@@ -105,11 +103,11 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
     try {
       const res = await apiClient.post('/auth/phone-change/request-new-otp', { newPhone });
 
-      // Same as above — OTP is off system-wide, so complete the change
-      // immediately instead of showing a code the customer never received.
-      if (res.data.debug_otp) {
-        const confirmRes = await apiClient.post('/auth/phone-change/confirm', { otp: res.data.debug_otp });
-        onSuccess(confirmRes.data.phone || newPhone);
+      // Same as above — OTP is off system-wide, so the backend already
+      // completed the phone change immediately instead of waiting for a
+      // confirm step with a code the customer never received.
+      if (res.data.otpRequired === false) {
+        onSuccess(res.data.phone || newPhone);
         onClose();
         return;
       }
