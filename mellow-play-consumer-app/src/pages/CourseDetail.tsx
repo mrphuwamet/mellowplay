@@ -351,7 +351,7 @@ const CourseDetail = () => {
                                    {slot.startTime} - {slot.endTime}
                                  </span>
                                </div>
-                               <div className={`px-2.5 py-1 rounded-lg text-[12px] font-bold ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                               <div className={`px-3 py-1.5 rounded-lg text-[15px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
                                  {isFull ? (lang === 'en' ? 'Full' : 'เต็มแล้ว') : (lang === 'en' ? `${slot.available} spots left` : `ว่าง ${slot.available} ที่`)}
                                </div>
                              </div>
