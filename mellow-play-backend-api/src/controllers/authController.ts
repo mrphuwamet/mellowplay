@@ -395,9 +395,20 @@ export class AuthController {
       const rateLimit = await enforceOtpRequestLimit(config.kv, `forgot_pw:${phone}`);
       if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
 
+      // Forgot-password IS the identity check for taking over an account
+      // from a logged-out state — unlike registration/phone-change, there's
+      // no session backing this request yet. Skipping OTP here would let
+      // anyone reset any customer's PIN just by knowing their phone number,
+      // so when OTP is off, refuse self-service reset outright instead of
+      // silently letting it through (see forgotPasswordReset for the
+      // matching server-side check).
       const otpEnabled = await settingsRepo.isOtpEnabled();
       if (!otpEnabled) {
-        return c.json({ success: true, otpRequired: false });
+        return c.json({
+          success: false,
+          contactAdminRequired: true,
+          message: 'ระบบยืนยันตัวตนด้วย OTP ปิดใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลเพื่อรีเซ็ตรหัสผ่านที่ LINE: @mellowplay',
+        }, 403);
       }
 
       const otp = AuthService.generateOTP();
@@ -466,29 +477,40 @@ export class AuthController {
       const settingsRepo = new SettingsRepository(config.db);
       const { phone, otp, newPassword } = await c.req.json();
 
-      // Mirrors forgotPasswordRequestOtp's own otpEnabled check — since no
-      // OTP was ever generated for this request when OTP is off, there's
-      // nothing in KV to match against here either.
+      // Unlike registration or phone-change (both tied to a session that's
+      // either brand-new or already authenticated), forgot-password reset
+      // IS the identity check for taking over an EXISTING account from a
+      // logged-out state — phone number alone is public-ish knowledge, so
+      // skipping OTP here would let anyone reset any customer's PIN just by
+      // knowing their phone number. When OTP is off, refuse self-service
+      // reset entirely rather than silently bypassing the identity check;
+      // staff must reset it manually via the CRM instead.
       const otpEnabled = await settingsRepo.isOtpEnabled();
-      if (otpEnabled) {
-        const otpKey = `forgot_pw_otp:${phone}`;
-        const storedOtpData = await config.kv.get(otpKey);
-
-        if (!storedOtpData) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
-
-        const verifyLimit = await enforceOtpVerifyLimit(config.kv, otpKey);
-        if (!verifyLimit.ok) return c.json({ success: false, message: verifyLimit.message }, 429);
-
-        let storedOtp = storedOtpData;
-        try {
-          const parsed = JSON.parse(storedOtpData);
-          storedOtp = parsed.otp;
-        } catch (e) {
-          // Fallback for simple string format
-        }
-
-        if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
+      if (!otpEnabled) {
+        return c.json({
+          success: false,
+          contactAdminRequired: true,
+          message: 'ระบบยืนยันตัวตนด้วย OTP ปิดใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลเพื่อรีเซ็ตรหัสผ่านที่ LINE: @mellowplay',
+        }, 403);
       }
+
+      const otpKey = `forgot_pw_otp:${phone}`;
+      const storedOtpData = await config.kv.get(otpKey);
+
+      if (!storedOtpData) return c.json({ success: false, message: 'OTP expired or invalid' }, 400);
+
+      const verifyLimit = await enforceOtpVerifyLimit(config.kv, otpKey);
+      if (!verifyLimit.ok) return c.json({ success: false, message: verifyLimit.message }, 429);
+
+      let storedOtp = storedOtpData;
+      try {
+        const parsed = JSON.parse(storedOtpData);
+        storedOtp = parsed.otp;
+      } catch (e) {
+        // Fallback for simple string format
+      }
+
+      if (otp !== storedOtp) return c.json({ success: false, message: 'Invalid OTP' }, 400);
 
       const userRepository = new UserRepository(config.db);
       const user = await userRepository.findByPhone(phone);

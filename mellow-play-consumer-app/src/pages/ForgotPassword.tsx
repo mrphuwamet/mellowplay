@@ -9,7 +9,7 @@ import PinInput from '../components/PinInput';
 import PinPad from '../components/PinPad';
 import { getOtpErrorMessage } from '../utils/otpError';
 
-type Step = 'phone' | 'otp' | 'pin';
+type Step = 'phone' | 'otp' | 'pin' | 'contactAdmin';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -51,27 +51,24 @@ const ForgotPassword = () => {
       if (res.data.success) {
         setOtpRef(res.data.ref || '');
         setOtp('');
-
-        // otpRequired is false when OTP verification is switched off
-        // system-wide (CRM > System Settings) — no code was ever sent, so
-        // skip straight past the OTP screen to PIN setup. The reset call
-        // below re-checks otpEnabled server-side, so an empty otp is fine.
-        if (res.data.otpRequired === false) {
-          setPinStep('create');
-          setNewPin('');
-          setConfirmPin('');
-          setStep('pin');
-          return;
-        }
-
         setSuccessMessage(t.login.otpSent || 'OTP sent successfully');
         setResendTimer(60);
         setStep('otp');
+      } else if (res.data.contactAdminRequired) {
+        setStep('contactAdmin');
       } else {
         setError(res.data.message || t.login.loginFailed);
       }
     } catch (err: any) {
-      setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
+      // OTP is switched off system-wide — self-service reset is refused
+      // server-side on purpose (skipping identity verification here would
+      // let anyone reset any customer's PIN just by knowing their phone
+      // number), so send them to LINE support instead of retrying.
+      if (err.response?.data?.contactAdminRequired) {
+        setStep('contactAdmin');
+      } else {
+        setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -119,11 +116,19 @@ const ForgotPassword = () => {
         setTimeout(() => {
           navigate('/login');
         }, 1500);
+      } else if (res.data.contactAdminRequired) {
+        setStep('contactAdmin');
       } else {
         setError(res.data.message || t.login.loginFailed);
       }
     } catch (err: any) {
-      setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
+      // Covers the race where OTP gets switched off system-wide while this
+      // customer is already mid-flow, past the initial request-otp check.
+      if (err.response?.data?.contactAdminRequired) {
+        setStep('contactAdmin');
+      } else {
+        setError(getOtpErrorMessage(err, lang, t.login.loginFailed));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -135,7 +140,7 @@ const ForgotPassword = () => {
       setNewPin('');
       setConfirmPin('');
       setStep('otp');
-    } else if (step === 'otp') {
+    } else if (step === 'otp' || step === 'contactAdmin') {
       setStep('phone');
     } else {
       navigate('/login');
@@ -163,6 +168,11 @@ const ForgotPassword = () => {
         {step === 'pin' && (
           <p className="text-slate-400 font-bold mt-2">
             {pinStep === 'create' ? (t.login.newPin || 'New PIN') : (t.login.confirmNewPin || 'Confirm New PIN')}
+          </p>
+        )}
+        {step === 'contactAdmin' && (
+          <p className="text-slate-400 font-bold mt-2">
+            {lang === 'en' ? 'Contact admin to reset' : 'ติดต่อผู้ดูแลเพื่อรีเซ็ต'}
           </p>
         )}
       </div>
@@ -198,6 +208,26 @@ const ForgotPassword = () => {
               {isLoading ? <Loader2 className="animate-spin mx-auto" /> : <>{t.register?.nextStep || 'Next'} <ArrowRight size={20} /></>}
             </button>
           </>
+        )}
+
+        {step === 'contactAdmin' && (
+          <div className="text-center space-y-4">
+            <p className="text-slate-500 font-bold text-sm leading-relaxed">
+              {lang === 'en'
+                ? 'Self-service PIN reset is temporarily unavailable. Please contact admin via LINE to reset your PIN.'
+                : 'ระบบรีเซ็ต PIN ด้วยตัวเองปิดใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลเพื่อรีเซ็ตรหัสผ่านที่ LINE'}
+            </p>
+            <div className="py-3 px-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-mellow-purple text-lg">
+              @mellowplay
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="w-full mellow-btn-primary mt-2"
+            >
+              {lang === 'en' ? 'Back to Login' : 'กลับไปหน้าเข้าสู่ระบบ'}
+            </button>
+          </div>
         )}
 
         {step === 'otp' && (
