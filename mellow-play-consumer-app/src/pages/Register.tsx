@@ -813,10 +813,17 @@ const Register = () => {
     }
   };
 
+  // The consent (terms/PDPA) step packs a scrollable policy box, two
+  // checkboxes, and two buttons into one screen — the full-size header used
+  // by every other step pushed the buttons below the fold on smaller
+  // phones. Only this step gets the compact header (logo up top, no
+  // description line); the rest are unaffected.
+  const isConsentStep = step === 'consent';
+
   return (
     <div className="mellow-page flex flex-col px-8 bg-white">
-      <header className="pt-10 mb-8 flex justify-between items-center">
-        <button 
+      <header className={`flex justify-between items-center ${isConsentStep ? 'pt-4 mb-2' : 'pt-10 mb-8'}`}>
+        <button
           onClick={() => {
             if (step === 'consent') {
               navigate('/login');
@@ -841,15 +848,24 @@ const Register = () => {
         <LanguageToggle />
       </header>
 
-      <div className="text-center mb-10">
-        <img src={logo} alt="Mellow Play" className="h-10 mx-auto mb-4" />
-        <h1 className="text-2xl font-black text-mellow-ink">
-          {getStepTitle()}
-        </h1>
-        <p className="text-slate-400 font-bold mt-2">
-          {getStepDesc()}
-        </p>
-      </div>
+      {isConsentStep ? (
+        <div className="text-center mb-3">
+          <img src={logo} alt="Mellow Play" className="h-7 mx-auto mb-2" />
+          <h1 className="text-base font-black text-mellow-ink">
+            {getStepTitle()}
+          </h1>
+        </div>
+      ) : (
+        <div className="text-center mb-10">
+          <img src={logo} alt="Mellow Play" className="h-10 mx-auto mb-4" />
+          <h1 className="text-2xl font-black text-mellow-ink">
+            {getStepTitle()}
+          </h1>
+          <p className="text-slate-400 font-bold mt-2">
+            {getStepDesc()}
+          </p>
+        </div>
+      )}
 
       <Toast message={error || ''} type="error" onClose={() => setError('')} />
 
