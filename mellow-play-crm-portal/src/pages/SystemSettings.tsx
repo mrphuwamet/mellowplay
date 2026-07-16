@@ -45,8 +45,12 @@ const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean; 
   { key: 'sms_api_secret', label: 'SMS API Secret (ThaiBulkSMS)', sensitive: true, service: 'sms' },
   { key: 'sms_sender_name', label: 'SMS Sender Name (ชื่อผู้ส่ง ที่ลงทะเบียนกับ ThaiBulkSMS)', sensitive: false, service: 'sms' },
   {
-    key: 'discord_webhook_url', label: 'Discord Webhook URL (แจ้งเตือน error อัตโนมัติ)', sensitive: true, service: 'discord',
+    key: 'discord_webhook_url', label: 'Discord Webhook URL — แจ้งเตือน Error', sensitive: true, service: 'discord',
     hint: 'วิธีสร้าง: เปิด Discord → เข้า server/channel ที่จะรับแจ้งเตือน → คลิกฟันเฟือง (Edit Channel) → Integrations → Webhooks → New Webhook → ตั้งชื่อ (เช่น "Mellow Play Alerts") → กด Copy Webhook URL แล้วมาวางที่นี่',
+  },
+  {
+    key: 'discord_notify_webhook_url', label: 'Discord Webhook URL — แจ้งเตือนสมาชิกใหม่/การจองใหม่', sensitive: true, service: 'discord',
+    hint: 'ใช้ channel แยกจาก error ด้านบน (สร้าง webhook ใหม่ในอีก channel ด้วยวิธีเดียวกัน) เพื่อไม่ให้แจ้งเตือน error กับแจ้งเตือนสมาชิก/การจองปนกัน',
   },
   { key: 'anthropic_api_key', label: 'Anthropic API Key (Claude)', sensitive: true, service: 'claude' },
   { key: 'google_ai_api_key', label: 'Google AI API Key (Gemini)', sensitive: true, service: 'gemini' },
@@ -59,7 +63,7 @@ const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean; 
 const SERVICE_GROUPS: { service: IntegrationService; label: string; hideTest?: boolean }[] = [
   { service: 'beam', label: 'Beam Checkout (จ่ายเงิน)' },
   { service: 'sms', label: 'SMS (ThaiBulkSMS)' },
-  { service: 'discord', label: 'Discord Webhook (แจ้งเตือน)' },
+  { service: 'discord', label: 'Discord Webhook (แจ้งเตือน — แยก channel error กับ สมาชิกใหม่/การจอง)' },
   { service: 'claude', label: 'Claude (Anthropic) — สำหรับแปลภาษาอัตโนมัติ' },
   { service: 'gemini', label: 'Gemini (Google AI) — สำหรับแปลภาษาอัตโนมัติ' },
   { service: 'line', label: 'LINE LIFF (แชร์ไป LINE จากในแอปลูกค้า)', hideTest: true },

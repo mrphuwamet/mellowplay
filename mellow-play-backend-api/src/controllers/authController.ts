@@ -5,7 +5,7 @@ import { ConfigService } from '../services/configService';
 import { SmsService } from '../services/smsService';
 import { UserRepository } from '../repositories/userRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
-import { sendAlert } from '../services/alertService';
+import { sendAlert, sendNotification } from '../services/alertService';
 import { enforceOtpRequestLimit, enforceOtpVerifyLimit, clearOtpVerifyAttempts } from '../services/otpRateLimiter';
 
 export class AuthController {
@@ -127,6 +127,11 @@ export class AuthController {
         prefix,
         dob
       );
+      await sendNotification(config.db, 'สมาชิกใหม่', {
+        'ชื่อ': `${prefix ?? ''}${firstName} ${lastName}`.trim(),
+        'เบอร์โทร': phone,
+        'จำนวนบุตร': childList.length,
+      });
       return c.json({ success: true, userId });
     } catch (error: any) {
       console.error('register error:', error);

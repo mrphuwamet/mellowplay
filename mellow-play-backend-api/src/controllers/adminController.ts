@@ -8,7 +8,7 @@ import { CourseMaterialRepository } from '../repositories/courseMaterialReposito
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants/imageViews';
 import { AuthService } from '../services/authService';
-import { sendAlert } from '../services/alertService';
+import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
 
 export class AdminController {
@@ -294,7 +294,7 @@ export class AdminController {
       }
 
       // Calculate price and discount
-      const courseRow = await db.prepare('SELECT id, original_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      const courseRow = await db.prepare('SELECT id, name, original_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
       const unitPrice: number = courseRow?.original_price ?? 0;
 
       // Compute active campaign discount (matching getCourses logic)
@@ -486,6 +486,24 @@ export class AdminController {
           await config.db.prepare('UPDATE Bookings SET beam_session_id=? WHERE id=?').bind(beamSessionId, id).run();
         }
       }
+
+      try {
+        const realChildIds = parsedChildIds.filter((id: number) => id > 0);
+        let childNames = 'ผู้เยี่ยมชม (Guest)';
+        if (realChildIds.length > 0) {
+          const { results } = await db.prepare(`
+            SELECT p.nickname FROM Children c JOIN HD_Profiles p ON c.hd_profile_id = p.id
+            WHERE c.id IN (${realChildIds.join(',')})
+          `).all();
+          childNames = (results as any[]).map(r => r.nickname).filter(Boolean).join(', ') || childNames;
+        }
+        await sendNotification(config.db, 'การจองใหม่', {
+          'คลาส': courseRow?.name ?? `#${courseId}`,
+          'เด็ก': childNames,
+          'วันเวลา': scheduledAt,
+          'รหัสจอง': bookingIds.join(', '),
+        });
+      } catch { /* notification must never block a successful booking */ }
 
       return c.json({ success: true, id: firstId, bookingIds, paymentUrl: beamPaymentUrl });
     } catch (error: any) {
@@ -1156,7 +1174,7 @@ export class AdminController {
   // overwrite the real secret with "••••1234".
   private static INTEGRATION_KEYS = [
     'beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name', 'discord_webhook_url',
-    'anthropic_api_key', 'google_ai_api_key', 'translation_provider', 'line_liff_id',
+    'discord_notify_webhook_url', 'anthropic_api_key', 'google_ai_api_key', 'translation_provider', 'line_liff_id',
   ] as const;
   // sms_sender_name is the registered ThaiBulkSMS sender ID shown to
   // recipients — a display label, not a credential, so it isn't masked.
@@ -1181,7 +1199,7 @@ export class AdminController {
       const envFallback: Record<string, string> = {
         beam_api_key: c.env.BEAM_API_KEY, beam_merchant_id: c.env.BEAM_MERCHANT_ID,
         sms_api_key: c.env.SMS_API_KEY, sms_api_secret: c.env.SMS_API_SECRET,
-        sms_sender_name: 'Demo', discord_webhook_url: '',
+        sms_sender_name: 'Demo', discord_webhook_url: '', discord_notify_webhook_url: '',
         anthropic_api_key: '', google_ai_api_key: '', translation_provider: 'claude',
         line_liff_id: '',
       };
@@ -1247,26 +1265,48 @@ export class AdminController {
       const settingsRepo = new SettingsRepository(config.db);
 
       if (service === 'discord') {
-        const webhookUrl = await settingsRepo.getOverridable('discord_webhook_url', '');
-        if (!webhookUrl) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า Discord Webhook URL' }, 400);
+        // Two independent channels (errors vs. signup/booking activity) — test
+        // whichever of the two are configured and report each separately.
+        const channels: { key: string; label: string }[] = [
+          { key: 'discord_webhook_url', label: 'แจ้งเตือน Error' },
+          { key: 'discord_notify_webhook_url', label: 'แจ้งเตือนสมาชิกใหม่/การจอง' },
+        ];
+        const results: string[] = [];
+        let anyConfigured = false;
+        let allOk = true;
 
-        const res = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            embeds: [{
-              title: '✅ ทดสอบการเชื่อมต่อจาก Mellow Play CRM',
-              description: 'ถ้าเห็นข้อความนี้ แปลว่า Discord Webhook เชื่อมต่อสำเร็จ',
-              color: 0x22c55e,
-              timestamp: new Date().toISOString(),
-            }],
-          }),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          return c.json({ success: false, message: `Discord ตอบกลับ ${res.status}: ${text.slice(0, 300)}` }, 400);
+        for (const { key, label } of channels) {
+          const webhookUrl = await settingsRepo.getOverridable(key, '');
+          if (!webhookUrl) continue;
+          anyConfigured = true;
+          try {
+            const res = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                embeds: [{
+                  title: '✅ ทดสอบการเชื่อมต่อจาก Mellow Play CRM',
+                  description: `ช่อง: ${label} — ถ้าเห็นข้อความนี้ แปลว่า Discord Webhook เชื่อมต่อสำเร็จ`,
+                  color: 0x22c55e,
+                  timestamp: new Date().toISOString(),
+                }],
+              }),
+            });
+            if (!res.ok) {
+              const text = await res.text();
+              allOk = false;
+              results.push(`${label}: ผิดพลาด ${res.status}: ${text.slice(0, 200)}`);
+            } else {
+              results.push(`${label}: สำเร็จ`);
+            }
+          } catch (e: any) {
+            allOk = false;
+            results.push(`${label}: ผิดพลาด ${e.message}`);
+          }
         }
-        return c.json({ success: true, message: 'ส่งข้อความทดสอบไปที่ Discord แล้ว ตรวจสอบใน channel ได้เลย' });
+
+        if (!anyConfigured) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า Discord Webhook URL' }, 400);
+        return c.json({ success: allOk, message: results.join(' | ') }, allOk ? 200 : 400);
       }
 
       if (service === 'sms') {

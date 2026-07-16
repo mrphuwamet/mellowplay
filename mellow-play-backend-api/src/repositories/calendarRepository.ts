@@ -74,10 +74,16 @@ export class CalendarRepository {
   // ── Available Slots for a date ─────────────────────────────────────────────
   private async expirePendingBookings() {
     try {
+      // Real cash-payment bookings are created with payment_status
+      // 'pending_payment' (see adminController.createBooking), not the bare
+      // 'pending' this query used to check exclusively — so it was matching
+      // almost nothing in production and abandoned Beam checkouts never
+      // actually auto-cancelled/released their seat. Checking status IN
+      // ('pending', 'pending_payment') as well covers both spellings.
       await this.db.prepare(`
-        UPDATE Bookings 
+        UPDATE Bookings
         SET status = 'cancelled', payment_status = 'expired'
-        WHERE payment_status = 'pending' 
+        WHERE (payment_status IN ('pending', 'pending_payment') OR status IN ('pending', 'pending_payment'))
           AND status != 'cancelled'
           AND created_at < datetime('now', '-15 minutes')
       `).run();
