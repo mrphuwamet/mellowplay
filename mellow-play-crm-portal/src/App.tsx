@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   Alert,
@@ -21,7 +21,8 @@ import {
   ListItemText,
   Toolbar,
   Typography,
-  CircularProgress
+  CircularProgress,
+  Tooltip,
 } from '@mui/material';
 import {
   AccessTime as OTIcon,
@@ -58,6 +59,9 @@ import {
   LocalOffer as PromoIcon,
   Feed as NewsFeedMenuIcon,
   Grade as StampImageMenuIcon,
+  TrendingUp as SalesMenuIcon,
+  Handshake as SponsorMenuIcon,
+  Lock as LockMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -107,6 +111,12 @@ import {
   UserRole,
 } from './utils/rolePermissions';
 
+// Code-split: these two dashboards pull in recharts + jspdf/html2canvas and
+// are only needed by super_admin-level roles, so keep them out of the main
+// bundle for everyone else.
+const SalesDashboard = lazy(() => import('./pages/SalesDashboard'));
+const SponsorshipDashboard = lazy(() => import('./pages/SponsorshipDashboard'));
+
 const drawerWidth = 280;
 
 // Static path lists per group, used only to decide which group should
@@ -114,6 +124,7 @@ const drawerWidth = 280;
 // filtered menuEntries memo below so this doesn't need to be recomputed
 // per-permission-change.
 const GROUP_PATHS: Record<string, string[]> = {
+  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/sponsorship'],
   people: ['/crm/staff', '/crm/parents'],
   classes: ['/crm/courses', '/crm/calendars', '/crm/bookings'],
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed'],
@@ -127,6 +138,10 @@ interface MenuItemConfig {
   path: string;
   icon: React.ReactNode;
   feature: FeatureKey;
+  // When true, the item is always shown (not filtered out) but rendered
+  // disabled with a lock icon + tooltip — used for the two gated dashboard
+  // tabs so non-privileged roles can see the features exist.
+  locked?: boolean;
 }
 
 interface MenuGroupConfig {
@@ -370,11 +385,23 @@ const AppContent = () => {
       return posItems.filter((item) => hasPermission(item.feature));
     }
 
-    // Only the dashboard stays ungrouped at the top level — everything else
-    // is bucketed into a handful of collapsible groups so the sidebar reads
-    // as ~7 items instead of ~20 when the menu is fully expanded.
+    // Dashboard is its own collapsible group (Overview always visible;
+    // Sales/Sponsorship shown to everyone but locked+tooltipped when the
+    // current role lacks the feature) — everything else below is bucketed
+    // into permission-filtered groups so the sidebar reads as ~7 items
+    // instead of ~20 when fully expanded.
     const filtered: MenuEntry[] = [
-      { text: 'แดชบอร์ด', icon: <DashboardIcon />, path: '/crm', feature: 'dashboard' },
+      {
+        type: 'group',
+        label: 'แดชบอร์ด',
+        icon: <DashboardIcon />,
+        groupKey: 'dashboard',
+        children: [
+          { text: 'ภาพรวม', icon: <DashboardIcon />, path: '/crm/dashboard/overview', feature: 'dashboard' },
+          { text: 'ยอดขายและรายได้', icon: <SalesMenuIcon />, path: '/crm/dashboard/sales', feature: 'dashboard_sales', locked: !hasPermission('dashboard_sales') },
+          { text: 'สปอนเซอร์', icon: <SponsorMenuIcon />, path: '/crm/dashboard/sponsorship', feature: 'dashboard_sponsorship', locked: !hasPermission('dashboard_sponsorship') },
+        ],
+      } as MenuGroupConfig,
     ];
 
     const pushGroup = (groupKey: string, label: string, icon: React.ReactNode, itemsAll: MenuItemConfig[]) => {
@@ -570,11 +597,13 @@ const AppContent = () => {
                   </ListItem>
                   <Collapse in={!!openGroups[group.groupKey]} timeout="auto" unmountOnExit>
                     <List disablePadding>
-                      {group.children.map((child) => (
-                        <ListItem key={child.text} disablePadding>
+                      {group.children.map((child) => {
+                        const locked = !!child.locked;
+                        const button = (
                           <ListItemButton
-                            onClick={() => navigate(child.path)}
-                            selected={location.pathname === child.path}
+                            onClick={() => { if (!locked) navigate(child.path); }}
+                            selected={!locked && location.pathname === child.path}
+                            disabled={locked}
                             sx={{
                               ml: 0,
                               mr: 1.5,
@@ -592,9 +621,19 @@ const AppContent = () => {
                           >
                             <ListItemIcon sx={{ minWidth: 34, color: 'inherit', fontSize: '1rem' }}>{child.icon}</ListItemIcon>
                             <ListItemText primary={child.text} primaryTypographyProps={{ fontWeight: 500, fontSize: '0.8rem' }} />
+                            {locked && <LockMenuIcon sx={{ fontSize: 15, opacity: 0.6 }} />}
                           </ListItemButton>
-                        </ListItem>
-                      ))}
+                        );
+                        return (
+                          <ListItem key={child.text} disablePadding>
+                            {locked ? (
+                              <Tooltip title="คุณไม่มีสิทธิ์เข้าถึงหน้านี้" arrow placement="right">
+                                <span style={{ width: '100%' }}>{button}</span>
+                              </Tooltip>
+                            ) : button}
+                          </ListItem>
+                        );
+                      })}
                     </List>
                   </Collapse>
                 </React.Fragment>
@@ -787,7 +826,7 @@ const AppContent = () => {
             {!needsPin && (
           <Routes>
             {/* Root Redirect */}
-            <Route path="/" element={<Navigate to={isPosMode ? "/pos" : "/crm"} replace />} />
+            <Route path="/" element={<Navigate to={isPosMode ? "/pos" : "/crm/dashboard/overview"} replace />} />
             
             {/* POS Routes */}
             <Route path="/pos"                element={protect('pos_dashboard', <POSNew />)} />
@@ -798,6 +837,23 @@ const AppContent = () => {
             
             {/* CRM Routes */}
             <Route path="/crm" element={protect('dashboard', <Dashboard />)} />
+            <Route path="/crm/dashboard/overview" element={protect('dashboard', <Dashboard />)} />
+            <Route
+              path="/crm/dashboard/sales"
+              element={protect('dashboard_sales', (
+                <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>}>
+                  <SalesDashboard />
+                </Suspense>
+              ))}
+            />
+            <Route
+              path="/crm/dashboard/sponsorship"
+              element={protect('dashboard_sponsorship', (
+                <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>}>
+                  <SponsorshipDashboard />
+                </Suspense>
+              ))}
+            />
             <Route path="/crm/staff" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />

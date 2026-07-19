@@ -17,6 +17,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import axios from 'axios';
+import DashboardTabs from '../components/DashboardTabs';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -135,8 +136,11 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
-        <CircularProgress />
+      <Box>
+        <DashboardTabs />
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+          <CircularProgress />
+        </Box>
       </Box>
     );
   }
@@ -181,6 +185,7 @@ const Dashboard = () => {
 
   return (
     <Box>
+      <DashboardTabs />
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800 }}>ภาพรวมระบบ ({branchName})</Typography>
