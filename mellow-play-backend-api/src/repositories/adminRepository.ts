@@ -172,13 +172,16 @@ export class AdminRepository {
         u.phone as parent_phone,
         u.email as parent_email,
         co.name as course_name, co.original_price,
-        br.name as branch_name
+        br.name as branch_name,
+        COALESCE(t.created_at, b.paid_at) as paid_at,
+        t.payment_method as payment_method
       FROM Bookings b
       LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
       LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
       LEFT JOIN Users u ON ch.parent_id = u.id
       JOIN Courses co ON b.course_id = co.id
       JOIN Branches br ON b.branch_id = br.id
+      LEFT JOIN Transactions t ON t.booking_id = b.id AND t.is_voided = 0
       WHERE 1=1
     `;
     const sqlParams: any[] = [];

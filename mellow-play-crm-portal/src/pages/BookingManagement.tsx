@@ -50,6 +50,8 @@ interface Booking {
   parent_email?: string;
   course_name: string;
   branch_name: string;
+  paid_at?: string;
+  payment_method?: string;
 }
 
 interface Course {
@@ -452,8 +454,10 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
       'ชื่อผู้ปกครอง', 
       'เบอร์โทรผู้ปกครอง', 
       'อีเมลผู้ปกครอง', 
-      'สาขา', 
-      'สถานะ'
+      'สาขา',
+      'สถานะ',
+      'วันที่รับชำระเงิน',
+      'ช่องทางชำระเงิน'
     ];
     const rows = filtered.map(b => {
       const dt = new Date(b.scheduled_at);
@@ -462,6 +466,10 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
       const status = getStatusInfo(b.status).label;
       const childBdate = formatBirthDate(b.child_birth_date);
       const actualAge = calculateAge(b.child_birth_date);
+      const paidDt = b.paid_at ? new Date(b.paid_at) : null;
+      const paidAt = paidDt && !isNaN(paidDt.getTime())
+        ? `${paidDt.toLocaleDateString('th-TH')} ${paidDt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`
+        : '-';
       return [
         b.id,
         `"${date}"`,
@@ -475,7 +483,9 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
         `"${formatPhone(b.parent_phone)}"`,
         `"${b.parent_email || '-'}"`,
         `"${b.branch_name || ''}"`,
-        `"${status}"`
+        `"${status}"`,
+        `"${paidAt}"`,
+        `"${b.payment_method || '-'}"`
       ].join(',');
     });
     const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
