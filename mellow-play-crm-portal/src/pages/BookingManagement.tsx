@@ -7,7 +7,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar, Switch,
+  Snackbar, Switch, Menu, Avatar,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -20,6 +20,10 @@ import {
   ViewList as ListIcon,
   EventBusy as EventBusyIcon,
   AdminPanelSettings as ForceStatusIcon,
+  MoreVert as MoreVertIcon,
+  Edit as EditIcon,
+  Cake as CakeIcon,
+  Phone as PhoneIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -388,6 +392,8 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
 }) => {
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'none' | 'course' | 'date'>('none');
+  const [manageMenu, setManageMenu] = useState<{ anchor: HTMLElement; booking: Booking } | null>(null);
+  const closeManageMenu = () => setManageMenu(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return bookings;
@@ -521,7 +527,12 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
         </Stack>
       </Paper>
 
-      {/* List */}
+      {/* List — a scannable card per booking instead of a dense table row.
+          Each card leads with a big date block and a colored status
+          accent (read the whole row's status at a glance without reading
+          the pill text), and every action collapses into one "จัดการ"
+          menu instead of 2-3 competing buttons. No horizontal scroll,
+          no pinned column — everything a card needs just wraps. */}
       {filtered.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 6, textAlign: 'center', borderRadius: 3, borderColor: '#eef0f3' }}>
           <EventBusyIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
@@ -535,7 +546,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
           </Typography>
         </Paper>
       ) : (
-        <Stack spacing={2}>
+        <Stack spacing={2.5}>
           {Object.entries(grouped).map(([groupKey, items]) => (
             <Box key={groupKey}>
               {groupBy !== 'none' && (
@@ -544,150 +555,126 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
                   <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: 'slate.200' }} />
                 </Box>
               )}
-              <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: '#eef0f3' }}>
-                {/* Horizontally scrollable so every field stays fully
-                    visible (no more ellipsis-truncated class/branch names) —
-                    the "จัดการ" actions column is pinned (sticky) at the far
-                    left so it's still reachable no matter how far right
-                    you've scrolled. */}
-                <Box sx={{ overflowX: 'auto', borderRadius: 3 }}>
-                  <Box sx={{ minWidth: 980 }}>
-                    {/* Table Header */}
-                    <Box sx={{
-                      display: 'grid',
-                      gridTemplateColumns: '220px 60px 130px 1.5fr 1fr 1fr 120px',
-                      columnGap: 2,
-                      bgcolor: '#f8fafc', py: 2, pr: 3,
-                      borderBottom: '1px solid #e2e8f0',
-                    }}>
-                      {['จัดการ', 'รหัส', 'วัน/เวลา', 'รายละเอียดเด็ก & ผู้ปกครอง', 'คลาสเรียน', 'สาขา', 'สถานะ'].map((h, i) => (
-                        <Typography
-                          key={h}
-                          variant="caption"
-                          sx={{
-                            fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '12px',
-                            ...(i === 0 ? { position: 'sticky', left: 0, bgcolor: '#f8fafc', zIndex: 2, pl: 3, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.08)' } : {}),
-                          }}
-                        >{h}</Typography>
-                      ))}
-                    </Box>
-                    {items.map((b, idx) => {
-                      const si = getStatusInfo(b.status);
-                      const dt = new Date(b.scheduled_at);
-                      const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
-                      return (
-                        <Box key={b.id} sx={{
-                          display: 'grid',
-                          gridTemplateColumns: '220px 60px 130px 1.5fr 1fr 1fr 120px',
-                          columnGap: 2,
-                          py: 2.5, pr: 3, alignItems: 'center',
-                          borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none',
-                          '&:hover': { bgcolor: '#f8fafc/50' },
-                          transition: 'background-color 0.2s',
+              <Stack spacing={1.25}>
+                {items.map((b) => {
+                  const si = getStatusInfo(b.status);
+                  const dt = new Date(b.scheduled_at);
+                  const hasValidDate = !isNaN(dt.getTime());
+                  const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
+                  const canReport = ['completed', 'awaiting_report'].includes(b.status);
+                  return (
+                    <Paper
+                      key={b.id}
+                      variant="outlined"
+                      sx={{
+                        borderRadius: 3, borderColor: '#eef0f3', overflow: 'hidden',
+                        display: 'flex', alignItems: 'stretch',
+                        transition: 'box-shadow 0.15s, transform 0.15s',
+                        '&:hover': { boxShadow: '0 4px 16px 0 rgba(0,0,0,0.06)' },
+                      }}
+                    >
+                      {/* Status accent — the whole row's state at a glance */}
+                      <Box sx={{ width: 5, flexShrink: 0, bgcolor: si.fgColor }} />
+
+                      <Box sx={{ flex: 1, p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
+                        {/* Date block */}
+                        <Box sx={{
+                          flexShrink: 0, width: 64, textAlign: 'center', py: 0.75, borderRadius: 2,
+                          bgcolor: '#f8fafc', border: '1px solid #eef0f3',
                         }}>
-                          <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{
-                            position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 1, pl: 3, py: 0.5,
-                            boxShadow: '2px 0 4px -2px rgba(0,0,0,0.08)',
-                          }}>
-                            {['completed', 'awaiting_report'].includes(b.status) && (
-                              <Button
-                                size="small"
-                                variant="text"
-                                color={b.status === 'awaiting_report' ? 'warning' : 'success'}
-                                onClick={() => onReport(b)}
-                                sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
-                              >
-                                กรอกรายงาน
-                              </Button>
-                            )}
-                            <Button
-                              size="small"
-                              variant="text"
-                              color="primary"
-                              onClick={() => onEdit(b)}
-                              sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
-                            >
-                              แก้ไข
-                            </Button>
-                            {isActive && (
-                              <Button
-                                size="small"
-                                variant="text"
-                                color="error"
-                                onClick={() => onCancel(b.id)}
-                                sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
-                              >
-                                ยกเลิก
-                              </Button>
-                            )}
-                          </Stack>
-                          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '14px' }}>
-                            #{b.id}
+                          <Typography sx={{ fontSize: '10px', fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1.2 }}>
+                            {hasValidDate ? dt.toLocaleDateString('th-TH', { month: 'short' }) : '-'}
                           </Typography>
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '14px', color: 'slate.700' }}>
-                              {isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '12.5px' }}>
-                              {isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
-                              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>
-                                {b.child_name || '-'}
+                          <Typography sx={{ fontSize: '20px', fontWeight: 900, color: 'text.primary', lineHeight: 1.1 }}>
+                            {hasValidDate ? dt.getDate() : '?'}
+                          </Typography>
+                          <Typography sx={{ fontSize: '10.5px', fontWeight: 700, color: 'text.secondary' }}>
+                            {hasValidDate ? dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}
+                          </Typography>
+                        </Box>
+
+                        {/* Child + parent */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
+                          <Avatar sx={{ width: 38, height: 38, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)', fontWeight: 800, fontSize: '15px' }}>
+                            {(b.child_nickname || b.child_name || '?').charAt(0)}
+                          </Avatar>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                                {b.child_nickname || b.child_name || '-'}
                               </Typography>
-                              {b.child_nickname && (
+                              {b.child_birth_date && (
                                 <Chip
-                                  label={b.child_nickname}
+                                  icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                                  label={calculateAge(b.child_birth_date)}
                                   size="small"
-                                  sx={{
-                                    bgcolor: 'rgba(116, 82, 214, 0.08)',
-                                    color: 'rgb(116, 82, 214)',
-                                    fontWeight: 700,
-                                    fontSize: '11px',
-                                    height: 20
-                                  }}
+                                  sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
                                 />
                               )}
                             </Stack>
-                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
-                              {b.child_birth_date && (
-                                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '12.5px' }}>
-                                  🎂 {formatBirthDate(b.child_birth_date)} ({calculateAge(b.child_birth_date)})
-                                </Typography>
-                              )}
-                              {b.parent_name && (
-                                <Typography variant="body2" sx={{ color: 'slate.500', fontWeight: 500, fontSize: '12.5px' }}>
-                                  • 👤 {b.parent_name} {b.parent_phone ? `(${b.parent_phone})` : ''}
-                                </Typography>
-                              )}
-                            </Stack>
-                          </Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '14.5px', color: 'slate.800' }}>
-                            {b.course_name || '-'}
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary', fontSize: '13px' }}>
-                            {b.branch_name || '-'}
-                          </Typography>
-                          <Box>
-                            <Chip
-                              label={si.label}
-                              size="small"
-                              sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26 }}
-                              variant="outlined"
-                            />
+                            {b.parent_name && (
+                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600 }}>
+                                <PhoneIcon sx={{ fontSize: 11 }} />
+                                {b.parent_name}{b.parent_phone ? ` · ${b.parent_phone}` : ''}
+                              </Typography>
+                            )}
                           </Box>
                         </Box>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              </Paper>
+
+                        {/* Class + branch */}
+                        <Box sx={{ minWidth: 160, flex: '2 1 220px' }}>
+                          <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary' }} noWrap>
+                            {b.course_name || '-'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            #{b.id} · {b.branch_name || '-'}
+                          </Typography>
+                        </Box>
+
+                        {/* Status */}
+                        <Chip
+                          label={si.label}
+                          size="small"
+                          sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26, flexShrink: 0 }}
+                        />
+
+                        {/* One manage button instead of 2-3 competing ones */}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => setManageMenu({ anchor: e.currentTarget, booking: b })}
+                          sx={{ ml: 'auto', flexShrink: 0 }}
+                        >
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Stack>
             </Box>
           ))}
         </Stack>
       )}
+
+      {/* Manage menu — replaces the old row of 2-3 separate buttons */}
+      <Menu anchorEl={manageMenu?.anchor} open={!!manageMenu} onClose={closeManageMenu} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+        {manageMenu && ['completed', 'awaiting_report'].includes(manageMenu.booking.status) && (
+          <MenuItem onClick={() => { onReport(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
+            <ReportIcon fontSize="small" color={manageMenu.booking.status === 'awaiting_report' ? 'warning' : 'success'} />
+            กรอกรายงาน
+          </MenuItem>
+        )}
+        <MenuItem onClick={() => { if (manageMenu) onEdit(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
+          <EditIcon fontSize="small" color="primary" />
+          แก้ไข
+        </MenuItem>
+        {manageMenu && ['confirmed', 'confirmed_paid'].includes(manageMenu.booking.status) && (
+          <MenuItem onClick={() => { onCancel(manageMenu.booking.id); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600, color: 'error.main' }}>
+            <CancelIcon fontSize="small" color="error" />
+            ยกเลิก
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   );
 };
