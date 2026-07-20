@@ -364,6 +364,21 @@ export class HRRepository {
     return r.meta.last_row_id as number;
   }
 
+  // Bulk version of generatePayout for the "สร้าง Payout ทั้งหมด" button —
+  // super_admin isn't a payroll-tracked role (there's no shift/commission
+  // structure for them) and a NULL salary means the employee's pay hasn't
+  // been configured yet, so both are skipped rather than generating a
+  // zero-value payout that would just need deleting later.
+  async generatePayoutForAllEligible(period: string, month: number, year: number): Promise<number> {
+    const { results: eligible } = await this.db.prepare(
+      `SELECT id FROM CRM_Users WHERE role != 'super_admin' AND salary IS NOT NULL`
+    ).all();
+    for (const row of eligible as any[]) {
+      await this.generatePayout(row.id, period, month, year);
+    }
+    return eligible.length;
+  }
+
   // Real (non-mock) replacement for the CRM's IncentiveTracking.tsx page,
   // which used to render hardcoded MOCK_INCOME/MOCK_CAMPAIGNS data. Sourced
   // from the same Payouts/Campaign_Bonuses/Transactions tables the rest of

@@ -96,19 +96,24 @@ export class AnalyticsRepository {
   }
 
   async getTrends(range: 'week' | 'month' | 'year' | 'custom', startDate?: string, endDate?: string): Promise<any[]> {
+    // created_at is stored as UTC (SQLite's CURRENT_TIMESTAMP default), but
+    // this dashboard is read in Thailand (UTC+7) — bucketing/filtering in
+    // raw UTC misfiles anything booked/paid between midnight and 7am local
+    // time under the previous calendar day. Every date computation below
+    // shifts to Thai local time first via the '+7 hours' modifier.
     const dateFormat = range === 'year' ? '%Y-%m' : '%Y-%m-%d';
     let dateFilter: string;
     const params: string[] = [];
     if (range === 'custom' && startDate && endDate) {
-      dateFilter = `DATE(created_at) BETWEEN ? AND ?`;
+      dateFilter = `DATE(created_at, '+7 hours') BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     } else {
       const daysBack = range === 'week' ? 7 : range === 'month' ? 30 : 365;
-      dateFilter = `created_at >= datetime('now', '-${daysBack} days')`;
+      dateFilter = `datetime(created_at, '+7 hours') >= datetime('now', '+7 hours', '-${daysBack} days')`;
     }
 
     const { results: bookingRows } = await this.db.prepare(`
-      SELECT strftime('${dateFormat}', created_at) as period, COUNT(*) as bookings
+      SELECT strftime('${dateFormat}', created_at, '+7 hours') as period, COUNT(*) as bookings
       FROM Bookings
       WHERE ${dateFilter} AND status != 'cancelled'
       GROUP BY period
@@ -116,7 +121,7 @@ export class AnalyticsRepository {
     `).bind(...params).all<any>();
 
     const { results: revenueRows } = await this.db.prepare(`
-      SELECT strftime('${dateFormat}', created_at) as period, SUM(amount) as revenue
+      SELECT strftime('${dateFormat}', created_at, '+7 hours') as period, SUM(amount) as revenue
       FROM Transactions
       WHERE ${dateFilter} AND is_voided = 0 AND amount > 0
       GROUP BY period

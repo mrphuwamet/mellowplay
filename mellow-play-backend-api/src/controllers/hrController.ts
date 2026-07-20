@@ -308,6 +308,15 @@ export class HRController {
       return c.json({ success: true, id });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
+  async generatePayoutForAll(c: C) {
+    try {
+      const { period, month, year } = await c.req.json();
+      if (!period || !month || !year)
+        return c.json({ success: false, message: 'period, month, year required' }, 400);
+      const count = await this.repo(c).generatePayoutForAllEligible(period, month, year);
+      return c.json({ success: true, count });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
 
   // ── Incentive Summary (real data for IncentiveTracking.tsx) ────────────────
   async getMyIncentiveSummary(c: C) {

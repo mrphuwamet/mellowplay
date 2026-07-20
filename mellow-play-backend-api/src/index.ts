@@ -21,6 +21,7 @@ import { RewardsController } from './controllers/rewardsController';
 import { NewsFeedController } from './controllers/newsFeedController';
 import { CommunityController } from './controllers/communityController';
 import { ContactController } from './controllers/contactController';
+import { AdsController } from './controllers/adsController';
 import { BirthdayWishController } from './controllers/birthdayWishController';
 import { AnalyticsController } from './controllers/analyticsController';
 import { ConfigService } from './services/configService';
@@ -46,6 +47,7 @@ const rewardsController        = new RewardsController();
 const newsFeedController       = new NewsFeedController();
 const communityController      = new CommunityController();
 const contactController        = new ContactController();
+const adsController            = new AdsController();
 const birthdayWishController   = new BirthdayWishController();
 const analyticsController      = new AnalyticsController();
 
@@ -430,6 +432,14 @@ app.post('/api/v1/community/posts/:id/vote', (c) => communityController.voteOnPo
 
 app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 
+// ================= ADS (CRM-authored promo cards mixed into the feed) =================
+app.get   ('/api/v1/ads/active',        (c) => adsController.getActive(c));
+app.post  ('/api/v1/ads/:id/click',     (c) => adsController.recordClick(c));
+app.get   ('/api/v1/admin/ads',         (c) => adsController.listAll(c));
+app.post  ('/api/v1/admin/ads',         (c) => adsController.create(c));
+app.put   ('/api/v1/admin/ads/:id',     (c) => adsController.update(c));
+app.delete('/api/v1/admin/ads/:id',     (c) => adsController.remove(c));
+
 // ================= ANALYTICS (Dashboard + course views/reviews) =================
 app.get ('/api/v1/admin/analytics',                (c) => analyticsController.getDashboardAnalytics(c));
 app.get ('/api/v1/admin/analytics/active-users',   (c) => analyticsController.getActiveUsers(c));
@@ -567,6 +577,7 @@ app.get('/api/v1/admin/payouts',         (c) => hrController.getPayouts(c));
 app.post('/api/v1/admin/payouts',        (c) => hrController.createPayout(c));
 app.put('/api/v1/admin/payouts/:id/pay',    (c) => hrController.markPayoutPaid(c));
 app.post('/api/v1/admin/payouts/generate', (c) => hrController.generatePayout(c));
+app.post('/api/v1/admin/payouts/generate-all', (c) => hrController.generatePayoutForAll(c));
 
 // ── Calendars ───────────────────────────────────────────────────────────────
 app.get   ('/api/v1/admin/calendars',              (c) => calendarController.getCalendars(c));

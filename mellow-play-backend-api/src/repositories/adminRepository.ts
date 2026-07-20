@@ -11,7 +11,7 @@ export class AdminRepository {
     // batch() an array of Promises instead, which D1 rejects. Run them
     // concurrently with Promise.all instead.
     const [activeMembers, totalChildren, upcomingBookings] = await Promise.all([
-      this.db.prepare('SELECT COUNT(*) as total FROM Users WHERE membership_expires_at > datetime("now")').first<any>(),
+      this.db.prepare('SELECT COUNT(*) as total FROM Users').first<any>(),
       this.db.prepare('SELECT COUNT(*) as total FROM Children').first<any>(),
       this.db.prepare('SELECT COUNT(*) as total FROM Bookings WHERE scheduled_at >= date("now")').first<any>(),
     ]);

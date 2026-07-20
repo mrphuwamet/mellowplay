@@ -52,8 +52,11 @@ export class AnalyticsController {
       const activeRow = await config.db.prepare(
         `SELECT COUNT(DISTINCT session_id) as count FROM Site_Visits WHERE created_at >= datetime('now', '-5 minutes')`
       ).first<any>();
+      // created_at is UTC; shift to Thailand's UTC+7 before comparing dates
+      // so visits between midnight-7am local time count as "today", not
+      // yesterday.
       const todayRow = await config.db.prepare(
-        `SELECT COUNT(DISTINCT session_id) as count FROM Site_Visits WHERE DATE(created_at) = DATE('now')`
+        `SELECT COUNT(DISTINCT session_id) as count FROM Site_Visits WHERE DATE(created_at, '+7 hours') = DATE('now', '+7 hours')`
       ).first<any>();
       return c.json({ success: true, activeNow: activeRow?.count || 0, visitsToday: todayRow?.count || 0 });
     } catch (e: any) {
