@@ -216,8 +216,13 @@ const Login = () => {
     setStep('pin');
   };
 
+  // min-h-0 overrides mellow-flow-page-split's min-h-screen — this page is
+  // nested in AppShell's fixed-height no-scroll frame (h-screen /
+  // md:h-[calc(100vh-80px)]) and insisting on its own min-h-screen on top of
+  // that pushed content (like the bottom-anchored language toggle) past the
+  // frame's visible/clipped boundary.
   return (
-    <div className="mellow-flow-page-split lg:flex lg:items-stretch">
+    <div className="mellow-flow-page-split min-h-0 h-full lg:flex lg:items-stretch">
       {/* Promo panel — desktop only (no room for it below lg:). Purely
           decorative/marketing; the form column works identically with or
           without a featured course loaded. */}
@@ -304,7 +309,7 @@ const Login = () => {
           </button>
         </div>
       )}
-      <div className="absolute top-6 right-6 lg:top-8 lg:right-8 z-10">
+      <div className="absolute bottom-6 right-6 lg:bottom-8 lg:right-8 z-10">
         <LanguageToggle />
       </div>
       <div className="text-center mb-10">

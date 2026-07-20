@@ -77,9 +77,14 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     // that class's max-width. md:w-full forces it to a definite width the
     // .mellow-shell-frame:has(...) rules in index.css can then cap
     // correctly based on which width class the page inside actually uses.
+    // Login specifically is capped to a fixed height with no internal
+    // scroll at all (requested directly) — Register/ForgotPassword keep
+    // the scroll-if-needed behavior since their longer forms haven't been
+    // checked against a hard viewport cap.
+    const isLoginPage = location.pathname === '/login';
     return (
       <div className="min-h-screen md:flex md:items-center md:justify-center md:bg-[#f4f2ee]">
-        <div className="mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full min-h-screen md:min-h-0 md:max-h-[92vh] md:overflow-y-auto relative shadow-2xl md:rounded-[32px] md:my-10 overflow-hidden bg-[#fbfaf7]">
+        <div className={`mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full min-h-screen md:min-h-0 relative shadow-2xl md:rounded-[32px] md:my-10 overflow-hidden bg-[#fbfaf7] ${isLoginPage ? 'h-screen md:h-[calc(100vh-80px)]' : 'md:max-h-[92vh] md:overflow-y-auto'}`}>
           {children}
         </div>
       </div>
