@@ -1,0 +1,16 @@
+-- Migration 036: Add Rewards System
+CREATE TABLE IF NOT EXISTS Rewards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    stamp_cost INTEGER NOT NULL DEFAULT 1,
+    stock INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE ChildCoupons ADD COLUMN total_earned INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE Redemptions ADD COLUMN reward_id INTEGER;
