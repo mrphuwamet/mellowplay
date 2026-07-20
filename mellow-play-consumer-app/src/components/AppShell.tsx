@@ -398,7 +398,10 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             <ChevronDown size={14} className={`shrink-0 transition-transform ${isBookingMenuOpen ? 'rotate-180' : ''}`} />
           </button>
           {isBookingMenuOpen && (
-            <div className="ml-9 mt-1 mb-1 flex flex-col gap-1 border-l border-slate-100 pl-3">
+            // ml matches the icon's width (not the icon+gap indent used
+            // elsewhere) so these sub-items' text lines up with the regular
+            // menu items' label text above/below, not with their icons.
+            <div className="ml-[22px] mt-1 mb-1 flex flex-col gap-1 border-l border-slate-100 pl-3">
               <Link
                 to="/booking"
                 onClick={() => setIsBookingMenuOpen(false)}

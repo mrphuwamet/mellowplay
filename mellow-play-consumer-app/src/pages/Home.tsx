@@ -52,6 +52,7 @@ const Home = () => {
   communityPostsRef.current = communityPosts;
   const communityLoadingMoreRef = React.useRef(false);
   const [newsItems, setNewsItems] = React.useState<any[]>([]);
+  const [ads, setAds] = React.useState<any[]>([]);
 
   // Tracks which card is currently snapped/most-visible in the right
   // sidebar's Recommended Classes row, so the rest can be blurred.
@@ -207,6 +208,15 @@ const Home = () => {
       .catch(() => {});
   }, []);
 
+  // CRM-authored promo cards (a class/news article the business wants to
+  // push) — mixed into the feed the same way as course/news suggestions,
+  // just labeled "โฆษณา" instead of "คลาสแนะนำ"/"จากหน้าสำรวจ".
+  React.useEffect(() => {
+    apiClient.get('/ads/active')
+      .then(res => { if (res.data.success) setAds(res.data.ads || []); })
+      .catch(() => {});
+  }, []);
+
   // Feed inserts — mobile no longer has fixed Upcoming/Recommended/History
   // sections above the feed; their content instead blends into the feed
   // itself alongside Explore/news suggestions, matching how a real social
@@ -224,20 +234,30 @@ const Home = () => {
     const historyItems = recentHistory.slice(0, 3).map((b: any) => ({
       kind: 'history' as const, id: b.id, title: b.course_name || (lang === 'en' ? 'Class' : 'คลาสเรียน'), image: undefined, booking: b,
     }));
-    const combined = [...upcomingItems, ...courseItems, ...historyItems, ...newsAsItems];
+    const adItems = ads.map((a: any) => ({
+      kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
+      adTargetType: a.targetType, adTargetId: a.targetId,
+    }));
+    const combined = [...upcomingItems, ...courseItems, ...historyItems, ...newsAsItems, ...adItems];
     return [...combined].sort(() => Math.random() - 0.5).slice(0, 6);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recommendedCourses.length, newsItems.length, upcomingClasses.length, recentHistory.length, lang]);
+  }, [recommendedCourses.length, newsItems.length, upcomingClasses.length, recentHistory.length, ads.length, lang]);
 
-  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history'; id: number; title: string; image?: string; newsType?: string; booking?: any }) => {
+  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number }) => {
     const isBookingCard = item.kind === 'upcoming' || item.kind === 'history';
+    const handleClick = () => {
+      if (isBookingCard) { setSelectedBooking(item.booking); return; }
+      if (item.kind === 'ad') {
+        apiClient.post(`/ads/${item.id}/click`).catch(() => {});
+        navigate(item.adTargetType === 'course' ? `/class/${item.adTargetId}` : `/news/${item.adTargetId}`);
+        return;
+      }
+      navigate(item.kind === 'course' ? `/class/${item.id}` : `/news/${item.id}`);
+    };
     return (
       <div
         key={`insert-${item.kind}-${item.id}`}
-        onClick={() => {
-          if (isBookingCard) setSelectedBooking(item.booking);
-          else navigate(item.kind === 'course' ? `/class/${item.id}` : `/news/${item.id}`);
-        }}
+        onClick={handleClick}
         className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform flex"
       >
         <div className="w-24 h-24 bg-slate-100 shrink-0 overflow-hidden flex items-center justify-center">
@@ -254,6 +274,7 @@ const Home = () => {
             {item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
               : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Class' : 'คลาสที่กำลังจะมาถึง')
               : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
+              : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
               : (lang === 'en' ? 'From Explore' : 'จากหน้าสำรวจ')}
           </span>
           <h4 className="font-black text-[14px] text-slate-800 leading-tight line-clamp-2">{item.title}</h4>
@@ -553,9 +574,14 @@ const Home = () => {
   );
 
   // Sidebar variant — same cards, no bleed-to-viewport-edge padding trick
-  // (the aside has no ambient horizontal padding to cancel out) and no nudge
-  // buttons (their ref is shared with the mobile-flow carousel below, and
-  // swiping/trackpad-scrolling this one card-and-a-bit-wide column is enough).
+  // (the aside has no ambient horizontal padding to cancel out). Nudge
+  // buttons scroll recommendedSidebarScrollRef directly (not via
+  // useHorizontalCarousel — that hook's own ref belongs to the mobile-flow
+  // carousel) since a plain mouse (no trackpad/touch) can't drag-scroll an
+  // overflow-x-auto div at all.
+  const scrollRecommendedSidebar = (dir: 'left' | 'right') => {
+    recommendedSidebarScrollRef.current?.scrollBy({ left: dir === 'left' ? -260 : 260, behavior: 'smooth' });
+  };
   const renderRecommendedClassesSidebar = () => (
     (isDataLoading || isBookingStatusLoading) ? (
       <div>
@@ -574,10 +600,30 @@ const Home = () => {
       <div>
         <div className="flex justify-between items-center mb-3 gap-2">
           <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
-          <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[12px] font-bold active:scale-95 transition-transform shrink-0">
-            {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
-            <ChevronRight size={12} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {recommendedCourses.length > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => scrollRecommendedSidebar('left')}
+                  aria-label={lang === 'en' ? 'Scroll left' : 'เลื่อนซ้าย'}
+                  className="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 active:scale-90 transition-all"
+                >
+                  <ChevronRight size={13} className="rotate-180" />
+                </button>
+                <button
+                  onClick={() => scrollRecommendedSidebar('right')}
+                  aria-label={lang === 'en' ? 'Scroll right' : 'เลื่อนขวา'}
+                  className="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 active:scale-90 transition-all"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[12px] font-bold active:scale-95 transition-transform shrink-0">
+              {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
+              <ChevronRight size={12} />
+            </button>
+          </div>
         </div>
         <div
           ref={recommendedSidebarScrollRef}
