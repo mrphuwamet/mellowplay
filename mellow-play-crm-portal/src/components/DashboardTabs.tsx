@@ -7,7 +7,6 @@ import { canAccessFeature, FeatureKey } from '../utils/rolePermissions';
 const TABS: { label: string; path: string; feature: FeatureKey }[] = [
   { label: 'ภาพรวม', path: '/crm/dashboard/overview', feature: 'dashboard' },
   { label: 'ยอดขายและรายได้', path: '/crm/dashboard/sales', feature: 'dashboard_sales' },
-  { label: 'สปอนเซอร์', path: '/crm/dashboard/sponsorship', feature: 'dashboard_sponsorship' },
 ];
 
 const DashboardTabs = () => {

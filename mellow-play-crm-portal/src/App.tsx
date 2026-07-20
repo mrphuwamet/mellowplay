@@ -58,9 +58,9 @@ import {
   LocalActivity as TicketIcon,
   LocalOffer as PromoIcon,
   Feed as NewsFeedMenuIcon,
+  Campaign as AdsMenuIcon,
   Grade as StampImageMenuIcon,
   TrendingUp as SalesMenuIcon,
-  Handshake as SponsorMenuIcon,
   Lock as LockMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
@@ -100,6 +100,7 @@ import POSSalesHistory from './pages/POSSalesHistory';
 import RedemptionManagement from './pages/RedemptionManagement';
 import RewardsManagement from './pages/RewardsManagement';
 import NewsFeedManagement from './pages/NewsFeedManagement';
+import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
 import { SystemLogs } from './pages/SystemLogs';
@@ -115,7 +116,6 @@ import {
 // are only needed by super_admin-level roles, so keep them out of the main
 // bundle for everyone else.
 const SalesDashboard = lazy(() => import('./pages/SalesDashboard'));
-const SponsorshipDashboard = lazy(() => import('./pages/SponsorshipDashboard'));
 
 const drawerWidth = 280;
 
@@ -124,10 +124,10 @@ const drawerWidth = 280;
 // filtered menuEntries memo below so this doesn't need to be recomputed
 // per-permission-change.
 const GROUP_PATHS: Record<string, string[]> = {
-  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/sponsorship'],
+  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales'],
   people: ['/crm/staff', '/crm/parents'],
   classes: ['/crm/courses', '/crm/calendars', '/crm/bookings'],
-  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed'],
+  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
   system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs'],
@@ -177,14 +177,16 @@ const PinDialog = ({
   };
   const handleBack = () => setDigits((p) => p.slice(0, -1));
 
-  const handleConfirm = () => {
-    if (digits.length !== 5) return;
-    onConfirm(digits);
-  };
-
   React.useEffect(() => {
     if (!open) setDigits('');
   }, [open]);
+
+  // Auto-submits as soon as the 5th digit lands — no separate Confirm tap,
+  // matching the consumer app's login PIN pad. A wrong PIN resets `digits`
+  // via the 'pin-wrong' listener below, so this can safely re-fire on retry.
+  React.useEffect(() => {
+    if (digits.length === 5) onConfirm(digits);
+  }, [digits]);
 
   const triggerShake = () => {
     setShake(true);
@@ -270,16 +272,6 @@ const PinDialog = ({
             ))}
           </Box>
         ))}
-        <Button
-          fullWidth
-          variant="contained"
-          size="large"
-          disabled={digits.length !== 5}
-          onClick={handleConfirm}
-          sx={{ mt: 1, borderRadius: 3, fontWeight: 800, py: 1.5 }}
-        >
-          ยืนยัน
-        </Button>
         <Button fullWidth onClick={onClose} sx={{ mt: 1, borderRadius: 3, fontWeight: 700 }}>
           ยกเลิก
         </Button>
@@ -386,10 +378,10 @@ const AppContent = () => {
     }
 
     // Dashboard is its own collapsible group (Overview always visible;
-    // Sales/Sponsorship shown to everyone but locked+tooltipped when the
-    // current role lacks the feature) — everything else below is bucketed
-    // into permission-filtered groups so the sidebar reads as ~7 items
-    // instead of ~20 when fully expanded.
+    // Sales shown to everyone but locked+tooltipped when the current role
+    // lacks the feature) — everything else below is bucketed into
+    // permission-filtered groups so the sidebar reads as ~7 items instead
+    // of ~20 when fully expanded.
     const filtered: MenuEntry[] = [
       {
         type: 'group',
@@ -399,7 +391,6 @@ const AppContent = () => {
         children: [
           { text: 'ภาพรวม', icon: <DashboardIcon />, path: '/crm/dashboard/overview', feature: 'dashboard' },
           { text: 'ยอดขายและรายได้', icon: <SalesMenuIcon />, path: '/crm/dashboard/sales', feature: 'dashboard_sales', locked: !hasPermission('dashboard_sales') },
-          { text: 'สปอนเซอร์', icon: <SponsorMenuIcon />, path: '/crm/dashboard/sponsorship', feature: 'dashboard_sponsorship', locked: !hasPermission('dashboard_sponsorship') },
         ],
       } as MenuGroupConfig,
     ];
@@ -432,6 +423,7 @@ const AppContent = () => {
       { text: 'จัดการรูปแสตมป์', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
       { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
       { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },
+      { text: 'โฆษณาในฟีด', icon: <AdsMenuIcon />, path: '/crm/ads', feature: 'ads' },
     ]);
 
     pushGroup('shop', 'สินค้าและบริการ', <ShopIcon />, [
@@ -846,14 +838,6 @@ const AppContent = () => {
                 </Suspense>
               ))}
             />
-            <Route
-              path="/crm/dashboard/sponsorship"
-              element={protect('dashboard_sponsorship', (
-                <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>}>
-                  <SponsorshipDashboard />
-                </Suspense>
-              ))}
-            />
             <Route path="/crm/staff" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
@@ -882,6 +866,7 @@ const AppContent = () => {
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
             <Route path="/crm/news-feed"       element={protect('news_feed', <NewsFeedManagement />)} />
             <Route path="/crm/birthday-wishes" element={protect('news_feed', <BirthdayWishManagement />)} />
+            <Route path="/crm/ads"             element={protect('ads', <AdsManagement />)} />
             <Route path="/crm/stamp-images"    element={protect('stamp_images', <StampImageManagement />)} />
             <Route path="/crm/coupons"         element={protect('packages', <CouponManagement />)} />
             <Route path="/crm/promotions"      element={protect('packages', <PromotionManagement />)} />

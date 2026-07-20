@@ -7,7 +7,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar,
+  Snackbar, Switch,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -380,13 +380,11 @@ const calculateAge = (birthDateStr: string | undefined) => {
   return age >= 0 ? `${age} ปี` : '0 ปี';
 };
 
-const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onForceStatus }: {
+const ListView = ({ bookings, onReport, onCancel, onEdit }: {
   bookings: Booking[];
   onReport: (b: Booking) => void;
-  onComplete: (b: Booking) => void;
   onCancel: (id: number) => void;
-  isSuperAdmin: boolean;
-  onForceStatus: (b: Booking) => void;
+  onEdit: (b: Booking) => void;
 }) => {
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'none' | 'course' | 'date'>('none');
@@ -486,39 +484,42 @@ const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onFo
 
   return (
     <Box>
-      {/* Search & Controls */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mb={2} alignItems={{ sm: 'center' }}>
-        <TextField
-          size="small"
-          placeholder="ค้นหา ชื่อเด็ก, ชื่อเล่น, ผู้ปกครอง, เบอร์โทร, คลาส..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
-          sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
-        />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel sx={{ fontWeight: 700 }}>จัดกลุ่มตาม</InputLabel>
-          <Select
-            value={groupBy}
-            onChange={e => setGroupBy(e.target.value as any)}
-            label="จัดกลุ่มตาม"
-            sx={{ borderRadius: 2, fontWeight: 700 }}
+      {/* Filter — search, group-by, and export live in one card so they read
+          as a single filter component instead of stray floating controls. */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 3, borderColor: '#eef0f3' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+          <TextField
+            size="small"
+            placeholder="ค้นหา ชื่อเด็ก, ชื่อเล่น, ผู้ปกครอง, เบอร์โทร, คลาส..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
+            sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
+          />
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel sx={{ fontWeight: 700 }}>จัดกลุ่มตาม</InputLabel>
+            <Select
+              value={groupBy}
+              onChange={e => setGroupBy(e.target.value as any)}
+              label="จัดกลุ่มตาม"
+              sx={{ borderRadius: 2, fontWeight: 700 }}
+            >
+              <MenuItem value="none" sx={{ fontWeight: 700 }}>ไม่จัดกลุ่ม</MenuItem>
+              <MenuItem value="course" sx={{ fontWeight: 700 }}>ตามคลาส</MenuItem>
+              <MenuItem value="date" sx={{ fontWeight: 700 }}>ตามวันที่</MenuItem>
+            </Select>
+          </FormControl>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
+            sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
           >
-            <MenuItem value="none" sx={{ fontWeight: 700 }}>ไม่จัดกลุ่ม</MenuItem>
-            <MenuItem value="course" sx={{ fontWeight: 700 }}>ตามคลาส</MenuItem>
-            <MenuItem value="date" sx={{ fontWeight: 700 }}>ตามวันที่</MenuItem>
-          </Select>
-        </FormControl>
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={exportCSV}
-          disabled={filtered.length === 0}
-          sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
-        >
-          Export CSV ({filtered.length})
-        </Button>
-      </Stack>
+            Export CSV ({filtered.length})
+          </Button>
+        </Stack>
+      </Paper>
 
       {/* List */}
       {filtered.length === 0 ? (
@@ -543,121 +544,145 @@ const ListView = ({ bookings, onReport, onComplete, onCancel, isSuperAdmin, onFo
                   <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: 'slate.200' }} />
                 </Box>
               )}
-              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', borderColor: '#eef0f3' }}>
-                {/* Table Header */}
-                <Box sx={{
-                  display: 'grid',
-                  gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 130px',
-                  bgcolor: '#f8fafc', px: 3, py: 2,
-                  borderBottom: '1px solid #e2e8f0',
-                }}>
-                  {['รหัส', 'วัน/เวลา', 'รายละเอียดเด็ก & ผู้ปกครอง', 'คลาสเรียน', 'สาขา', 'สถานะ', 'จัดการ'].map(h => (
-                    <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '12px' }}>{h}</Typography>
-                  ))}
-                </Box>
-                {items.map((b, idx) => {
-                  const si = getStatusInfo(b.status);
-                  const dt = new Date(b.scheduled_at);
-                  const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
-                  return (
-                    <Box key={b.id} sx={{
+              <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: '#eef0f3' }}>
+                {/* Horizontally scrollable so every field stays fully
+                    visible (no more ellipsis-truncated class/branch names) —
+                    the "จัดการ" actions column is pinned (sticky) at the far
+                    left so it's still reachable no matter how far right
+                    you've scrolled. */}
+                <Box sx={{ overflowX: 'auto', borderRadius: 3 }}>
+                  <Box sx={{ minWidth: 980 }}>
+                    {/* Table Header */}
+                    <Box sx={{
                       display: 'grid',
-                      gridTemplateColumns: '60px 130px 1.5fr 1fr 1fr 120px 130px',
-                      px: 3, py: 2.5, alignItems: 'center',
-                      borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none',
-                      '&:hover': { bgcolor: '#f8fafc/50' },
-                      transition: 'background-color 0.2s',
+                      gridTemplateColumns: '220px 60px 130px 1.5fr 1fr 1fr 120px',
+                      columnGap: 2,
+                      bgcolor: '#f8fafc', py: 2, pr: 3,
+                      borderBottom: '1px solid #e2e8f0',
                     }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '14px' }}>
-                        #{b.id}
-                      </Typography>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '14px', color: 'slate.700' }}>
-                          {isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '12.5px' }}>
-                          {isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
-                          <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>
-                            {b.child_name || '-'}
-                          </Typography>
-                          {b.child_nickname && (
-                            <Chip
-                              label={b.child_nickname}
-                              size="small"
-                              sx={{
-                                bgcolor: 'rgba(116, 82, 214, 0.08)',
-                                color: 'rgb(116, 82, 214)',
-                                fontWeight: 700,
-                                fontSize: '11px',
-                                height: 20
-                              }}
-                            />
-                          )}
-                        </Stack>
-                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
-                          {b.child_birth_date && (
-                            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '12.5px' }}>
-                              🎂 {formatBirthDate(b.child_birth_date)} ({calculateAge(b.child_birth_date)})
-                            </Typography>
-                          )}
-                          {b.parent_name && (
-                            <Typography variant="body2" sx={{ color: 'slate.500', fontWeight: 500, fontSize: '12.5px' }}>
-                              • 👤 {b.parent_name} {b.parent_phone ? `(${b.parent_phone})` : ''}
-                            </Typography>
-                          )}
-                        </Stack>
-                      </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14.5px', color: 'slate.800' }}>
-                        {b.course_name || '-'}
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {b.branch_name || '-'}
-                      </Typography>
-                      <Box>
-                        <Chip
-                          label={si.label}
-                          size="small"
-                          sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26 }}
-                          variant="outlined"
-                        />
-                      </Box>
-                      <Stack direction="row" spacing={0.25}>
-                        {isActive && (
-                          <>
-                            <Tooltip title="เรียนเสร็จ">
-                              <IconButton color="success" onClick={() => onComplete(b)}>
-                                <CheckCircleIcon sx={{ fontSize: 22 }} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="ยกเลิก">
-                              <IconButton color="error" onClick={() => onCancel(b.id)}>
-                                <CancelIcon sx={{ fontSize: 22 }} />
-                              </IconButton>
-                            </Tooltip>
-                          </>
-                        )}
-                        {['completed', 'awaiting_report'].includes(b.status) && (
-                          <Tooltip title={b.status === 'awaiting_report' ? 'กรอกรายงาน (ค้างอยู่)' : 'แก้ไขรายงาน'}>
-                            <IconButton color={b.status === 'awaiting_report' ? 'warning' : 'success'} onClick={() => onReport(b)}>
-                              <ReportIcon sx={{ fontSize: 22 }} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {isSuperAdmin && (
-                          <Tooltip title="แก้ไขสถานะ (Super Admin)">
-                            <IconButton color="warning" onClick={() => onForceStatus(b)}>
-                              <ForceStatusIcon sx={{ fontSize: 22 }} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Stack>
+                      {['จัดการ', 'รหัส', 'วัน/เวลา', 'รายละเอียดเด็ก & ผู้ปกครอง', 'คลาสเรียน', 'สาขา', 'สถานะ'].map((h, i) => (
+                        <Typography
+                          key={h}
+                          variant="caption"
+                          sx={{
+                            fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '12px',
+                            ...(i === 0 ? { position: 'sticky', left: 0, bgcolor: '#f8fafc', zIndex: 2, pl: 3, boxShadow: '2px 0 4px -2px rgba(0,0,0,0.08)' } : {}),
+                          }}
+                        >{h}</Typography>
+                      ))}
                     </Box>
-                  );
-                })}
+                    {items.map((b, idx) => {
+                      const si = getStatusInfo(b.status);
+                      const dt = new Date(b.scheduled_at);
+                      const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
+                      return (
+                        <Box key={b.id} sx={{
+                          display: 'grid',
+                          gridTemplateColumns: '220px 60px 130px 1.5fr 1fr 1fr 120px',
+                          columnGap: 2,
+                          py: 2.5, pr: 3, alignItems: 'center',
+                          borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none',
+                          '&:hover': { bgcolor: '#f8fafc/50' },
+                          transition: 'background-color 0.2s',
+                        }}>
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{
+                            position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 1, pl: 3, py: 0.5,
+                            boxShadow: '2px 0 4px -2px rgba(0,0,0,0.08)',
+                          }}>
+                            {['completed', 'awaiting_report'].includes(b.status) && (
+                              <Button
+                                size="small"
+                                variant="text"
+                                color={b.status === 'awaiting_report' ? 'warning' : 'success'}
+                                onClick={() => onReport(b)}
+                                sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
+                              >
+                                กรอกรายงาน
+                              </Button>
+                            )}
+                            <Button
+                              size="small"
+                              variant="text"
+                              color="primary"
+                              onClick={() => onEdit(b)}
+                              sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
+                            >
+                              แก้ไข
+                            </Button>
+                            {isActive && (
+                              <Button
+                                size="small"
+                                variant="text"
+                                color="error"
+                                onClick={() => onCancel(b.id)}
+                                sx={{ fontWeight: 700, fontSize: '12px', minWidth: 0, px: 1 }}
+                              >
+                                ยกเลิก
+                              </Button>
+                            )}
+                          </Stack>
+                          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '14px' }}>
+                            #{b.id}
+                          </Typography>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '14px', color: 'slate.700' }}>
+                              {isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '12.5px' }}>
+                              {isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>
+                                {b.child_name || '-'}
+                              </Typography>
+                              {b.child_nickname && (
+                                <Chip
+                                  label={b.child_nickname}
+                                  size="small"
+                                  sx={{
+                                    bgcolor: 'rgba(116, 82, 214, 0.08)',
+                                    color: 'rgb(116, 82, 214)',
+                                    fontWeight: 700,
+                                    fontSize: '11px',
+                                    height: 20
+                                  }}
+                                />
+                              )}
+                            </Stack>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={0.5}>
+                              {b.child_birth_date && (
+                                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '12.5px' }}>
+                                  🎂 {formatBirthDate(b.child_birth_date)} ({calculateAge(b.child_birth_date)})
+                                </Typography>
+                              )}
+                              {b.parent_name && (
+                                <Typography variant="body2" sx={{ color: 'slate.500', fontWeight: 500, fontSize: '12.5px' }}>
+                                  • 👤 {b.parent_name} {b.parent_phone ? `(${b.parent_phone})` : ''}
+                                </Typography>
+                              )}
+                            </Stack>
+                          </Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '14.5px', color: 'slate.800' }}>
+                            {b.course_name || '-'}
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary', fontSize: '13px' }}>
+                            {b.branch_name || '-'}
+                          </Typography>
+                          <Box>
+                            <Chip
+                              label={si.label}
+                              size="small"
+                              sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26 }}
+                              variant="outlined"
+                            />
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
               </Paper>
             </Box>
           ))}
@@ -1156,9 +1181,13 @@ const BookingManagement = () => {
   const toDatetimeLocalValue = (raw?: string) => raw ? raw.replace(' ', 'T').slice(0, 16) : '';
   const fromDatetimeLocalValue = (val: string) => val ? val.replace('T', ' ') : '';
 
+  // Also the entry point for the List view's unified "แก้ไข" button (every
+  // role, not just Super Admin) — defaults the status dropdown/toggle to
+  // the booking's actual current status so opening this to just reschedule
+  // a class time can't silently change its status as a side effect.
   const openForceStatus = (b: Booking) => {
     setForceStatusBooking(b);
-    setForceStatusValue(b.status === 'pending' ? 'pending' : 'confirmed_paid');
+    setForceStatusValue(b.status);
     setForceScheduledAt(toDatetimeLocalValue(b.scheduled_at));
     setForcePaidAt('');
     setForceStatusError('');
@@ -1416,7 +1445,7 @@ const BookingManagement = () => {
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} isSuperAdmin={isSuperAdmin} onForceStatus={openForceStatus} />
+        <ListView bookings={filteredBookings} onReport={setReportBooking} onCancel={handleCancel} onEdit={openForceStatus} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
       )}
@@ -1463,32 +1492,51 @@ const BookingManagement = () => {
         </Alert>
       </Snackbar>
 
-      {/* Super Admin: force-patch booking status for error correction */}
+      {/* Edit dialog — Super Admin gets full status control (error
+          correction) + payment-time override + hard-delete; every other
+          role gets just a reschedule field (change to a different
+          class round/time) plus a simple "mark complete" toggle, replacing
+          what used to be a separate one-click Complete button. */}
       <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>แก้ไขสถานะการจอง (Super Admin)</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการจอง (Super Admin)' : 'แก้ไขการจอง'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
           </Typography>
           {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>สถานะ</InputLabel>
-            <Select
-              label="สถานะ"
-              value={forceStatusValue}
-              onChange={e => setForceStatusValue(e.target.value)}
-            >
-              <MenuItem value="pending_payment">รอจ่ายเงิน (pending_payment)</MenuItem>
-              <MenuItem value="pending">รอจ่ายเงิน (pending)</MenuItem>
-              <MenuItem value="confirmed">ยืนยันแล้ว (confirmed)</MenuItem>
-              <MenuItem value="confirmed_paid">จ่ายเงินแล้ว (confirmed_paid)</MenuItem>
-              <MenuItem value="awaiting_report">รอรายงานผล (awaiting_report)</MenuItem>
-              <MenuItem value="completed">จบคลาสแล้ว (completed)</MenuItem>
-              <MenuItem value="cancelled">ยกเลิกแล้ว (cancelled)</MenuItem>
-            </Select>
-          </FormControl>
+          {isSuperAdmin ? (
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>สถานะ</InputLabel>
+              <Select
+                label="สถานะ"
+                value={forceStatusValue}
+                onChange={e => setForceStatusValue(e.target.value)}
+              >
+                <MenuItem value="pending_payment">รอจ่ายเงิน (pending_payment)</MenuItem>
+                <MenuItem value="pending">รอจ่ายเงิน (pending)</MenuItem>
+                <MenuItem value="confirmed">ยืนยันแล้ว (confirmed)</MenuItem>
+                <MenuItem value="confirmed_paid">จ่ายเงินแล้ว (confirmed_paid)</MenuItem>
+                <MenuItem value="awaiting_report">รอรายงานผล (awaiting_report)</MenuItem>
+                <MenuItem value="completed">จบคลาสแล้ว (completed)</MenuItem>
+                <MenuItem value="cancelled">ยกเลิกแล้ว (cancelled)</MenuItem>
+              </Select>
+            </FormControl>
+          ) : (
+            ['confirmed', 'confirmed_paid'].includes(forceStatusBooking?.status || '') && (
+              <FormControlLabel
+                sx={{ mb: 2, ml: 0 }}
+                control={
+                  <Switch
+                    checked={forceStatusValue === 'awaiting_report'}
+                    onChange={e => setForceStatusValue(e.target.checked ? 'awaiting_report' : (forceStatusBooking?.status || 'confirmed_paid'))}
+                  />
+                }
+                label="ทำเครื่องหมายว่าเรียนเสร็จแล้ว (รอกรอกรายงาน)"
+              />
+            )
+          )}
           <TextField
-            label="วันที่จอง (แก้ไขได้ถ้าจำเป็น)"
+            label="วันที่และเวลาเรียน (เปลี่ยนรอบเรียนได้ที่นี่)"
             type="datetime-local"
             fullWidth
             sx={{ mb: 2 }}
@@ -1496,16 +1544,19 @@ const BookingManagement = () => {
             value={forceScheduledAt}
             onChange={e => setForceScheduledAt(e.target.value)}
           />
-          <TextField
-            label="วันที่จ่ายเงิน (ถ้ามี)"
-            type="datetime-local"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-            value={forcePaidAt}
-            onChange={e => setForcePaidAt(e.target.value)}
-          />
+          {isSuperAdmin && (
+            <TextField
+              label="วันที่จ่ายเงิน (ถ้ามี)"
+              type="datetime-local"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={forcePaidAt}
+              onChange={e => setForcePaidAt(e.target.value)}
+            />
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
+          {isSuperAdmin && (
           <Button
             color="error"
             disabled={forceStatusLoading}
@@ -1514,6 +1565,7 @@ const BookingManagement = () => {
           >
             ลบถาวร...
           </Button>
+          )}
           <Button onClick={() => setForceStatusBooking(null)} disabled={forceStatusLoading}>ยกเลิก</Button>
           <Button variant="contained" color="warning" onClick={submitForceStatus} disabled={forceStatusLoading}>
             {forceStatusLoading ? <CircularProgress size={18} /> : 'บันทึก'}

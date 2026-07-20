@@ -1,6 +1,6 @@
 import { API_URL } from '../config';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import SkillsLibraryManagement from './SkillsLibraryManagement';
 import mellowPlayLogo from '../assets/logo.svg';
 import CourseMaterialsTab from '../components/CourseMaterialsTab';
@@ -216,6 +216,7 @@ const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string })
 
 const CourseManagement = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [pageTab, setPageTab] = useState(0);
   const currentUserRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role; } catch { return ''; } })();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -541,6 +542,17 @@ const CourseManagement = () => {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // Deep-link from the Dashboard's class table (?edit=<courseId>) — open
+  // that course's edit dialog once its data has loaded, then drop the param
+  // so refreshing/closing doesn't reopen it.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || courses.length === 0) return;
+    const course = courses.find(c => c.id === parseInt(editId));
+    if (course) handleEditOpen(course);
+    setSearchParams({}, { replace: true });
+  }, [courses, searchParams]);
 
   useEffect(() => {
     if (!editCourse?.id) { setCourseReviews([]); return; }

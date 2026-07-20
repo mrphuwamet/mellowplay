@@ -29,8 +29,6 @@ interface PayoutRecord {
   paid_at?: string;
 }
 
-interface CrmUser { id: number; full_name: string; role: string; }
-
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 const formatBaht = (amount: number) =>
@@ -45,8 +43,6 @@ const Payout: React.FC = () => {
 
   // Generate dialog
   const [genOpen, setGenOpen] = useState(false);
-  const [staffList, setStaffList] = useState<CrmUser[]>([]);
-  const [genStaffId, setGenStaffId] = useState('');
   const [genMonth, setGenMonth] = useState(new Date().getMonth() + 1);
   const [genYear, setGenYear] = useState(new Date().getFullYear());
   const [generating, setGenerating] = useState(false);
@@ -63,14 +59,7 @@ const Payout: React.FC = () => {
     }
   };
 
-  const fetchStaff = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/crm-users`);
-      setStaffList(res.data.users ?? []);
-    } catch {}
-  };
-
-  useEffect(() => { fetchPayouts(); fetchStaff(); }, []);
+  useEffect(() => { fetchPayouts(); }, []);
 
   const totalPending = payouts.filter((p) => p.status === 'pending').reduce((s, p) => s + p.total, 0);
   const totalPaid = payouts.filter((p) => p.status === 'paid').reduce((s, p) => s + p.total, 0);
@@ -90,18 +79,16 @@ const Payout: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    if (!genStaffId) return;
     setGenerating(true);
     try {
       const period = `${THAI_MONTHS[genMonth - 1]} ${genYear + 543}`;
-      await axios.post(`${API_BASE}/payouts/generate`, {
-        crmUserId: parseInt(genStaffId),
+      const res = await axios.post(`${API_BASE}/payouts/generate-all`, {
         period,
         month: genMonth,
         year: genYear,
       });
       setGenOpen(false);
-      setSuccessMsg(`สร้าง Payout ของ ${period} สำเร็จ`);
+      setSuccessMsg(`สร้าง Payout ของ ${period} สำเร็จ (${res.data.count} คน)`);
       setTimeout(() => setSuccessMsg(''), 4000);
       fetchPayouts();
     } catch {
@@ -227,16 +214,8 @@ const Payout: React.FC = () => {
         <Divider />
         <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Typography variant="body2" color="text.secondary">
-            ระบบจะคำนวณค่าปฏิบัติงาน + ค่าคอมมิชชัน + เบิกเงินสำรองที่อนุมัติแล้วโดยอัตโนมัติ
+            ระบบจะคำนวณค่าปฏิบัติงาน + ค่าคอมมิชชัน + เบิกเงินสำรองที่อนุมัติแล้วโดยอัตโนมัติ ให้พนักงานทุกคนที่มีการระบุเงินเดือนไว้ในระบบ (ยกเว้น Super Admin และพนักงานที่ยังไม่ได้ระบุเงินเดือน)
           </Typography>
-          <FormControl fullWidth>
-            <InputLabel>พนักงาน</InputLabel>
-            <Select value={genStaffId} label="พนักงาน" onChange={(e) => setGenStaffId(e.target.value)}>
-              {staffList.map((s) => (
-                <MenuItem key={s.id} value={String(s.id)}>{s.full_name} ({s.role})</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
           <Box sx={{ display: 'flex', gap: 1.5 }}>
             <FormControl fullWidth>
               <InputLabel>เดือน</InputLabel>
@@ -257,8 +236,8 @@ const Payout: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setGenOpen(false)} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-          <Button variant="contained" onClick={handleGenerate} disabled={!genStaffId || generating} sx={{ borderRadius: 3, fontWeight: 700 }}>
-            {generating ? <CircularProgress size={20} /> : 'คำนวณ & สร้าง'}
+          <Button variant="contained" onClick={handleGenerate} disabled={generating} sx={{ borderRadius: 3, fontWeight: 700 }}>
+            {generating ? <CircularProgress size={20} /> : 'สร้าง Payout ทั้งหมด'}
           </Button>
         </DialogActions>
       </Dialog>

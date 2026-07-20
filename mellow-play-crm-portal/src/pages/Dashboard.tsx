@@ -1,6 +1,7 @@
 import { API_URL } from '../config';
 import React, { useEffect, useState } from 'react';
-import { Grid, Paper, Typography, Box, Card, CardContent, CircularProgress, ToggleButtonGroup, ToggleButton, Chip, Rating, TextField, InputAdornment } from '@mui/material';
+import { Grid, Paper, Typography, Box, Card, CardContent, CircularProgress, ToggleButtonGroup, ToggleButton, Chip, Rating, TextField, InputAdornment, TablePagination } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 import {
   People as PeopleIcon,
   ChildCare as ChildIcon,
@@ -67,6 +68,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const daysAgoISO = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [analytics, setAnalytics] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,10 +77,12 @@ const Dashboard = () => {
   const [customStart, setCustomStart] = useState(daysAgoISO(30));
   const [customEnd, setCustomEnd] = useState(todayISO());
 
-  // Funnel table sorting + smart search
+  // Funnel table sorting + smart search + pagination
   const [funnelSearch, setFunnelSearch] = useState('');
   const [sortKey, setSortKey] = useState<'name' | 'views' | 'bookings' | 'completions' | 'completionRate' | 'avg_rating'>('bookings');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [funnelPage, setFunnelPage] = useState(0);
+  const [funnelRowsPerPage, setFunnelRowsPerPage] = useState(10);
 
   // "Active now" is a near-realtime proxy (distinct sessions pinged in the
   // last 5 minutes), not a true push-based websocket presence system.
@@ -176,10 +180,13 @@ const Dashboard = () => {
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
     return sortDir === 'asc' ? cmp : -cmp;
   });
+  const paginatedFunnel = sortedFunnel.slice(funnelPage * funnelRowsPerPage, (funnelPage + 1) * funnelRowsPerPage);
   const toggleSort = (key: typeof sortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('desc'); }
+    setFunnelPage(0);
   };
+  const goToCourse = (courseId: number) => navigate(`/crm/courses?edit=${courseId}`);
   const SortIcon = ({ col }: { col: typeof sortKey }) =>
     sortKey !== col ? <SortNoneIcon sx={{ fontSize: 14 }} /> : sortDir === 'asc' ? <SortAscIcon sx={{ fontSize: 14 }} /> : <SortDescIcon sx={{ fontSize: 14 }} />;
 
@@ -390,7 +397,7 @@ const Dashboard = () => {
                 size="small"
                 placeholder="ค้นหาชื่อคลาส..."
                 value={funnelSearch}
-                onChange={e => setFunnelSearch(e.target.value)}
+                onChange={e => { setFunnelSearch(e.target.value); setFunnelPage(0); }}
                 sx={{ mb: 2, width: { xs: '100%', sm: 320 } }}
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: 'text.disabled' }} /></InputAdornment> }}
               />
@@ -418,32 +425,46 @@ const Dashboard = () => {
                       <Typography variant="body2" color="text.disabled">ไม่พบคลาสที่ตรงกับคำค้นหา</Typography>
                     </Box>
                   )}
-                  {sortedFunnel.map((f: any) => (
-                    <React.Fragment key={f.course_id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1, borderBottom: '1px solid #f5f5f7' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{f.name}</Typography>
-                        <Chip label={f.is_extraclass ? 'พิเศษ' : 'ปกติ'} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700 }} />
-                      </Box>
-                      <Typography variant="body2" sx={{ py: 1, borderBottom: '1px solid #f5f5f7' }}>{f.views}</Typography>
-                      <Typography variant="body2" sx={{ py: 1, borderBottom: '1px solid #f5f5f7' }}>{f.bookings}</Typography>
-                      <Typography variant="body2" sx={{ py: 1, borderBottom: '1px solid #f5f5f7' }}>{f.completions}</Typography>
-                      <Typography variant="body2" sx={{ py: 1, borderBottom: '1px solid #f5f5f7' }}>
-                        {f.completionRate >= 0 ? `${Math.round(f.completionRate)}%` : '-'}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 1, borderBottom: '1px solid #f5f5f7' }}>
-                        {f.review_count > 0 ? (
-                          <>
-                            <Rating value={f.avg_rating} readOnly size="small" precision={0.1} />
-                            <Typography variant="caption" color="text.secondary">({f.review_count})</Typography>
-                          </>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">-</Typography>
-                        )}
-                      </Box>
-                    </React.Fragment>
-                  ))}
+                  {paginatedFunnel.map((f: any) => {
+                    const cellSx = { py: 1, borderBottom: '1px solid #f5f5f7', cursor: 'pointer', '&:hover': { bgcolor: '#fafafa' } };
+                    return (
+                      <React.Fragment key={f.course_id}>
+                        <Box onClick={() => goToCourse(f.course_id)} sx={{ display: 'flex', alignItems: 'center', gap: 1, ...cellSx }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{f.name}</Typography>
+                          <Chip label={f.is_extraclass ? 'พิเศษ' : 'ปกติ'} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700 }} />
+                        </Box>
+                        <Typography variant="body2" onClick={() => goToCourse(f.course_id)} sx={cellSx}>{f.views}</Typography>
+                        <Typography variant="body2" onClick={() => goToCourse(f.course_id)} sx={cellSx}>{f.bookings}</Typography>
+                        <Typography variant="body2" onClick={() => goToCourse(f.course_id)} sx={cellSx}>{f.completions}</Typography>
+                        <Typography variant="body2" onClick={() => goToCourse(f.course_id)} sx={cellSx}>
+                          {f.completionRate >= 0 ? `${Math.round(f.completionRate)}%` : '-'}
+                        </Typography>
+                        <Box onClick={() => goToCourse(f.course_id)} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ...cellSx }}>
+                          {f.review_count > 0 ? (
+                            <>
+                              <Rating value={f.avg_rating} readOnly size="small" precision={0.1} />
+                              <Typography variant="caption" color="text.secondary">({f.review_count})</Typography>
+                            </>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
+                        </Box>
+                      </React.Fragment>
+                    );
+                  })}
                 </Box>
               </Box>
+              <TablePagination
+                component="div"
+                count={sortedFunnel.length}
+                page={funnelPage}
+                onPageChange={(_, p) => setFunnelPage(p)}
+                rowsPerPage={funnelRowsPerPage}
+                onRowsPerPageChange={e => { setFunnelRowsPerPage(parseInt(e.target.value, 10)); setFunnelPage(0); }}
+                rowsPerPageOptions={[10, 25, 50]}
+                labelRowsPerPage="แถวต่อหน้า"
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} จาก ${count}`}
+              />
             </SectionPaper>
           </Grid>
         </Grid>

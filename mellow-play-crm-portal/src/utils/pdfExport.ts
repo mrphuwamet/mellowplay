@@ -11,9 +11,9 @@ interface PdfExportOptions {
   branchLabel: string;
 }
 
-// Shared header/footer/pagination logic for every dashboard PDF export
-// (Sales report, Sponsorship internal report, Sponsorship proposal) so all
-// three exports look consistent — only the captured element + labels differ.
+// Shared header/footer/pagination logic for dashboard PDF exports (e.g. the
+// Sales report) so every export looks consistent — only the captured
+// element + labels differ.
 export const exportDashboardPdf = async ({ element, fileName, reportTitle, periodLabel, branchLabel }: PdfExportOptions) => {
   const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#ffffff' });
   const imgData = canvas.toDataURL('image/png');
