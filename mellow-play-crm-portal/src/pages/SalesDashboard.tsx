@@ -21,7 +21,6 @@ import {
 import axios from 'axios';
 import { API_URL } from '../config';
 import DashboardTabs from '../components/DashboardTabs';
-import { SALES_TRANSACTIONS, MOCK_BRANCHES } from '../mocks/salesData';
 import { exportDashboardPdf } from '../utils/pdfExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -80,109 +79,128 @@ const SectionPaper = ({ title, action, children }: { title: string; action?: Rea
   </Paper>
 );
 
-const formatThb = (n: number) => `฿${Math.round(n).toLocaleString()}`;
+const formatThb = (n: number) => `฿${Math.round(n || 0).toLocaleString()}`;
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  'สำเร็จ': { label: 'สำเร็จ', color: 'success' },
-  'คืนเงิน': { label: 'คืนเงิน', color: 'error' },
-  'รอดำเนินการ': { label: 'รอดำเนินการ', color: 'warning' },
+// Transactions.type → this dashboard's category buckets. There's no
+// physical-product ("สินค้า") sale type recorded in Transactions today —
+// POS retail goods live in Orders/Order_Items, a separate model — so that
+// mock-data category has no real equivalent yet and is intentionally absent.
+const TYPE_TO_CATEGORY: Record<string, string> = {
+  guest_sale: 'คอร์สเรียน',
+  class_booking: 'คอร์สเรียน',
+  package_sale: 'แพ็คเกจ',
+  service_sale: 'บริการเสริม',
+};
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: 'เงินสด', transfer: 'โอนเงิน', credit_card: 'บัตรเครดิต',
+  coupon: 'คูปอง', promptpay: 'พร้อมเพย์', beam: 'Beam', later: 'ค้างชำระ',
 };
 
+interface Branch { id: number; name: string; }
+interface DailySalesRow { date: string; count: number; revenue: number; package_revenue: number; class_revenue: number; service_revenue: number; }
+interface BestSellerRow { name: string; count: number; units_sold: number; revenue: number; }
+interface TransactionRow {
+  id: number; created_at: string; type: string; amount: number; payment_method: string; is_voided: number;
+  branch_name?: string; customer_name?: string; course_name?: string; package_name?: string; service_name?: string;
+}
+
 const SalesDashboard = () => {
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-  const [branchOptions, setBranchOptions] = useState<string[]>(MOCK_BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [branch, setBranch] = useState('all');
   const [dateFrom, setDateFrom] = useState(daysAgoISO(29));
   const [dateTo, setDateTo] = useState(todayISO());
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [exporting, setExporting] = useState(false);
+
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [kpis, setKpis] = useState({ revenue: 0, txCount: 0, uniqueCustomers: 0 });
+  const [prevKpis, setPrevKpis] = useState({ revenue: 0, txCount: 0, uniqueCustomers: 0 });
+  const [dailySales, setDailySales] = useState<DailySalesRow[]>([]);
+  const [bestSellers, setBestSellers] = useState<{ courses: BestSellerRow[]; packages: BestSellerRow[]; services: BestSellerRow[] }>({ courses: [], packages: [], services: [] });
+
+  const [txLoading, setTxLoading] = useState(true);
+  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [txTotal, setTxTotal] = useState(0);
 
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 500);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
     axios.get(`${API_BASE}/branches`)
-      .then((res) => {
-        if (res.data?.success && Array.isArray(res.data.branches) && res.data.branches.length > 0) {
-          setBranchOptions(res.data.branches.map((b: any) => b.name));
-        }
-      })
-      .catch(() => { /* keep mock branch list */ });
+      .then((res) => { if (res.data?.success) setBranches(res.data.branches ?? []); })
+      .catch(() => {});
   }, []);
 
-  const inRange = (t: typeof SALES_TRANSACTIONS[number], from: string, to: string) =>
-    t.date >= from && t.date <= to && (branch === 'all' || t.branch === branch);
-
-  const filtered = useMemo(
-    () => SALES_TRANSACTIONS.filter((t) => inRange(t, dateFrom, dateTo)),
-    [dateFrom, dateTo, branch],
-  );
-
+  const branchId = branch === 'all' ? undefined : branch;
   const rangeDays = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1);
   const prevTo = addDays(dateFrom, -1);
   const prevFrom = addDays(prevTo, -(rangeDays - 1));
-  const prevFiltered = useMemo(
-    () => SALES_TRANSACTIONS.filter((t) => inRange(t, prevFrom, prevTo)),
-    [prevFrom, prevTo, branch],
-  );
 
-  const computeKpis = (rows: typeof SALES_TRANSACTIONS) => {
-    const paid = rows.filter((r) => r.status !== 'คืนเงิน');
-    const totalRevenue = paid.reduce((sum, r) => sum + r.amount, 0);
-    const totalTransactions = paid.length;
-    const aov = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-    const uniqueCustomers = new Set(paid.map((r) => r.customerName)).size;
-    return { totalRevenue, totalTransactions, aov, uniqueCustomers };
-  };
+  // KPIs + trend/category chart + top products — everything derived from
+  // the full range, not the transaction table's current page, so these
+  // stay correct regardless of how many rows the range actually has.
+  useEffect(() => {
+    setSummaryLoading(true);
+    const params = { startDate: dateFrom, endDate: dateTo, ...(branchId ? { branchId } : {}) };
+    const prevParams = { startDate: prevFrom, endDate: prevTo, ...(branchId ? { branchId } : {}) };
+    Promise.all([
+      axios.get(`${API_BASE}/reports/kpis`, { params }),
+      axios.get(`${API_BASE}/reports/kpis`, { params: prevParams }),
+      axios.get(`${API_BASE}/reports/daily-sales`, { params }),
+      axios.get(`${API_BASE}/reports/best-sellers`, { params }),
+    ]).then(([kpiRes, prevKpiRes, dailyRes, bestRes]) => {
+      if (kpiRes.data.success) setKpis(kpiRes.data.kpis);
+      if (prevKpiRes.data.success) setPrevKpis(prevKpiRes.data.kpis);
+      if (dailyRes.data.success) setDailySales(dailyRes.data.data);
+      if (bestRes.data.success) setBestSellers({ courses: bestRes.data.courses, packages: bestRes.data.packages, services: bestRes.data.services });
+    }).catch(() => {}).finally(() => setSummaryLoading(false));
+  }, [dateFrom, dateTo, branchId, prevFrom, prevTo]);
 
-  const kpis = computeKpis(filtered);
-  const prevKpis = computeKpis(prevFiltered);
+  // Transaction list — server-paginated (a wide date range can have far
+  // more rows than one page, unlike the summary queries above).
+  useEffect(() => {
+    setTxLoading(true);
+    axios.get(`${API_BASE}/reports/transactions`, {
+      params: {
+        startDate: dateFrom, endDate: dateTo,
+        ...(branchId ? { branchId } : {}),
+        ...(search.trim() ? { search: search.trim() } : {}),
+        limit: rowsPerPage, offset: page * rowsPerPage,
+      },
+    }).then((res) => {
+      if (res.data.success) { setTransactions(res.data.rows); setTxTotal(res.data.total); }
+    }).catch(() => {}).finally(() => setTxLoading(false));
+  }, [dateFrom, dateTo, branchId, search, page, rowsPerPage]);
+
+  const aov = kpis.txCount > 0 ? kpis.revenue / kpis.txCount : 0;
+  const prevAov = prevKpis.txCount > 0 ? prevKpis.revenue / prevKpis.txCount : 0;
 
   const revenueByCategory = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.filter((t) => t.status !== 'คืนเงิน').forEach((t) => map.set(t.category, (map.get(t.category) || 0) + t.amount));
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, [filtered]);
+    const totals = dailySales.reduce(
+      (acc, d) => ({
+        คอร์สเรียน: acc.คอร์สเรียน + (d.class_revenue || 0),
+        แพ็คเกจ: acc.แพ็คเกจ + (d.package_revenue || 0),
+        บริการเสริม: acc.บริการเสริม + (d.service_revenue || 0),
+      }),
+      { คอร์สเรียน: 0, แพ็คเกจ: 0, บริการเสริม: 0 },
+    );
+    return Object.entries(totals).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }));
+  }, [dailySales]);
 
-  const revenueTrend = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.filter((t) => t.status !== 'คืนเงิน').forEach((t) => map.set(t.date, (map.get(t.date) || 0) + t.amount));
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, revenue]) => ({ label: new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }), revenue }));
-  }, [filtered]);
+  const revenueTrend = useMemo(() => dailySales.map((d) => ({
+    label: new Date(d.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }),
+    revenue: d.revenue || 0,
+  })), [dailySales]);
 
   const topProducts = useMemo(() => {
-    const map = new Map<string, { category: string; unitsSold: number; revenue: number }>();
-    filtered.filter((t) => t.status !== 'คืนเงิน').forEach((t) => {
-      const curr = map.get(t.productName) || { category: t.category, unitsSold: 0, revenue: 0 };
-      curr.unitsSold += t.quantity;
-      curr.revenue += t.amount;
-      map.set(t.productName, curr);
-    });
-    return Array.from(map.entries())
-      .map(([name, v]) => ({ name, ...v }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 8);
-  }, [filtered]);
-
-  const searchedTransactions = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return filtered;
-    return filtered.filter((t) =>
-      t.id.toLowerCase().includes(q) || t.customerName.toLowerCase().includes(q) || t.productName.toLowerCase().includes(q));
-  }, [filtered, search]);
-
-  const paginatedTransactions = searchedTransactions
-    .slice()
-    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
-    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const tagged = [
+      ...bestSellers.courses.map((r) => ({ ...r, category: 'คอร์สเรียน' })),
+      ...bestSellers.packages.map((r) => ({ ...r, category: 'แพ็คเกจ' })),
+      ...bestSellers.services.map((r) => ({ ...r, category: 'บริการเสริม' })),
+    ];
+    return tagged.sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  }, [bestSellers]);
 
   const handleExportPdf = async () => {
     if (!reportRef.current) return;
@@ -193,7 +211,7 @@ const SalesDashboard = () => {
         fileName: `sales-report-${dateFrom}_${dateTo}.pdf`,
         reportTitle: 'รายงานยอดขายและรายได้',
         periodLabel: `${dateFrom} ถึง ${dateTo}`,
-        branchLabel: branch === 'all' ? 'ทุกสาขา' : branch,
+        branchLabel: branch === 'all' ? 'ทุกสาขา' : branches.find((b) => String(b.id) === branch)?.name ?? '',
       });
     } finally {
       setExporting(false);
@@ -221,14 +239,14 @@ const SalesDashboard = () => {
           />
           <FormControl size="small" sx={{ minWidth: 160 }}>
             <InputLabel>สาขา</InputLabel>
-            <Select value={branch} label="สาขา" onChange={(e) => setBranch(e.target.value)}>
+            <Select value={branch} label="สาขา" onChange={(e) => { setBranch(e.target.value); setPage(0); }}>
               <MenuItem value="all">ทุกสาขา</MenuItem>
-              {branchOptions.map((b) => <MenuItem key={b} value={b}>{b}</MenuItem>)}
+              {branches.map((b) => <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>)}
             </Select>
           </FormControl>
         </Box>
         <Button
-          variant="contained" startIcon={<PdfIcon />} onClick={handleExportPdf} disabled={exporting || loading}
+          variant="contained" startIcon={<PdfIcon />} onClick={handleExportPdf} disabled={exporting || summaryLoading}
         >
           {exporting ? 'กำลังสร้าง PDF...' : 'Export PDF'}
         </Button>
@@ -237,20 +255,20 @@ const SalesDashboard = () => {
       <Box ref={reportRef}>
         <Grid container spacing={3} sx={{ mb: 4 }}>
           <Grid item xs={12} sm={6} md={3}>
-            <StatCard title="ยอดขายรวม" value={formatThb(kpis.totalRevenue)} icon={<RevenueIcon />} color="primary"
-              changePct={pctChange(kpis.totalRevenue, prevKpis.totalRevenue)} loading={loading} />
+            <StatCard title="ยอดขายรวม" value={formatThb(kpis.revenue)} icon={<RevenueIcon />} color="primary"
+              changePct={pctChange(kpis.revenue, prevKpis.revenue)} loading={summaryLoading} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <StatCard title="จำนวนออเดอร์" value={kpis.totalTransactions.toLocaleString()} icon={<TxnIcon />} color="info"
-              changePct={pctChange(kpis.totalTransactions, prevKpis.totalTransactions)} loading={loading} />
+            <StatCard title="จำนวนออเดอร์" value={kpis.txCount.toLocaleString()} icon={<TxnIcon />} color="info"
+              changePct={pctChange(kpis.txCount, prevKpis.txCount)} loading={summaryLoading} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <StatCard title="มูลค่าเฉลี่ยต่อออเดอร์" value={formatThb(kpis.aov)} icon={<AovIcon />} color="secondary"
-              changePct={pctChange(kpis.aov, prevKpis.aov)} loading={loading} />
+            <StatCard title="มูลค่าเฉลี่ยต่อออเดอร์" value={formatThb(aov)} icon={<AovIcon />} color="secondary"
+              changePct={pctChange(aov, prevAov)} loading={summaryLoading} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
             <StatCard title="ลูกค้าที่ซื้อในช่วงนี้" value={kpis.uniqueCustomers.toLocaleString()} icon={<CustomersIcon />} color="success"
-              changePct={pctChange(kpis.uniqueCustomers, prevKpis.uniqueCustomers)} loading={loading} />
+              changePct={pctChange(kpis.uniqueCustomers, prevKpis.uniqueCustomers)} loading={summaryLoading} />
           </Grid>
         </Grid>
 
@@ -303,10 +321,10 @@ const SalesDashboard = () => {
                       </TableCell></TableRow>
                     )}
                     {topProducts.map((p) => (
-                      <TableRow key={p.name}>
+                      <TableRow key={`${p.category}-${p.name}`}>
                         <TableCell sx={{ fontWeight: 700 }}>{p.name}</TableCell>
                         <TableCell><Chip label={p.category} size="small" sx={{ height: 20, fontSize: 11 }} /></TableCell>
-                        <TableCell align="right">{p.unitsSold.toLocaleString()}</TableCell>
+                        <TableCell align="right">{(p.units_sold ?? p.count).toLocaleString()}</TableCell>
                         <TableCell align="right">{formatThb(p.revenue)}</TableCell>
                       </TableRow>
                     ))}
@@ -345,36 +363,39 @@ const SalesDashboard = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {paginatedTransactions.length === 0 && (
+                    {!txLoading && transactions.length === 0 && (
                       <TableRow><TableCell colSpan={8} align="center">
                         <Typography variant="body2" color="text.disabled" sx={{ py: 2 }}>ไม่พบรายการที่ตรงกับเงื่อนไข</Typography>
                       </TableCell></TableRow>
                     )}
-                    {paginatedTransactions.map((t) => (
-                      <TableRow key={t.id} hover>
-                        <TableCell>{t.id}</TableCell>
-                        <TableCell>{t.date} {t.time}</TableCell>
-                        <TableCell>{t.customerName}</TableCell>
-                        <TableCell>{t.branch}</TableCell>
-                        <TableCell>{t.productName}</TableCell>
-                        <TableCell align="right">{formatThb(t.amount)}</TableCell>
-                        <TableCell>{t.paymentMethod}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={STATUS_META[t.status]?.label || t.status}
-                            color={(STATUS_META[t.status]?.color as any) || 'default'}
-                            size="small"
-                            sx={{ fontWeight: 700 }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {transactions.map((t) => {
+                      const dt = new Date(t.created_at);
+                      return (
+                        <TableRow key={t.id} hover>
+                          <TableCell>TXN-{t.id}</TableCell>
+                          <TableCell>{dt.toLocaleDateString('th-TH')} {dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                          <TableCell>{t.customer_name || '-'}</TableCell>
+                          <TableCell>{t.branch_name || '-'}</TableCell>
+                          <TableCell>{t.course_name || t.package_name || t.service_name || TYPE_TO_CATEGORY[t.type] || t.type}</TableCell>
+                          <TableCell align="right">{formatThb(t.amount)}</TableCell>
+                          <TableCell>{PAYMENT_LABELS[t.payment_method] || t.payment_method}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={t.is_voided ? 'คืนเงิน' : 'สำเร็จ'}
+                              color={t.is_voided ? 'error' : 'success'}
+                              size="small"
+                              sx={{ fontWeight: 700 }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>
               <TablePagination
                 component="div"
-                count={searchedTransactions.length}
+                count={txTotal}
                 page={page}
                 onPageChange={(_, p) => setPage(p)}
                 rowsPerPage={rowsPerPage}

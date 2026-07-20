@@ -16,13 +16,14 @@ export class ReportController {
 
   async getTransactions(c: C) {
     try {
-      const { startDate, endDate, type, branchId, limit, offset } = c.req.query();
+      const { startDate, endDate, type, branchId, search, limit, offset } = c.req.query();
       const d = defaultDates();
       const result = await this.repo(c).getTransactions({
         startDate: startDate || d.startDate,
         endDate:   endDate   || d.endDate,
         type,
         branchId: branchId ? parseInt(branchId) : undefined,
+        search: search || undefined,
         limit:  limit  ? parseInt(limit)  : 100,
         offset: offset ? parseInt(offset) : 0,
       });
@@ -33,8 +34,8 @@ export class ReportController {
   async getDailySales(c: C) {
     try {
       const d = defaultDates();
-      const { startDate = d.startDate, endDate = d.endDate } = c.req.query();
-      return c.json({ success: true, data: await this.repo(c).getDailySales(startDate, endDate) });
+      const { startDate = d.startDate, endDate = d.endDate, branchId } = c.req.query();
+      return c.json({ success: true, data: await this.repo(c).getDailySales(startDate, endDate, branchId ? parseInt(branchId) : undefined) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -48,8 +49,8 @@ export class ReportController {
   async getBestSellers(c: C) {
     try {
       const d = defaultDates();
-      const { startDate = d.startDate, endDate = d.endDate } = c.req.query();
-      return c.json({ success: true, ...(await this.repo(c).getBestSellers(startDate, endDate)) });
+      const { startDate = d.startDate, endDate = d.endDate, branchId } = c.req.query();
+      return c.json({ success: true, ...(await this.repo(c).getBestSellers(startDate, endDate, branchId ? parseInt(branchId) : undefined)) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -64,8 +65,8 @@ export class ReportController {
   async getSummaryKPIs(c: C) {
     try {
       const d = defaultDates();
-      const { startDate = d.startDate, endDate = d.endDate } = c.req.query();
-      return c.json({ success: true, kpis: await this.repo(c).getSummaryKPIs(startDate, endDate) });
+      const { startDate = d.startDate, endDate = d.endDate, branchId } = c.req.query();
+      return c.json({ success: true, kpis: await this.repo(c).getSummaryKPIs(startDate, endDate, branchId ? parseInt(branchId) : undefined) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }
