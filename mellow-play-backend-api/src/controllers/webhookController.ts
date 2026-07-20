@@ -176,12 +176,43 @@ export class WebhookController {
             WHERE id = ?
           `).bind(paymentMethod, bid).run();
 
-          const tx = await config.db.prepare('SELECT id FROM Transactions WHERE booking_id = ?').bind(bid).first();
-          if (!tx) {
-            await config.db.prepare(`
-              INSERT INTO Transactions (booking_id, amount, payment_method, status, created_at)
-              VALUES (?, ?, ?, 'completed', CURRENT_TIMESTAMP)
-            `).bind(bid, totalAmount / bookingsToUpdate.length, paymentMethod).run();
+          // Transactions.branch_id/type are NOT NULL and there is no
+          // `status` column — the previous version of this insert
+          // referenced a nonexistent column and omitted required ones, so
+          // it threw on every single class-booking Beam payment, silently
+          // dropping out of this loop (leaving any other bookings sharing
+          // this beam_session_id stuck unpaid) and never logging revenue.
+          // Wrapped per-booking so one failure can't block the rest of a
+          // multi-child booking group.
+          try {
+            const tx = await config.db.prepare('SELECT id FROM Transactions WHERE booking_id = ?').bind(bid).first();
+            if (!tx) {
+              const bookingRow = await config.db.prepare(
+                `SELECT b.branch_id, b.child_id, b.course_id, ch.parent_id as user_id
+                 FROM Bookings b LEFT JOIN Children ch ON b.child_id = ch.id
+                 WHERE b.id = ?`
+              ).bind(bid).first<{ branch_id: number; child_id: number; course_id: number; user_id: number | null }>();
+              // Beam amounts are in satang (hundredths of THB) — see the
+              // netAmount computed in adminController.createBooking.
+              const amountThbPerBooking = (totalAmount / bookingsToUpdate.length) / 100;
+              await config.db.prepare(`
+                INSERT INTO Transactions (branch_id, user_id, child_id, type, amount, payment_method, course_id, booking_id)
+                VALUES (?, ?, ?, 'class_booking', ?, ?, ?, ?)
+              `).bind(
+                bookingRow?.branch_id ?? 1,
+                bookingRow?.user_id ?? null,
+                bookingRow?.child_id ?? null,
+                amountThbPerBooking,
+                paymentMethod,
+                bookingRow?.course_id ?? null,
+                bid,
+              ).run();
+            }
+          } catch (txErr: any) {
+            await logger.error('beam-webhook', txErr);
+            await sendAlert(config.db, 'Beam Webhook: failed to log Transaction', {
+              bookingId: String(bid), error: txErr.message,
+            });
           }
         }
 
