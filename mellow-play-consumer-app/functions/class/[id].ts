@@ -1,9 +1,8 @@
 // Cloudflare Pages Function — serves a real HTML response with per-course
-// Open Graph tags to social-media link-preview crawlers on the legacy
-// /course/:id URL (old shared/bookmarked links; the app itself now routes
-// real visitors through /class/:id, see App.tsx's CourseToClassRedirect).
-// See functions/_shared/ogMeta.ts for why this exists and how the tags are
-// built; functions/class/[id].ts is the equivalent for the canonical path.
+// Open Graph tags to social-media link-preview crawlers on the canonical
+// /class/:id URL. See functions/_shared/ogMeta.ts for why this exists and
+// how the tags are built; functions/course/[id].ts is the equivalent for
+// the legacy /course/:id path that old shared links still use.
 //
 // Untyped context param on purpose — this file isn't part of the
 // Vite/tsconfig build (only Cloudflare's own esbuild-based Pages Functions
@@ -21,7 +20,7 @@ export const onRequestGet = async (context: any) => {
   }
 
   const id = String(params.id ?? '');
-  const html = await renderCourseOgHtml(id, `https://mellowplay.co/course/${id}`);
+  const html = await renderCourseOgHtml(id, `https://mellowplay.co/class/${id}`);
 
   if (!html) return next();
 
