@@ -544,6 +544,7 @@ export class AdminRepository {
     achievementSkillsJson?: string;
     metricsJson?: string;
     thumbnailUrl?: string;
+    detailPosterUrl?: string;
     imagesJson?: string;
     videoUrl?: string;
     teacherGuideUrl?: string;
@@ -579,7 +580,7 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, allow_repeat,
+        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, allow_repeat,
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
         sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
       ) VALUES (
@@ -589,7 +590,7 @@ export class AdminRepository {
         1, ?, ?, ?, ?,
         1, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?
       )
@@ -601,7 +602,7 @@ export class AdminRepository {
       dur, c, p, v,
       dur, c, p, v,
       skills, metrics, skills, metrics,
-      data.thumbnailUrl ?? null, data.imagesJson ?? null,
+      data.thumbnailUrl ?? null, data.detailPosterUrl ?? null, data.imagesJson ?? null,
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,
@@ -634,6 +635,7 @@ export class AdminRepository {
     achievementSkillsJson?: string;
     metricsJson?: string;
     thumbnailUrl?: string;
+    detailPosterUrl?: string;
     imagesJson?: string;
     videoUrl?: string;
     teacherGuideUrl?: string;
@@ -669,7 +671,7 @@ export class AdminRepository {
         original_price_junior = ?, premium_price_junior = ?,
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
-        thumbnail_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
+        thumbnail_url = ?, detail_poster_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
         is_recommended = ?, is_extraclass = ?, allow_repeat = ?,
         short_description_en = ?, location = ?, location_link = ?,
         stamps_on_completion = ?, stamp_expiry_months = ?,
@@ -684,7 +686,7 @@ export class AdminRepository {
       dur, c, p, v,
       dur, c, p, v,
       skills, metrics, skills, metrics,
-      data.thumbnailUrl ?? null, data.imagesJson ?? null,
+      data.thumbnailUrl ?? null, data.detailPosterUrl ?? null, data.imagesJson ?? null,
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,

@@ -223,6 +223,15 @@ const CourseDetail = () => {
             this same action below lg:, so the inline button here is
             lg:-only. */}
         <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-4 lg:sticky lg:top-24 lg:self-start">
+          {/* Detail poster — a separate upload from the Cover banner above
+              (different aspect ratio, portrait), shown only here in the
+              sidebar on desktop; see the lg:hidden twin instance further
+              down for its mobile placement (before the full description). */}
+          {course.detail_poster_url && (
+            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+              <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
+            </div>
+          )}
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
@@ -322,6 +331,15 @@ const CourseDetail = () => {
             )}
           </div>
         </div>
+
+        {/* Detail poster's mobile placement — desktop shows this same image
+            in the sidebar above the Register button instead (see the
+            hidden lg:block instance up top), so this copy is mobile-only. */}
+        {course.detail_poster_url && (
+          <div className="lg:hidden rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+            <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
+          </div>
+        )}
 
         {/* Description — authored via the CRM's rich-text writer tool (same
             one used for news/media articles), so it's rendered as markup

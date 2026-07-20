@@ -865,6 +865,7 @@ export class AdminController {
         return {
           ...courseFields,
           thumbnail_url: formatUrl(course.thumbnail_url),
+          detail_poster_url: formatUrl(course.detail_poster_url),
           video_url: formatUrl(course.video_url),
           teacher_guide_url: formatUrl(course.teacher_guide_url),
           image_views: imageViews,

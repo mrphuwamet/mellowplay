@@ -98,6 +98,7 @@ interface Course {
   short_description?: string;
   branch_ids?: string;
   thumbnail_url?: string;
+  detail_poster_url?: string;
   images_json?: string;
   video_url?: string;
   teacher_guide_url?: string;
@@ -289,6 +290,7 @@ const CourseManagement = () => {
     skills: [] as { th: string; en: string }[],
     metrics: [] as { th: string; en: string }[],
     thumbnailUrl: '',
+    detailPosterUrl: '',
     images: [] as string[],
     videoUrl: '',
     teacherGuideUrl: '',
@@ -328,10 +330,12 @@ const CourseManagement = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const guideInputRef = useRef<HTMLInputElement>(null);
+  const posterInputRef = useRef<HTMLInputElement>(null);
 
   const [videoUploading, setVideoUploading] = useState(false);
   const [imagesUploading, setImagesUploading] = useState(false);
   const [guideUploading, setGuideUploading] = useState(false);
+  const [posterUploading, setPosterUploading] = useState(false);
 
   // ── Display Views (per-view curated image + focal point) ─────────────────
   const [imageViewDefs, setImageViewDefs] = useState<ImageViewDef[]>([]);
@@ -634,6 +638,7 @@ const CourseManagement = () => {
         skills,
         metrics,
         thumbnailUrl: course.thumbnail_url || '',
+        detailPosterUrl: (course as any).detail_poster_url || '',
         images: course.images_json ? JSON.parse(course.images_json) : [],
         videoUrl: course.video_url || '',
         teacherGuideUrl: course.teacher_guide_url || '',
@@ -653,7 +658,7 @@ const CourseManagement = () => {
         id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '', shortDescription: '', shortDescriptionEn: '', location: '', locationLink: '', branchIds: [],
         categoryId: categories[0]?.id || 0, calendarId: 0, ageMin: 3, ageMax: 9,
         duration: '01:00', originalPrice: '', premiumPrice: '', couponRequirements: [],
-        skills: [] as { th: string; en: string }[], metrics: [] as { th: string; en: string }[], thumbnailUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
+        skills: [] as { th: string; en: string }[], metrics: [] as { th: string; en: string }[], thumbnailUrl: '', detailPosterUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
         salesCommissionType: 'percent', salesCommissionValue: '',
         teacherCommissionType: 'percent', teacherCommissionValue: '',
         isRecommended: false,
@@ -719,6 +724,7 @@ const CourseManagement = () => {
         achievementSkillsJson:  JSON.stringify(formData.skills),
         metricsJson:           JSON.stringify(formData.metrics),
         thumbnailUrl:      formData.thumbnailUrl,
+        detailPosterUrl:   formData.detailPosterUrl,
         imagesJson:        JSON.stringify(formData.images),
         videoUrl:          formData.videoUrl,
         teacherGuideUrl:   formData.teacherGuideUrl,
@@ -981,6 +987,49 @@ const CourseManagement = () => {
                   >
                     จัดการรูปภาพและวิดีโอ
                   </Button>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  {/* Separate upload from the Cover image above — this is a
+                      portrait-ratio image shown only on the class detail
+                      page (desktop: above the Register button; mobile:
+                      before the full description). Not the same thing as
+                      the "แกลเลอรีโปสเตอร์" tab in the media modal (that's a
+                      multi-image gallery with per-image focal points that
+                      replaces the Cover banner). */}
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                    โปสเตอร์ (แสดงแยกในหน้ารายละเอียดคลาส อัตราส่วนแนวตั้ง)
+                  </Typography>
+                  {formData.detailPosterUrl ? (
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                      <Box sx={{ width: 56, height: 74, borderRadius: 2, overflow: 'hidden', bgcolor: '#f1f5f9', flexShrink: 0, border: '1px solid #eee' }}>
+                        <img src={getImageUrl(formData.detailPosterUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 1 }}>
+                        <Button size="small" variant="outlined" onClick={() => posterInputRef.current?.click()} disabled={posterUploading}>
+                          {posterUploading ? <CircularProgress size={16} /> : 'เปลี่ยนรูป'}
+                        </Button>
+                        <IconButton size="small" color="error" onClick={() => setFormData(f => ({ ...f, detailPosterUrl: '' }))}><ClearIcon fontSize="small" /></IconButton>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      onClick={() => posterInputRef.current?.click()}
+                      sx={{ py: 2.5, border: '2px dashed #e2e8f0', borderRadius: 2, textAlign: 'center', cursor: 'pointer', '&:hover': { bgcolor: '#f8fafc', borderColor: 'primary.main' } }}
+                    >
+                      {posterUploading ? <CircularProgress size={22} sx={{ mb: 0.5 }} /> : <ImageIcon color="disabled" sx={{ fontSize: 22, mb: 0.5 }} />}
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>อัปโหลดโปสเตอร์</Typography>
+                      <Typography variant="caption" color="text.secondary">คลิกเพื่อเลือกไฟล์</Typography>
+                    </Box>
+                  )}
+                  <input type="file" hidden accept="image/*" ref={posterInputRef} onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setPosterUploading(true);
+                    const url = await uploadFile(file, 'posters');
+                    if (url) setFormData(f => ({ ...f, detailPosterUrl: url }));
+                    setPosterUploading(false);
+                    e.target.value = '';
+                  }} />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>คู่มือการสอน</Typography>
