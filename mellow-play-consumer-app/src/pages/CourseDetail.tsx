@@ -134,8 +134,19 @@ const CourseDetail = () => {
     ? Math.round((discountAmount / course.original_price) * 100)
     : 0;
 
+  // Shared by the mobile fixed-bottom bar and the lg:+ inline sidebar
+  // button below — same action, two different placements per breakpoint.
+  const handleRegisterClick = () => {
+    const isGuest = localStorage.getItem('mellow_guest') === 'true';
+    if (isGuest) {
+      setShowGuestModal(true);
+    } else {
+      navigate(`/booking?courseId=${course.id}`);
+    }
+  };
+
   return (
-    <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen pb-32">
+    <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-32 lg:pb-10">
       {/* Header Poster Gallery & Nav */}
       <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
         {course.poster_images?.length > 0 ? (
@@ -182,24 +193,36 @@ const CourseDetail = () => {
         </div>
       </div>
 
-      <main className="px-5 pt-6 space-y-4">
-        {/* Title & Price */}
-        <div>
-          <div className="pt-2">
-            <h1 className="font-black text-3xl text-slate-800 leading-tight mb-3">
-              {lang === 'en' && course.name_en ? course.name_en : course.name}
-            </h1>
-            {lang === 'th' && course.name_en && course.name_en !== course.name && (
-              <h2 className="font-bold text-xl text-slate-500 mb-6">{course.name_en}</h2>
-            )}
-            {shortDescription && (
-              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-4">
-                <p className="text-slate-600 text-[15px] leading-relaxed whitespace-pre-wrap">
-                  {shortDescription}
-                </p>
-              </div>
-            )}
-          </div>
+      {/* lg:+ becomes a real 2-column layout — sticky price/info/booking
+          sidebar (col2) alongside the long-form reading content (col1) —
+          instead of just a wider single mobile-style column. Every block
+          below keeps its ORIGINAL flat DOM order (so mobile's stack order
+          is untouched, no lg: grid applies below that breakpoint) and only
+          gets lg:col-start/row-start to place it once the grid activates. */}
+      <main className="px-5 pt-6 pb-4 space-y-4 lg:px-8 lg:pt-8 lg:space-y-0 lg:grid lg:grid-cols-[1fr_360px] lg:gap-x-8 lg:items-start">
+        {/* Title */}
+        <div className="pt-2 lg:col-start-1 lg:row-start-1 lg:pt-0">
+          <h1 className="font-black text-3xl text-slate-800 leading-tight mb-3">
+            {lang === 'en' && course.name_en ? course.name_en : course.name}
+          </h1>
+          {lang === 'th' && course.name_en && course.name_en !== course.name && (
+            <h2 className="font-bold text-xl text-slate-500 mb-6">{course.name_en}</h2>
+          )}
+          {shortDescription && (
+            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-4">
+              <p className="text-slate-600 text-[15px] leading-relaxed whitespace-pre-wrap">
+                {shortDescription}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar: price, age/duration, location, and (lg:+ only) the
+            Register CTA — sticky so it stays visible while the reading
+            column on the left scrolls. The mobile fixed bottom bar covers
+            this same action below lg:, so the inline button here is
+            lg:-only. */}
+        <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-4 lg:sticky lg:top-24 lg:self-start">
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
@@ -244,53 +267,60 @@ const CourseDetail = () => {
                 </div>
               );
             })()}
-          </div>
-        </div>
-
-        {/* Info Cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-mellow-blue-soft text-mellow-blue-dark flex items-center justify-center">
-              <Users size={20} />
-            </div>
-            <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Age Range' : 'ช่วงอายุ'}</p>
-              <p className="text-[14px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
-            </div>
-          </div>
-          <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-mellow-purple-soft text-mellow-purple-dark flex items-center justify-center">
-              <Clock size={20} />
-            </div>
-            <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Duration' : 'ระยะเวลา'}</p>
-              <p className="text-[14px] font-black text-slate-700">{formatDuration(course.duration)}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Location Card */}
-        <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
-              <MapPin size={20} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
-              <p className="text-[14px] font-black text-slate-700">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
-            </div>
-          </div>
-          {(!course.is_extraclass || course.location_link) && (
-            <a
-              href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition-colors shrink-0"
+            <button
+              onClick={handleRegisterClick}
+              className="hidden lg:flex w-full h-[52px] mt-2 bg-mellow-ink text-white rounded-2xl font-black text-[15px] shadow-lg shadow-black/20 items-center justify-center gap-2 active:scale-[0.98] transition-transform"
             >
-              {lang === 'en' ? 'Map' : 'เส้นทาง'}
-              <ArrowRight size={14} />
-            </a>
-          )}
+              {lang === 'en' ? 'Register' : 'ลงทะเบียน'}
+              <ArrowRight size={18} />
+            </button>
+          </div>
+
+          {/* Info Cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-mellow-blue-soft text-mellow-blue-dark flex items-center justify-center">
+                <Users size={20} />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Age Range' : 'ช่วงอายุ'}</p>
+                <p className="text-[14px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-mellow-purple-soft text-mellow-purple-dark flex items-center justify-center">
+                <Clock size={20} />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Duration' : 'ระยะเวลา'}</p>
+                <p className="text-[14px] font-black text-slate-700">{formatDuration(course.duration)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Location Card */}
+          <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
+                <MapPin size={20} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
+                <p className="text-[14px] font-black text-slate-700">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
+              </div>
+            </div>
+            {(!course.is_extraclass || course.location_link) && (
+              <a
+                href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition-colors shrink-0"
+              >
+                {lang === 'en' ? 'Map' : 'เส้นทาง'}
+                <ArrowRight size={14} />
+              </a>
+            )}
+          </div>
         </div>
 
         {/* Description — authored via the CRM's rich-text writer tool (same
@@ -299,7 +329,7 @@ const CourseDetail = () => {
             keeps older plain-text descriptions (saved before this existed,
             with no HTML tags) still readable with their line breaks. */}
         {course.description && (
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-2 lg:mt-4">
             <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
             <div
               className="prose-news whitespace-pre-wrap text-[14px] text-slate-600 leading-relaxed font-medium"
@@ -312,7 +342,7 @@ const CourseDetail = () => {
             short/long description above), and skills only, never the
             internal "indicator" (ตัวชี้วัด) entries from the same library. */}
         {achievementSkills.length > 0 && (
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-3 lg:mt-4">
             <h3 className="text-[16px] font-black text-slate-800 mb-3">
               {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
             </h3>
@@ -328,14 +358,14 @@ const CourseDetail = () => {
         )}
 
         {/* Schedule */}
-        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100">
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-4 lg:mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
               <CalendarIcon size={16} />
             </div>
             <h3 className="text-[16px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
           </div>
-          
+
           {course.calendar_id ? (
              upcomingSlots.length > 0 ? (
                <div className="space-y-4">
@@ -372,9 +402,9 @@ const CourseDetail = () => {
                      </div>
                    );
                  })}
-                 
+
                  {upcomingSlots.length > 5 && !showAllSlots && (
-                   <button 
+                   <button
                      onClick={() => setShowAllSlots(true)}
                      className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-[14px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
                    >
@@ -392,17 +422,11 @@ const CourseDetail = () => {
         </div>
       </main>
 
-      {/* Register CTA */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] lg:max-w-[820px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
-        <button 
-          onClick={() => {
-            const isGuest = localStorage.getItem('mellow_guest') === 'true';
-            if (isGuest) {
-              setShowGuestModal(true);
-            } else {
-              navigate(`/booking?courseId=${course.id}`);
-            }
-          }}
+      {/* Register CTA — mobile/tablet only; lg:+ uses the inline button in
+          the sticky sidebar instead of a floating full-width bar. */}
+      <div className="lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
+        <button
+          onClick={handleRegisterClick}
           className="w-full h-[56px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
         >
           {lang === 'en' ? 'Register' : 'ลงทะเบียน'}

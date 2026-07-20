@@ -12,6 +12,11 @@ import BirthdayModal from './BirthdayModal';
 import logo from '../assets/ui/logo.svg';
 
 const NAV_PATHS = ['/', '/journey', '/album', '/explore', '/rewards'];
+// Pages that render their own fixed-bottom action bar (e.g. CourseDetail's
+// Register CTA) — the floating menu FAB would sit visually on top of/
+// overlapping that bar (both are `fixed` near the bottom), so it's
+// suppressed on these routes instead of colliding with the page's own CTA.
+const HAS_OWN_BOTTOM_BAR_PREFIXES = ['/class/'];
 // Only genuine pre-login/onboarding screens keep the old centered-card,
 // no-sidebar treatment — every other route (Booking, CourseDetail,
 // SettingsProfile, MyCoupons, NewsDetail, etc.) now keeps the persistent
@@ -37,6 +42,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const isAuthFlow = AUTH_FLOW_PATHS.includes(location.pathname);
   const showBottomNav = NAV_PATHS.includes(location.pathname);
+  const hasOwnBottomBar = HAS_OWN_BOTTOM_BAR_PREFIXES.some(p => location.pathname.startsWith(p));
   const [lockedNavFeature, setLockedNavFeature] = React.useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [isBookingMenuOpen, setIsBookingMenuOpen] = React.useState(false);
@@ -521,7 +527,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       {/* Floating trigger only on non-tab pages — the 5 tab pages get the
           menu built into their own tab bar (replacing Album, see above)
           instead of a second, redundant floating button. */}
-      {!showBottomNav && (
+      {!showBottomNav && !hasOwnBottomBar && (
         <button
           onClick={() => setIsMobileMenuOpen(true)}
           className="md:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] w-14 h-14 rounded-full bg-gradient-to-br from-mellow-purple to-indigo-600 text-white shadow-xl shadow-mellow-purple/30 flex items-center justify-center active:scale-90 transition-transform"
