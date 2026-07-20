@@ -234,7 +234,8 @@ export class AuthController {
           lastName: user.last_name,
           membershipStatus,
           avatarUrl: user.profile_image_url,
-          displayName: user.display_name
+          displayName: user.display_name,
+          isCommunityAdmin: !!user.is_community_admin
         }
       });
     } catch (error: any) {
@@ -301,7 +302,8 @@ export class AuthController {
           lastName: user.last_name,
           membershipStatus,
           avatarUrl: user.profile_image_url,
-          displayName: user.display_name
+          displayName: user.display_name,
+          isCommunityAdmin: !!user.is_community_admin
         }
       });
     } catch (error: any) {
@@ -587,6 +589,7 @@ export class AuthController {
           hasGoogleLinked: !!user.google_id,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
+          isCommunityAdmin: !!user.is_community_admin,
         },
       });
     } catch (error: any) {

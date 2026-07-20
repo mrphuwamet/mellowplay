@@ -44,7 +44,7 @@ const ReportDetail = () => {
 
   if (progress === undefined) {
     return (
-      <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-10 animate-pulse">
+      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen pb-10 animate-pulse">
         <div className="h-[64px] px-5 bg-white/80 border-b border-black/5 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
           <div className="h-4 w-32 bg-slate-200 rounded-full" />
@@ -67,7 +67,7 @@ const ReportDetail = () => {
             </div>
           </div>
           <div className="h-24 bg-slate-100 rounded-3xl" />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {[0, 1].map(i => <div key={i} className="aspect-square rounded-2xl bg-slate-200" />)}
           </div>
         </div>
@@ -76,7 +76,7 @@ const ReportDetail = () => {
   }
 
   return (
-    <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-10">
+    <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen pb-10">
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
           <ChevronLeft size={24} className="mr-0.5" />
@@ -175,7 +175,7 @@ const ReportDetail = () => {
                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
                   {lang === 'en' ? 'Photos & Videos' : 'รูปภาพและวีดีโอ'}
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {progress.media.map((m: any, i: number) => (
                     <div
                       key={i}
@@ -208,7 +208,7 @@ const ReportDetail = () => {
           className="fixed inset-0 z-[100] bg-mellow-ink/95 flex items-center justify-center p-5 backdrop-blur-sm"
           onClick={() => setLightbox(null)}
         >
-          <div className="relative w-full max-w-[400px]" onClick={e => e.stopPropagation()}>
+          <div className="relative w-full max-w-[400px] md:max-w-[600px] lg:max-w-[720px]" onClick={e => e.stopPropagation()}>
             {lightbox.type === 'video' ? (
               <video src={lightbox.url} controls autoPlay className="w-full rounded-[32px] shadow-2xl" />
             ) : (

@@ -91,7 +91,7 @@ const Roadmap = () => {
           <p className="text-slate-500 mb-6">
             {lang === 'en' ? 'Please select a child profile first.' : 'โปรดเลือกข้อมูลเด็กก่อนเพื่อดูประวัติการเรียน'}
           </p>
-          <button 
+          <button
             onClick={() => navigate('/')}
             className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold"
           >
@@ -105,13 +105,13 @@ const Roadmap = () => {
   const now = new Date();
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 font-sans selection:bg-mellow-purple/20">
+    <div className="min-h-screen bg-slate-50 pb-24 font-sans selection:bg-mellow-purple/20 max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
       
       {/* Header — pinned like Album/Explore/Rewards so it doesn't scroll away */}
       <div className="bg-white rounded-b-[32px] shadow-sm mb-6 pt-6 pb-6 px-6 sticky top-0 z-30 overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-mellow-purple/5 to-mellow-blue/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
         
-        <div className="relative z-10 flex items-center gap-4">
+        <div className="relative z-10 flex items-center gap-4 max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-mellow-purple/20 to-mellow-blue/20 p-1 shadow-sm">
             <ChildAvatar avatarType={selectedChild.avatar} className="w-full h-full rounded-xl bg-white" />
           </div>
@@ -126,8 +126,8 @@ const Roadmap = () => {
         </div>
       </div>
 
-      <div className="px-5 max-w-lg mx-auto">
-        
+      <div className="px-5 max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
+
         {isLoading ? (
           <div className="relative animate-pulse">
             <div className="absolute left-[27px] top-4 bottom-4 w-1 bg-slate-200 rounded-full" />
@@ -253,7 +253,7 @@ const Roadmap = () => {
               </div>
               {lang === 'en' ? "Recommended for you" : "กิจกรรมที่คุณอาจสนใจ"}
             </h3>
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {recommendedClasses.map((course) => {
                 const view = getCourseView(course, 'square');
                 const isOneTimeDone = course.alreadyCompleted && !course.allow_repeat;
@@ -293,7 +293,7 @@ const Roadmap = () => {
                         </span>
                         <button
                           disabled={isOneTimeDone}
-                          onClick={() => isOneTimeDone ? navigate(`/course/${course.id}`) : (trackCourseView(course.id), navigate(`/booking?courseId=${course.id}`))}
+                          onClick={() => isOneTimeDone ? navigate(`/class/${course.id}`) : (trackCourseView(course.id), navigate(`/booking?courseId=${course.id}`))}
                           className={`px-4 py-2 text-[12px] font-bold rounded-xl transition-all shadow-sm ${
                             isOneTimeDone
                               ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'

@@ -14,6 +14,7 @@ import { TH } from 'country-flag-icons/react/3x2';
 import { formatCustomDate } from '../utils/dateFormat';
 import { getOtpErrorMessage } from '../utils/otpError';
 import { useChildStore } from '../store/useChildStore';
+import ResponsiveModal from '../components/ResponsiveModal';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -912,7 +913,7 @@ const Register = () => {
   const useCompactHeader = step === 'consent' || step === 'info';
 
   return (
-    <div className="mellow-page flex flex-col px-8 bg-white">
+    <div className="mellow-flow-page flex flex-col px-8 bg-white">
       <header className={`flex justify-between items-center ${useCompactHeader ? 'pt-4 mb-2' : 'pt-10 mb-8'}`}>
         <button
           onClick={() => {
@@ -982,10 +983,7 @@ const Register = () => {
         </button>
       </div>
 
-      {showCancelModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCancelModal(false)} />
-          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+      <ResponsiveModal isOpen={showCancelModal} onClose={() => setShowCancelModal(false)} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <AlertCircle size={32} />
             </div>
@@ -1008,14 +1006,9 @@ const Register = () => {
                 {t.register.confirmCancelYes}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
 
-      {childToRemove !== null && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setChildToRemove(null)} />
-          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+      <ResponsiveModal isOpen={childToRemove !== null} onClose={() => setChildToRemove(null)} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 size={32} />
             </div>
@@ -1030,7 +1023,7 @@ const Register = () => {
               </button>
               <button
                 onClick={() => {
-                  handleRemoveChild(childToRemove);
+                  if (childToRemove !== null) handleRemoveChild(childToRemove);
                   setChildToRemove(null);
                 }}
                 className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
@@ -1038,9 +1031,7 @@ const Register = () => {
                 {t.register.removeChildConfirm}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
     </div>
   );
 };

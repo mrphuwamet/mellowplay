@@ -46,7 +46,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
 
   return (
     <div
-      onClick={() => navigate(`/course/${course.id}`)}
+      onClick={() => navigate(`/class/${course.id}`)}
       className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex flex-col h-full"
     >
       <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
@@ -135,7 +135,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
           disabled={isOneTimeBooked}
           onClick={(e) => {
             e.stopPropagation();
-            if (isOneTimeBooked) navigate(`/course/${course.id}`);
+            if (isOneTimeBooked) navigate(`/class/${course.id}`);
             else { trackCourseView(course.id); navigate(`/booking?courseId=${course.id}`); }
           }}
           className={`w-full py-2 text-[12px] font-bold rounded-xl transition-all mt-auto ${

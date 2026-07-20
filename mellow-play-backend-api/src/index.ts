@@ -19,6 +19,8 @@ import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
 import { NewsFeedController } from './controllers/newsFeedController';
+import { CommunityController } from './controllers/communityController';
+import { ContactController } from './controllers/contactController';
 import { BirthdayWishController } from './controllers/birthdayWishController';
 import { AnalyticsController } from './controllers/analyticsController';
 import { ConfigService } from './services/configService';
@@ -42,6 +44,8 @@ const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
 const newsFeedController       = new NewsFeedController();
+const communityController      = new CommunityController();
+const contactController        = new ContactController();
 const birthdayWishController   = new BirthdayWishController();
 const analyticsController      = new AnalyticsController();
 
@@ -414,6 +418,17 @@ app.get('/api/v1/admin/news-feed', (c) => newsFeedController.getAll(c));
 app.post('/api/v1/admin/news-feed', (c) => newsFeedController.create(c));
 app.put('/api/v1/admin/news-feed/:id', (c) => newsFeedController.update(c));
 app.delete('/api/v1/admin/news-feed/:id', (c) => newsFeedController.delete(c));
+
+// ================= COMMUNITY (member posts on Home) =================
+app.get('/api/v1/community/posts', (c) => communityController.getFeed(c));
+app.post('/api/v1/community/posts', (c) => communityController.createPost(c));
+app.delete('/api/v1/community/posts/:id', (c) => communityController.deletePost(c));
+app.post('/api/v1/community/posts/:id/like', (c) => communityController.toggleLike(c));
+app.get('/api/v1/community/posts/:id/comments', (c) => communityController.getComments(c));
+app.post('/api/v1/community/posts/:id/comments', (c) => communityController.addComment(c));
+app.post('/api/v1/community/posts/:id/vote', (c) => communityController.voteOnPoll(c));
+
+app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 
 // ================= ANALYTICS (Dashboard + course views/reviews) =================
 app.get ('/api/v1/admin/analytics',                (c) => analyticsController.getDashboardAnalytics(c));

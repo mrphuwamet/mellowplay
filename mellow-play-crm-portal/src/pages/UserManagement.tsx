@@ -70,6 +70,7 @@ interface User {
   application_date?: string;
   has_pending_reset?: boolean;
   reset_token_expires_at?: string;
+  is_community_admin?: boolean;
 }
 
 interface UserCoupon {
@@ -107,6 +108,7 @@ const emptyForm = {
   membership_type: 'standard',
   membership_expires_at: '',
   profile_image_url: '',
+  is_community_admin: false,
 };
 
 // Manual customer creation (staff-driven alternative to the consumer app's
@@ -348,6 +350,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         membership_type: d.membership_type ?? 'standard',
         membership_expires_at: d.membership_expires_at ? d.membership_expires_at.substring(0, 10) : '',
         profile_image_url: d.profile_image_url ?? '',
+        is_community_admin: Boolean(d.is_community_admin),
       });
       setCoupons(d.coupons ?? []);
       setShowAddCoupon(false);
@@ -376,6 +379,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         membership_type: 'standard',
         membership_expires_at: user.membership_expires_at ? user.membership_expires_at.substring(0, 10) : '',
         profile_image_url: '',
+        is_community_admin: Boolean(user.is_community_admin),
       });
       setChildren([]);
     } finally {
@@ -447,6 +451,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       const payload = {
         ...form,
         pdpa_consent: Boolean(form.pdpa_consent),
+        is_community_admin: Boolean(form.is_community_admin),
         marketing_consent: form.marketing_consent === '' ? null : form.marketing_consent === 'true',
         membership_expires_at: form.membership_type === 'premium' ? form.membership_expires_at : null,
         children: children.filter(c => !c.is_hd).map(c => ({ ...c, date_of_birth: c.date_of_birth || null })),
@@ -924,6 +929,27 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   </Box>
                   {form.pdpa_consent && (
                     <Chip label="ยอมรับแล้ว" size="small" color="success" sx={{ mt: 1 }} />
+                  )}
+                </Box>
+
+                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box sx={{ pr: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>Community Admin</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4 }}>
+                        อนุญาตให้แนบรูปภาพในโพสต์ชุมชนได้
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={Boolean(form.is_community_admin)}
+                      onChange={e => !readOnly && setForm({ ...form, is_community_admin: e.target.checked })}
+                      disabled={readOnly}
+                      size="small"
+                      color="primary"
+                    />
+                  </Box>
+                  {form.is_community_admin && (
+                    <Chip label="Community Admin" size="small" color="success" sx={{ mt: 1 }} />
                   )}
                 </Box>
 

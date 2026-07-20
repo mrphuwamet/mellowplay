@@ -10,6 +10,7 @@ import DateField from './DateField';
 interface AddChildModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void | Promise<void>;
 }
 
 const ddmmyyyyToISO = (value: string) => {
@@ -18,7 +19,7 @@ const ddmmyyyyToISO = (value: string) => {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 };
 
-const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose }) => {
+const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { t, lang } = useTranslation();
   const fetchChildren = useChildStore(state => state.fetchChildren);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,8 +65,9 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose }) => {
           const user = JSON.parse(userJson);
           await fetchChildren(user.id);
         }
-        setFormData({ firstName: '', lastName: '', nickname: '', dob: '', relation: 'Mother', customRelation: '' });
+        setFormData({ firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' });
         onClose();
+        await onSuccess?.();
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add child');

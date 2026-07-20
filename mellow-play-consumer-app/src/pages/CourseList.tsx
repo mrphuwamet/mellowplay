@@ -41,10 +41,10 @@ const CourseList = () => {
 
       <main className="p-5">
         {loading ? (
-          <div className="flex flex-col gap-4 animate-pulse">
+          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {[0, 1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full">
-                <div className="w-28 h-28 bg-slate-200 shrink-0" />
+              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full md:flex-col">
+                <div className="w-28 h-28 md:w-full md:h-40 bg-slate-200 shrink-0" />
                 <div className="flex-1 min-w-0 p-4 space-y-2">
                   <div className="h-4 w-3/4 bg-slate-200 rounded-full" />
                   <div className="h-3 w-1/2 bg-slate-100 rounded-full" />
@@ -54,12 +54,12 @@ const CourseList = () => {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {courses.map(course => {
               const view = getCourseView(course, 'card');
               return (
-              <div key={course.id} onClick={() => navigate(`/course/${course.id}`)} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full">
-                 <div className="w-32 sm:w-40 shrink-0 aspect-square bg-slate-100 relative overflow-hidden">
+              <div key={course.id} onClick={() => navigate(`/class/${course.id}`)} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full md:flex-col">
+                 <div className="w-32 sm:w-40 md:w-full shrink-0 aspect-square md:aspect-[4/3] bg-slate-100 relative overflow-hidden">
                     {view.url ? (
                       <img src={view.url} alt={course.name} style={view.style} className="w-full h-full object-cover" />
                     ) : (

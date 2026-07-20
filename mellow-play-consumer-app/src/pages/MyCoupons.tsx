@@ -34,7 +34,6 @@ const MyCoupons = () => {
   const [loading, setLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
 
   const [transferType, setTransferType] = useState<CouponType | null>(null);
   const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
@@ -113,8 +112,10 @@ const MyCoupons = () => {
       });
       if (res.data.success) {
         if (res.data.paymentUrl) {
-          window.open(res.data.paymentUrl, '_blank');
-          setPaymentUrl(res.data.paymentUrl);
+          // Same-tab redirect rather than window.open(_blank) — one
+          // continuous flow with no second tab to find/manage; Beam's own
+          // redirectUrl brings the user back once payment completes.
+          window.location.href = res.data.paymentUrl;
         } else {
           navigate(`/package-purchase-success?purchaseId=${res.data.id}`);
         }
@@ -129,7 +130,7 @@ const MyCoupons = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans">
+    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
@@ -146,6 +147,11 @@ const MyCoupons = () => {
       </header>
 
       <main className="p-4">
+        {/* Wallet content stays at a reading width even on wide screens —
+            these are full-width detail cards (title+price+tags+button),
+            not square catalog tiles, so a multi-column grid would squeeze
+            them rather than help. */}
+        <div className="md:max-w-[640px] lg:max-w-[820px] md:mx-auto">
         {/* Child selector */}
         {children.length > 1 && (
           <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
@@ -277,42 +283,8 @@ const MyCoupons = () => {
             ))}
           </div>
         )}
-      </main>
-
-      {paymentUrl && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-5">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
-            <div className="bg-gradient-to-br from-mellow-purple to-purple-600 p-6 flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mb-3 relative">
-                <div className="absolute inset-0 rounded-full bg-white/20 animate-ping" />
-                <CreditCard size={30} className="text-white relative z-10" />
-              </div>
-              <h3 className="text-white font-black text-lg text-center">
-                {lang === 'en' ? 'Payment Window Opened' : 'เปิดหน้าชำระเงินแล้ว'}
-              </h3>
-              <p className="text-white/80 text-sm text-center mt-1">
-                {lang === 'en' ? 'Complete the payment in the new tab' : 'กรุณาชำระเงินในแท็บที่เปิดขึ้น'}
-              </p>
-            </div>
-            <div className="p-5 flex flex-col gap-3">
-              <a
-                href={paymentUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full py-4 bg-mellow-purple text-white rounded-2xl text-[15px] font-black text-center active:scale-95 transition-all shadow-lg shadow-mellow-purple/25 block"
-              >
-                {lang === 'en' ? 'Open Payment Link Again' : 'เปิดลิ้งชำระเงินใหม่'}
-              </a>
-              <button
-                onClick={() => setPaymentUrl(null)}
-                className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-[15px] font-black text-center active:scale-95 transition-all"
-              >
-                {lang === 'en' ? 'Close' : 'ปิด'}
-              </button>
-            </div>
-          </div>
         </div>
-      )}
+      </main>
 
       {transferType && selectedChild && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-5" onClick={closeTransfer}>

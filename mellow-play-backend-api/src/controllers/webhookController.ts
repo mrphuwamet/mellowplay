@@ -28,6 +28,20 @@ function extractReferenceId(payload: any): string | null {
     || null;
 }
 
+// A charge Beam sends us can legitimately have no referenceId at all — e.g.
+// a Bolt card-terminal sale rung up directly at a till, or a sale from a
+// different outlet on the same Beam account — since referenceId is only set
+// when *we* create the payment link for a booking. That's distinct from an
+// actually-unrecognized payload shape (Beam changing/adding an event type
+// we've never seen). Tell them apart by whether the field is present at all
+// (even as "") vs genuinely absent everywhere we look.
+function hasReferenceIdField(payload: any): boolean {
+  return payload?.referenceId !== undefined
+    || payload?.order?.referenceId !== undefined
+    || payload?.charge?.referenceId !== undefined
+    || payload?.data?.referenceId !== undefined;
+}
+
 function extractStatus(eventHeader: string | null, payload: any): string {
   // The x-beam-event header (e.g. "charge.succeeded") is the primary signal
   // per Beam's docs; the body's own status field is a secondary check in
@@ -41,6 +55,20 @@ function extractStatus(eventHeader: string | null, payload: any): string {
 function extractAmount(payload: any): number {
   const raw = payload?.amount ?? payload?.order?.netAmount ?? payload?.charge?.amount ?? payload?.data?.amount ?? 0;
   return Number(raw) || 0;
+}
+
+// Beam's real charge.succeeded body carries paymentMethod as a nested object
+// ({paymentMethodType, card: {...}, ...}), never a plain string — binding
+// that object straight into a D1 query throws D1_TYPE_ERROR and aborts the
+// whole booking-confirmation flow before the success notification below
+// ever runs. Always reduce it to a short display string instead.
+function extractPaymentMethodLabel(payload: any): string {
+  const pm = payload?.paymentMethod || payload?.charge?.paymentMethod;
+  if (typeof pm === 'string' && pm) return pm;
+  const type = pm?.paymentMethodType || pm?.type;
+  if (!type) return 'Beam Checkout';
+  const brand = pm?.card?.brand;
+  return brand ? `${type} (${brand})` : type;
 }
 
 const SUCCESS_STATUSES = new Set(['SUCCESS', 'SUCCEEDED', 'COMPLETED', 'PAID']);
@@ -66,7 +94,27 @@ export class WebhookController {
     try {
       const referenceId = extractReferenceId(payload);
       if (!referenceId) {
-        await logger.warn('beam-webhook', `No referenceId found in webhook payload (event=${eventHeader ?? '(none)'})`);
+        if (hasReferenceIdField(payload)) {
+          // A recognized Beam event that just isn't ours — a Bolt terminal
+          // sale at another outlet, a walk-in charge rung up directly on
+          // the Beam dashboard, etc. Expected and will keep happening as
+          // the in-person POS terminal sees more use, so it's routine, not
+          // an error worth paging anyone for.
+          await logger.info('beam-webhook', `Non-booking charge acknowledged (event=${eventHeader ?? '(none)'}, referenceId empty)`);
+          if (eventHeader === 'charge.succeeded') {
+            const amountThb = (extractAmount(payload) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            await sendNotification(config.db, 'ชำระเงินสำเร็จ (นอกระบบจอง)', {
+              'ร้าน/Merchant': payload?.merchant?.name || payload?.merchantId || '-',
+              'ยอดชำระ': `${amountThb} บาท`,
+              'ช่องทางชำระ': extractPaymentMethodLabel(payload),
+              'ที่มา': payload?.source || '-',
+              'เวลาชำระ': new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+            });
+          }
+          return c.json({ success: true, message: 'Acknowledged (non-booking charge)' });
+        }
+
+        await logger.warn('beam-webhook', `No referenceId field found anywhere in webhook payload (event=${eventHeader ?? '(none)'})`);
         await sendAlert(config.db, 'Beam Webhook: unrecognized payload shape', {
           event: eventHeader || '(none)', payloadPreview: JSON.stringify(payload).slice(0, 500),
         });
@@ -99,7 +147,7 @@ export class WebhookController {
       }
 
       const status = extractStatus(eventHeader, payload);
-      const paymentMethod = payload.paymentMethod || payload.charge?.paymentMethod?.type || 'Beam Checkout';
+      const paymentMethod = extractPaymentMethodLabel(payload);
 
       const booking = await config.db.prepare(
         'SELECT id, status, payment_status, beam_session_id FROM Bookings WHERE id = ?'
@@ -191,7 +239,7 @@ export class WebhookController {
       if (isNaN(purchaseId)) return c.json({ success: true, message: 'Acknowledged (invalid purchaseId)' });
 
       const status = extractStatus(eventHeader, payload);
-      const paymentMethod = payload.paymentMethod || payload.charge?.paymentMethod?.type || 'Beam Checkout';
+      const paymentMethod = extractPaymentMethodLabel(payload);
       const repo = new HRRepository(config.db);
 
       const purchase = await repo.getPackagePurchase(purchaseId);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2 } from 'lucide-react';
+import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
@@ -17,9 +17,12 @@ import truewalletIcon from '../assets/payment-icon/truewallet.webp';
 import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
+import { SkillIcon } from '../utils/skillIcons';
+import ResponsiveModal from '../components/ResponsiveModal';
+import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; }
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -40,6 +43,17 @@ const calculateAge = (birthDateString: string, t: any) => {
   return `${years} ${t.booking?.year || 'ขวบ'} ${months > 0 ? `${months} ${t.booking?.month || 'เดือน'}` : ''}`;
 };
 
+const formatDuration = (timeStr: string, lang: string) => {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':');
+  const hrs = parseInt(h, 10);
+  const mins = parseInt(m, 10);
+  let result = '';
+  if (hrs > 0) result += lang === 'en' ? `${hrs} hr ` : `${hrs} ชม. `;
+  if (mins > 0) result += lang === 'en' ? `${mins} mins` : `${mins} นาที`;
+  return result.trim() || timeStr;
+};
+
 const Booking = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -55,6 +69,9 @@ const Booking = () => {
   const [upcomingDates, setUpcomingDates] = useState<UpcomingDate[]>([]);
   const [isAddChildOpen, setIsAddChildOpen] = useState(false);
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
+  const [modalUpcomingSlots, setModalUpcomingSlots] = useState<{ date: string; slots: TimeSlot[] }[]>([]);
+  const [modalShowAllSlots, setModalShowAllSlots] = useState(false);
+  const couponTypes = useCouponTypes();
   
   // Selected values
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -76,8 +93,6 @@ const Booking = () => {
   const [successBooking, setSuccessBooking] = useState<any>(null);
   const [courseCoupons, setCourseCoupons] = useState<any[]>([]);
   const [selectedCoupon, setSelectedCoupon] = useState<any>(null);
-  const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
-  const [pendingBookingIds, setPendingBookingIds] = useState<number[]>([]);
   const [courseSearch, setCourseSearch] = useState('');
   const [courseAgeFilter, setCourseAgeFilter] = useState<'all' | '3-6' | '7-9' | 'custom'>('all');
   const [customAgeMin, setCustomAgeMin] = useState<number | ''>('');
@@ -92,6 +107,17 @@ const Booking = () => {
     });
     return Array.from(cats);
   }, [courses]);
+
+  // Sidebar's "Book Service" sub-menu entry links here with ?category=service
+  // — there's no separate service-booking system, just a pre-selected
+  // category filter on this same course list. No-ops today since no CRM
+  // category is named anything service-like yet; starts working the moment
+  // staff create one (English "Service" or Thai "บริการ", either matches).
+  useEffect(() => {
+    if (searchParams.get('category') !== 'service' || categories.length === 0) return;
+    const match = categories.find(cat => /service|บริการ/i.test(cat));
+    if (match) setSelectedCategory(match);
+  }, [searchParams, categories]);
 
   const filteredCourses = React.useMemo(() => {
     return courses.filter(course => {
@@ -251,6 +277,23 @@ const Booking = () => {
     fetchCourseCoupons();
   }, [selectedCourse]);
 
+  // Informational schedule for the course-preview modal — unlike the
+  // booking-flow's own upcomingDates effect below, this isn't gated on a
+  // branch being picked yet (the modal opens before that step), so it
+  // fetches independently, same call CourseDetail.tsx's full page makes.
+  useEffect(() => {
+    setModalShowAllSlots(false);
+    if (!isCourseModalOpen || !selectedCourse?.calendar_id) {
+      setModalUpcomingSlots([]);
+      return;
+    }
+    let cancelled = false;
+    apiClient.get('/admin/calendar-slots/upcoming', { params: { calendarId: selectedCourse.calendar_id } })
+      .then(res => { if (!cancelled && res.data.success) setModalUpcomingSlots(res.data.upcoming || []); })
+      .catch(() => { if (!cancelled) setModalUpcomingSlots([]); });
+    return () => { cancelled = true; };
+  }, [isCourseModalOpen, selectedCourse?.calendar_id]);
+
   useEffect(() => {
     const fetchUpcoming = async () => {
       if (!selectedCourse) return;
@@ -369,9 +412,11 @@ const Booking = () => {
 
       if (response.data.success) {
         if (response.data.paymentUrl) {
-           window.open(response.data.paymentUrl, '_blank');
-           setPaymentUrl(response.data.paymentUrl);
-           setPendingBookingIds(response.data.bookingIds || [response.data.id]);
+           // Same-tab redirect rather than window.open(_blank) — one
+           // continuous flow with no second tab to find/manage, and Beam's
+           // own redirectUrl brings the user straight back to
+           // /booking-success once payment completes.
+           window.location.href = response.data.paymentUrl;
            return;
         }
 
@@ -427,7 +472,7 @@ const Booking = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#fbfaf7] pb-32 relative">
+    <div className="min-h-screen bg-[#fbfaf7] pb-32 relative max-w-[430px] mx-auto md:max-w-[640px] lg:max-w-[820px] xl:max-w-[900px]">
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button 
           onClick={() => {
@@ -441,8 +486,10 @@ const Booking = () => {
               } else {
                 setCurrentStepIndex(currentStepIndex - 1);
               }
+            } else if (selectedCourse) {
+              navigate(`/class/${selectedCourse.id}`);
             } else {
-              navigate(selectedCourse ? `/course/${selectedCourse.id}` : -1);
+              navigate(-1);
             }
           }} 
           className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform"
@@ -665,89 +712,92 @@ const Booking = () => {
                   </div>
                 </div>
 
-                {/* Category Filter Chips */}
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{lang === 'en' ? 'Categories' : 'หมวดหมู่คลาส'}</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                {/* Category + Age filters — one continuous horizontally
+                    scrolling row instead of two stacked blocks, with small
+                    inline labels and a divider marking where each group starts. */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Category' : 'หมวดหมู่'}</span>
+                  <button
+                    onClick={() => setSelectedCategory('all')}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                      selectedCategory === 'all'
+                        ? 'bg-mellow-purple text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {lang === 'en' ? 'All' : 'ทั้งหมด'}
+                  </button>
+                  {categories.map(cat => (
                     <button
-                      onClick={() => setSelectedCategory('all')}
-                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all ${
-                        selectedCategory === 'all' 
-                          ? 'bg-mellow-purple text-white shadow-sm' 
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                        selectedCategory === cat
+                          ? 'bg-mellow-purple text-white shadow-sm'
                           : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                       }`}
                     >
-                      {lang === 'en' ? 'All' : 'ทั้งหมด'}
+                      {cat}
                     </button>
-                    {categories.map(cat => (
+                  ))}
+
+                  <span className="w-px h-4 bg-slate-200 shrink-0 mx-1" />
+
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Age' : 'อายุ'}</span>
+                  {[
+                    { key: 'all', label_th: 'ทั้งหมด', label_en: 'All' },
+                    { key: '3-6', label_th: '3 - 6 ปี', label_en: '3 - 6 yrs' },
+                    { key: '7-9', label_th: '7 - 9+ ปี', label_en: '7 - 9+ yrs' },
+                    { key: 'custom', label_th: 'กำหนดเอง', label_en: 'Custom' }
+                  ].map((filter) => {
+                    const active = courseAgeFilter === filter.key;
+                    return (
                       <button
-                        key={cat}
-                        onClick={() => setSelectedCategory(cat)}
-                        className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all ${
-                          selectedCategory === cat 
-                            ? 'bg-mellow-purple text-white shadow-sm' 
+                        key={filter.key}
+                        onClick={() => setCourseAgeFilter(filter.key as any)}
+                        className={`px-3.5 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                          active
+                            ? 'bg-mellow-purple text-white shadow-sm'
                             : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                         }`}
                       >
-                        {cat}
+                        {lang === 'en' ? filter.label_en : filter.label_th}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
 
-                {/* Age Filter Chips */}
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{lang === 'en' ? 'Age Group' : 'ช่วงอายุ'}</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-                    {[
-                      { key: 'all', label_th: 'ทั้งหมด', label_en: 'All' },
-                      { key: '3-6', label_th: '3 - 6 ปี', label_en: '3 - 6 yrs' },
-                      { key: '7-9', label_th: '7 - 9+ ปี', label_en: '7 - 9+ yrs' },
-                      { key: 'custom', label_th: 'กำหนดเอง', label_en: 'Custom' }
-                    ].map((filter) => {
-                      const active = courseAgeFilter === filter.key;
-                      return (
-                        <button
-                          key={filter.key}
-                          onClick={() => setCourseAgeFilter(filter.key as any)}
-                          className={`px-3.5 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all ${
-                            active 
-                              ? 'bg-mellow-purple text-white shadow-sm' 
-                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                          }`}
-                        >
-                          {lang === 'en' ? filter.label_en : filter.label_th}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Custom Age Range Inputs */}
-                  {courseAgeFilter === 'custom' && (
-                    <div className="flex items-center gap-2 mt-2 p-2 bg-slate-50 border border-slate-100 rounded-xl animate-in slide-in-from-top-2 duration-200">
+                {/* Custom Age Range Inputs */}
+                {courseAgeFilter === 'custom' && (
+                  <div className="flex items-center justify-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Min</span>
                       <input
                         type="number"
                         min="0"
                         max="99"
                         value={customAgeMin}
                         onChange={(e) => setCustomAgeMin(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="Min (ปี)"
-                        className="w-20 px-2 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 text-center focus:outline-none focus:border-mellow-purple"
+                        placeholder="0"
+                        className="w-10 text-xs font-black text-slate-800 text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
-                      <span className="text-slate-400 text-xs font-bold">-</span>
+                    </div>
+                    <span className="text-slate-300 font-black">–</span>
+                    <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Max</span>
                       <input
                         type="number"
                         min="0"
                         max="99"
                         value={customAgeMax}
                         onChange={(e) => setCustomAgeMax(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="Max (ปี)"
-                        className="w-20 px-2 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 text-center focus:outline-none focus:border-mellow-purple"
+                        placeholder="99"
+                        className="w-10 text-xs font-black text-slate-800 text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
-                      <span className="text-slate-500 text-xs font-bold">{lang === 'en' ? 'yrs' : 'ปี'}</span>
                     </div>
-                  )}
-                </div>
+                    <span className="text-slate-500 text-xs font-bold shrink-0">{lang === 'en' ? 'yrs' : 'ปี'}</span>
+                  </div>
+                )}
               </div>
 
               {isLoading ? (
@@ -863,7 +913,7 @@ const Booking = () => {
                   <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Sparkles size={12} /></div>{t.booking?.addChild || 'เพิ่มผู้เรียน'}
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {children.map(child => {
                   const isSelected = selectedChildren.some(c => c.id === child.id);
                   const status = childCourseStatus[child.id];
@@ -902,7 +952,7 @@ const Booking = () => {
                       <div>
                         <b className="text-[15px] font-black text-slate-800 block leading-tight">{child.nickname || child.name.split(' ')[0]}</b>
                         <p className="text-[11px] text-slate-500 font-medium truncate">{child.name}</p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-0.5">{calculateAge(child.birth_date, t)}</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-0.5">{calculateAge(child.dob, t)}</p>
                       </div>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {child.coupons && child.coupons.filter((c: any) => c.balance > 0).map((coupon: any) => (
@@ -982,7 +1032,7 @@ const Booking = () => {
               {selectedDateObj && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                   <h3 className="text-lg font-black text-slate-800 mb-3">{t.booking?.stepTime || 'เลือกรอบเวลา'}</h3>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {selectedDateObj.slots.map(slot => (
                       <button key={slot.startTime} disabled={slot.available === 0} onClick={() => { setSelectedSlot(slot); setCurrentStepIndex(currentStepIndex + 1); }} className={`p-[5px] rounded-2xl border text-left transition-all relative overflow-hidden ${slot.available === 0 ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : selectedSlot?.startTime === slot.startTime ? 'bg-mellow-purple/5 border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 hover:border-mellow-purple/30'}`}>
                         <div className="flex items-center justify-between gap-2 relative z-10">
@@ -1032,7 +1082,7 @@ const Booking = () => {
               ) : (
                 <div className="space-y-3">
                   {courseCoupons.map((cc) => {
-                    const childCoupon = selectedChild?.coupons?.find((c) => c.id === cc.id);
+                    const childCoupon = selectedChildren[0]?.coupons?.find((c: any) => c.id === cc.id);
                     const balance = childCoupon?.balance || 0;
                     const isSelected = paymentMethod === 'coupon' && selectedCoupon === cc.id;
                     const hasEnough = balance >= cc.quantity_required;
@@ -1044,7 +1094,7 @@ const Booking = () => {
                         onClick={() => { setPaymentMethod('coupon'); setSelectedCoupon(cc.id); }}
                         className={`w-full p-5 rounded-2xl border-2 text-left flex items-center gap-4 transition-all ${isSelected ? 'bg-white border-mellow-purple ring-4 ring-mellow-purple/10' : !hasEnough ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-slate-100'}`}
                       >
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${isSelected ? 'text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`} style={isSelected ? { backgroundColor: cc.color, shadowColor: `${cc.color}40` } : {}}>
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${isSelected ? 'text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`} style={isSelected ? { backgroundColor: cc.color, boxShadow: `0 10px 15px -3px ${cc.color}40` } : {}}>
                           {cc.icon_url ? <img src={cc.icon_url} className="w-6 h-6 object-contain" /> : <Ticket size={24} />}
                         </div>
                         <div className="flex-1">
@@ -1116,79 +1166,202 @@ const Booking = () => {
       {isCourseModalOpen && selectedCourse && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsCourseModalOpen(false)} />
-          {/* Frame is sized off the viewport (20px margin on every side) instead
-              of a fixed max-height — the close button below lives outside the
-              scrolling inner content, so it stays put instead of scrolling
-              away with it. */}
-          <div className="relative z-10 bg-white rounded-[32px] w-[calc(100vw-40px)] max-w-sm h-[calc(100vh-40px)] overflow-hidden animate-in zoom-in-95 duration-300">
+          {/* Widescreen frame — wider still on md/lg with a 16:9-ish landscape
+              shape (instead of a tall portrait card) sized to roughly the
+              page's normal content width, not full-screen. The Book Now bar
+              below sits outside the scrolling content so it stays pinned to
+              the bottom of the modal instead of scrolling away. */}
+          <div className="relative z-10 bg-white rounded-[32px] w-[calc(100vw-40px)] max-w-sm md:max-w-2xl lg:max-w-4xl h-[calc(100vh-40px)] md:h-[85vh] md:max-h-[calc(100vh-80px)] overflow-hidden animate-in zoom-in-95 duration-300">
             <button onClick={() => setIsCourseModalOpen(false)} className="absolute top-4 right-4 z-20 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center backdrop-blur-md">
               <X size={18} />
             </button>
-            <div className="w-full h-full overflow-y-auto rounded-[32px]">
-            {selectedCourse.poster_images && selectedCourse.poster_images.length > 0 ? (
-              <PosterCarousel images={selectedCourse.poster_images} alt={selectedCourse.name} className="w-full" rounded="rounded-t-[32px]" />
-            ) : getCourseView(selectedCourse, 'card').url && (
-               <div className="w-full h-48 rounded-t-[32px] overflow-hidden">
-                 <img src={getCourseView(selectedCourse, 'card').url} style={getCourseView(selectedCourse, 'card').style} className="w-full h-full object-cover" />
-               </div>
-            )}
-            <div className="p-6 space-y-4">
-              <div>
-                 <h2 className="text-xl font-black text-slate-800 leading-tight mb-2">{selectedCourse.name}</h2>
-                 
-                 <div className="flex items-center justify-between gap-2 bg-slate-50 p-3 rounded-xl mb-4 border border-slate-100">
-                   <div className="flex items-center gap-2 min-w-0">
-                     <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-500 flex items-center justify-center shrink-0">
-                       <MapPin size={16} />
-                     </div>
-                     <div className="min-w-0">
-                       <p className="text-[10px] font-bold text-slate-400 uppercase">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
-                       <p className="text-xs font-black text-slate-700">{selectedCourse.is_extraclass ? (selectedCourse.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
-                     </div>
-                   </div>
-                   {(!selectedCourse.is_extraclass || selectedCourse.location_link) && (
-                     <a 
-                       href={selectedCourse.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"} 
-                       target="_blank" 
-                       rel="noopener noreferrer"
-                       className="flex items-center gap-1 px-4 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-black transition-colors whitespace-nowrap shrink-0"
-                     >
-                       {lang === 'en' ? 'Map' : 'เส้นทาง'}
-                     </a>
-                   )}
-                 </div>
+            <div className="w-full h-full overflow-y-auto rounded-[32px] pb-24">
+              {/* First section — priority order name > price > short description
+                  > at-a-glance facts, poster shrunk down to the left instead of
+                  a full-width hero image. */}
+              <div className="p-7 flex gap-5">
+                <div className="w-28 md:w-36 lg:w-40 shrink-0">
+                  {selectedCourse.poster_images && selectedCourse.poster_images.length > 0 ? (
+                    <PosterCarousel images={selectedCourse.poster_images} alt={selectedCourse.name} className="w-full" rounded="rounded-2xl" autoPlayMs={0} />
+                  ) : getCourseView(selectedCourse, 'card').url ? (
+                    <div className="w-full aspect-[4/5] rounded-2xl overflow-hidden bg-slate-100">
+                      <img src={getCourseView(selectedCourse, 'card').url} style={getCourseView(selectedCourse, 'card').style} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-full aspect-[4/5] rounded-2xl bg-slate-100 flex items-center justify-center text-slate-300">
+                      <BookOpen size={28} />
+                    </div>
+                  )}
+                </div>
 
-                 <div
-                   className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
-                   dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
-                 />
+                <div className="flex-1 min-w-0">
+                  {selectedCourse.category_name && (
+                    <span className={`inline-block text-[11px] font-black uppercase tracking-wide mb-1.5 ${selectedCourse.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                      {selectedCourse.category_name}
+                    </span>
+                  )}
+                  <h2 className="text-lg md:text-xl font-black text-slate-800 leading-tight mb-1.5">{selectedCourse.name}</h2>
 
-                 {/* Skills — same full, uncollapsed list as the course detail page,
-                     skills only (never the internal "indicator"/ตัวชี้วัด entries). */}
-                 {(() => {
-                   let achievementSkills: { th: string; en?: string }[] = [];
-                   try { achievementSkills = (selectedCourse as any).achievement_skills_json ? JSON.parse((selectedCourse as any).achievement_skills_json) : []; } catch { /* ignore malformed json */ }
-                   return achievementSkills.length > 0 && (
-                     <div className="mt-4">
-                       <h3 className="text-[13px] font-black text-slate-800 mb-2">
-                         {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
-                       </h3>
-                       <div className="flex flex-wrap gap-2">
-                         {achievementSkills.map((skill, i) => (
-                           <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[12px] font-bold">
-                             <Sparkles size={12} />
-                             {lang === 'en' && skill.en ? skill.en : skill.th}
-                           </span>
-                         ))}
-                       </div>
-                     </div>
-                   );
-                 })()}
+                  {(() => {
+                    const campaignDiscount = (selectedCourse as any).active_campaign_discount_amount || 0;
+                    const priceAfterDiscount = Math.max(0, (selectedCourse.original_price || 0) - campaignDiscount);
+                    const couponReq = getPrimaryCouponRequirement(selectedCourse, couponTypes);
+                    return (
+                      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mb-2">
+                        <span className="text-[20px] font-black text-mellow-red tracking-tight leading-none">
+                          {selectedCourse.original_price ? `฿${priceAfterDiscount.toLocaleString()}` : (lang === 'en' ? 'Free' : 'ฟรี')}
+                        </span>
+                        {campaignDiscount > 0 && (
+                          <span className="text-xs text-slate-400 font-bold line-through">฿{selectedCourse.original_price?.toLocaleString()}</span>
+                        )}
+                        {couponReq && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                            {lang === 'en' ? 'or' : 'หรือ'}
+                            <span className="font-black text-slate-700">{couponReq.count}</span>
+                            <Ticket size={12} style={{ color: couponReq.color }} />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const short = stripHtml((selectedCourse as any).short_description || selectedCourse.description || '');
+                    return short && (
+                      <p className="text-[12px] text-slate-500 font-medium leading-snug line-clamp-2 mb-2.5">{short}</p>
+                    );
+                  })()}
+
+                  {/* Quick facts — duration, location, age */}
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedCourse as any).duration && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600">
+                        <Clock size={14} className="text-mellow-purple-dark shrink-0" />
+                        {formatDuration((selectedCourse as any).duration, lang)}
+                      </span>
+                    )}
+                    <a
+                      href={selectedCourse.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600"
+                    >
+                      <MapPin size={14} className="text-orange-500 shrink-0" />
+                      {selectedCourse.is_extraclass ? (selectedCourse.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}
+                    </a>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600">
+                      <Users size={14} className="text-mellow-blue-dark shrink-0" />
+                      {selectedCourse.age_min}-{selectedCourse.age_max} {lang === 'en' ? 'yrs' : 'ปี'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <button onClick={() => setIsCourseModalOpen(false)} className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl active:scale-95 transition-transform">
-                 {t.booking?.closeWindow || 'ปิดหน้าต่าง'}
-              </button>
+
+              <div className="px-6 pb-2 space-y-4">
+                {/* Skills — same full, uncollapsed list as the course detail page,
+                    skills only (never the internal "indicator"/ตัวชี้วัด entries). */}
+                {(() => {
+                  let achievementSkills: { th: string; en?: string; icon?: string }[] = [];
+                  try { achievementSkills = (selectedCourse as any).achievement_skills_json ? JSON.parse((selectedCourse as any).achievement_skills_json) : []; } catch { /* ignore malformed json */ }
+                  return achievementSkills.length > 0 && (
+                    <div>
+                      <h3 className="text-[13px] font-black text-slate-800 mb-2">
+                        {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {achievementSkills.map((skill, i) => (
+                          <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[12px] font-bold">
+                            <SkillIcon iconKey={skill.icon} size={12} />
+                            {lang === 'en' && skill.en ? skill.en : skill.th}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {selectedCourse.description && (
+                  <div>
+                    <h3 className="text-[15px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+                    <div
+                      className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
+                    />
+                  </div>
+                )}
+
+                {/* Upcoming Schedule — same section as CourseDetail.tsx, fetched
+                    independently of the booking-flow's own branch-gated slots. */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
+                      <Calendar size={14} />
+                    </div>
+                    <h3 className="text-[15px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
+                  </div>
+                  {selectedCourse.calendar_id ? (
+                    modalUpcomingSlots.length > 0 ? (
+                      <div className="space-y-3">
+                        {(modalShowAllSlots ? modalUpcomingSlots : modalUpcomingSlots.slice(0, 5)).map((day, i) => {
+                          const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+                          return (
+                            <div key={i} className="py-2.5 border-b border-slate-100 last:border-0 last:pb-0">
+                              <h4 className="text-[13px] font-bold text-slate-800 mb-2">{displayDate}</h4>
+                              <div className="grid grid-cols-1 gap-2">
+                                {day.slots.map((slot, j) => {
+                                  const isFull = slot.available <= 0;
+                                  return (
+                                    <div key={j} className={`flex items-center justify-between p-2.5 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'}`}>
+                                      <div className="flex items-center gap-2">
+                                        <Clock size={14} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
+                                        <span className={`text-[13px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                          {slot.startTime} - {slot.endTime}
+                                        </span>
+                                      </div>
+                                      <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                                        {isFull ? (lang === 'en' ? 'Full' : 'เต็มแล้ว') : (
+                                          <>{lang === 'en' ? `${slot.available} left` : `ว่าง ${slot.available}`}<Users size={12} strokeWidth={2.5} /></>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {modalUpcomingSlots.length > 5 && !modalShowAllSlots && (
+                          <button
+                            onClick={() => setModalShowAllSlots(true)}
+                            className="w-full py-2.5 mt-1 flex items-center justify-center gap-2 text-[13px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
+                          >
+                            {lang === 'en' ? 'View more dates' : 'ดูรอบกิจกรรมเพิ่มเติม'}
+                            <ArrowRight size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
+                    )
+                  ) : (
+                    <p className="text-[13px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* Persistent Book Now CTA — pinned to the bottom of the modal
+                frame (outside the scrolling content) instead of a plain close
+                button; same action as the course card's own "Book" button. */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100">
+              <button
+                onClick={() => { setIsCourseModalOpen(false); setSelectedCourse(selectedCourse); setCurrentStepIndex(currentStepIndex + 1); }}
+                className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[15px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              >
+                {lang === 'en' ? 'Book Now' : 'จองเลย'}
+                <ArrowRight size={18} />
+              </button>
             </div>
           </div>
         </div>
@@ -1196,7 +1369,7 @@ const Booking = () => {
 
       {/* Fixed Bottom Action */}
       {!successBooking && currentStep === 'payment' && (
-        <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
+        <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
           <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[15px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
              {isFreeBooking
                ? (lang === 'en' ? 'Confirm Booking' : 'จองคลาสเรียน')
@@ -1209,7 +1382,7 @@ const Booking = () => {
 
       {/* Top Error Notification */}
       {errorMsg && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-sm px-5 z-50 animate-in slide-in-from-top-4 fade-in duration-300">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 z-50 animate-in slide-in-from-top-4 fade-in duration-300">
           <div className="bg-red-500/95 backdrop-blur-md text-white px-5 py-4 rounded-2xl flex items-center gap-3 shadow-2xl shadow-red-500/20 border border-red-400/50">
             <AlertCircle size={20} className="shrink-0" />
             <span className="font-bold text-sm leading-tight flex-1">{errorMsg}</span>
@@ -1225,9 +1398,7 @@ const Booking = () => {
       {/* Guest Gate — same "Please Register First" pattern as CourseDetail.tsx,
           triggered here instead by the step advancing (covers both picking a
           course card and arriving via a preSelectedCourseId deep link). */}
-      {showGuestModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-[32px] p-6 w-full max-w-[340px] shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+      <ResponsiveModal isOpen={showGuestModal} onClose={() => setShowGuestModal(false)} variant="dialog" size="sm" className="text-center">
             <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
               <Users size={32} className="text-mellow-yellow-dark" />
             </div>
@@ -1257,15 +1428,20 @@ const Booking = () => {
                 {t.common?.register || 'สมัครสมาชิก'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+            <button
+              onClick={() => {
+                setShowGuestModal(false);
+                const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
+                navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`);
+              }}
+              className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              {lang === 'en' ? 'Already have an account? Login' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ'}
+            </button>
+      </ResponsiveModal>
 
       {/* Promo Error Modal */}
-      {promoErrorModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPromoErrorModal('')} />
-          <div className="relative bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+      <ResponsiveModal isOpen={!!promoErrorModal} onClose={() => setPromoErrorModal('')} variant="dialog" size="sm" className="text-center">
             <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center text-red-500 mx-auto mb-5">
               <AlertCircle size={32} />
             </div>
@@ -1274,15 +1450,11 @@ const Booking = () => {
             <button onClick={() => setPromoErrorModal('')} className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl active:scale-95 transition-transform">
               ตกลง
             </button>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
 
       {/* Duplicate Booking Error Modal */}
-      {duplicateError && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative overflow-hidden animate-slide-up">
-            <button 
+      <ResponsiveModal isOpen={!!duplicateError} onClose={() => setDuplicateError(null)} variant="dialog" size="sm">
+            <button
               onClick={() => setDuplicateError(null)}
               className="absolute right-4 top-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
             >
@@ -1292,77 +1464,29 @@ const Booking = () => {
               <AlertCircle className="text-mellow-red" size={32} />
             </div>
             <h3 className="text-[19px] font-black text-slate-800 text-center mb-2 leading-tight">
-              {duplicateError.error_code === 'EXTRA_CLASS_LIMIT' 
+              {duplicateError?.error_code === 'EXTRA_CLASS_LIMIT'
                 ? (lang === 'en' ? 'Limit Exceeded' : 'ไม่สามารถจองได้')
                 : (lang === 'en' ? 'Already Registered' : 'จองคลาสนี้ไปแล้ว')}
             </h3>
             <p className="text-[15px] font-medium text-slate-500 text-center mb-6 leading-relaxed">
-              {duplicateError.message}
+              {duplicateError?.message}
             </p>
             <div className="flex gap-3">
-              <button 
+              <button
                 onClick={() => setDuplicateError(null)}
                 className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-[0.98] transition-all"
               >
                 {lang === 'en' ? 'Close' : 'ปิด'}
               </button>
-              <button 
+              <button
                 onClick={() => navigate('/journey')}
                 className="flex-1 py-3.5 bg-mellow-purple text-white font-bold rounded-xl active:scale-[0.98] transition-all"
               >
                 {lang === 'en' ? 'View History' : 'ดูประวัติการจอง'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
 
-      {/* Payment Pending Modal */}
-      {paymentUrl && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-5">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
-            {/* Header pulse */}
-            <div className="bg-gradient-to-br from-mellow-purple to-purple-600 p-6 flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mb-3 relative">
-                <div className="absolute inset-0 rounded-full bg-white/20 animate-ping" />
-                <CreditCard size={30} className="text-white relative z-10" />
-              </div>
-              <h3 className="text-white font-black text-lg text-center">
-                {lang === 'en' ? 'Payment Window Opened' : 'เปิดหน้าชำระเงินแล้ว'}
-              </h3>
-              <p className="text-white/80 text-sm text-center mt-1">
-                {lang === 'en' ? 'Complete the payment in the new tab' : 'กรุณาชำระเงินในแท็บที่เปิดขึ้น'}
-              </p>
-            </div>
-            {/* Actions */}
-            <div className="p-5 flex flex-col gap-3">
-              <a
-                href={paymentUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full py-4 bg-mellow-purple text-white rounded-2xl text-[15px] font-black text-center active:scale-95 transition-all shadow-lg shadow-mellow-purple/25 block"
-              >
-                {lang === 'en' ? 'Open Payment Link Again' : 'เปิดลิ้งชำระเงินใหม่'}
-              </a>
-              <button
-                onClick={async () => {
-                  // Cancel all pending bookings
-                  for (const id of pendingBookingIds) {
-                    try { await apiClient.delete(`/admin/bookings/${id}`); } catch {/* ignore */}
-                  }
-                  setPaymentUrl(null);
-                  setPendingBookingIds([]);
-                  setIsSubmitting(false);
-                  setErrorMsg('');
-                }}
-                className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-[15px] font-black text-center active:scale-95 transition-all"
-              >
-                {lang === 'en' ? 'Cancel / Edit Order' : 'ยกเลิก / แก้ไขรายการ'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

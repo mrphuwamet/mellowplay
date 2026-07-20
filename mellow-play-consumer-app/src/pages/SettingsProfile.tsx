@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, User, Mail, Phone, Save, Loader2, Settings as SettingsIcon, ShieldCheck, Link2, Unlink, Camera } from 'lucide-react';
+import { ChevronLeft, User, Mail, Phone, Save, Loader2, Settings as SettingsIcon, ShieldCheck, Link2, Unlink, Camera, LogOut } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 import { useChildStore } from '../store/useChildStore';
@@ -202,7 +202,7 @@ const SettingsProfile = () => {
   };
 
   return (
-    <div className="mellow-page bg-[#fbfaf7]">
+    <div className="mellow-page-reading bg-[#fbfaf7]">
       {/* Header */}
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
@@ -431,6 +431,23 @@ const SettingsProfile = () => {
             </p>
           )}
         </div>
+
+        {/* Logout — used to live behind the sidebar's account dropdown; that
+            menu is gone now (the gear icon links straight here), so this is
+            the only place left to sign out from. */}
+        <button
+          type="button"
+          onClick={() => {
+            localStorage.removeItem('mellow_token');
+            localStorage.removeItem('mellow_user');
+            localStorage.removeItem('mellow_guest');
+            navigate('/login');
+          }}
+          className="w-full flex items-center justify-center gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-6 text-red-500 font-black text-[14px] active:scale-[0.98] transition-transform"
+        >
+          <LogOut size={18} />
+          {lang === 'en' ? 'Logout' : 'ออกจากระบบ'}
+        </button>
 
         {/* Children Settings Section */}
         {children.length > 0 && (

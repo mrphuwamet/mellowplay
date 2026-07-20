@@ -8,7 +8,11 @@ import { useChildStore } from '../store/useChildStore';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import logo from '../assets/ui/logo.svg';
 import PinPad from '../components/PinPad';
+import LoadingLogo from '../components/LoadingLogo';
 import { CountrySelector } from '../components/CountrySelector';
+import ResponsiveModal from '../components/ResponsiveModal';
+import { getCourseView } from '../utils/courseImage';
+import { stripHtml } from '../utils/stripHtml';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -18,6 +22,7 @@ const Login = () => {
   const fetchChildren = useChildStore(state => state.fetchChildren);
   const { t, lang } = useTranslation();
   const googleButtonRef = useRef<HTMLDivElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
 
   const [login, setLogin] = useState('');
   const [countryCode, setCountryCode] = useState<CountryCode>('TH');
@@ -30,6 +35,22 @@ const Login = () => {
   const [successMessage, setSuccessMessage] = useState<string>(location.state?.message || '');
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+
+  // Desktop-only promo panel (see the split view in the JSX below) — picks
+  // one recommended class at random each visit, purely decorative/marketing,
+  // so a fetch failure here should never affect the login form itself.
+  const [featuredCourse, setFeaturedCourse] = useState<any>(null);
+  useEffect(() => {
+    apiClient.get('/admin/courses')
+      .then(res => {
+        if (!res.data.success) return;
+        const recommended = res.data.courses.filter((c: any) => c.is_recommended);
+        if (recommended.length > 0) {
+          setFeaturedCourse(recommended[Math.floor(Math.random() * recommended.length)]);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const finishAuth = async (token: string, user: any, overrideUrl?: string) => {
     localStorage.setItem('mellow_token', token);
@@ -152,7 +173,8 @@ const Login = () => {
 
   const handleNext = () => {
     if (!login.trim()) {
-      setError(t.login.loginFailed); // Or a specific message for empty phone
+      setError(lang === 'en' ? 'Please enter your phone number' : 'กรุณากรอกเบอร์โทรศัพท์');
+      phoneInputRef.current?.focus();
       return;
     }
     setError('');
@@ -160,7 +182,43 @@ const Login = () => {
   };
 
   return (
-    <div className="mellow-page flex flex-col justify-center px-8 bg-white">
+    <div className="mellow-flow-page-split lg:flex lg:items-stretch">
+      {/* Promo panel — desktop only (no room for it below lg:). Purely
+          decorative/marketing; the form column works identically with or
+          without a featured course loaded. */}
+      <div className="hidden lg:flex lg:w-[60%] lg:shrink-0 relative overflow-hidden bg-slate-900">
+        {featuredCourse && getCourseView(featuredCourse, 'banner').url && (
+          <img
+            src={getCourseView(featuredCourse, 'banner').url}
+            alt=""
+            style={getCourseView(featuredCourse, 'banner').style}
+            className="absolute inset-0 w-full h-full object-cover opacity-90"
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10" />
+        <div className="relative z-10 flex flex-col justify-center p-10 text-white w-full h-full">
+          <span className="text-[12px] font-black uppercase tracking-widest text-mellow-yellow mb-3">
+            {lang === 'en' ? 'Recommended for you' : 'แนะนำสำหรับคุณ'}
+          </span>
+          <h2 className="text-[26px] font-black mb-2 leading-tight">
+            {featuredCourse ? (lang === 'en' && featuredCourse.name_en ? featuredCourse.name_en : featuredCourse.name) : 'Mellow Play'}
+          </h2>
+          {featuredCourse && (featuredCourse.short_description || featuredCourse.description) && (
+            <p className="text-sm text-white/80 mb-6 leading-relaxed line-clamp-3">
+              {featuredCourse.short_description || stripHtml(featuredCourse.description || '')}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => navigate('/register')}
+            className="self-start px-6 py-3.5 bg-white text-mellow-ink font-black rounded-2xl text-sm active:scale-95 transition-transform shadow-lg"
+          >
+            {lang === 'en' ? 'Create Free Account' : 'สมัครสมาชิกฟรี'}
+          </button>
+        </div>
+      </div>
+
+      <div className="relative flex-1 flex flex-col justify-center px-8 bg-white lg:px-14 lg:py-10">
       {step === 'pin' && (
         <div className="absolute top-6 left-6 z-10">
           <button 
@@ -171,7 +229,7 @@ const Login = () => {
           </button>
         </div>
       )}
-      <div className="absolute top-6 right-6 z-10">
+      <div className="absolute top-6 right-6 lg:top-8 lg:right-8 z-10">
         <LanguageToggle />
       </div>
       <div className="text-center mb-10">
@@ -180,7 +238,7 @@ const Login = () => {
         <p className="text-slate-400 font-bold mt-2">{t.login.subtitle}</p>
       </div>
 
-      <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm flex flex-col gap-2 items-center pointer-events-none [&>*]:pointer-events-auto">
+      <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm md:max-w-md flex flex-col gap-2 items-center pointer-events-none [&>*]:pointer-events-auto">
         <Toast message={successMessage || ''} type="success" onClose={() => setSuccessMessage('')} />
         <Toast message={error || ''} type="error" onClose={() => setError('')} />
       </div>
@@ -196,6 +254,7 @@ const Login = () => {
                   <Phone size={20} />
                 </div>
                 <input
+                  ref={phoneInputRef}
                   type="tel"
                   inputMode="numeric"
                   placeholder={t.login.phonePlaceholder}
@@ -252,6 +311,15 @@ const Login = () => {
                   }
                 }}
               />
+              {/* Overlays the pad itself instead of a small spinner below it
+                  — verification is quick, but blocking the buttons visually
+                  (not just via the isLoading no-op elsewhere) avoids a
+                  double-submit if someone keeps tapping while it checks. */}
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/85 backdrop-blur-sm rounded-2xl">
+                  <LoadingLogo size="sm" />
+                </div>
+              )}
             </div>
             <div className="text-center mt-2">
               <button
@@ -262,11 +330,6 @@ const Login = () => {
                 {t.login.forgotPin || 'Forgot PIN?'}
               </button>
             </div>
-            {isLoading && (
-              <div className="flex justify-center mt-2">
-                <Loader2 className="animate-spin text-mellow-purple" />
-              </div>
-            )}
           </>
         )}
       </form>
@@ -274,14 +337,9 @@ const Login = () => {
       <p className="text-center mt-8 text-slate-400 text-sm font-bold">
         {t.login.noAccount} <span onClick={() => navigate('/register' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''))} className="text-mellow-purple cursor-pointer underline">{t.login.registerLink}</span>
       </p>
+      </div>
 
-      {showErrorModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
-          <div
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => { if (!lockedUntil) setShowErrorModal(false); }}
-          />
-          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+      <ResponsiveModal isOpen={showErrorModal} onClose={() => { if (!lockedUntil) setShowErrorModal(false); }} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <AlertCircle size={32} />
             </div>
@@ -314,9 +372,7 @@ const Login = () => {
                 {t.login.forgotPin}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
     </div>
   );
 };

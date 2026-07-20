@@ -27,8 +27,40 @@ b, strong {
 }
 
 @layer components {
+  /* Container width convention for the desktop/iPad redesign — see the
+     "Responsive Redesign" plan. Mobile (<768px) is byte-identical to the
+     original 430px phone column; every wider tier only ever ADDS classes,
+     never edits the base ones, so mobile can't drift.
+     - .mellow-page: tab/dashboard/drill-in pages. Grows with the viewport
+       up to 1100px so grids/carousels get real room on desktop.
+     - .mellow-page-reading: same idea but for long-form text pages
+       (course/news/report detail) — caps at 820px so lines don't sprawl.
+     - .mellow-flow-page: auth/onboarding/success screens. Stays card-like;
+       only grows to 520px even on a huge monitor. Booking.tsx overrides
+       this locally with its own wider cap since its step-wizard grids need
+       more room than a plain form. */
   .mellow-page {
-    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative;
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px];
+    background-color: #fbfaf7;
+  }
+
+  .mellow-page-reading {
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[820px];
+    background-color: #fbfaf7;
+  }
+
+  .mellow-flow-page {
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[520px];
+    background-color: #fbfaf7;
+  }
+
+  /* Login only: a split view with a promo panel appears at lg:+ (there's
+     no room for it at md: tablet widths), so this needs a wider frame cap
+     than a plain .mellow-flow-page from lg: up — see the
+     .mellow-shell-frame:has(...) rule below. Stays identical to
+     .mellow-flow-page below lg:. */
+  .mellow-flow-page-split {
+    @apply min-h-screen mx-auto relative max-w-[430px] md:max-w-[520px] lg:max-w-none;
     background-color: #fbfaf7;
   }
 
@@ -82,6 +114,34 @@ b, strong {
   }
   .prose-news img {
     @apply rounded-xl my-3 max-w-full;
+  }
+}
+
+/* AppShell's no-nav frame (auth/onboarding flows + drill-in pages reached
+   one level deep) has no way to know in advance how wide the page inside
+   it wants to be — a login form and a course catalog need very different
+   card widths. Rather than thread that through as a prop, the frame reads
+   it directly off whichever width class the page's own root element uses,
+   via :has(). Default (520px) matches .mellow-flow-page; more specific
+   rules below widen it for the other two page-width classes. */
+@media (min-width: 768px) {
+  .mellow-shell-frame {
+    max-width: 520px;
+  }
+  .mellow-shell-frame:has(> .mellow-page-reading) {
+    max-width: 820px;
+  }
+  .mellow-shell-frame:has(> .mellow-page) {
+    max-width: 1100px;
+  }
+}
+
+/* Login's split view (promo panel + form) only has room from lg: up —
+   below that it's identical to any other .mellow-flow-page (matches the
+   768px default above). */
+@media (min-width: 1024px) {
+  .mellow-shell-frame:has(> .mellow-flow-page-split) {
+    max-width: 1000px;
   }
 }
 

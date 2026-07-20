@@ -120,6 +120,7 @@ export class AdminController {
         membershipExpiresAt: data.membership_expires_at !== undefined ? data.membership_expires_at : current.membership_expires_at,
         profileImageUrl:    data.profile_image_url !== undefined ? data.profile_image_url : current.profile_image_url,
         displayName:        data.display_name !== undefined ? data.display_name : current.display_name,
+        isCommunityAdmin:   data.is_community_admin !== undefined ? data.is_community_admin : !!current.is_community_admin,
         children:           data.children,
       });
       return c.json({ success: true });

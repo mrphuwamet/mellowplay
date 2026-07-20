@@ -19,7 +19,21 @@ const PinPad: React.FC<PinPadProps> = ({ value, onChange, length = 6 }) => {
 
   return (
     <div>
-      <div className="flex justify-center gap-3 mb-10">
+      {/* The dot row doubles as a real, typeable input from md: up — a
+          hidden field overlaid on top captures keyboard input directly
+          (desktop has no reason to make someone click 6 tiny buttons with a
+          mouse). pointer-events stay off below md: so tapping the dots on
+          mobile doesn't also pop the native keyboard over the tap-keypad. */}
+      <div className="relative flex justify-center gap-3 mb-10">
+        <input
+          type="tel"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, length))}
+          maxLength={length}
+          className="absolute inset-0 w-full h-full opacity-0 pointer-events-none md:pointer-events-auto cursor-text"
+        />
         {Array.from({ length }).map((_, i) => (
           <div
             key={i}

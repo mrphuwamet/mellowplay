@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Heart, Compass, Star, Map, Calendar, Lock, Ticket, Users } from 'lucide-react';
+import { Camera, Heart, Compass, Star, Map, Calendar, Lock, Ticket } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import GuestUnlockModal from './GuestUnlockModal';
 
@@ -18,7 +18,6 @@ const QuickAccess = () => {
     { label: t.home.quickAccess.journey, icon: Map, path: '/journey', color: 'bg-cyan-500', gated: true },
     { label: t.home.quickAccess.album, icon: Camera, path: '/album', color: 'bg-mellow-blue', gated: true },
     { label: t.home.quickAccess.myCoupons, icon: Ticket, path: '/my-coupons', color: 'bg-pink-500', gated: true },
-    { label: t.home.quickAccess.community, icon: Users, path: '/community', color: 'bg-indigo-500', isComingSoon: true },
   ];
 
   const handleClick = (item: typeof menuItems[number]) => {
@@ -35,7 +34,10 @@ const QuickAccess = () => {
       <h3 className="text-sm font-black text-slate-700 mb-5 px-2 uppercase tracking-widest">
         {t.home.quickAccess.title}
       </h3>
-      <div className="grid grid-cols-4 gap-y-6 gap-x-3 px-1">
+      {/* Icon-tile grid — stays 4 columns at every breakpoint (adding more
+          would make an already-dense icon row feel sparse); capped to its
+          own width instead so tiles don't balloon as the page widens. */}
+      <div className="grid grid-cols-4 gap-y-6 gap-x-3 px-1 md:max-w-[420px] md:mx-auto">
         {menuItems.map((item) => {
           const Icon = item.icon;
           return (

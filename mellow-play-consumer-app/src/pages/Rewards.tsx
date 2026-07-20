@@ -4,6 +4,7 @@ import { ChevronLeft, Gift, AlertCircle, Star, ChevronLeft as ArrowLeft, Chevron
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
+import ResponsiveModal from '../components/ResponsiveModal';
 
 interface Reward {
   id: number;
@@ -233,7 +234,7 @@ const Rewards = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans">
+    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
       {/* Shared clip-path def for the wavy/scalloped "stamp seal" edge — a
           ring of 12 rounded petal-bumps instead of a smooth circle, evoking
           a real stamp's perforated cut without boxing it into a square.
@@ -263,6 +264,11 @@ const Rewards = () => {
       </header>
 
       <main className="p-4">
+        {/* Personal/gamification section — kept at a reading-card width even
+            on wide screens (a profile banner and stamp passport shouldn't
+            stretch edge-to-edge on a 1100px container). The rewards catalog
+            below uses the full container width instead. */}
+        <div className="max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
         {/* User Profile Banner */}
         <div className="bg-gradient-to-r from-slate-100 to-slate-50 rounded-3xl p-4 shadow-sm mb-6">
           <div className="flex justify-between items-center">
@@ -314,7 +320,7 @@ const Rewards = () => {
           const pageBg = pageBackgrounds.find(b => b.page_number === currentPageNumber);
           return (
             <div
-              className={`rounded-3xl p-5 shadow-sm mb-6 ${pageBg ? 'bg-cover bg-center' : 'bg-white'}`}
+              className={`rounded-3xl p-5 shadow-sm mb-6 md:max-w-sm md:mx-auto ${pageBg ? 'bg-cover bg-center' : 'bg-white'}`}
               style={pageBg ? { backgroundImage: `url(${pageBg.image_url})` } : undefined}
             >
               <div className="flex items-center justify-between mb-3">
@@ -356,12 +362,15 @@ const Rewards = () => {
             {successMsg}
           </div>
         )}
+        </div>
 
-        {/* Rewards Catalog */}
+        {/* Rewards Catalog — a content-card grid (photo + name + price +
+            button), so unlike the icon-tile grids above it scales up to
+            more columns as the page container widens. */}
         <h3 className="text-lg font-black text-slate-800 mb-4 px-2">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-3 animate-pulse">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
             {[0, 1, 2, 3].map(i => (
               <div key={i} className="bg-white rounded-3xl p-3 shadow-sm border border-slate-100">
                 <div className="aspect-square bg-slate-100 rounded-2xl mb-3" />
@@ -372,7 +381,7 @@ const Rewards = () => {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {rewards.map(reward => (
               <div key={reward.id} className="bg-white rounded-3xl p-3 shadow-sm flex flex-col relative overflow-hidden border border-slate-100">
                 <div className="aspect-square bg-slate-50 rounded-2xl mb-3 overflow-hidden flex items-center justify-center">
@@ -403,9 +412,9 @@ const Rewards = () => {
         )}
       </main>
 
-      {confirmReward && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-slate-900/50 backdrop-blur-sm" onClick={() => !submitting && setConfirmReward(null)}>
-          <div className="relative w-full max-w-xs bg-white rounded-[28px] p-6 text-center shadow-2xl" onClick={e => e.stopPropagation()}>
+      <ResponsiveModal isOpen={!!confirmReward} onClose={() => !submitting && setConfirmReward(null)} variant="dialog" size="xs" className="text-center">
+        {confirmReward && (
+          <>
             {!submitting && (
               <button onClick={() => setConfirmReward(null)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
                 <X size={16} />
@@ -439,13 +448,11 @@ const Rewards = () => {
                 {submitting ? (lang === 'en' ? 'Redeeming...' : 'กำลังแลก...') : (lang === 'en' ? 'Confirm' : 'ยืนยัน')}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ResponsiveModal>
 
-      {historyOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={() => setHistoryOpen(false)}>
-          <div className="w-full sm:max-w-sm bg-white rounded-t-3xl sm:rounded-3xl p-5 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <ResponsiveModal isOpen={historyOpen} onClose={() => setHistoryOpen(false)} variant="sheet" size="sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-black text-slate-800">{lang === 'en' ? 'Redemption History' : 'ประวัติการแลก'}</h3>
               <button onClick={() => setHistoryOpen(false)} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
@@ -469,9 +476,7 @@ const Rewards = () => {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
     </div>
   );
 };

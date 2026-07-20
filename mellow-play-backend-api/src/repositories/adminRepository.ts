@@ -84,6 +84,7 @@ export class AdminRepository {
     membershipExpiresAt?: string | null;
     profileImageUrl?: string;
     displayName?: string;
+    isCommunityAdmin?: boolean;
     children?: Array<{ id?: number; full_name: string; nickname?: string; gender?: string; date_of_birth?: string }>;
   }): Promise<void> {
     await this.db.prepare(`
@@ -92,7 +93,8 @@ export class AdminRepository {
         membership_type = ?, membership_expires_at = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
-        application_date = ?, profile_image_url = ?, display_name = ?
+        application_date = ?, profile_image_url = ?, display_name = ?,
+        is_community_admin = ?
       WHERE id = ?
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
@@ -101,6 +103,7 @@ export class AdminRepository {
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
       data.applicationDate ?? null, data.profileImageUrl ?? null, data.displayName ?? null,
+      data.isCommunityAdmin ? 1 : 0,
       id
     ).run();
 
@@ -364,7 +367,37 @@ export class AdminRepository {
       JOIN Course_Categories cat ON c.category_id = cat.id
       ORDER BY cat.name ASC, c.name ASC
     `).all();
-    return results;
+    return this.enrichCourseSkillIcons(results as any[]);
+  }
+
+  // A course only ever stores its skills as {th, en} labels — the actual
+  // icon/color live on Skills_Library and can be changed there independently
+  // at any time, so the icon is resolved live by name here (the same
+  // by-name lookup the CRM's own SkillTagInput does against its in-memory
+  // library) rather than freezing a possibly-stale icon into the course
+  // record. Without this, every consumer of achievement_skills_json (course
+  // detail, booking flow) has no way to know which icon staff configured.
+  private async enrichCourseSkillIcons(courses: any[]): Promise<any[]> {
+    const { results: library } = await this.db.prepare('SELECT name, icon, color FROM Skills_Library').all();
+    const byName = new Map((library as any[]).map(s => [s.name, { icon: s.icon, color: s.color }]));
+
+    const enrich = (json: string | null | undefined) => {
+      if (!json) return json;
+      try {
+        const arr = JSON.parse(json);
+        if (!Array.isArray(arr)) return json;
+        return JSON.stringify(arr.map((s: any) => ({ ...s, ...(byName.get(s?.th) || {}) })));
+      } catch {
+        return json;
+      }
+    };
+
+    return courses.map(c => ({
+      ...c,
+      achievement_skills_json: enrich(c.achievement_skills_json),
+      achievement_skills_little_junior_json: enrich(c.achievement_skills_little_junior_json),
+      achievement_skills_junior_json: enrich(c.achievement_skills_junior_json),
+    }));
   }
 
   async getCourseImageViews(courseId: number): Promise<any[]> {

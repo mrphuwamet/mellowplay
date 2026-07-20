@@ -148,7 +148,7 @@ const ForgotPassword = () => {
   };
 
   return (
-    <div className="mellow-page flex flex-col justify-center px-8 bg-white">
+    <div className="mellow-flow-page flex flex-col justify-center px-8 bg-white">
       <div className="absolute top-6 left-6 z-10">
         <button 
           onClick={handleBack}
@@ -177,7 +177,7 @@ const ForgotPassword = () => {
         )}
       </div>
 
-      <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm flex flex-col gap-2 items-center pointer-events-none [&>*]:pointer-events-auto">
+      <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm md:max-w-md flex flex-col gap-2 items-center pointer-events-none [&>*]:pointer-events-auto">
         <Toast message={successMessage || ''} type="success" onClose={() => setSuccessMessage('')} />
         <Toast message={error || ''} type="error" onClose={() => setError('')} />
       </div>

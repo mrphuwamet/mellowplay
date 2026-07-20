@@ -179,7 +179,7 @@ const Album = () => {
         </div>
         <div className="p-4">
           <div className="h-3 w-20 bg-slate-200 rounded-full mb-3" />
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="aspect-square rounded-[24px] bg-slate-200" />
             ))}
@@ -323,7 +323,7 @@ const Album = () => {
           className="fixed inset-0 z-[100] bg-mellow-ink/95 flex items-center justify-center p-5 backdrop-blur-sm"
           onClick={() => setSelectedMedia(null)}
         >
-          <div className="relative w-full max-w-[400px]" onClick={e => e.stopPropagation()}>
+          <div className="relative w-full max-w-[400px] md:max-w-[600px] lg:max-w-[720px]" onClick={e => e.stopPropagation()}>
              {selectedMedia.type === 'video' ? (
                <video src={selectedMedia.url} controls autoPlay className="w-full rounded-[32px] shadow-2xl" />
              ) : (
@@ -484,14 +484,14 @@ const Album = () => {
                           <span className="text-[14px] font-bold text-slate-400 uppercase tracking-widest">{group.activity}</span>
                        </div>
                     </div>
-                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 gap-3' : 'grid-cols-1 gap-6'}`}>
+                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}`}>
                       {group.images.map(renderThumb)}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 gap-3' : 'grid-cols-1 gap-6'}`}>
+              <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}`}>
                 {visibleFlatMedia.map(renderThumb)}
               </div>
             )}
@@ -513,7 +513,7 @@ const Album = () => {
 
       {/* Select-mode action bar */}
       {selectMode && totalMedia > 0 && (
-        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] z-40 flex items-center gap-3">
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px] p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] z-40 flex items-center gap-3">
           <button onClick={selectAllVisible} className="text-[13px] font-black text-mellow-blue uppercase tracking-widest shrink-0">
             {t.album.selectAll}
           </button>

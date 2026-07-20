@@ -3,11 +3,11 @@ export type Language = 'th' | 'en';
 export const translations = {
   en: {
     nav: {
-      home: 'HOME',
-      journey: 'JOURNEY',
-      album: 'ALBUM',
-      explore: 'EXPLORE',
-      rewards: 'REWARDS',
+      home: 'Feed',
+      journey: 'Journey',
+      album: 'Album',
+      explore: 'Explore',
+      rewards: 'Rewards',
     },
     common: {
       viewAll: 'View All',
@@ -33,6 +33,7 @@ export const translations = {
       noAccount: "Don't have an account?",
       registerLink: 'Register now',
       loginFailed: 'Login failed. Please try again.',
+      fillRequiredInfo: 'Please fill in all required information',
       pinLabel: 'Please enter PIN',
       forgotPin: 'Forgot PIN?',
       resetPin: 'Reset PIN',
@@ -224,8 +225,8 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       learnToday: "What's on the learning menu today",
       tryNew: 'My child bravely tried something new today',
       learningJourney: 'Learning Journey',
+      latestClass: 'Recent Classes',
       greeting: 'Today at Mellow',
-      guestName: 'Explorer',
       quickAccess: {
         title: '',
         album: 'Album',
@@ -237,6 +238,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
         booking: 'Booking',
         myCoupons: 'My Coupons',
         community: 'Community',
+        contactUs: 'Contact Us',
       },
       menuTitle: 'Quick Menu',
       menuLanguage: 'Language',
@@ -448,6 +450,10 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       stampPayment: 'Use Class Stamp',
       stampDeduct: 'Deduct 1 stamp from package',
       haveStamps: 'Have',
+      useCoupon: 'Use Coupon',
+      deduct: 'Deduct',
+      couponUnit: 'coupon(s)',
+      have: 'Have',
       cashPayment: 'Payment',
       cashDesc: 'QR Code - Credit Card - Online Banking etc.',
       promoCode: 'Promo Code',
@@ -476,7 +482,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
 
   th: {
     nav: {
-      home: 'หน้าหลัก',
+      home: 'ฟีดข่าว',
       journey: 'เส้นทาง',
       album: 'อัลบั้ม',
       explore: 'สำรวจ',
@@ -506,6 +512,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       noAccount: 'ยังไม่มีบัญชี?',
       registerLink: 'สมัครเลย',
       loginFailed: 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่',
+      fillRequiredInfo: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน',
       pinLabel: 'กรุณากรอก PIN',
       forgotPin: 'ลืมรหัส PIN?',
       resetPin: 'รีเซ็ตรหัส PIN',
@@ -695,8 +702,8 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       learnToday: 'เรียนรู้อะไรในวันนี้',
       tryNew: 'วันนี้น้องกล้าลองสิ่งใหม่ด้วยตัวเอง',
       learningJourney: 'เส้นทางการเรียนรู้',
+      latestClass: 'ประวัติการเรียนล่าสุด',
       greeting: 'ยินดีต้อนรับสู่ Mellow Play',
-      guestName: 'นักสำรวจ',
       quickAccess: {
         title: '',
         album: 'อัลบั้ม',
@@ -708,6 +715,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
         booking: 'จอง',
         myCoupons: 'คูปองของฉัน',
         community: 'ชุมชน',
+        contactUs: 'ติดต่อเรา',
       },
       menuTitle: 'เมนูลัด',
       menuLanguage: 'ภาษา',
@@ -919,6 +927,10 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       stampPayment: 'ใช้แสตมป์คลาสเรียน',
       stampDeduct: 'หัก 1 แสตมป์จากแพ็กเกจ',
       haveStamps: 'มี',
+      useCoupon: 'ใช้คูปอง',
+      deduct: 'หัก',
+      couponUnit: 'ใบ',
+      have: 'มี',
       cashPayment: 'ชำระเงิน',
       cashDesc: 'QR Code - Credit Card - Online Banking etc.',
       promoCode: 'โค้ดส่วนลด (Promo Code)',
@@ -946,4 +958,15 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
   },
 } as const;
 
-export type Translations = typeof translations.en;
+// translations is `as const` so `typeof translations.en` pins every string to
+// its literal English value — translations.th's literal Thai values wouldn't
+// structurally match. Widen literals back to their base type so either
+// locale's object satisfies this shape.
+type Widen<T> = T extends string ? string
+  : T extends number ? number
+  : T extends boolean ? boolean
+  : T extends readonly (infer U)[] ? readonly Widen<U>[]
+  : T extends object ? { [K in keyof T]: Widen<T[K]> }
+  : T;
+
+export type Translations = Widen<typeof translations.en>;

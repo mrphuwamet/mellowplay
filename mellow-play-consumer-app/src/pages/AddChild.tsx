@@ -8,6 +8,7 @@ import DateField from '../components/DateField';
 import FieldHint from '../components/FieldHint';
 import { cleanNamePrefix } from '../utils/nameUtils';
 import logo from '../assets/ui/logo.svg';
+import ResponsiveModal from '../components/ResponsiveModal';
 
 interface ChildInput {
   firstName: string;
@@ -119,7 +120,7 @@ const AddChild = () => {
   };
 
   return (
-    <div className="mellow-page flex flex-col px-8 bg-white">
+    <div className="mellow-flow-page flex flex-col px-8 bg-white">
       <header className="pt-10 mb-8 flex justify-end">
         <LanguageToggle />
       </header>
@@ -295,10 +296,7 @@ const AddChild = () => {
         </div>
       </form>
 
-      {childToRemove !== null && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setChildToRemove(null)} />
-          <div className="relative w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-2xl">
+      <ResponsiveModal isOpen={childToRemove !== null} onClose={() => setChildToRemove(null)} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 size={32} />
             </div>
@@ -313,7 +311,7 @@ const AddChild = () => {
               </button>
               <button
                 onClick={() => {
-                  handleRemoveChild(childToRemove);
+                  if (childToRemove !== null) handleRemoveChild(childToRemove);
                   setChildToRemove(null);
                 }}
                 className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
@@ -321,9 +319,7 @@ const AddChild = () => {
                 {t.register.removeChildConfirm}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </ResponsiveModal>
     </div>
   );
 };

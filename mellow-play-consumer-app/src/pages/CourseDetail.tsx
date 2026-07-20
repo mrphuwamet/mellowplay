@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Sparkles, Share2 } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Share2 } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
+import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -11,6 +12,7 @@ import PosterCarousel from '../components/PosterCarousel';
 import PromotionCountdown from '../components/PromotionCountdown';
 import { useChildStore } from '../store/useChildStore';
 import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
+import ResponsiveModal from '../components/ResponsiveModal';
 
 const CourseDetail = () => {
   const navigate = useNavigate();
@@ -62,7 +64,7 @@ const CourseDetail = () => {
 
   if (loading) {
     return (
-      <div className="mellow-page bg-[#fbfaf7] min-h-screen animate-pulse">
+      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen animate-pulse">
         <div className="h-[64px] px-5 bg-white flex items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-slate-100" />
           <div className="w-10 h-10 rounded-full bg-slate-100" />
@@ -85,7 +87,7 @@ const CourseDetail = () => {
 
   if (!course) {
     return (
-      <div className="mellow-page bg-[#fbfaf7] min-h-screen">
+      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen">
         <header className="h-[64px] px-5 bg-white flex items-center gap-2">
           <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><ChevronLeft size={24} /></button>
           <button onClick={() => navigate('/')} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><Home size={20} /></button>
@@ -123,7 +125,7 @@ const CourseDetail = () => {
 
   // Skills only — Skills_Library entries of type "achievement", not "indicator"
   // (ตัวชี้วัด), which the CRM tracks separately for internal progress reports.
-  let achievementSkills: { th: string; en?: string }[] = [];
+  let achievementSkills: { th: string; en?: string; icon?: string }[] = [];
   try { achievementSkills = course.achievement_skills_json ? JSON.parse(course.achievement_skills_json) : []; } catch { /* ignore malformed json */ }
 
   const discountAmount = course.active_campaign_discount_amount || 0;
@@ -133,17 +135,19 @@ const CourseDetail = () => {
     : 0;
 
   return (
-    <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-32">
+    <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen pb-32">
       {/* Header Poster Gallery & Nav */}
       <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
         {course.poster_images?.length > 0 ? (
-          <PosterCarousel images={course.poster_images} alt={course.name} className="w-full" />
+          <div className="w-full h-[340px] overflow-hidden">
+            <PosterCarousel images={course.poster_images} alt={course.name} className="w-full h-full" />
+          </div>
         ) : bannerView.url ? (
-          <div className="w-full aspect-[4/5]">
+          <div className="w-full h-[340px]">
             <img src={bannerView.url} alt={course.name} style={bannerView.style} className="w-full h-full object-cover" />
           </div>
         ) : (
-          <div className="w-full aspect-[4/5] flex items-center justify-center opacity-30 p-10">
+          <div className="w-full h-[340px] flex items-center justify-center opacity-30 p-10">
             <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
           </div>
         )}
@@ -161,7 +165,7 @@ const CourseDetail = () => {
 
           <div className="relative flex items-center gap-2">
             <ShareToLineButton
-              text={`${lang === 'en' && course.name_en ? course.name_en : course.name}\n${window.location.origin}/course/${course.id}`}
+              text={`${lang === 'en' && course.name_en ? course.name_en : course.name}\n${window.location.origin}/class/${course.id}`}
               label={<Share2 size={18} />}
               className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-90 transition-transform"
             />
@@ -315,7 +319,7 @@ const CourseDetail = () => {
             <div className="flex flex-wrap gap-2">
               {achievementSkills.map((skill, i) => (
                 <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[13px] font-bold">
-                  <Sparkles size={13} />
+                  <SkillIcon iconKey={skill.icon} size={13} />
                   {lang === 'en' && skill.en ? skill.en : skill.th}
                 </span>
               ))}
@@ -389,7 +393,7 @@ const CourseDetail = () => {
       </main>
 
       {/* Register CTA */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] lg:max-w-[820px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
         <button 
           onClick={() => {
             const isGuest = localStorage.getItem('mellow_guest') === 'true';
@@ -407,9 +411,7 @@ const CourseDetail = () => {
       </div>
 
       {/* Guest Modal */}
-      {showGuestModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-[32px] p-6 w-full max-w-[340px] shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+      <ResponsiveModal isOpen={showGuestModal} onClose={() => setShowGuestModal(false)} variant="dialog" size="sm" className="text-center">
             <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
               <Users size={32} className="text-mellow-yellow-dark" />
             </div>
@@ -417,30 +419,37 @@ const CourseDetail = () => {
               {lang === 'en' ? 'Please Register First' : 'กรุณาสมัครสมาชิกก่อน'}
             </h3>
             <p className="text-[14px] text-slate-500 font-medium mb-6">
-              {lang === 'en' 
-                ? 'Register now to book this class and track your child\'s journey!' 
+              {lang === 'en'
+                ? 'Register now to book this class and track your child\'s journey!'
                 : 'สมัคสมาชิกเพื่อทำการจองคลาสเรียนและติดตามพัฒนาการของน้องๆ'}
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <button 
+              <button
                 onClick={() => setShowGuestModal(false)}
                 className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/register?redirect=/course/${course.id}`);
+                  navigate(`/register?redirect=/class/${course.id}`);
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
                 {t.common?.register || 'สมัครสมาชิก'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+            <button
+              onClick={() => {
+                setShowGuestModal(false);
+                navigate(`/login?redirect=/class/${course.id}`);
+              }}
+              className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              {lang === 'en' ? 'Already have an account? Login' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ'}
+            </button>
+      </ResponsiveModal>
     </div>
   );
 };

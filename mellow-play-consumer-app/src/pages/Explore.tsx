@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Play, Calendar, MapPin, CheckCircle, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, X, Star, ShoppingBag, Ticket } from 'lucide-react';
+import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, X, ShoppingBag } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
-import { formatCalendarSummary } from '../utils/calendarUtils';
-import { getCourseView, resolveImageUrl } from '../utils/courseImage';
-import { trackCourseView } from '../utils/analytics';
+import { resolveImageUrl } from '../utils/courseImage';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
-import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
-import TicketRequirementRow from '../components/TicketRequirementRow';
+import { useCouponTypes } from '../hooks/useCouponTypes';
 import { stripHtml } from '../utils/stripHtml';
+import CourseCard from '../components/CourseCard';
+import { CarouselNudgeButtons, useHorizontalCarousel } from '../components/CarouselNudgeButtons';
+import ResponsiveModal from '../components/ResponsiveModal';
 
 const Explore = () => {
   const navigate = useNavigate();
@@ -68,31 +68,9 @@ const Explore = () => {
   const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
   const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
 
-  // Desktop mouse users can't drag-scroll a horizontal row, so give every
-  // horizontally-scrolling section its own </>-style nudge buttons. Cards
-  // are a fixed 240px + 16px gap; combined with snap-x/snap-center + the
-  // scroll-padding below, nudging by exactly one card-step lets native CSS
-  // scroll-snap settle the next card dead-center rather than at an arbitrary offset.
-  const CARD_STEP = 256;
-  const classesScrollRef = useRef<HTMLDivElement>(null);
-  const newsScrollRef = useRef<HTMLDivElement>(null);
-  const mediaScrollRef = useRef<HTMLDivElement>(null);
-  const scrollByAmount = (ref: React.RefObject<HTMLDivElement>, dir: 'left' | 'right') => {
-    ref.current?.scrollBy({ left: dir === 'left' ? -CARD_STEP : CARD_STEP, behavior: 'smooth' });
-  };
-  // Half a card's width so the first/last card can also reach true center
-  // instead of stopping short against the scroll container's edge.
-  const snapContainerStyle: React.CSSProperties = { scrollPaddingInline: 'calc(50% - 120px)' };
-  const ScrollNudgeButtons = ({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }) => (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <button onClick={() => scrollByAmount(scrollRef, 'left')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
-        <ChevronLeft size={16} className="text-slate-500" />
-      </button>
-      <button onClick={() => scrollByAmount(scrollRef, 'right')} className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center active:scale-90 transition-all">
-        <ChevronRight size={16} className="text-slate-500" />
-      </button>
-    </div>
-  );
+  const classesCarousel = useHorizontalCarousel(240, 16);
+  const newsCarousel = useHorizontalCarousel(240, 16);
+  const mediaCarousel = useHorizontalCarousel(240, 16);
 
   const categories: { id: 'all' | 'classes' | 'news' | 'media'; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
     { id: 'all', label: lang === 'en' ? 'All' : 'ทั้งหมด', Icon: Sparkles, iconColor: 'text-mellow-red', activeBg: 'bg-mellow-red border-mellow-red' },
@@ -116,120 +94,6 @@ const Explore = () => {
       ))}
     </>
   );
-
-  const renderCourseCard = (course: any, tagColorClass: string) => {
-    const view = getCourseView(course, 'card');
-    const bookingStatus = courseBookingStatus[course.id];
-    const isOneTimeBooked = !!bookingStatus && !course.allow_repeat;
-    const statusLabel = bookingStatus === 'upcoming'
-      ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
-      : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว');
-
-    const discountAmount = course.active_campaign_discount_amount || 0;
-    const discountedPrice = Math.max(0, (course.original_price || 0) - discountAmount);
-    const discountPercent = discountAmount > 0 && course.original_price
-      ? Math.round((discountAmount / course.original_price) * 100)
-      : 0;
-
-    return (
-      <div key={course.id} onClick={() => navigate(`/course/${course.id}`)} className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex flex-col h-full">
-         <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
-            {view.url ? (
-              <img src={view.url} alt={course.name} style={view.style} className={`w-full h-full object-cover ${isOneTimeBooked ? 'grayscale-[40%]' : ''}`} />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center p-6 opacity-30">
-                 <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
-              </div>
-            )}
-            <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase ${tagColorClass} shadow-sm`}>
-              {course.category_name}
-            </div>
-            {!!course.is_extraclass && (
-              <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-lg text-[10px] font-black uppercase text-white shadow-sm">
-                <Star size={11} fill="currentColor" />
-                {lang === 'en' ? 'Extra' : 'พิเศษ'}
-              </div>
-            )}
-            {bookingStatus && (
-              <div className={`absolute top-2 right-2 text-white text-[9px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1 ${isOneTimeBooked ? 'bg-slate-400' : 'bg-emerald-500'}`}>
-                <CheckCircle size={9} />
-                {statusLabel}
-              </div>
-            )}
-         </div>
-         <div className="p-4 flex flex-col flex-1">
-            <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">{course.name}</h4>
-            <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug mb-2">
-              {course.short_description || stripHtml(course.description || '')}
-            </p>
-            <div className="flex flex-wrap gap-2 mb-3">
-               {course.age_min && course.age_max && (
-                 <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[11px] font-bold">
-                   {course.age_min}-{course.age_max} ปี
-                 </span>
-               )}
-            </div>
-            {course.original_price != null && (
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  {discountAmount > 0 && (
-                    <span className="text-[11px] text-slate-400 font-bold line-through shrink-0">
-                      ฿{course.original_price.toLocaleString()}
-                    </span>
-                  )}
-                  <span className="text-[16px] font-black text-mellow-red tracking-tight leading-none shrink-0">
-                    ฿{discountedPrice.toLocaleString()}
-                  </span>
-                  {(() => {
-                    const couponReq = getPrimaryCouponRequirement(course, couponTypes);
-                    return couponReq && (
-                      <span className="flex items-center gap-1 shrink-0 text-slate-300 font-bold text-[13px]">
-                        /
-                        <span className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: `${couponReq.color}20` }}>
-                          <Ticket size={11} style={{ color: couponReq.color }} />
-                        </span>
-                      </span>
-                    );
-                  })()}
-                </div>
-                {discountPercent > 0 && (
-                  <span className="px-1.5 py-0.5 bg-mellow-red/10 text-mellow-red text-[10px] font-black rounded shrink-0">
-                    -{discountPercent}%
-                  </span>
-                )}
-              </div>
-            )}
-            <TicketRequirementRow course={course} childCoupons={selectedChild?.coupons} lang={lang} />
-            <div className="space-y-1 mb-3 border-t border-slate-100 pt-3">
-              <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500">
-                 <Calendar size={14} className="text-slate-400 shrink-0" />
-                 <span className="truncate">{course.calendar_id ? formatCalendarSummary(course.calendar_summary_json) : 'รอประกาศวัน'}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500">
-                 <MapPin size={14} className="text-slate-400 shrink-0" />
-                 <span className="truncate">{course.is_extraclass ? (course.location || 'รอยืนยันสถานที่') : 'Mellow Play (Little Walk Pattaya)'}</span>
-              </div>
-            </div>
-            <button
-              disabled={isOneTimeBooked}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isOneTimeBooked) navigate(`/course/${course.id}`);
-                else { trackCourseView(course.id); navigate(`/booking?courseId=${course.id}`); }
-              }}
-              className={`w-full py-2 text-[12px] font-bold rounded-xl transition-all mt-auto ${
-                isOneTimeBooked
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-mellow-purple text-white active:scale-95'
-              }`}
-            >
-              {isOneTimeBooked ? statusLabel : (lang === 'en' ? 'Book Now' : 'จองเลย')}
-            </button>
-         </div>
-      </div>
-    );
-  };
-
 
   const renderNewsCard = (item: any) => {
     const imageUrl = resolveImageUrl(item.image_url);
@@ -293,13 +157,20 @@ const Explore = () => {
           <button className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
              <Search size={20} className="text-slate-400" />
           </button>
-          <LanguageToggle />
+          {/* md:+ the left sidebar has its own language toggle at the
+              bottom, so this one is mobile-only to avoid a duplicate. */}
+          <div className="md:hidden">
+            <LanguageToggle />
+          </div>
         </div>
       </header>
 
       <main className="p-5">
-        {/* Categories — fills full width evenly, no ragged trailing space */}
-        <div className="grid grid-cols-4 gap-2 pb-6">
+        {/* Categories — fills full width evenly, no ragged trailing space.
+            Stays 4 tiles at every breakpoint (an icon grid, not a content
+            grid) but caps its own width on wide screens so tiles don't
+            balloon as the page container grows. */}
+        <div className="grid grid-cols-4 gap-2 pb-6 md:max-w-[480px]">
            {categories.map(cat => {
              const isActive = activeCategory === cat.id;
              return (
@@ -338,16 +209,25 @@ const Explore = () => {
              <div className="flex justify-between items-center mb-4 px-1 gap-2">
                 <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Classes' : 'คลาส'}</h3>
                 <div className="flex items-center gap-3">
-                  <ScrollNudgeButtons scrollRef={classesScrollRef} />
-                  <button onClick={() => navigate('/courses/all')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                  <CarouselNudgeButtons onScrollLeft={() => classesCarousel.scrollBy('left')} onScrollRight={() => classesCarousel.scrollBy('right')} />
+                  <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
                     {lang === 'en' ? 'View All' : 'ดูคลาสทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
                 </div>
              </div>
 
-             <div ref={classesScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
-                {isBookingStatusLoading ? renderCourseCardSkeletons() : allClasses.map(course => renderCourseCard(course, course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'))}
+             <div ref={classesCarousel.ref} style={classesCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+                {isBookingStatusLoading ? renderCourseCardSkeletons() : allClasses.map(course => (
+                  <CourseCard
+                    key={course.id}
+                    course={course}
+                    bookingStatus={courseBookingStatus[course.id]}
+                    lang={lang}
+                    childCoupons={selectedChild?.coupons}
+                    couponTypes={couponTypes}
+                  />
+                ))}
              </div>
           </section>
         )}
@@ -361,14 +241,14 @@ const Explore = () => {
                    <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'Latest updates' : 'ข่าวสารล่าสุด'}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <ScrollNudgeButtons scrollRef={newsScrollRef} />
+                  <CarouselNudgeButtons onScrollLeft={() => newsCarousel.scrollBy('left')} onScrollRight={() => newsCarousel.scrollBy('right')} />
                   <button onClick={() => navigate('/news-feed/news')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
                     {lang === 'en' ? 'View All' : 'ดูข่าวทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
                 </div>
              </div>
-             <div ref={newsScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={newsCarousel.ref} style={newsCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {newsOnly.map(item => renderNewsCard(item))}
              </div>
           </section>
@@ -383,14 +263,14 @@ const Explore = () => {
                    <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'For kids & families' : 'เรื่องน่ารู้สำหรับเด็ก และครอบครัว'}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <ScrollNudgeButtons scrollRef={mediaScrollRef} />
+                  <CarouselNudgeButtons onScrollLeft={() => mediaCarousel.scrollBy('left')} onScrollRight={() => mediaCarousel.scrollBy('right')} />
                   <button onClick={() => navigate('/news-feed/media')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
                     {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
                 </div>
              </div>
-             <div ref={mediaScrollRef} style={snapContainerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={mediaCarousel.ref} style={mediaCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {mediaOnly.map(item => renderNewsCard(item))}
              </div>
           </section>
@@ -434,33 +314,23 @@ const Explore = () => {
         </div>
       )}
 
-      {showShopSoon && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-slate-900/50 backdrop-blur-sm"
-          onClick={() => setShowShopSoon(false)}
-        >
-          <div
-            className="relative w-full max-w-xs bg-white rounded-[28px] p-6 text-center shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <button onClick={() => setShowShopSoon(false)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
-              <X size={16} />
-            </button>
-            <div className="w-16 h-16 rounded-full bg-mellow-purple/10 flex items-center justify-center mx-auto mb-4 relative">
-              <ShoppingBag size={26} className="text-mellow-purple" />
-              <Sparkles size={16} className="text-mellow-yellow absolute -top-1 -right-1" fill="currentColor" />
-            </div>
-            <h3 className="text-lg font-black text-slate-800 mb-2">
-              {lang === 'en' ? 'Coming Soon' : 'เร็วๆ นี้'}
-            </h3>
-            <p className="text-sm font-bold text-slate-500 leading-relaxed">
-              {lang === 'en'
-                ? "A shop for Mellow Play merchandise and goodies is on the way!"
-                : 'ร้านค้าสำหรับสินค้าและของที่ระลึกของ Mellow Play กำลังจะมาเร็วๆ นี้!'}
-            </p>
-          </div>
+      <ResponsiveModal isOpen={showShopSoon} onClose={() => setShowShopSoon(false)} variant="dialog" size="xs" className="text-center">
+        <button onClick={() => setShowShopSoon(false)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
+          <X size={16} />
+        </button>
+        <div className="w-16 h-16 rounded-full bg-mellow-purple/10 flex items-center justify-center mx-auto mb-4 relative">
+          <ShoppingBag size={26} className="text-mellow-purple" />
+          <Sparkles size={16} className="text-mellow-yellow absolute -top-1 -right-1" fill="currentColor" />
         </div>
-      )}
+        <h3 className="text-lg font-black text-slate-800 mb-2">
+          {lang === 'en' ? 'Coming Soon' : 'เร็วๆ นี้'}
+        </h3>
+        <p className="text-sm font-bold text-slate-500 leading-relaxed">
+          {lang === 'en'
+            ? "A shop for Mellow Play merchandise and goodies is on the way!"
+            : 'ร้านค้าสำหรับสินค้าและของที่ระลึกของ Mellow Play กำลังจะมาเร็วๆ นี้!'}
+        </p>
+      </ResponsiveModal>
     </div>
   );
 };

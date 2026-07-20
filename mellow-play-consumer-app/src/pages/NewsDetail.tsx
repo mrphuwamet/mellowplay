@@ -95,7 +95,7 @@ const NewsDetail = () => {
 
   if (item === undefined) {
     return (
-      <div className="mellow-page bg-[#fbfaf7] min-h-screen animate-pulse">
+      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen animate-pulse">
         <div className="h-[64px] px-5 bg-white flex items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-slate-100" />
         </div>
@@ -112,7 +112,7 @@ const NewsDetail = () => {
 
   if (!item) {
     return (
-      <div className="mellow-page bg-[#fbfaf7] min-h-screen">
+      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen">
         <header className="h-[64px] px-5 bg-white flex items-center gap-2">
           <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><ChevronLeft size={24} /></button>
         </header>
@@ -129,7 +129,7 @@ const NewsDetail = () => {
   const videoEmbed = item.video_url ? getVideoEmbed(item.video_url) : null;
 
   return (
-    <div className="mellow-page bg-white min-h-screen pb-10">
+    <div className="mellow-page-reading bg-white min-h-screen pb-10">
       <header className="h-[64px] px-5 bg-white/90 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-2">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />

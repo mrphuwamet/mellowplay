@@ -16,7 +16,7 @@ const PackagePurchaseSuccess = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 max-w-[430px] mx-auto relative flex flex-col items-center justify-center p-5">
+    <div className="mellow-flow-page bg-slate-50 flex flex-col items-center justify-center p-5">
       <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center mb-6 animate-bounce">
         <CheckCircle size={48} className="text-green-500" />
       </div>

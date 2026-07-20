@@ -5,6 +5,7 @@ import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import CourseRatingPrompt from './CourseRatingPrompt';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
+import ResponsiveModal from './ResponsiveModal';
 
 interface BookingDetailModalProps {
   isOpen: boolean;
@@ -60,8 +61,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
   const indicatorItems = skills.filter(s => typeof s !== 'string' && s.type === 'indicator');
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-[400px] rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl relative animate-in slide-in-from-bottom-8 duration-300 max-h-[85vh] overflow-y-auto">
+    <ResponsiveModal isOpen={isOpen} onClose={onClose} variant="sheet" size="md">
         <button
           onClick={onClose}
           className="absolute right-4 top-4 w-10 h-10 bg-slate-50 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full flex items-center justify-center transition-colors"
@@ -120,7 +120,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
           {booking.course_id && (
             <button
-              onClick={() => navigate(`/course/${booking.course_id}`)}
+              onClick={() => navigate(`/class/${booking.course_id}`)}
               className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
             >
               <BookOpen size={16} />
@@ -288,8 +288,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
         >
           {lang === 'en' ? 'Close' : 'ปิดหน้านี้'}
         </button>
-      </div>
-    </div>
+    </ResponsiveModal>
   );
 };
 

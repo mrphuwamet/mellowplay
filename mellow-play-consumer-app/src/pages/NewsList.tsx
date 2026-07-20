@@ -40,10 +40,10 @@ const NewsList = () => {
 
       <main className="p-5">
         {loading ? (
-          <div className="flex flex-col gap-4 animate-pulse">
+          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {[0, 1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full">
-                <div className="w-28 h-28 bg-slate-200 shrink-0" />
+              <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full md:flex-col">
+                <div className="w-28 h-28 md:w-full md:h-40 bg-slate-200 shrink-0" />
                 <div className="flex-1 min-w-0 p-4 space-y-2">
                   <div className="h-4 w-3/4 bg-slate-200 rounded-full" />
                   <div className="h-3 w-full bg-slate-100 rounded-full" />
@@ -57,7 +57,7 @@ const NewsList = () => {
             {lang === 'en' ? 'No content yet' : 'ยังไม่มีเนื้อหา'}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {items.map(item => {
               const imageUrl = resolveImageUrl(item.image_url);
               const itemTitle = lang === 'en' && item.title_en ? item.title_en : item.title;
@@ -66,9 +66,9 @@ const NewsList = () => {
                 <div
                   key={item.id}
                   onClick={() => navigate(`/news/${item.id}`)}
-                  className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full"
+                  className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full md:flex-col"
                 >
-                  <div className="w-28 h-28 bg-slate-100 relative shrink-0 overflow-hidden">
+                  <div className="w-28 h-28 md:w-full md:h-40 bg-slate-100 relative shrink-0 overflow-hidden">
                     {imageUrl ? (
                       <img src={imageUrl} alt={itemTitle} className="w-full h-full object-cover" />
                     ) : (
