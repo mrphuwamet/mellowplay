@@ -36,21 +36,56 @@ const Login = () => {
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
 
-  // Desktop-only promo panel (see the split view in the JSX below) — picks
-  // one recommended class at random each visit, purely decorative/marketing,
-  // so a fetch failure here should never affect the login form itself.
-  const [featuredCourse, setFeaturedCourse] = useState<any>(null);
+  // Desktop-only promo panel (see the split view in the JSX below) — a
+  // swipeable carousel over every recommended class, purely decorative/
+  // marketing, so a fetch failure here should never affect the login form
+  // itself. Same pointer-drag + auto-advance technique as PosterCarousel.tsx,
+  // but reimplemented locally since each slide here needs its own title/
+  // description/CTA text overlay, not just an image + tap-to-lightbox.
+  const [promoCourses, setPromoCourses] = useState<any[]>([]);
+  const [promoIndex, setPromoIndex] = useState(0);
+  const [promoDragging, setPromoDragging] = useState(false);
+  const [promoDragOffsetPx, setPromoDragOffsetPx] = useState(0);
+  const promoStartXRef = useRef(0);
+
   useEffect(() => {
     apiClient.get('/admin/courses')
       .then(res => {
         if (!res.data.success) return;
         const recommended = res.data.courses.filter((c: any) => c.is_recommended);
-        if (recommended.length > 0) {
-          setFeaturedCourse(recommended[Math.floor(Math.random() * recommended.length)]);
-        }
+        setPromoCourses(recommended.sort(() => Math.random() - 0.5));
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (promoCourses.length <= 1 || promoDragging) return;
+    const id = setInterval(() => {
+      setPromoIndex(prev => (prev + 1) % promoCourses.length);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [promoCourses.length, promoDragging]);
+
+  const goToPromo = (index: number) => {
+    if (promoCourses.length === 0) return;
+    setPromoIndex(((index % promoCourses.length) + promoCourses.length) % promoCourses.length);
+  };
+  const handlePromoPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    promoStartXRef.current = e.clientX;
+    setPromoDragging(true);
+    setPromoDragOffsetPx(0);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handlePromoPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!promoDragging) return;
+    setPromoDragOffsetPx(e.clientX - promoStartXRef.current);
+  };
+  const handlePromoPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const dx = e.clientX - promoStartXRef.current;
+    if (Math.abs(dx) > 50) goToPromo(promoIndex + (dx < 0 ? 1 : -1));
+    setPromoDragging(false);
+    setPromoDragOffsetPx(0);
+  };
 
   const finishAuth = async (token: string, user: any, overrideUrl?: string) => {
     localStorage.setItem('mellow_token', token);
@@ -187,35 +222,75 @@ const Login = () => {
           decorative/marketing; the form column works identically with or
           without a featured course loaded. */}
       <div className="hidden lg:flex lg:w-[60%] lg:shrink-0 relative overflow-hidden bg-slate-900">
-        {featuredCourse && getCourseView(featuredCourse, 'banner').url && (
-          <img
-            src={getCourseView(featuredCourse, 'banner').url}
-            alt=""
-            style={getCourseView(featuredCourse, 'banner').style}
-            className="absolute inset-0 w-full h-full object-cover opacity-90"
-          />
+        {promoCourses.length === 0 ? (
+          <div className="relative z-10 flex flex-col justify-center p-10 text-white w-full h-full">
+            <h2 className="text-[26px] font-black mb-2 leading-tight">Mellow Play</h2>
+          </div>
+        ) : (
+          <>
+            <div
+              onPointerDown={handlePromoPointerDown}
+              onPointerMove={handlePromoPointerMove}
+              onPointerUp={handlePromoPointerUp}
+              onPointerCancel={handlePromoPointerUp}
+              style={{
+                display: 'flex',
+                width: '100%',
+                height: '100%',
+                touchAction: 'pan-y',
+                cursor: promoCourses.length > 1 ? 'grab' : 'default',
+                transform: `translateX(calc(${-promoIndex * 100}% + ${promoDragOffsetPx}px))`,
+                transition: promoDragging ? 'none' : 'transform 0.4s ease',
+              }}
+            >
+              {promoCourses.map((course, i) => (
+                <div key={course.id ?? i} className="relative w-full h-full shrink-0">
+                  {getCourseView(course, 'banner').url && (
+                    <img
+                      src={getCourseView(course, 'banner').url}
+                      alt=""
+                      draggable={false}
+                      style={getCourseView(course, 'banner').style}
+                      className="absolute inset-0 w-full h-full object-cover opacity-90 select-none"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10" />
+                  <div className="relative z-10 flex flex-col justify-center p-10 text-white w-full h-full">
+                    <span className="text-[12px] font-black uppercase tracking-widest text-mellow-yellow mb-3">
+                      {lang === 'en' ? 'Recommended for you' : 'แนะนำสำหรับคุณ'}
+                    </span>
+                    <h2 className="text-[26px] font-black mb-2 leading-tight">
+                      {lang === 'en' && course.name_en ? course.name_en : course.name}
+                    </h2>
+                    {(course.short_description || course.description) && (
+                      <p className="text-sm text-white/80 mb-6 leading-relaxed line-clamp-3">
+                        {course.short_description || stripHtml(course.description || '')}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/register')}
+                      className="self-start px-6 py-3.5 bg-white text-mellow-ink font-black rounded-2xl text-sm active:scale-95 transition-transform shadow-lg"
+                    >
+                      {lang === 'en' ? 'Create Free Account' : 'สมัครสมาชิกฟรี'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {promoCourses.length > 1 && (
+              <div className="absolute bottom-6 left-10 z-10 flex items-center gap-1.5">
+                {promoCourses.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => goToPromo(i)}
+                    className={`h-1.5 rounded-full transition-all ${i === promoIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/50'}`}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10" />
-        <div className="relative z-10 flex flex-col justify-center p-10 text-white w-full h-full">
-          <span className="text-[12px] font-black uppercase tracking-widest text-mellow-yellow mb-3">
-            {lang === 'en' ? 'Recommended for you' : 'แนะนำสำหรับคุณ'}
-          </span>
-          <h2 className="text-[26px] font-black mb-2 leading-tight">
-            {featuredCourse ? (lang === 'en' && featuredCourse.name_en ? featuredCourse.name_en : featuredCourse.name) : 'Mellow Play'}
-          </h2>
-          {featuredCourse && (featuredCourse.short_description || featuredCourse.description) && (
-            <p className="text-sm text-white/80 mb-6 leading-relaxed line-clamp-3">
-              {featuredCourse.short_description || stripHtml(featuredCourse.description || '')}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => navigate('/register')}
-            className="self-start px-6 py-3.5 bg-white text-mellow-ink font-black rounded-2xl text-sm active:scale-95 transition-transform shadow-lg"
-          >
-            {lang === 'en' ? 'Create Free Account' : 'สมัครสมาชิกฟรี'}
-          </button>
-        </div>
       </div>
 
       <div className="relative flex-1 flex flex-col justify-center px-8 bg-white lg:px-14 lg:py-10">
