@@ -63,6 +63,7 @@ import {
   TrendingUp as SalesMenuIcon,
   Lock as LockMenuIcon,
   Celebration as EventMenuIcon,
+  MiscellaneousServices as CourseServiceMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -127,7 +128,7 @@ const drawerWidth = 280;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/calendars', '/crm/bookings'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/calendars', '/crm/bookings'],
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -411,6 +412,7 @@ const AppContent = () => {
     pushGroup('classes', 'คลาสเรียนและการจอง', <BookingIcon />, [
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
       { text: 'จัดการกิจกรรม (Event)', icon: <EventMenuIcon />, path: '/crm/events', feature: 'courses' },
+      { text: 'จัดการบริการ (Service)', icon: <CourseServiceMenuIcon />, path: '/crm/course-services', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
     ]);
@@ -844,6 +846,7 @@ const AppContent = () => {
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
             <Route path="/crm/events" element={protect('courses', <CourseManagement courseType="event" />)} />
+            <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/users" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />

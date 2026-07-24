@@ -233,13 +233,16 @@ const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string })
   </Box>
 );
 
-// courseType splits this same component into two distinct CRM pages sharing
-// one implementation — "class" (/crm/courses) manages everything except
-// Events, "event" (/crm/events) shows only Events. Both are still just rows
-// in the same Courses table (see is_event) — this is a CRM-presentation
-// split only, not a database split, so all the booking/capacity/payment
-// machinery keyed on Courses/Bookings stays untouched.
-const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'event' }) => {
+// courseType splits this same component into three distinct CRM pages
+// sharing one implementation — "class" (/crm/courses) manages everything
+// except Events/Services, "event" (/crm/events) shows only Events, "service"
+// (/crm/course-services) shows only Services. All three are still just rows
+// in the same Courses table (see is_event/is_service) — this is a
+// CRM-presentation split only, not a database split, so all the
+// booking/capacity/payment machinery keyed on Courses/Bookings stays
+// untouched. Named "course-services" (not "/crm/services") because that
+// route is already taken by the unrelated shop-services feature.
+const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'event' | 'service' }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pageTab, setPageTab] = useState(0);
@@ -332,7 +335,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     stampExpiryMonths: 12,
   });
 
-  const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
+  const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [categorySubmitting, setCategorySubmitting] = useState(false);
   const [categoryImagePreview, setCategoryImagePreview] = useState('');
@@ -596,9 +599,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
 
   const filteredCourses = React.useMemo(() => {
     return courses.filter(course => {
-      // Events live entirely on their own page now (/crm/events) — the
-      // class page never shows them, the event page shows only them.
-      if (courseType === 'event' ? !course.is_event : !!course.is_event) return false;
+      // Events and Services each live entirely on their own page now
+      // (/crm/events, /crm/course-services) — the class page never shows
+      // either, each dedicated page shows only its own type.
+      if (courseType === 'class' ? (course.is_event || course.is_service) : getCourseType(course) !== courseType) return false;
 
       const q = filters.search.toLowerCase();
       const matchesSearch = !q ||
@@ -606,7 +610,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         (course.code && course.code.toLowerCase().includes(q)) ||
         course.id.toString().includes(q);
       const matchesCat = !filters.category || course.category_id === parseInt(filters.category);
-      const matchesType = courseType === 'event' || !filters.type || getCourseType(course) === filters.type;
+      const matchesType = courseType !== 'class' || !filters.type || getCourseType(course) === filters.type;
       return matchesSearch && matchesCat && matchesType;
     });
   }, [courses, filters, courseType]);
@@ -689,7 +693,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       });
     } else {
       setEditCourse(null);
-      const defaultScope = courseType === 'event' ? 'event' : 'class';
+      const defaultScope = courseType;
       setFormData({
         id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '', shortDescription: '', shortDescriptionEn: '', location: '', locationLink: '', branchIds: [],
         categoryId: categories.find(c => (c.type || 'class') === defaultScope)?.id || 0, calendarId: 0, ageMin: 3, ageMax: 9,
@@ -700,7 +704,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         isRecommended: false,
         isExtraclass: false,
         isEvent: courseType === 'event',
-        isService: false,
+        isService: courseType === 'service',
         // Events require 1 booking per child (no duplicates) — default
         // "allow repeat" off for new Events; staff can flip it back on
         // manually afterward if a specific event genuinely needs it.
@@ -851,7 +855,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     try {
       if (editCategory) await axios.put(`${API_BASE}/categories/${editCategory.id}`, categoryFormData);
       else await axios.post(`${API_BASE}/categories`, categoryFormData);
-      setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
+      setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
       setCategoryImagePreview('');
       setCategoryImagePos({ x: 50, y: 50 });
       catImgPosRef.current = { x: 50, y: 50 };
@@ -883,16 +887,20 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const durationHour = formData.duration.split(':')[0] || '01';
   const durationMinute = formData.duration.split(':')[1] || '00';
 
-  // Class/Event/Service categories are separate pools now — which one
-  // applies depends on the COURSE's own type, not the page's courseType
-  // (a Service course is still edited from the /crm/courses page, so its
-  // category list must be 'service', not 'class').
+  // Class/Event/Service categories are separate pools — which one applies
+  // depends on the COURSE's own type, matching whichever dedicated page
+  // it's edited from.
   const categoryScope: 'class' | 'event' | 'service' = formData.isEvent ? 'event' : formData.isService ? 'service' : 'class';
   const categoriesForCourse = categories.filter(c => (c.type || 'class') === categoryScope);
-  // The category tab/list itself is scoped by page instead — the Event
-  // page manages only Event categories; the Class page manages everything
-  // else (Class + Service) since Service doesn't have its own page yet.
-  const categoriesForPage = categories.filter(c => courseType === 'event' ? (c.type || 'class') === 'event' : (c.type || 'class') !== 'event');
+  // The category tab/list itself is scoped by page the same way — each of
+  // the three pages manages only its own category pool.
+  const categoriesForPage = categories.filter(c => (c.type || 'class') === courseType);
+  // Labels that vary per page — three pages, one shared implementation.
+  const pageLabels = {
+    class:   { title: 'จัดการคลาสเรียน', add: 'เพิ่มคลาส', tab: 'รายการคลาส', editTitle: 'แก้ไขคลาสเรียน', createTitle: 'สร้างคลาสเรียนใหม่', empty: 'ไม่พบข้อมูลคลาสเรียน' },
+    event:   { title: 'จัดการกิจกรรม (Event)', add: 'เพิ่มกิจกรรม', tab: 'รายการกิจกรรม', editTitle: 'แก้ไขกิจกรรม', createTitle: 'สร้างกิจกรรมใหม่', empty: 'ไม่พบข้อมูลกิจกรรม' },
+    service: { title: 'จัดการบริการ (Service)', add: 'เพิ่มบริการ', tab: 'รายการบริการ', editTitle: 'แก้ไขบริการ', createTitle: 'สร้างบริการใหม่', empty: 'ไม่พบข้อมูลบริการ' },
+  }[courseType];
 
   if (loading && !isEditing) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
 
@@ -905,9 +913,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              {courseType === 'event'
-                ? (editCourse ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่')
-                : (editCourse ? 'แก้ไขคลาสเรียน' : 'สร้างคลาสเรียนใหม่')}
+              {editCourse ? pageLabels.editTitle : pageLabels.createTitle}
             </Typography>
             {editCourse && <Typography variant="body2" color="text.secondary">{editCourse.name}</Typography>}
           </Box>
@@ -986,29 +992,14 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       label="คลาสแนะนำ"
                     />
                     {/* Type toggles are fixed by which page you're on
-                        (/crm/courses vs /crm/events) — showing them here
-                        would just let staff accidentally create a course
-                        under the wrong page's type. */}
+                        (/crm/courses vs /crm/events vs /crm/course-services)
+                        — showing them here would just let staff accidentally
+                        create a course under the wrong page's type. */}
                     {courseType === 'class' && (
-                      <>
-                        <FormControlLabel
-                          control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
-                          label="คลาสพิเศษ"
-                        />
-                        <FormControlLabel
-                          control={<Switch checked={formData.isService} onChange={e => {
-                            const nextScope = e.target.checked ? 'service' : 'class';
-                            // Category pools are separate per type now — the
-                            // currently-picked category may not exist in the
-                            // new scope, so fall back to the first one that does
-                            // rather than leave a dangling invalid selection.
-                            const stillValid = categories.some(c => c.id === formData.categoryId && (c.type || 'class') === nextScope);
-                            const firstInScope = categories.find(c => (c.type || 'class') === nextScope);
-                            setFormData({ ...formData, isService: e.target.checked, categoryId: stillValid ? formData.categoryId : (firstInScope?.id ?? 0) });
-                          }} color="secondary" />}
-                          label="บริการ (Service)"
-                        />
-                      </>
+                      <FormControlLabel
+                        control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
+                        label="คลาสพิเศษ"
+                      />
                     )}
                     <FormControlLabel
                       control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
@@ -1914,17 +1905,17 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>{courseType === 'event' ? 'จัดการกิจกรรม (Event)' : 'จัดการคลาสเรียน'}</Typography>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>{pageLabels.title}</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           {pageTab === 0 && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleEditOpen()} sx={{ borderRadius: 3, fontWeight: 700 }}>
-              {courseType === 'event' ? 'เพิ่มกิจกรรม' : 'เพิ่มคลาส'}
+              {pageLabels.add}
             </Button>
           )}
           {pageTab === 1 && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => {
               setEditCategory(null);
-              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
+              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
               setCategoryImagePreview('');
               setCategoryImagePos({ x: 50, y: 50 });
               catImgPosRef.current = { x: 50, y: 50 };
@@ -1940,10 +1931,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       {/* Page Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)}>
-          <Tab label={courseType === 'event' ? 'รายการกิจกรรม' : 'รายการคลาส'} />
+          <Tab label={pageLabels.tab} />
           <Tab label="หมวดหมู่" icon={<CategoryIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
-          {/* Events don't earn skills-on-completion or reserve physical
-              materials/stock — those are Class-only concepts. */}
+          {/* Events and Services don't earn skills-on-completion or reserve
+              physical materials/stock — those are Class-only concepts. */}
           {courseType === 'class' && <Tab label="Skills Library" icon={<SkillsLibIcon sx={{ fontSize: 16 }} />} iconPosition="end" />}
           {courseType === 'class' && <Tab label="วัสดุ/อุปกรณ์" />}
         </Tabs>
@@ -2042,7 +2033,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
             {filteredCourses.length === 0 && (
               <TableRow>
                 <TableCell colSpan={courseType === 'class' ? 9 : 8} align="center" sx={{ py: 8 }}>
-                  <Typography variant="body2" color="text.secondary">{courseType === 'event' ? 'ไม่พบข้อมูลกิจกรรม' : 'ไม่พบข้อมูลคลาสเรียน'}</Typography>
+                  <Typography variant="body2" color="text.secondary">{pageLabels.empty}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -2236,24 +2227,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
               autoFocus
             />
 
-            {/* Type — Class/Event/Service categories are separate pools;
-                fixed to 'event' on the Event page (see the initial/reset
-                defaults above), only pickable here on the Class page since
-                Service courses still live there until it gets its own page. */}
-            {courseType === 'class' && (
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>ใช้กับ</Typography>
-                <ToggleButtonGroup
-                  value={categoryFormData.type}
-                  exclusive
-                  size="small"
-                  onChange={(_, v) => v && setCategoryFormData(p => ({ ...p, type: v }))}
-                >
-                  <ToggleButton value="class" sx={{ fontWeight: 700, px: 2 }}>คลาส</ToggleButton>
-                  <ToggleButton value="service" sx={{ fontWeight: 700, px: 2 }}>บริการ</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-            )}
+            {/* Type is fixed to the current page (see the initial/reset
+                defaults above) — Class/Event/Service categories are
+                separate pools, and each page now only ever manages its
+                own, so there's nothing to pick manually. */}
 
             {/* Description */}
             <TextField
