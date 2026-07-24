@@ -424,13 +424,17 @@ export class AdminController {
 
       // Calculate price and discount. Premium children (childPremiumMap,
       // batched above from Children.membership_type) use Courses.premium_price
-      // when the course has one set; everyone else (regular children and
-      // guests) pays original_price — a mixed-status group (e.g. one Premium
-      // and one Regular sibling in the same request) is priced per child, not
-      // as one lump price times headcount.
+      // when the course has one actually configured; everyone else (regular
+      // children and guests) pays original_price — a mixed-status group (e.g.
+      // one Premium and one Regular sibling in the same request) is priced
+      // per child, not as one lump price times headcount.
+      // premium_price's DB default is 0 (never NULL — see 0001_init.sql), so
+      // every course that's never had a real premium price set would
+      // otherwise silently price Premium children at 0 instead of falling
+      // back to original_price. Require a positive value to count as "set".
       const courseRow = await db.prepare('SELECT id, name, original_price, premium_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
       const basePriceFor = (childId: number): number =>
-        (childId > 0 && childPremiumMap.get(childId) && courseRow?.premium_price != null)
+        (childId > 0 && childPremiumMap.get(childId) && courseRow?.premium_price > 0)
           ? courseRow.premium_price
           : (courseRow?.original_price ?? 0);
 
@@ -1969,8 +1973,8 @@ export class AdminController {
   async getApiCallLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const limit = Math.min(200, parseInt(c.req.query('limit') || '50', 10));
-      const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10));
+      const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50));
+      const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10) || 0);
       const method = c.req.query('method');
       const status = c.req.query('status');
       const callerType = c.req.query('callerType');
@@ -1979,7 +1983,7 @@ export class AdminController {
       const conditions: string[] = [];
       const params: any[] = [];
       if (method) { conditions.push('method = ?'); params.push(method); }
-      if (status) { conditions.push('status_code = ?'); params.push(parseInt(status, 10)); }
+      if (status && !isNaN(parseInt(status, 10))) { conditions.push('status_code = ?'); params.push(parseInt(status, 10)); }
       if (callerType) { conditions.push('caller_type = ?'); params.push(callerType); }
       if (pathSearch) { conditions.push('path LIKE ?'); params.push(`%${pathSearch}%`); }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

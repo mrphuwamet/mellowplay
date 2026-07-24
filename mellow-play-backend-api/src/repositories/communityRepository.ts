@@ -198,7 +198,10 @@ export class CommunityRepository {
 
   // One row per reported post (not per report) — reports_json bundles every
   // still-pending report for that post so staff can see all the reasons at
-  // once without a second request per post.
+  // once without a second request per post. Also includes already-hidden
+  // posts even with zero pending reports (hidePost marks them 'actioned',
+  // which would otherwise drop the post out of this list with no way to
+  // reach the "unhide" action ever again).
   async getReportedPosts(): Promise<any[]> {
     const { results } = await this.db.prepare(`
       SELECT
@@ -217,8 +220,9 @@ export class CommunityRepository {
         ) as reports_json
       FROM Community_Posts
       JOIN Users u ON Community_Posts.user_id = u.id
-      WHERE EXISTS (SELECT 1 FROM Community_Post_Reports r3 WHERE r3.post_id = Community_Posts.id AND r3.status = 'pending')
-      ORDER BY report_count DESC, Community_Posts.created_at DESC
+      WHERE Community_Posts.is_hidden = 1
+         OR EXISTS (SELECT 1 FROM Community_Post_Reports r3 WHERE r3.post_id = Community_Posts.id AND r3.status = 'pending')
+      ORDER BY Community_Posts.is_hidden DESC, report_count DESC, Community_Posts.created_at DESC
     `).all<any>();
     return results.map(r => ({ ...r, is_hidden: !!r.is_hidden, reports: r.reports_json ? JSON.parse(r.reports_json) : [] }));
   }

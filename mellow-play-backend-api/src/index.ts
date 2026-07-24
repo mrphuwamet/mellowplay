@@ -74,9 +74,11 @@ app.use('*', cors({
 // Registered before every other middleware/route so its own next() call
 // wraps the full chain (auth, route handler, everything) and duration_ms
 // reflects true end-to-end time. Request/response bodies are cloned before
-// being read, never consuming the stream the real handler needs, and the
-// actual DB write is fire-and-forget (executionCtx.waitUntil) so a slow or
-// failed log write can never slow down or break the real response.
+// being read, never consuming the stream the real handler needs. Masking
+// (JSON.parse + recursive redaction + re-stringify) is real CPU work, so it —
+// along with the DB write — runs inside executionCtx.waitUntil() entirely
+// AFTER the response is already on its way to the client, not just the
+// insert. Only the cheap raw-text reads happen inline.
 app.use('*', async (c, next) => {
   const start = Date.now();
   const method = c.req.method;
@@ -122,17 +124,23 @@ app.use('*', async (c, next) => {
     const callerType = crmUser ? 'admin' : jwtPayload ? 'consumer' : 'guest';
     const callerId = crmUser?.userId ?? jwtPayload?.userId ?? null;
     const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || null;
-
     const config = new ConfigService(c.env);
-    const insertPromise = config.db.prepare(`
-      INSERT INTO Api_Call_Logs (method, path, status_code, duration_ms, caller_type, caller_id, ip, request_body, response_body)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      method, path, status, duration, callerType, callerId, ip,
-      maskAndStringifyBody(requestBodyText), maskAndStringifyBody(responseBodyText),
-    ).run().catch(err => console.error('Failed to write Api_Call_Logs:', err));
 
-    c.executionCtx.waitUntil(insertPromise);
+    const writeLog = async () => {
+      try {
+        await config.db.prepare(`
+          INSERT INTO Api_Call_Logs (method, path, status_code, duration_ms, caller_type, caller_id, ip, request_body, response_body)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          method, path, status, duration, callerType, callerId, ip,
+          maskAndStringifyBody(requestBodyText), maskAndStringifyBody(responseBodyText),
+        ).run();
+      } catch (err) {
+        console.error('Failed to write Api_Call_Logs:', err);
+      }
+    };
+
+    c.executionCtx.waitUntil(writeLog());
   } catch (err) {
     console.error('API call logging failed:', err);
   }
