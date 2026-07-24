@@ -7,7 +7,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar, Switch, Menu, Avatar,
+  Snackbar, Switch, Menu, Avatar, OutlinedInput, Checkbox, Pagination,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -24,6 +24,11 @@ import {
   Edit as EditIcon,
   Cake as CakeIcon,
   Phone as PhoneIcon,
+  Info as InfoIcon,
+  MenuBook as CourseIcon,
+  Email as EmailIcon,
+  Payments as PaymentsIcon,
+  EventAvailable as BookedAtIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -38,6 +43,7 @@ const THAI_DAYS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 interface Booking {
   id: number;
   child_id: number;
+  course_id: number;
   branch_id: number;
   scheduled_at: string;
   status: string;
@@ -52,6 +58,12 @@ interface Booking {
   branch_name: string;
   paid_at?: string;
   payment_method?: string;
+  payment_status?: string;
+  original_price?: number;
+  notes?: string;
+  created_at?: string;
+  slot_date?: string;
+  slot_start_time?: string;
 }
 
 interface Course {
@@ -386,15 +398,231 @@ const calculateAge = (birthDateStr: string | undefined) => {
   return age >= 0 ? `${age} ปี` : '0 ปี';
 };
 
-const ListView = ({ bookings, onReport, onCancel, onEdit }: {
+// Bookings.created_at / Transactions.created_at (the source of paid_at for
+// every real payment) are D1 `DEFAULT CURRENT_TIMESTAMP` values — UTC,
+// stored as "YYYY-MM-DD HH:MM:SS" with no timezone marker. Parsing that
+// directly with `new Date(...)` makes the browser read the raw UTC digits
+// as if they were already local time, showing every paid/booked-at time
+// 7 hours early for Bangkok staff. Appending Z (after swapping in the ISO
+// separator) is what actually gets the correct local wall-clock time out.
+const formatUtcDateTime = (raw: string | undefined): string => {
+  if (!raw) return '-';
+  const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`);
+  if (isNaN(d.getTime())) return '-';
+  return `${d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
+};
+
+const GROUP_OPTIONS: { key: string; label: string }[] = [
+  { key: 'date',           label: 'วันที่เรียน' },
+  { key: 'round',          label: 'รอบเวลา' },
+  { key: 'course',         label: 'คลาส' },
+  { key: 'branch',         label: 'สาขา' },
+  { key: 'status',         label: 'สถานะ' },
+  { key: 'age_group',      label: 'กลุ่มอายุ' },
+  { key: 'payment_method', label: 'ช่องทางชำระ' },
+];
+
+const SORT_OPTIONS: { key: string; label: string }[] = [
+  { key: 'scheduled_asc',  label: 'วันเรียน (เก่า → ใหม่)' },
+  { key: 'scheduled_desc', label: 'วันเรียน (ใหม่ → เก่า)' },
+  { key: 'created_desc',   label: 'วันที่จอง (ใหม่ → เก่า)' },
+  { key: 'created_asc',    label: 'วันที่จอง (เก่า → ใหม่)' },
+  { key: 'name_asc',       label: 'ชื่อเด็ก (ก → ฮ)' },
+  { key: 'name_desc',      label: 'ชื่อเด็ก (ฮ → ก)' },
+  { key: 'status',         label: 'สถานะ' },
+];
+
+const getGroupValue = (b: Booking, field: string): string => {
+  switch (field) {
+    case 'course': return b.course_name || 'ไม่ระบุคลาส';
+    case 'branch': return b.branch_name || 'ไม่ระบุสาขา';
+    case 'status': return getStatusInfo(b.status).label;
+    case 'age_group': return b.age_group === 'little_junior' ? 'Little Junior' : b.age_group === 'junior' ? 'Junior' : 'ไม่ระบุ';
+    case 'payment_method': return b.payment_method || 'ไม่ระบุช่องทาง';
+    case 'round': {
+      // slot_start_time is the actual calendar-slot round the booking was
+      // made against; older/extra-class bookings without one fall back to
+      // the time portion of scheduled_at so they still group sensibly.
+      if (b.slot_start_time) return `รอบ ${b.slot_start_time.substring(0, 5)} น.`;
+      const dt = new Date(b.scheduled_at);
+      return isNaN(dt.getTime()) ? 'ไม่ระบุรอบ' : `รอบ ${dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
+    }
+    case 'date': {
+      const dateStr = b.scheduled_at?.split('T')[0] || b.scheduled_at?.split(' ')[0] || '-';
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    default: return 'ไม่ระบุ';
+  }
+};
+
+interface GroupNode { key: string; items: Booking[]; children?: GroupNode[]; }
+
+// Recursive so any number of group-by conditions can be layered — pick
+// course + date and you get one course-level group per date sub-group,
+// not just a single flat dimension.
+const buildGroups = (items: Booking[], fields: string[]): GroupNode[] => {
+  if (fields.length === 0) return [{ key: '', items }];
+  const [field, ...rest] = fields;
+  const map = new Map<string, Booking[]>();
+  for (const b of items) {
+    const key = getGroupValue(b, field);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(b);
+  }
+  return Array.from(map.entries()).map(([key, groupItems]) => ({
+    key,
+    items: groupItems,
+    children: rest.length > 0 ? buildGroups(groupItems, rest) : undefined,
+  }));
+};
+
+const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
+  const arr = [...items];
+  arr.sort((a, b) => {
+    switch (sortKey) {
+      case 'scheduled_asc': return (a.scheduled_at || '').localeCompare(b.scheduled_at || '');
+      case 'scheduled_desc': return (b.scheduled_at || '').localeCompare(a.scheduled_at || '');
+      case 'created_asc': return (a.created_at || '').localeCompare(b.created_at || '');
+      case 'created_desc': return (b.created_at || '').localeCompare(a.created_at || '');
+      case 'name_asc': return (a.child_nickname || a.child_name || '').localeCompare(b.child_nickname || b.child_name || '', 'th');
+      case 'name_desc': return (b.child_nickname || b.child_name || '').localeCompare(a.child_nickname || a.child_name || '', 'th');
+      case 'status': return (a.status || '').localeCompare(b.status || '');
+      default: return 0;
+    }
+  });
+  return arr;
+};
+
+// ─── Booking Detail Dialog ───────────────────────────────────────────────────
+
+const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
+  booking: Booking | null;
+  course?: Course;
+  onClose: () => void;
+  onViewCourse: () => void;
+}) => {
+  if (!booking) return null;
+  const si = getStatusInfo(booking.status);
+  const dt = new Date(booking.scheduled_at);
+  const hasValidDate = !isNaN(dt.getTime());
+  return (
+    <Dialog open={!!booking} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        รายละเอียดการจอง #{booking.id}
+        <Chip label={si.label} size="small" sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor }} />
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>คลาส</Typography>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+              <Typography sx={{ fontWeight: 700 }}>{booking.course_name || '-'}</Typography>
+              {course && (
+                <Button size="small" startIcon={<CourseIcon sx={{ fontSize: 16 }} />} onClick={onViewCourse} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  ดูรายละเอียดคลาส
+                </Button>
+              )}
+            </Stack>
+            <Typography variant="body2" color="text.secondary">{booking.branch_name || '-'}</Typography>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>วันเวลาเรียน</Typography>
+            <Typography sx={{ fontWeight: 700 }}>
+              {hasValidDate
+                ? `${dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })} เวลา ${dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`
+                : '-'}
+            </Typography>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เด็กผู้เรียน</Typography>
+            <Typography sx={{ fontWeight: 700 }}>
+              {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+              <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
+              {booking.child_birth_date && (
+                <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+              )}
+            </Stack>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
+            <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
+            <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+              <PhoneIcon sx={{ fontSize: 13 }} color="action" />
+              <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
+            </Stack>
+            {booking.parent_email && (
+              <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+                <EmailIcon sx={{ fontSize: 13 }} color="action" />
+                <Typography variant="body2">{booking.parent_email}</Typography>
+              </Stack>
+            )}
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>การชำระเงิน</Typography>
+            <Typography variant="body2">ราคา: {booking.original_price != null ? `${booking.original_price.toLocaleString()} บาท` : '-'}</Typography>
+            <Typography variant="body2">ช่องทาง: {booking.payment_method || '-'}</Typography>
+            <Typography variant="body2">ชำระเมื่อ: {formatUtcDateTime(booking.paid_at)}</Typography>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ประวัติ</Typography>
+            <Typography variant="body2">วันที่จอง: {formatUtcDateTime(booking.created_at)}</Typography>
+          </Box>
+          {booking.notes && (
+            <>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>หมายเหตุ</Typography>
+                <Typography variant="body2">{booking.notes}</Typography>
+              </Box>
+            </>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} sx={{ fontWeight: 700 }}>ปิด</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// ─── Class Detail Dialog ─────────────────────────────────────────────────────
+
+const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose: () => void }) => (
+  <Dialog open={!!course} onClose={onClose} maxWidth="sm" fullWidth>
+    <DialogTitle sx={{ fontWeight: 800 }}>รายละเอียดคลาส</DialogTitle>
+    <DialogContent>
+      {course && <CourseDetailPanel key={course.id} course={course} />}
+    </DialogContent>
+    <DialogActions sx={{ px: 3, pb: 2 }}>
+      <Button onClick={onClose} sx={{ fontWeight: 700 }}>ปิด</Button>
+    </DialogActions>
+  </Dialog>
+);
+
+const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
   bookings: Booking[];
   onReport: (b: Booking) => void;
   onCancel: (id: number) => void;
   onEdit: (b: Booking) => void;
+  courses: Course[];
 }) => {
   const [search, setSearch] = useState('');
-  const [groupBy, setGroupBy] = useState<'none' | 'course' | 'date'>('none');
+  const [groupByFields, setGroupByFields] = useState<string[]>([]);
+  const [sortKey, setSortKey] = useState('scheduled_asc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [manageMenu, setManageMenu] = useState<{ anchor: HTMLElement; booking: Booking } | null>(null);
+  const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
+  const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
   const filtered = useMemo(() => {
@@ -405,32 +633,32 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
       b.child_nickname?.toLowerCase().includes(q) ||
       b.parent_name?.toLowerCase().includes(q) ||
       b.parent_phone?.toLowerCase().includes(q) ||
+      b.parent_email?.toLowerCase().includes(q) ||
       b.course_name?.toLowerCase().includes(q) ||
       b.branch_name?.toLowerCase().includes(q) ||
       String(b.id).includes(q)
     );
   }, [bookings, search]);
 
-  const grouped = useMemo(() => {
-    if (groupBy === 'none') return { 'ทั้งหมด': filtered };
-    if (groupBy === 'course') {
-      return filtered.reduce((acc: Record<string, Booking[]>, b) => {
-        const key = b.course_name || 'ไม่ระบุ';
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(b);
-        return acc;
-      }, {});
-    }
-    // group by date
-    return filtered.reduce((acc: Record<string, Booking[]>, b) => {
-      const dateStr = b.scheduled_at?.split('T')[0] || b.scheduled_at?.split(' ')[0] || '-';
-      const d = new Date(dateStr);
-      const key = isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(b);
-      return acc;
-    }, {});
-  }, [filtered, groupBy]);
+  const sorted = useMemo(() => sortBookings(filtered, sortKey), [filtered, sortKey]);
+
+  // Reset back to page 1 whenever the result set or its order would change
+  // out from under whatever page the user was looking at.
+  useEffect(() => { setPage(1); }, [search, sortKey, groupByFields, bookings]);
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, page, pageSize]);
+
+  // Grouping shows the FULL filtered/sorted set (pagination and grouping
+  // don't compose cleanly — see the note rendered near the pagination
+  // control below), pagination only applies to the flat, ungrouped view.
+  const itemsToRender = groupByFields.length > 0 ? sorted : paginated;
+  const grouped = useMemo(() => buildGroups(itemsToRender, groupByFields), [itemsToRender, groupByFields]);
+
+  const courseMap = useMemo(() => new Map(courses.map(c => [c.id, c])), [courses]);
 
   const exportCSV = () => {
     const formatPhone = (phoneStr: string | undefined) => {
@@ -443,19 +671,20 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
     };
 
     const headers = [
-      'รหัสจอง', 
-      'วันที่', 
-      'เวลา', 
-      'คลาส', 
-      'ชื่อเด็ก', 
-      'ชื่อเล่นเด็ก', 
-      'วันเกิดเด็ก', 
-      'อายุจริง', 
-      'ชื่อผู้ปกครอง', 
-      'เบอร์โทรผู้ปกครอง', 
-      'อีเมลผู้ปกครอง', 
+      'รหัสจอง',
+      'วันที่',
+      'เวลา',
+      'คลาส',
+      'ชื่อเด็ก',
+      'ชื่อเล่นเด็ก',
+      'วันเกิดเด็ก',
+      'อายุจริง',
+      'ชื่อผู้ปกครอง',
+      'เบอร์โทรผู้ปกครอง',
+      'อีเมลผู้ปกครอง',
       'สาขา',
       'สถานะ',
+      'วันที่จอง',
       'วันที่รับชำระเงิน',
       'ช่องทางชำระเงิน'
     ];
@@ -466,10 +695,6 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
       const status = getStatusInfo(b.status).label;
       const childBdate = formatBirthDate(b.child_birth_date);
       const actualAge = calculateAge(b.child_birth_date);
-      const paidDt = b.paid_at ? new Date(b.paid_at) : null;
-      const paidAt = paidDt && !isNaN(paidDt.getTime())
-        ? `${paidDt.toLocaleDateString('th-TH')} ${paidDt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`
-        : '-';
       return [
         b.id,
         `"${date}"`,
@@ -484,7 +709,8 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
         `"${b.parent_email || '-'}"`,
         `"${b.branch_name || ''}"`,
         `"${status}"`,
-        `"${paidAt}"`,
+        `"${formatUtcDateTime(b.created_at)}"`,
+        `"${formatUtcDateTime(b.paid_at)}"`,
         `"${b.payment_method || '-'}"`
       ].join(',');
     });
@@ -498,31 +724,182 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
     URL.revokeObjectURL(url);
   };
 
+  const renderBookingCard = (b: Booking) => {
+    const si = getStatusInfo(b.status);
+    const dt = new Date(b.scheduled_at);
+    const hasValidDate = !isNaN(dt.getTime());
+    const hasRealName = b.child_nickname && b.child_name && b.child_nickname !== b.child_name;
+    return (
+      <Paper
+        key={b.id}
+        variant="outlined"
+        sx={{
+          borderRadius: 3, borderColor: '#eef0f3', overflow: 'hidden',
+          display: 'flex', alignItems: 'stretch',
+          transition: 'box-shadow 0.15s, transform 0.15s',
+          '&:hover': { boxShadow: '0 4px 16px 0 rgba(0,0,0,0.06)' },
+        }}
+      >
+        {/* Status accent — the whole row's state at a glance */}
+        <Box sx={{ width: 5, flexShrink: 0, bgcolor: si.fgColor }} />
+
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
+            {/* Date block */}
+            <Box sx={{
+              flexShrink: 0, width: 64, textAlign: 'center', py: 0.75, borderRadius: 2,
+              bgcolor: '#f8fafc', border: '1px solid #eef0f3',
+            }}>
+              <Typography sx={{ fontSize: '10px', fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1.2 }}>
+                {hasValidDate ? dt.toLocaleDateString('th-TH', { month: 'short' }) : '-'}
+              </Typography>
+              <Typography sx={{ fontSize: '20px', fontWeight: 900, color: 'text.primary', lineHeight: 1.1 }}>
+                {hasValidDate ? dt.getDate() : '?'}
+              </Typography>
+              <Typography sx={{ fontSize: '10.5px', fontWeight: 700, color: 'text.secondary' }}>
+                {hasValidDate ? dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}
+              </Typography>
+            </Box>
+
+            {/* Child + parent — nickname leads, but the real first+last name
+                (and the parent's full name) stay visible right here instead
+                of being hidden behind a click. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
+              <Avatar sx={{ width: 38, height: 38, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)', fontWeight: 800, fontSize: '15px' }}>
+                {(b.child_nickname || b.child_name || '?').charAt(0)}
+              </Avatar>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                    {b.child_nickname || b.child_name || '-'}
+                  </Typography>
+                  {b.child_birth_date && (
+                    <Chip
+                      icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                      label={calculateAge(b.child_birth_date)}
+                      size="small"
+                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                    />
+                  )}
+                </Stack>
+                {hasRealName && (
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                    {b.child_name}
+                  </Typography>
+                )}
+                {b.parent_name && (
+                  <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600 }}>
+                    <PhoneIcon sx={{ fontSize: 11 }} />
+                    {b.parent_name}{b.parent_phone ? ` · ${b.parent_phone}` : ''}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+
+            {/* Class + branch */}
+            <Box sx={{ minWidth: 160, flex: '2 1 220px' }}>
+              <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary' }} noWrap>
+                {b.course_name || '-'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                #{b.id} · {b.branch_name || '-'}
+              </Typography>
+            </Box>
+
+            {/* Status */}
+            <Chip
+              label={si.label}
+              size="small"
+              sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26, flexShrink: 0 }}
+            />
+
+            {/* One manage button instead of 2-3 competing ones */}
+            <IconButton
+              size="small"
+              onClick={(e) => setManageMenu({ anchor: e.currentTarget, booking: b })}
+              sx={{ ml: 'auto', flexShrink: 0 }}
+            >
+              <MoreVertIcon fontSize="small" />
+            </IconButton>
+          </Box>
+
+          {/* Booked-at / paid-at — the two timestamps this list was missing */}
+          {(b.created_at || b.paid_at) && (
+            <Box sx={{ px: 2, pb: 1.5, mt: -0.5, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+              {b.created_at && (
+                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary', fontWeight: 600 }}>
+                  <BookedAtIcon sx={{ fontSize: 13 }} />
+                  วันที่จอง {formatUtcDateTime(b.created_at)}
+                </Typography>
+              )}
+              {b.paid_at && (
+                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2e7d32', fontWeight: 700 }}>
+                  <PaymentsIcon sx={{ fontSize: 13 }} />
+                  ชำระ {formatUtcDateTime(b.paid_at)}{b.payment_method ? ` · ${b.payment_method}` : ''}
+                </Typography>
+              )}
+            </Box>
+          )}
+        </Box>
+      </Paper>
+    );
+  };
+
+  const renderGroup = (node: GroupNode, depth: number): React.ReactNode => (
+    <Box key={`${depth}-${node.key}`} sx={{ pl: depth * 2.5 }}>
+      {node.key && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, mt: depth > 0 ? 2.5 : 0 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: depth === 0 ? '15px' : '13.5px' }}>{node.key}</Typography>
+          <Chip label={`${node.items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: '#eef1f5' }} />
+        </Box>
+      )}
+      {node.children ? (
+        <Stack spacing={2}>{node.children.map(child => renderGroup(child, depth + 1))}</Stack>
+      ) : (
+        <Stack spacing={1.25}>{node.items.map(renderBookingCard)}</Stack>
+      )}
+    </Box>
+  );
+
   return (
     <Box>
-      {/* Filter — search, group-by, and export live in one card so they read
-          as a single filter component instead of stray floating controls. */}
+      {/* Filter — search, multi-condition group-by, sort, and export live in
+          one card so they read as a single filter component instead of
+          stray floating controls. */}
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 3, borderColor: '#eef0f3' }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+        <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap alignItems="center">
           <TextField
             size="small"
-            placeholder="ค้นหา ชื่อเด็ก, ชื่อเล่น, ผู้ปกครอง, เบอร์โทร, คลาส..."
+            placeholder="ค้นหา ชื่อเด็ก, ชื่อเล่น, ผู้ปกครอง, เบอร์โทร, อีเมล, คลาส..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
-            sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
+            sx={{ flex: '1 1 220px', '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
           />
-          <FormControl size="small" sx={{ minWidth: 160 }}>
+          <FormControl size="small" sx={{ minWidth: 220, flex: '1 1 220px' }}>
             <InputLabel sx={{ fontWeight: 700 }}>จัดกลุ่มตาม</InputLabel>
             <Select
-              value={groupBy}
-              onChange={e => setGroupBy(e.target.value as any)}
-              label="จัดกลุ่มตาม"
+              multiple
+              value={groupByFields}
+              onChange={e => setGroupByFields(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}
+              input={<OutlinedInput label="จัดกลุ่มตาม" />}
+              renderValue={(selected) => (selected as string[]).length === 0
+                ? 'ไม่จัดกลุ่ม'
+                : (selected as string[]).map(k => GROUP_OPTIONS.find(g => g.key === k)?.label ?? k).join(' › ')}
               sx={{ borderRadius: 2, fontWeight: 700 }}
             >
-              <MenuItem value="none" sx={{ fontWeight: 700 }}>ไม่จัดกลุ่ม</MenuItem>
-              <MenuItem value="course" sx={{ fontWeight: 700 }}>ตามคลาส</MenuItem>
-              <MenuItem value="date" sx={{ fontWeight: 700 }}>ตามวันที่</MenuItem>
+              {GROUP_OPTIONS.map(opt => (
+                <MenuItem key={opt.key} value={opt.key} sx={{ fontWeight: 700 }}>
+                  <Checkbox checked={groupByFields.includes(opt.key)} size="small" sx={{ p: 0.5, mr: 0.5 }} />
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
+            <InputLabel sx={{ fontWeight: 700 }}>เรียงลำดับ</InputLabel>
+            <Select value={sortKey} onChange={e => setSortKey(e.target.value)} label="เรียงลำดับ" sx={{ borderRadius: 2, fontWeight: 700 }}>
+              {SORT_OPTIONS.map(opt => <MenuItem key={opt.key} value={opt.key} sx={{ fontWeight: 700 }}>{opt.label}</MenuItem>)}
             </Select>
           </FormControl>
           <Button
@@ -556,118 +933,51 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
           </Typography>
         </Paper>
       ) : (
-        <Stack spacing={2.5}>
-          {Object.entries(grouped).map(([groupKey, items]) => (
-            <Box key={groupKey}>
-              {groupBy !== 'none' && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: '15px' }}>{groupKey}</Typography>
-                  <Chip label={`${items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: 'slate.200' }} />
-                </Box>
-              )}
-              <Stack spacing={1.25}>
-                {items.map((b) => {
-                  const si = getStatusInfo(b.status);
-                  const dt = new Date(b.scheduled_at);
-                  const hasValidDate = !isNaN(dt.getTime());
-                  const isActive = ['confirmed', 'confirmed_paid'].includes(b.status);
-                  const canReport = ['completed', 'awaiting_report'].includes(b.status);
-                  return (
-                    <Paper
-                      key={b.id}
-                      variant="outlined"
-                      sx={{
-                        borderRadius: 3, borderColor: '#eef0f3', overflow: 'hidden',
-                        display: 'flex', alignItems: 'stretch',
-                        transition: 'box-shadow 0.15s, transform 0.15s',
-                        '&:hover': { boxShadow: '0 4px 16px 0 rgba(0,0,0,0.06)' },
-                      }}
-                    >
-                      {/* Status accent — the whole row's state at a glance */}
-                      <Box sx={{ width: 5, flexShrink: 0, bgcolor: si.fgColor }} />
+        <>
+          <Stack spacing={2.5}>
+            {grouped.map(node => renderGroup(node, 0))}
+          </Stack>
 
-                      <Box sx={{ flex: 1, p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
-                        {/* Date block */}
-                        <Box sx={{
-                          flexShrink: 0, width: 64, textAlign: 'center', py: 0.75, borderRadius: 2,
-                          bgcolor: '#f8fafc', border: '1px solid #eef0f3',
-                        }}>
-                          <Typography sx={{ fontSize: '10px', fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1.2 }}>
-                            {hasValidDate ? dt.toLocaleDateString('th-TH', { month: 'short' }) : '-'}
-                          </Typography>
-                          <Typography sx={{ fontSize: '20px', fontWeight: 900, color: 'text.primary', lineHeight: 1.1 }}>
-                            {hasValidDate ? dt.getDate() : '?'}
-                          </Typography>
-                          <Typography sx={{ fontSize: '10.5px', fontWeight: 700, color: 'text.secondary' }}>
-                            {hasValidDate ? dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </Typography>
-                        </Box>
-
-                        {/* Child + parent */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
-                          <Avatar sx={{ width: 38, height: 38, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)', fontWeight: 800, fontSize: '15px' }}>
-                            {(b.child_nickname || b.child_name || '?').charAt(0)}
-                          </Avatar>
-                          <Box sx={{ minWidth: 0 }}>
-                            <Stack direction="row" spacing={0.75} alignItems="center">
-                              <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                                {b.child_nickname || b.child_name || '-'}
-                              </Typography>
-                              {b.child_birth_date && (
-                                <Chip
-                                  icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                                  label={calculateAge(b.child_birth_date)}
-                                  size="small"
-                                  sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                                />
-                              )}
-                            </Stack>
-                            {b.parent_name && (
-                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600 }}>
-                                <PhoneIcon sx={{ fontSize: 11 }} />
-                                {b.parent_name}{b.parent_phone ? ` · ${b.parent_phone}` : ''}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Box>
-
-                        {/* Class + branch */}
-                        <Box sx={{ minWidth: 160, flex: '2 1 220px' }}>
-                          <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary' }} noWrap>
-                            {b.course_name || '-'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                            #{b.id} · {b.branch_name || '-'}
-                          </Typography>
-                        </Box>
-
-                        {/* Status */}
-                        <Chip
-                          label={si.label}
-                          size="small"
-                          sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26, flexShrink: 0 }}
-                        />
-
-                        {/* One manage button instead of 2-3 competing ones */}
-                        <IconButton
-                          size="small"
-                          onClick={(e) => setManageMenu({ anchor: e.currentTarget, booking: b })}
-                          sx={{ ml: 'auto', flexShrink: 0 }}
-                        >
-                          <MoreVertIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    </Paper>
-                  );
-                })}
+          {/* Pagination — only meaningful against the flat, ungrouped list;
+              grouping shows every matching row across all groups instead
+              (see the note below), so the two features don't compose. */}
+          {groupByFields.length === 0 ? (
+            <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mt: 2.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                แสดง {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, sorted.length)} จาก {sorted.length} รายการ
+              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <FormControl size="small" sx={{ minWidth: 110 }}>
+                  <Select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} sx={{ fontWeight: 700, borderRadius: 2 }}>
+                    {[10, 25, 50, 100].map(n => <MenuItem key={n} value={n} sx={{ fontWeight: 700 }}>{n} / หน้า</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <Pagination count={pageCount} page={page} onChange={(_, p) => setPage(p)} color="primary" shape="rounded" size="small" />
               </Stack>
-            </Box>
-          ))}
-        </Stack>
+            </Stack>
+          ) : (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, fontWeight: 600 }}>
+              แสดงทั้งหมด {sorted.length} รายการ (การแบ่งหน้าใช้ไม่ได้ขณะจัดกลุ่ม)
+            </Typography>
+          )}
+        </>
       )}
 
       {/* Manage menu — replaces the old row of 2-3 separate buttons */}
       <Menu anchorEl={manageMenu?.anchor} open={!!manageMenu} onClose={closeManageMenu} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+        <MenuItem onClick={() => { if (manageMenu) setDetailBooking(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
+          <InfoIcon fontSize="small" color="action" />
+          ดูรายละเอียด
+        </MenuItem>
+        <MenuItem
+          onClick={() => { const c = manageMenu ? courseMap.get(manageMenu.booking.course_id) : undefined; if (c) setClassDetailCourse(c); closeManageMenu(); }}
+          disabled={!manageMenu || !courseMap.get(manageMenu.booking.course_id)}
+          sx={{ gap: 1.25, fontWeight: 600 }}
+        >
+          <CourseIcon fontSize="small" color="action" />
+          ดูรายละเอียดคลาส
+        </MenuItem>
+        <Divider />
         {manageMenu && ['completed', 'awaiting_report'].includes(manageMenu.booking.status) && (
           <MenuItem onClick={() => { onReport(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
             <ReportIcon fontSize="small" color={manageMenu.booking.status === 'awaiting_report' ? 'warning' : 'success'} />
@@ -685,18 +995,113 @@ const ListView = ({ bookings, onReport, onCancel, onEdit }: {
           </MenuItem>
         )}
       </Menu>
+
+      <BookingDetailDialog
+        booking={detailBooking}
+        course={detailBooking ? courseMap.get(detailBooking.course_id) : undefined}
+        onClose={() => setDetailBooking(null)}
+        onViewCourse={() => {
+          const c = detailBooking ? courseMap.get(detailBooking.course_id) : undefined;
+          if (c) setClassDetailCourse(c);
+        }}
+      />
+      <ClassDetailDialog course={classDetailCourse} onClose={() => setClassDetailCourse(null)} />
     </Box>
+  );
+};
+
+// ─── Course Detail Panel ─────────────────────────────────────────────────────
+// Shared between AddBookingDialog's course picker and the List view's "ดู
+// รายละเอียดคลาส" action, so both surfaces show the exact same rich course
+// card (thumbnail, code/category chips, duration/age, bilingual description).
+
+const CourseDetailPanel = ({ course }: { course: Course }) => {
+  const [descLang, setDescLang] = useState<'th' | 'en'>('th');
+  const desc = descLang === 'en' ? (course.description_en || course.description) : (course.description || course.description_en);
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+      {/* Thumbnail + meta */}
+      <Box sx={{ display: 'flex', gap: 1.5, p: 1.5 }}>
+        {course.thumbnail_url ? (
+          <Box
+            component="img"
+            src={course.thumbnail_url}
+            alt={course.name}
+            sx={{ width: 80, height: 80, borderRadius: 1.5, objectFit: 'cover', flexShrink: 0 }}
+          />
+        ) : (
+          <Box sx={{
+            width: 80, height: 80, borderRadius: 1.5, flexShrink: 0,
+            bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 900 }}>
+              {course.name.charAt(0)}
+            </Typography>
+          </Box>
+        )}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.25 }}>{course.name}</Typography>
+          {course.name_en && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{course.name_en}</Typography>
+          )}
+          <Stack direction="row" spacing={0.75} flexWrap="wrap">
+            {course.code && (
+              <Chip label={course.code} size="small" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
+            )}
+            {course.category_name && (
+              <Chip label={course.category_name} size="small" color="primary" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
+            )}
+          </Stack>
+          <Stack direction="row" spacing={2} mt={0.75}>
+            {course.duration && (
+              <Typography variant="caption" color="text.secondary">
+                ⏱ {formatDuration(course.duration)}
+              </Typography>
+            )}
+            {(course.age_min != null || course.age_max != null) && (
+              <Typography variant="caption" color="text.secondary">
+                👶 {course.age_min ?? '?'}–{course.age_max ?? '?'} ปี
+              </Typography>
+            )}
+          </Stack>
+        </Box>
+      </Box>
+      {/* Description */}
+      {desc && (
+        <>
+          <Divider />
+          <Box sx={{ px: 1.5, pt: 1, pb: 1.5 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.75}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>รายละเอียด</Typography>
+              <ToggleButtonGroup
+                value={descLang}
+                exclusive
+                onChange={(_, v) => v && setDescLang(v)}
+                size="small"
+              >
+                <ToggleButton value="th" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ไทย</ToggleButton>
+                <ToggleButton value="en" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ENG</ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.6 }}>
+              {desc}
+            </Typography>
+          </Box>
+        </>
+      )}
+    </Paper>
   );
 };
 
 // ─── Add Booking Dialog ──────────────────────────────────────────────────────
 
-const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
+const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, courses }: {
   open: boolean;
   onClose: () => void;
   branchId: number | string;
   branchName: string;
   onSuccess: () => void;
+  courses: Course[];
 }) => {
   const [customerType, setCustomerType] = useState<'member' | 'guest'>('member');
   const [phone, setPhone] = useState('');
@@ -706,21 +1111,12 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
   const [selectedChildId, setSelectedChildId] = useState('');
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
-  const [courses, setCourses] = useState<Course[]>([]);
   const [courseId, setCourseId] = useState('');
   const [bookingDate, setBookingDate] = useState(toISODate(new Date()));
   const [bookingTime, setBookingTime] = useState('09:00');
   const [paymentStatus, setPaymentStatus] = useState<'pending' | 'confirmed_paid'>('confirmed_paid');
-  const [descLang, setDescLang] = useState<'th' | 'en'>('th');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    axios.get(`${API_BASE}/courses`).then(res => {
-      if (res.data.success) setCourses(res.data.courses ?? []);
-    }).catch(() => {});
-  }, [open]);
 
   const reset = () => {
     setCustomerType('member');
@@ -734,7 +1130,6 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
     setBookingDate(toISODate(new Date()));
     setBookingTime('09:00');
     setPaymentStatus('confirmed_paid');
-    setDescLang('th');
     setError('');
   };
 
@@ -898,7 +1293,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
             <InputLabel>เลือกคลาส *</InputLabel>
             <Select
               value={courseId}
-              onChange={e => { setCourseId(e.target.value); setDescLang('th'); }}
+              onChange={e => setCourseId(e.target.value)}
               label="เลือกคลาส *"
             >
               {courses.map(c => (
@@ -917,81 +1312,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
           {/* Course detail panel */}
           {courseId && (() => {
             const c = courses.find(x => String(x.id) === courseId);
-            if (!c) return null;
-            const desc = descLang === 'en' ? (c.description_en || c.description) : (c.description || c.description_en);
-            return (
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-                {/* Thumbnail + meta */}
-                <Box sx={{ display: 'flex', gap: 1.5, p: 1.5 }}>
-                  {c.thumbnail_url ? (
-                    <Box
-                      component="img"
-                      src={c.thumbnail_url}
-                      alt={c.name}
-                      sx={{ width: 80, height: 80, borderRadius: 1.5, objectFit: 'cover', flexShrink: 0 }}
-                    />
-                  ) : (
-                    <Box sx={{
-                      width: 80, height: 80, borderRadius: 1.5, flexShrink: 0,
-                      bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 900 }}>
-                        {c.name.charAt(0)}
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.25 }}>{c.name}</Typography>
-                    {c.name_en && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{c.name_en}</Typography>
-                    )}
-                    <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                      {c.code && (
-                        <Chip label={c.code} size="small" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
-                      )}
-                      {c.category_name && (
-                        <Chip label={c.category_name} size="small" color="primary" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
-                      )}
-                    </Stack>
-                    <Stack direction="row" spacing={2} mt={0.75}>
-                      {c.duration && (
-                        <Typography variant="caption" color="text.secondary">
-                          ⏱ {formatDuration(c.duration)}
-                        </Typography>
-                      )}
-                      {(c.age_min != null || c.age_max != null) && (
-                        <Typography variant="caption" color="text.secondary">
-                          👶 {c.age_min ?? '?'}–{c.age_max ?? '?'} ปี
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Box>
-                </Box>
-                {/* Description */}
-                {desc && (
-                  <>
-                    <Divider />
-                    <Box sx={{ px: 1.5, pt: 1, pb: 1.5 }}>
-                      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.75}>
-                        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>รายละเอียด</Typography>
-                        <ToggleButtonGroup
-                          value={descLang}
-                          exclusive
-                          onChange={(_, v) => v && setDescLang(v)}
-                          size="small"
-                        >
-                          <ToggleButton value="th" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ไทย</ToggleButton>
-                          <ToggleButton value="en" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ENG</ToggleButton>
-                        </ToggleButtonGroup>
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.6 }}>
-                        {desc}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-              </Paper>
-            );
+            return c ? <CourseDetailPanel key={c.id} course={c} /> : null;
           })()}
 
           {/* Date + Time */}
@@ -1039,6 +1360,7 @@ const BookingManagement = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [reportBooking, setReportBooking] = useState<Booking | null>(null);
   const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
 
   const userJson = localStorage.getItem('crm_user');
   const currentUser = userJson ? JSON.parse(userJson) : null;
@@ -1055,6 +1377,12 @@ const BookingManagement = () => {
   useEffect(() => {
     axios.get(`${API_BASE}/branches`).then(res => {
       if (res.data.success) setBranches(res.data.branches ?? []);
+    }).catch(() => {});
+    // Fetched once here (not just when AddBookingDialog opens) so the List
+    // view's "ดูรายละเอียดคลาส" action has full course info (description,
+    // thumbnail, age range) ready without an extra round trip per click.
+    axios.get(`${API_BASE}/courses`).then(res => {
+      if (res.data.success) setCourses(res.data.courses ?? []);
     }).catch(() => {});
   }, []);
 
@@ -1442,7 +1770,7 @@ const BookingManagement = () => {
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={setReportBooking} onCancel={handleCancel} onEdit={openForceStatus} />
+        <ListView bookings={filteredBookings} onReport={setReportBooking} onCancel={handleCancel} onEdit={openForceStatus} courses={courses} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
       )}
@@ -1453,6 +1781,7 @@ const BookingManagement = () => {
         branchId={selectedBranchId !== 'all' ? selectedBranchId : ownBranchId}
         branchName={selectedBranchId !== 'all' ? branchName : ownBranchName}
         onSuccess={() => { setAddOpen(false); fetchBookings(); }}
+        courses={courses}
       />
 
       <ConfirmDialog
