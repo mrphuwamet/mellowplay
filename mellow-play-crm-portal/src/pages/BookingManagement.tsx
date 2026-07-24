@@ -79,7 +79,11 @@ interface Course {
   duration: string;
   thumbnail_url: string;
   category_name: string;
+  calendar_id?: number;
 }
+
+interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
+interface UpcomingSlotDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
 interface Child {
   id: number;
@@ -1125,6 +1129,36 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // Round/slot picker — only for courses bound to a Calendar (see the
+  // useEffect below). Courses with no calendar_id (e.g. extra classes,
+  // one-off events) fall back to the raw date+time fields further down,
+  // same as before this was added.
+  const [upcomingDates, setUpcomingDates] = useState<UpcomingSlotDate[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [selectedDateObj, setSelectedDateObj] = useState<UpcomingSlotDate | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+
+  const selectedCourse = courses.find(c => String(c.id) === courseId);
+
+  useEffect(() => {
+    setUpcomingDates([]);
+    setSelectedDateObj(null);
+    setSelectedSlot(null);
+    if (!selectedCourse?.calendar_id) return;
+    setSlotsLoading(true);
+    axios.get(`${API_BASE}/calendar-slots/upcoming`, {
+      params: { calendarId: selectedCourse.calendar_id, branchId },
+    }).then(res => {
+      if (res.data.success) {
+        const formatted: UpcomingSlotDate[] = res.data.upcoming.map((ud: any) => ({
+          ...ud, isFull: ud.slots.every((s: TimeSlot) => s.available === 0),
+        }));
+        setUpcomingDates(formatted);
+        setSelectedDateObj(formatted.find((d: UpcomingSlotDate) => !d.isFull) || formatted[0] || null);
+      }
+    }).catch(() => {}).finally(() => setSlotsLoading(false));
+  }, [selectedCourse?.calendar_id, branchId]);
+
   const reset = () => {
     setCustomerType('member');
     setPhone('');
@@ -1137,6 +1171,9 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
     setBookingDate(toISODate(new Date()));
     setBookingTime('09:00');
     setPaymentStatus('confirmed_paid');
+    setUpcomingDates([]);
+    setSelectedDateObj(null);
+    setSelectedSlot(null);
     setError('');
   };
 
@@ -1162,9 +1199,15 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
     }
   };
 
+  const usesSlotPicker = !!selectedCourse?.calendar_id;
+
   const handleSubmit = async () => {
     if (!courseId) { setError('กรุณาเลือกคลาส'); return; }
-    if (!bookingDate || !bookingTime) { setError('กรุณาระบุวันและเวลา'); return; }
+    if (usesSlotPicker) {
+      if (!selectedDateObj || !selectedSlot) { setError('กรุณาเลือกวันและรอบเวลา'); return; }
+    } else if (!bookingDate || !bookingTime) {
+      setError('กรุณาระบุวันและเวลา'); return;
+    }
     if (customerType === 'member' && !selectedChildId) { setError('กรุณาเลือกเด็กจากผลการค้นหา'); return; }
 
     setSubmitting(true);
@@ -1175,11 +1218,38 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
         childId: customerType === 'member' ? parseInt(selectedChildId) : 0,
         courseId: parseInt(courseId),
         branchId: parseInt(String(branchId)),
-        scheduledAt: `${bookingDate} ${bookingTime}:00`,
+        scheduledAt: usesSlotPicker
+          ? `${selectedDateObj!.date} ${selectedSlot!.startTime}:00`
+          : `${bookingDate} ${bookingTime}:00`,
+        ...(usesSlotPicker && {
+          calendarId: selectedCourse!.calendar_id,
+          slotDate: selectedDateObj!.date,
+          slotStartTime: selectedSlot!.startTime,
+        }),
         status: paymentStatus,
         ...(customerType === 'guest' && { guestName: guestName.trim(), guestPhone: guestPhone.trim() }),
       });
       if (res.data.success) { reset(); onSuccess(); }
+      else if (res.data.error_code === 'SLOT_FULL') {
+        // Someone else took the last seat between picking and submitting —
+        // clear the stale selection and refetch so the picker reflects
+        // reality instead of letting staff retry the same full slot.
+        setSelectedSlot(null);
+        setError(res.data.message ?? 'รอบเวลานี้เต็มแล้ว กรุณาเลือกรอบเวลาอื่น');
+        if (selectedCourse?.calendar_id) {
+          setSlotsLoading(true);
+          axios.get(`${API_BASE}/calendar-slots/upcoming`, { params: { calendarId: selectedCourse.calendar_id, branchId } })
+            .then(r => {
+              if (r.data.success) {
+                const formatted: UpcomingSlotDate[] = r.data.upcoming.map((ud: any) => ({
+                  ...ud, isFull: ud.slots.every((s: TimeSlot) => s.available === 0),
+                }));
+                setUpcomingDates(formatted);
+                setSelectedDateObj(formatted.find((d: UpcomingSlotDate) => d.date === selectedDateObj?.date) || formatted[0] || null);
+              }
+            }).catch(() => {}).finally(() => setSlotsLoading(false));
+        }
+      }
       else setError(res.data.message ?? 'เกิดข้อผิดพลาด');
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด');
@@ -1322,19 +1392,82 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
             return c ? <CourseDetailPanel key={c.id} course={c} /> : null;
           })()}
 
-          {/* Date + Time */}
-          <Stack direction="row" spacing={2}>
-            <TextField
-              label="วันที่ *" type="date" size="small" sx={{ flex: 1 }}
-              value={bookingDate} onChange={e => setBookingDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-            <TextField
-              label="เวลา *" type="time" size="small" sx={{ flex: 1 }}
-              value={bookingTime} onChange={e => setBookingTime(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Stack>
+          {/* Round/slot picker — courses bound to a Calendar get a real
+              date+round picker with live capacity, matching what the
+              consumer app already does; courses with no calendar (extra
+              classes, one-off events) fall back to free-typed date+time. */}
+          {courseId && usesSlotPicker ? (
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                เลือกวันและรอบเวลา *
+              </Typography>
+              {slotsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
+              ) : upcomingDates.length === 0 ? (
+                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้จองในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
+              ) : (
+                <>
+                  <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
+                    {upcomingDates.map(ud => {
+                      const d = new Date(`${ud.date}T00:00:00`);
+                      const isSelected = selectedDateObj?.date === ud.date;
+                      return (
+                        <Box
+                          key={ud.date}
+                          onClick={() => { if (!ud.isFull) { setSelectedDateObj(ud); setSelectedSlot(null); } }}
+                          sx={{
+                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: ud.isFull ? 'not-allowed' : 'pointer',
+                            bgcolor: isSelected ? 'primary.main' : '#fafafa',
+                            color: isSelected ? 'white' : ud.isFull ? 'text.disabled' : 'text.primary',
+                            border: '1px solid', borderColor: isSelected ? 'primary.main' : '#eee',
+                            opacity: ud.isFull ? 0.5 : 1,
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', fontSize: '10px' }}>{THAI_DAYS[d.getDay()]}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 900 }}>{d.getDate()}</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '9px', display: 'block' }}>{THAI_MONTHS_SHORT[d.getMonth()]}</Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+
+                  {selectedDateObj && (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
+                      {selectedDateObj.slots.map(slot => {
+                        const isSelected = selectedSlot?.startTime === slot.startTime;
+                        const isFull = slot.available === 0;
+                        return (
+                          <Chip
+                            key={slot.startTime}
+                            label={`${slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
+                            clickable={!isFull}
+                            disabled={isFull}
+                            color={isSelected ? 'primary' : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'}
+                            onClick={() => setSelectedSlot(slot)}
+                            sx={{ fontWeight: 700 }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+          ) : (
+            <Stack direction="row" spacing={2}>
+              <TextField
+                label="วันที่ *" type="date" size="small" sx={{ flex: 1 }}
+                value={bookingDate} onChange={e => setBookingDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="เวลา *" type="time" size="small" sx={{ flex: 1 }}
+                value={bookingTime} onChange={e => setBookingTime(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Stack>
+          )}
 
           {/* Branch (display only) */}
           <TextField
