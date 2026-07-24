@@ -164,7 +164,7 @@ export class AdminRepository {
     let query = `
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
-        b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes,
+        b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.nickname as child_nickname,
         hp.birth_date as child_birth_date,
@@ -550,7 +550,10 @@ export class AdminRepository {
     teacherGuideUrl?: string;
     isRecommended?: boolean;
     isExtraclass?: boolean;
+    isEvent?: boolean;
+    isService?: boolean;
     allowRepeat?: boolean;
+    limitOnePerParent?: boolean;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -580,7 +583,7 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, allow_repeat,
+        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, limit_one_per_parent,
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
         sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
       ) VALUES (
@@ -590,7 +593,7 @@ export class AdminRepository {
         1, ?, ?, ?, ?,
         1, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?
       )
@@ -606,7 +609,10 @@ export class AdminRepository {
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,
+      data.isEvent ? 1 : 0,
+      data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
+      data.limitOnePerParent ? 1 : 0,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
@@ -641,7 +647,10 @@ export class AdminRepository {
     teacherGuideUrl?: string;
     isRecommended?: boolean;
     isExtraclass?: boolean;
+    isEvent?: boolean;
+    isService?: boolean;
     allowRepeat?: boolean;
+    limitOnePerParent?: boolean;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -672,7 +681,7 @@ export class AdminRepository {
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
         thumbnail_url = ?, detail_poster_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
-        is_recommended = ?, is_extraclass = ?, allow_repeat = ?,
+        is_recommended = ?, is_extraclass = ?, is_event = ?, is_service = ?, allow_repeat = ?, limit_one_per_parent = ?,
         short_description_en = ?, location = ?, location_link = ?,
         stamps_on_completion = ?, stamp_expiry_months = ?,
         sales_commission_type = ?, sales_commission_value = ?,
@@ -690,7 +699,10 @@ export class AdminRepository {
       data.videoUrl ?? null, data.teacherGuideUrl ?? null,
       data.isRecommended ? 1 : 0,
       data.isExtraclass ? 1 : 0,
+      data.isEvent ? 1 : 0,
+      data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
+      data.limitOnePerParent ? 1 : 0,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
@@ -706,17 +718,17 @@ export class AdminRepository {
   }
 
   // --- Category CRUD ---
-  async createCategory(name: string, description: string = '', color?: string, imageUrl?: string, imagePosition?: string): Promise<number> {
+  async createCategory(name: string, description: string = '', color?: string, imageUrl?: string, imagePosition?: string, type?: string): Promise<number> {
     const result = await this.db.prepare(
-      'INSERT INTO Course_Categories (name, description, color, image_url, image_position) VALUES (?, ?, ?, ?, ?)'
-    ).bind(name, description || '', color || null, imageUrl || null, imagePosition || '50% 50%').run();
+      'INSERT INTO Course_Categories (name, description, color, image_url, image_position, type) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(name, description || '', color || null, imageUrl || null, imagePosition || '50% 50%', type || 'class').run();
     return result.meta.last_row_id;
   }
 
-  async updateCategory(id: number, name: string, description: string = '', color?: string, imageUrl?: string, imagePosition?: string): Promise<void> {
+  async updateCategory(id: number, name: string, description: string = '', color?: string, imageUrl?: string, imagePosition?: string, type?: string): Promise<void> {
     await this.db.prepare(
-      'UPDATE Course_Categories SET name = ?, description = ?, color = ?, image_url = ?, image_position = ? WHERE id = ?'
-    ).bind(name, description || '', color || null, imageUrl || null, imagePosition || '50% 50%', id).run();
+      'UPDATE Course_Categories SET name = ?, description = ?, color = ?, image_url = ?, image_position = ?, type = ? WHERE id = ?'
+    ).bind(name, description || '', color || null, imageUrl || null, imagePosition || '50% 50%', type || 'class', id).run();
   }
 
   async deleteCategory(id: number): Promise<void> {

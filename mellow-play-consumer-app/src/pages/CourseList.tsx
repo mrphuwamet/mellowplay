@@ -6,9 +6,14 @@ import logo from '../assets/ui/logo.svg';
 import { formatCalendarSummary } from '../utils/calendarUtils';
 import { getCourseView } from '../utils/courseImage';
 
-const CourseList = () => {
+// Mounted two ways: /courses/:type (type comes from the URL, e.g. "extra"/
+// "regular") and /event (a dedicated top-level route — events aren't a class
+// sub-type from the user's perspective, so they get their own path instead
+// of living under /courses/*; the `type` prop hardcodes it here).
+const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
   const navigate = useNavigate();
-  const { type } = useParams<{ type: string }>();
+  const { type: typeParam } = useParams<{ type: string }>();
+  const type = typeProp ?? typeParam;
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,7 +23,9 @@ const CourseList = () => {
          if (res.data.success) {
             let all = res.data.courses || [];
             if (type === 'extra') all = all.filter((c: any) => c.is_extraclass);
-            else if (type === 'regular') all = all.filter((c: any) => !c.is_extraclass);
+            else if (type === 'regular') all = all.filter((c: any) => !c.is_extraclass && !c.is_event && !c.is_service);
+            else if (type === 'event') all = all.filter((c: any) => c.is_event);
+            else if (type === 'service') all = all.filter((c: any) => c.is_service);
             setCourses(all);
          }
       })
@@ -26,7 +33,7 @@ const CourseList = () => {
       .finally(() => setLoading(false));
   }, [type]);
 
-  const title = type === 'extra' ? 'คลาสกิจกรรมพิเศษ' : type === 'regular' ? 'คลาสเรียนทั่วไป' : 'คลาสทั้งหมด';
+  const title = type === 'extra' ? 'คลาสกิจกรรมพิเศษ' : type === 'regular' ? 'คลาสเรียนทั่วไป' : type === 'event' ? 'กิจกรรม / Events' : type === 'service' ? 'บริการ / Services' : 'คลาสทั้งหมด';
 
   return (
     <div className="mellow-page bg-[#fbfaf7] min-h-screen">
@@ -67,7 +74,7 @@ const CourseList = () => {
                          <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
                       </div>
                     )}
-                    <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase shadow-sm ${course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                    <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase shadow-sm ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
                       {course.category_name}
                     </div>
                  </div>

@@ -95,8 +95,9 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   // '/' still renders Home/Feed), then the QuickAccess shortcuts not
   // already covered further down (Rewards/Journey/Album would just be
   // duplicates there), then the rest of the main tabs.
-  // Booking is rendered separately below (a Book Class / Book Service
-  // sub-menu at lg:, a plain link at md:) instead of living in this array.
+  // Booking is rendered separately below (a Book Class / Book Service /
+  // Book Event sub-menu at lg:, a plain link at md:) instead of living in
+  // this array.
   const beforeBookingItems: { to: string; Icon: typeof HomeIcon; label: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
     { to: '/explore', Icon: Compass, label: t.nav.explore, color: 'text-mellow-yellow', guarded: false },
     { to: '/', Icon: HomeIcon, label: t.nav.home, color: 'text-mellow-red', guarded: false },
@@ -185,7 +186,8 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const mobileMenuTiles: (typeof beforeBookingItems[number])[] = [
     ...beforeBookingItems,
     { to: '/booking', Icon: Calendar, label: lang === 'en' ? 'Book Class' : 'จองคลาส', color: 'text-orange-500', guarded: false },
-    { to: '/booking?category=service', Icon: Calendar, label: lang === 'en' ? 'Book Service' : 'จองบริการ', color: 'text-orange-500', guarded: false },
+    { to: '/booking?type=service', Icon: Calendar, label: lang === 'en' ? 'Book Service' : 'จองบริการ', color: 'text-orange-500', guarded: false },
+    { to: '/booking?type=event', Icon: Calendar, label: lang === 'en' ? 'Book Event' : 'จองกิจกรรม', color: 'text-orange-500', guarded: false },
     ...afterBookingItems,
   ];
 
@@ -385,10 +387,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         {beforeBookingItems.map(item => renderSidebarLink(item))}
 
         {/* Booking — plain icon link at md: (icon-only rail has no room for
-            a submenu); becomes an expandable Book Class / Book Service
-            sub-menu at lg: where labels fit. Both entries lead to the same
-            Booking flow (Book Service just pre-selects a "service" category
-            filter if one exists) — no separate booking system behind it. */}
+            a submenu); becomes an expandable Book Class / Book Service /
+            Book Event sub-menu at lg: where labels fit. All three lead to
+            the exact same Booking wizard (Booking.tsx) — Book Service and
+            Book Event just pass a `type` param that switches which course
+            pool Step 1 browses (is_service / is_event, see bookingType
+            there) — same screens throughout, but each stays a clearly
+            separate entry point/system. */}
         <Link
           to="/booking"
           className={`lg:hidden flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-colors ${
@@ -421,11 +426,18 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 {lang === 'en' ? 'Book Class' : 'จองคลาส'}
               </Link>
               <Link
-                to="/booking?category=service"
+                to="/booking?type=service"
                 onClick={() => setIsBookingMenuOpen(false)}
                 className="px-3 py-2 rounded-xl text-[13px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
                 {lang === 'en' ? 'Book Service' : 'จองบริการ'}
+              </Link>
+              <Link
+                to="/booking?type=event"
+                onClick={() => setIsBookingMenuOpen(false)}
+                className="px-3 py-2 rounded-xl text-[13px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
+              >
+                {lang === 'en' ? 'Book Event' : 'จองกิจกรรม'}
               </Link>
             </div>
           )}

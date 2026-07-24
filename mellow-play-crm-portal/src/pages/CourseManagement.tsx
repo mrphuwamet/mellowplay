@@ -104,7 +104,10 @@ interface Course {
   teacher_guide_url?: string;
   is_recommended?: boolean;
   is_extraclass?: boolean;
+  is_event?: boolean;
+  is_service?: boolean;
   allow_repeat?: boolean;
+  limit_one_per_parent?: boolean;
   stamps_on_completion?: number;
   stamp_expiry_months?: number;
   // Legacy fields — used for migration only
@@ -124,6 +127,7 @@ interface Category {
   color?: string;
   description?: string;
   image_url?: string;
+  type?: 'class' | 'event' | 'service';
 }
 
 const AGE_PRESETS = [
@@ -153,6 +157,20 @@ const formatAgeRange = (min?: number, max?: number) => {
   if (min == null || max == null) return null;
   return `${min} – ${max} ปี`;
 };
+
+// Course "type" — same four-way split the consumer app uses (regular class
+// / extra class / event / service), surfaced here so staff can tell them
+// apart and filter by it directly in the manage table instead of opening
+// each row. Service used to just be a category-name regex match riding on
+// the regular class pool — now a real flag like the other three.
+const TYPE_META: Record<'event' | 'extra' | 'service' | 'regular', { key: string; label: string; color: string }> = {
+  event:   { key: 'event',   label: 'กิจกรรม (Event)',   color: '#7452d6' },
+  extra:   { key: 'extra',   label: 'คลาสพิเศษ',          color: '#f7aa16' },
+  service: { key: 'service', label: 'บริการ (Service)',   color: '#2273d9' },
+  regular: { key: 'regular', label: 'คลาสทั่วไป',          color: '#21a45b' },
+};
+const getCourseType = (course: { is_event?: boolean; is_extraclass?: boolean; is_service?: boolean }): keyof typeof TYPE_META =>
+  course.is_event ? 'event' : course.is_extraclass ? 'extra' : course.is_service ? 'service' : 'regular';
 
 // Bilingual tag input with Modal
 const SkillTagInput = ({ label, values, onChange, color = 'primary', onOpenPicker, libraryItems }: {
@@ -215,7 +233,13 @@ const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string })
   </Box>
 );
 
-const CourseManagement = () => {
+// courseType splits this same component into two distinct CRM pages sharing
+// one implementation — "class" (/crm/courses) manages everything except
+// Events, "event" (/crm/events) shows only Events. Both are still just rows
+// in the same Courses table (see is_event) — this is a CRM-presentation
+// split only, not a database split, so all the booking/capacity/payment
+// machinery keyed on Courses/Bookings stays untouched.
+const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'event' }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pageTab, setPageTab] = useState(0);
@@ -300,12 +324,15 @@ const CourseManagement = () => {
     teacherCommissionValue: '',
     isRecommended: false,
     isExtraclass: false,
+    isEvent: false,
+    isService: false,
     allowRepeat: true,
+    limitOnePerParent: false,
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
   });
 
-  const [categoryFormData, setCategoryFormData] = useState({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
+  const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [categorySubmitting, setCategorySubmitting] = useState(false);
   const [categoryImagePreview, setCategoryImagePreview] = useState('');
@@ -325,7 +352,7 @@ const CourseManagement = () => {
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [filters, setFilters] = useState({ search: '', category: '' });
+  const [filters, setFilters] = useState({ search: '', category: '', type: '' });
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -569,15 +596,20 @@ const CourseManagement = () => {
 
   const filteredCourses = React.useMemo(() => {
     return courses.filter(course => {
+      // Events live entirely on their own page now (/crm/events) — the
+      // class page never shows them, the event page shows only them.
+      if (courseType === 'event' ? !course.is_event : !!course.is_event) return false;
+
       const q = filters.search.toLowerCase();
       const matchesSearch = !q ||
         course.name.toLowerCase().includes(q) ||
         (course.code && course.code.toLowerCase().includes(q)) ||
         course.id.toString().includes(q);
       const matchesCat = !filters.category || course.category_id === parseInt(filters.category);
-      return matchesSearch && matchesCat;
+      const matchesType = courseType === 'event' || !filters.type || getCourseType(course) === filters.type;
+      return matchesSearch && matchesCat && matchesType;
     });
-  }, [courses, filters]);
+  }, [courses, filters, courseType]);
 
   const handleEditOpen = async (course: Course | null = null) => {
     setSaveError(null);
@@ -648,22 +680,32 @@ const CourseManagement = () => {
         teacherCommissionValue: (course as any).teacher_commission_value != null ? String((course as any).teacher_commission_value) : '',
         isRecommended: !!course.is_recommended,
         isExtraclass: !!course.is_extraclass,
+        isEvent: !!course.is_event,
+        isService: !!course.is_service,
         allowRepeat: course.allow_repeat === undefined || course.allow_repeat === null ? true : !!course.allow_repeat,
+        limitOnePerParent: !!course.limit_one_per_parent,
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
       });
     } else {
       setEditCourse(null);
+      const defaultScope = courseType === 'event' ? 'event' : 'class';
       setFormData({
         id: 0, code: '', name: '', nameEn: '', description: '', descriptionEn: '', shortDescription: '', shortDescriptionEn: '', location: '', locationLink: '', branchIds: [],
-        categoryId: categories[0]?.id || 0, calendarId: 0, ageMin: 3, ageMax: 9,
+        categoryId: categories.find(c => (c.type || 'class') === defaultScope)?.id || 0, calendarId: 0, ageMin: 3, ageMax: 9,
         duration: '01:00', originalPrice: '', premiumPrice: '', couponRequirements: [],
         skills: [] as { th: string; en: string }[], metrics: [] as { th: string; en: string }[], thumbnailUrl: '', detailPosterUrl: '', images: [], videoUrl: '', teacherGuideUrl: '',
         salesCommissionType: 'percent', salesCommissionValue: '',
         teacherCommissionType: 'percent', teacherCommissionValue: '',
         isRecommended: false,
         isExtraclass: false,
-        allowRepeat: true,
+        isEvent: courseType === 'event',
+        isService: false,
+        // Events require 1 booking per child (no duplicates) — default
+        // "allow repeat" off for new Events; staff can flip it back on
+        // manually afterward if a specific event genuinely needs it.
+        allowRepeat: courseType !== 'event',
+        limitOnePerParent: false,
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
       });
@@ -734,7 +776,10 @@ const CourseManagement = () => {
         teacherCommissionValue: formData.teacherCommissionValue ? parseFloat(formData.teacherCommissionValue) : null,
         isRecommended:          formData.isRecommended,
         isExtraclass:           formData.isExtraclass,
+        isEvent:                formData.isEvent,
+        isService:              formData.isService,
         allowRepeat:            formData.allowRepeat,
+        limitOnePerParent:      formData.limitOnePerParent,
         stampsOnCompletion:     formData.stampsOnCompletion,
         stampExpiryMonths:      formData.stampExpiryMonths,
       };
@@ -806,7 +851,7 @@ const CourseManagement = () => {
     try {
       if (editCategory) await axios.put(`${API_BASE}/categories/${editCategory.id}`, categoryFormData);
       else await axios.post(`${API_BASE}/categories`, categoryFormData);
-      setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
+      setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
       setCategoryImagePreview('');
       setCategoryImagePos({ x: 50, y: 50 });
       catImgPosRef.current = { x: 50, y: 50 };
@@ -838,6 +883,17 @@ const CourseManagement = () => {
   const durationHour = formData.duration.split(':')[0] || '01';
   const durationMinute = formData.duration.split(':')[1] || '00';
 
+  // Class/Event/Service categories are separate pools now — which one
+  // applies depends on the COURSE's own type, not the page's courseType
+  // (a Service course is still edited from the /crm/courses page, so its
+  // category list must be 'service', not 'class').
+  const categoryScope: 'class' | 'event' | 'service' = formData.isEvent ? 'event' : formData.isService ? 'service' : 'class';
+  const categoriesForCourse = categories.filter(c => (c.type || 'class') === categoryScope);
+  // The category tab/list itself is scoped by page instead — the Event
+  // page manages only Event categories; the Class page manages everything
+  // else (Class + Service) since Service doesn't have its own page yet.
+  const categoriesForPage = categories.filter(c => courseType === 'event' ? (c.type || 'class') === 'event' : (c.type || 'class') !== 'event');
+
   if (loading && !isEditing) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
 
   // ─── Edit Form ───────────────────────────────────────────────────────────────
@@ -848,7 +904,11 @@ const CourseManagement = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
           <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
           <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800 }}>{editCourse ? 'แก้ไขคลาสเรียน' : 'สร้างคลาสเรียนใหม่'}</Typography>
+            <Typography variant="h5" sx={{ fontWeight: 800 }}>
+              {courseType === 'event'
+                ? (editCourse ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่')
+                : (editCourse ? 'แก้ไขคลาสเรียน' : 'สร้างคลาสเรียนใหม่')}
+            </Typography>
             {editCourse && <Typography variant="body2" color="text.secondary">{editCourse.name}</Typography>}
           </Box>
         </Box>
@@ -869,7 +929,7 @@ const CourseManagement = () => {
                   <FormControl fullWidth>
                     <InputLabel>หมวดหมู่ *</InputLabel>
                     <Select value={formData.categoryId} label="หมวดหมู่ *" onChange={e => setFormData({ ...formData, categoryId: Number(e.target.value) })}>
-                      {categories.map(cat => <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>)}
+                      {categoriesForCourse.map(cat => <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -925,13 +985,38 @@ const CourseManagement = () => {
                       control={<Switch checked={formData.isRecommended} onChange={e => setFormData({ ...formData, isRecommended: e.target.checked })} />}
                       label="คลาสแนะนำ"
                     />
-                    <FormControlLabel
-                      control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
-                      label="คลาสพิเศษ"
-                    />
+                    {/* Type toggles are fixed by which page you're on
+                        (/crm/courses vs /crm/events) — showing them here
+                        would just let staff accidentally create a course
+                        under the wrong page's type. */}
+                    {courseType === 'class' && (
+                      <>
+                        <FormControlLabel
+                          control={<Switch checked={formData.isExtraclass} onChange={e => setFormData({ ...formData, isExtraclass: e.target.checked })} color="secondary" />}
+                          label="คลาสพิเศษ"
+                        />
+                        <FormControlLabel
+                          control={<Switch checked={formData.isService} onChange={e => {
+                            const nextScope = e.target.checked ? 'service' : 'class';
+                            // Category pools are separate per type now — the
+                            // currently-picked category may not exist in the
+                            // new scope, so fall back to the first one that does
+                            // rather than leave a dangling invalid selection.
+                            const stillValid = categories.some(c => c.id === formData.categoryId && (c.type || 'class') === nextScope);
+                            const firstInScope = categories.find(c => (c.type || 'class') === nextScope);
+                            setFormData({ ...formData, isService: e.target.checked, categoryId: stillValid ? formData.categoryId : (firstInScope?.id ?? 0) });
+                          }} color="secondary" />}
+                          label="บริการ (Service)"
+                        />
+                      </>
+                    )}
                     <FormControlLabel
                       control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
                       label="อนุญาตให้เข้าร่วมซ้ำ"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={formData.limitOnePerParent} onChange={e => setFormData({ ...formData, limitOnePerParent: e.target.checked })} color="warning" />}
+                      label="จำกัด 1 สิทธิ์ต่อผู้ปกครอง (นับรวมทุกลูกในบัญชีเดียวกัน)"
                     />
                   </Box>
                 </Grid>
@@ -1224,12 +1309,12 @@ const CourseManagement = () => {
                     <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>นาที</Typography>
                   </Box>
                 </Grid>
-                {formData.isExtraclass && (
+                {(formData.isExtraclass || formData.isEvent) && (
                   <Grid item xs={12}>
-                    <TextField label="📍 สถานที่จัดกิจกรรม (ระบุเมื่อเป็น Extra Class)" fullWidth placeholder="เช่น ลานกิจกรรมชั้น 1 Central Chidlom" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} />
+                    <TextField label="📍 สถานที่จัดกิจกรรม (ระบุเมื่อเป็น Extra Class หรือ Event)" fullWidth placeholder="เช่น ลานกิจกรรมชั้น 1 Central Chidlom" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} />
                   </Grid>
                 )}
-                {formData.isExtraclass && (
+                {(formData.isExtraclass || formData.isEvent) && (
                   <Grid item xs={12}>
                     <TextField label="🔗 ลิงก์ Google Map (สถานที่จัดกิจกรรม)" fullWidth placeholder="เช่น https://maps.app.goo.gl/..." value={formData.locationLink} onChange={e => setFormData({ ...formData, locationLink: e.target.value })} />
                   </Grid>
@@ -1390,29 +1475,34 @@ const CourseManagement = () => {
               </Grid>
             </Paper>
 
-            {/* Skills + Achievement */}
-            <Paper sx={{ p: 3, borderRadius: 3 }}>
-              <SectionLabel icon={<SkillsIcon />} title="ทักษะและตัวชี้วัด" />
-              <SkillTagInput
-                label="Skills — ทักษะที่ได้รับในคลาสนี้"
-                values={formData.skills}
-                onChange={(v) => setFormData({ ...formData, skills: v })}
-                color="primary"
-                onOpenPicker={() => setPickerState({ open: true, field: 'skills', type: 'achievement' })}
-                libraryItems={libraryItems}
-              />
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ mt: 2 }}>
+            {/* Skills + Achievement — draws from the same Skills Library
+                that's hidden entirely on the Event page, so this section
+                (a per-course pick from that library) doesn't apply there
+                either. */}
+            {courseType === 'class' && (
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <SectionLabel icon={<SkillsIcon />} title="ทักษะและตัวชี้วัด" />
                 <SkillTagInput
-                  label="Achievement — ตัวชี้วัดความสำเร็จ"
-                  values={formData.metrics}
-                  onChange={(v) => setFormData({ ...formData, metrics: v })}
-                  color="secondary"
-                  onOpenPicker={() => setPickerState({ open: true, field: 'metrics', type: 'indicator' })}
+                  label="Skills — ทักษะที่ได้รับในคลาสนี้"
+                  values={formData.skills}
+                  onChange={(v) => setFormData({ ...formData, skills: v })}
+                  color="primary"
+                  onOpenPicker={() => setPickerState({ open: true, field: 'skills', type: 'achievement' })}
                   libraryItems={libraryItems}
                 />
-              </Box>
-            </Paper>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mt: 2 }}>
+                  <SkillTagInput
+                    label="Achievement — ตัวชี้วัดความสำเร็จ"
+                    values={formData.metrics}
+                    onChange={(v) => setFormData({ ...formData, metrics: v })}
+                    color="secondary"
+                    onOpenPicker={() => setPickerState({ open: true, field: 'metrics', type: 'indicator' })}
+                    libraryItems={libraryItems}
+                  />
+                </Box>
+              </Paper>
+            )}
           </Grid>
 
           {/* Media summary + Teacher Guide boxes now live inside "ข้อมูลพื้นฐาน"
@@ -1824,17 +1914,17 @@ const CourseManagement = () => {
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>จัดการคลาสเรียน</Typography>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>{courseType === 'event' ? 'จัดการกิจกรรม (Event)' : 'จัดการคลาสเรียน'}</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           {pageTab === 0 && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleEditOpen()} sx={{ borderRadius: 3, fontWeight: 700 }}>
-              เพิ่มคลาส
+              {courseType === 'event' ? 'เพิ่มกิจกรรม' : 'เพิ่มคลาส'}
             </Button>
           )}
           {pageTab === 1 && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => {
               setEditCategory(null);
-              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%' });
+              setCategoryFormData({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType === 'event' ? 'event' : 'class' });
               setCategoryImagePreview('');
               setCategoryImagePos({ x: 50, y: 50 });
               catImgPosRef.current = { x: 50, y: 50 };
@@ -1850,10 +1940,12 @@ const CourseManagement = () => {
       {/* Page Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)}>
-          <Tab label="รายการคลาส" />
+          <Tab label={courseType === 'event' ? 'รายการกิจกรรม' : 'รายการคลาส'} />
           <Tab label="หมวดหมู่" icon={<CategoryIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
-          <Tab label="Skills Library" icon={<SkillsLibIcon sx={{ fontSize: 16 }} />} iconPosition="end" />
-          <Tab label="วัสดุ/อุปกรณ์" />
+          {/* Events don't earn skills-on-completion or reserve physical
+              materials/stock — those are Class-only concepts. */}
+          {courseType === 'class' && <Tab label="Skills Library" icon={<SkillsLibIcon sx={{ fontSize: 16 }} />} iconPosition="end" />}
+          {courseType === 'class' && <Tab label="วัสดุ/อุปกรณ์" />}
         </Tabs>
       </Box>
 
@@ -1868,10 +1960,21 @@ const CourseManagement = () => {
               <InputLabel>หมวดหมู่</InputLabel>
               <Select value={filters.category} onChange={e => setFilters({ ...filters, category: e.target.value })} label="หมวดหมู่">
                 <MenuItem value="">ทั้งหมด</MenuItem>
-                {categories.map(cat => <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>)}
+                {categoriesForPage.map(cat => <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>)}
               </Select>
             </FormControl>
           </Grid>
+          {courseType === 'class' && (
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ประเภท</InputLabel>
+                <Select value={filters.type} onChange={e => setFilters({ ...filters, type: e.target.value })} label="ประเภท">
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {Object.values(TYPE_META).map(t => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
         </Grid>
       </Paper>
 
@@ -1882,6 +1985,7 @@ const CourseManagement = () => {
               <TableCell sx={{ fontWeight: 800 }}>รูป</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>รหัสคลาส</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ชื่อคลาส</TableCell>
+              {courseType === 'class' && <TableCell sx={{ fontWeight: 800 }}>ประเภท</TableCell>}
               <TableCell sx={{ fontWeight: 800 }}>หมวดหมู่</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ช่วงอายุ</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ราคาปกติ</TableCell>
@@ -1893,6 +1997,7 @@ const CourseManagement = () => {
             {filteredCourses.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(course => {
               const ageRange = formatAgeRange(course.age_min, course.age_max);
               const catColor = categories.find(c => c.id === course.category_id)?.color || '#7452d6';
+              const typeMeta = TYPE_META[getCourseType(course)];
               return (
                 <TableRow key={course.id} hover>
                   <TableCell sx={{ width: 56 }}>
@@ -1906,6 +2011,11 @@ const CourseManagement = () => {
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{course.code || `#${course.id}`}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{course.name}</TableCell>
+                  {courseType === 'class' && (
+                    <TableCell>
+                      <Chip label={typeMeta.label} size="small" sx={{ bgcolor: `${typeMeta.color}1a`, color: typeMeta.color, fontWeight: 700 }} />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Chip label={course.category_name} size="small" sx={{ bgcolor: catColor, color: 'white', fontWeight: 700 }} />
                   </TableCell>
@@ -1931,8 +2041,8 @@ const CourseManagement = () => {
             })}
             {filteredCourses.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
-                  <Typography variant="body2" color="text.secondary">ไม่พบข้อมูลคลาสเรียน</Typography>
+                <TableCell colSpan={courseType === 'class' ? 9 : 8} align="center" sx={{ py: 8 }}>
+                  <Typography variant="body2" color="text.secondary">{courseType === 'event' ? 'ไม่พบข้อมูลกิจกรรม' : 'ไม่พบข้อมูลคลาสเรียน'}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -1945,23 +2055,23 @@ const CourseManagement = () => {
       {/* ── Tab 1: Categories ────────────────────────────────────────────────── */}
       {pageTab === 1 && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          {categories.length === 0 ? (
+          {categoriesForPage.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
               <CategoryIcon sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
               <Typography variant="body2">ยังไม่มีหมวดหมู่ — กด "เพิ่มหมวดหมู่" เพื่อเริ่มต้น</Typography>
             </Box>
           ) : (
             <List disablePadding>
-              {categories.map((cat, idx) => (
+              {categoriesForPage.map((cat, idx) => (
                 <ListItem
                   key={cat.id}
-                  divider={idx < categories.length - 1}
+                  divider={idx < categoriesForPage.length - 1}
                   sx={{ py: 1.5, px: 2.5, '&:hover': { bgcolor: '#f8fafc' } }}
                   secondaryAction={
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <IconButton size="small" onClick={() => {
                         setEditCategory(cat);
-                        setCategoryFormData({ name: cat.name, description: cat.description || '', color: cat.color || '#7452d6', imageUrl: cat.image_url || '', imagePosition: (cat as any).image_position || '50% 50%' });
+                        setCategoryFormData({ name: cat.name, description: cat.description || '', color: cat.color || '#7452d6', imageUrl: cat.image_url || '', imagePosition: (cat as any).image_position || '50% 50%', type: cat.type || 'class' });
                         setCategoryImagePreview(cat.image_url ? `${API_URL}${cat.image_url}` : '');
                         const parts = ((cat as any).image_position || '50% 50%').split(' ');
                         const savedPos = { x: parseFloat(parts[0]) || 50, y: parseFloat(parts[1]) || 50 };
@@ -2003,12 +2113,12 @@ const CourseManagement = () => {
       )}
 
       {/* ── Tab 2: Skills Library ─────────────────────────────────────────────── */}
-      {pageTab === 2 && (
+      {pageTab === 2 && courseType === 'class' && (
         <SkillsLibraryManagement currentUserRole={currentUserRole} />
       )}
 
       {/* ── Tab 3: Course Materials ────────────────────────────────────────────── */}
-      {pageTab === 3 && (
+      {pageTab === 3 && courseType === 'class' && (
         <CourseMaterialsTab courses={courses} apiBase={`${API_URL}/api/v1/admin`} />
       )}
 
@@ -2125,6 +2235,25 @@ const CourseManagement = () => {
               onChange={e => { setCategoryFormData(p => ({ ...p, name: e.target.value })); setCategoryError(null); }}
               autoFocus
             />
+
+            {/* Type — Class/Event/Service categories are separate pools;
+                fixed to 'event' on the Event page (see the initial/reset
+                defaults above), only pickable here on the Class page since
+                Service courses still live there until it gets its own page. */}
+            {courseType === 'class' && (
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>ใช้กับ</Typography>
+                <ToggleButtonGroup
+                  value={categoryFormData.type}
+                  exclusive
+                  size="small"
+                  onChange={(_, v) => v && setCategoryFormData(p => ({ ...p, type: v }))}
+                >
+                  <ToggleButton value="class" sx={{ fontWeight: 700, px: 2 }}>คลาส</ToggleButton>
+                  <ToggleButton value="service" sx={{ fontWeight: 700, px: 2 }}>บริการ</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            )}
 
             {/* Description */}
             <TextField

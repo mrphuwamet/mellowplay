@@ -72,6 +72,11 @@ function extractPaymentMethodLabel(payload: any): string {
 }
 
 const SUCCESS_STATUSES = new Set(['SUCCESS', 'SUCCEEDED', 'COMPLETED', 'PAID']);
+// Explicit terminal-failure statuses — distinct from a charge that's simply
+// still mid-flight (CREATED/PENDING/PROCESSING), which must stay untouched
+// so it keeps holding its seat until it actually resolves one way or the
+// other, or until the 15-minute expirePendingBookings sweep releases it.
+const FAILURE_STATUSES = new Set(['FAILED', 'FAILURE', 'DECLINED', 'CANCELLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'VOIDED']);
 
 export class WebhookController {
   async handleBeamWebhook(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -245,6 +250,28 @@ export class WebhookController {
         } catch { /* notification must never block webhook processing */ }
 
         return c.json({ success: true, message: 'Webhook processed successfully' });
+      }
+
+      if (FAILURE_STATUSES.has(status)) {
+        const beamSessionId = booking.beam_session_id;
+        let bookingsToCancel = [bookingId];
+        if (beamSessionId) {
+          const { results } = await config.db.prepare('SELECT id FROM Bookings WHERE beam_session_id = ?').bind(beamSessionId).all<{ id: number }>();
+          bookingsToCancel = results.map(r => r.id);
+        }
+
+        // Guard against cancelling a booking some other path already
+        // confirmed (e.g. a late/duplicate failure webhook arriving after a
+        // success webhook already landed) — never downgrade a real seat.
+        for (const bid of bookingsToCancel) {
+          await config.db.prepare(`
+            UPDATE Bookings SET status = 'cancelled', payment_status = 'cancelled'
+            WHERE id = ? AND status NOT IN ('confirmed', 'confirmed_paid', 'completed', 'awaiting_report')
+          `).bind(bid).run();
+        }
+
+        await logger.info('beam-webhook', `Payment failed for booking(s) ${bookingsToCancel.join(', ')} (status=${status}) — seat(s) released`);
+        return c.json({ success: true, message: `Cancelled after failed payment (status=${status})` });
       }
 
       await logger.info('beam-webhook', `Non-success status for booking ${bookingId}: ${status}`);

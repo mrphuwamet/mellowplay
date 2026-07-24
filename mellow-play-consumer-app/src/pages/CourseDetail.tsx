@@ -187,7 +187,7 @@ const CourseDetail = () => {
         
         {/* Category Tag */}
         <div className="absolute bottom-5 left-5 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-xl shadow-lg">
-          <span className={`text-[12px] font-black uppercase tracking-wide ${course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+          <span className={`text-[12px] font-black uppercase tracking-wide ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
             {course.category_name}
           </span>
         </div>
@@ -315,10 +315,10 @@ const CourseDetail = () => {
               </div>
               <div className="min-w-0">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
-                <p className="text-[14px] font-black text-slate-700">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
+                <p className="text-[14px] font-black text-slate-700">{(course.is_extraclass || course.is_event) ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
               </div>
             </div>
-            {(!course.is_extraclass || course.location_link) && (
+            {((!course.is_extraclass && !course.is_event) || course.location_link) && (
               <a
                 href={course.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
                 target="_blank"

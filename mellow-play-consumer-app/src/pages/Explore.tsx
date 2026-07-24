@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, X, ShoppingBag } from 'lucide-react';
+import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -25,7 +25,7 @@ const Explore = () => {
   const [courses, setCourses] = useState<any[]>([]);
   const [newsItems, setNewsItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState<'all' | 'classes' | 'news' | 'media'>('all');
+  const [activeCategory, setActiveCategory] = useState<'all' | 'classes' | 'events' | 'news' | 'media'>('all');
   const [videoModalUrl, setVideoModalUrl] = useState<string | null>(null);
   const [showShopSoon, setShowShopSoon] = useState(false);
 
@@ -64,17 +64,23 @@ const Explore = () => {
   // regular classes follow, each group still newest-first internally.
   const byExtraFirstThenNewest = (a: any, b: any) => (Number(!!b.is_extraclass) - Number(!!a.is_extraclass)) || byNewest(a, b);
 
-  const allClasses = courses.filter(c => !isCourseExpired(c)).sort(byExtraFirstThenNewest);
+  // Events get their own dedicated section/page below, and Services are
+  // booked through their own "Book Service" entry point — both excluded
+  // here to avoid double-listing them in the general Classes carousel.
+  const allClasses = courses.filter(c => !c.is_event && !c.is_service && !isCourseExpired(c)).sort(byExtraFirstThenNewest);
+  const eventsOnly = courses.filter(c => c.is_event && !isCourseExpired(c)).sort(byNewest);
   const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
   const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
 
   const classesCarousel = useHorizontalCarousel(240, 16);
+  const eventsCarousel = useHorizontalCarousel(240, 16);
   const newsCarousel = useHorizontalCarousel(240, 16);
   const mediaCarousel = useHorizontalCarousel(240, 16);
 
-  const categories: { id: 'all' | 'classes' | 'news' | 'media'; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
+  const categories: { id: 'all' | 'classes' | 'events' | 'news' | 'media'; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
     { id: 'all', label: lang === 'en' ? 'All' : 'ทั้งหมด', Icon: Sparkles, iconColor: 'text-mellow-red', activeBg: 'bg-mellow-red border-mellow-red' },
     { id: 'classes', label: lang === 'en' ? 'Classes' : 'คลาส', Icon: GraduationCap, iconColor: 'text-mellow-green', activeBg: 'bg-mellow-green border-mellow-green' },
+    { id: 'events', label: lang === 'en' ? 'Events' : 'กิจกรรม', Icon: PartyPopper, iconColor: 'text-mellow-purple', activeBg: 'bg-mellow-purple border-mellow-purple' },
     { id: 'news', label: lang === 'en' ? 'News' : 'ข่าวสาร', Icon: Tent, iconColor: 'text-mellow-blue', activeBg: 'bg-mellow-blue border-mellow-blue' },
     { id: 'media', label: lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้', Icon: Tv, iconColor: 'text-mellow-purple', activeBg: 'bg-mellow-purple border-mellow-purple' },
   ];
@@ -167,10 +173,10 @@ const Explore = () => {
 
       <main className="p-5">
         {/* Categories — fills full width evenly, no ragged trailing space.
-            Stays 4 tiles at every breakpoint (an icon grid, not a content
+            Stays 5 tiles at every breakpoint (an icon grid, not a content
             grid) but caps its own width on wide screens so tiles don't
             balloon as the page container grows. */}
-        <div className="grid grid-cols-4 gap-2 pb-6 md:max-w-[480px]">
+        <div className="grid grid-cols-5 gap-2 pb-6 md:max-w-[560px]">
            {categories.map(cat => {
              const isActive = activeCategory === cat.id;
              return (
@@ -232,6 +238,37 @@ const Explore = () => {
           </section>
         )}
 
+        {/* Events Section — separate from Classes since booking an event is
+            its own dedicated flow (own page at /courses/event, see
+            CourseList.tsx), not just another class category. */}
+        {!loading && (activeCategory === 'all' || activeCategory === 'events') && eventsOnly.length > 0 && (
+          <section className="mb-8">
+             <div className="flex justify-between items-center mb-4 px-1 gap-2">
+                <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Events' : 'กิจกรรม'}</h3>
+                <div className="flex items-center gap-3">
+                  <CarouselNudgeButtons onScrollLeft={() => eventsCarousel.scrollBy('left')} onScrollRight={() => eventsCarousel.scrollBy('right')} />
+                  <button onClick={() => navigate('/event')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                    {lang === 'en' ? 'View All' : 'ดูกิจกรรมทั้งหมด'}
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+             </div>
+
+             <div ref={eventsCarousel.ref} style={eventsCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+                {isBookingStatusLoading ? renderCourseCardSkeletons() : eventsOnly.map(course => (
+                  <CourseCard
+                    key={course.id}
+                    course={course}
+                    bookingStatus={courseBookingStatus[course.id]}
+                    lang={lang}
+                    childCoupons={selectedChild?.coupons}
+                    couponTypes={couponTypes}
+                  />
+                ))}
+             </div>
+          </section>
+        )}
+
         {/* News Section */}
         {(activeCategory === 'all' || activeCategory === 'news') && newsOnly.length > 0 && (
           <section className="mb-8">
@@ -277,7 +314,9 @@ const Explore = () => {
         )}
 
         {!loading && activeCategory !== 'all' && activeCategory !== 'classes' &&
-          ((activeCategory === 'news' && newsOnly.length === 0) || (activeCategory === 'media' && mediaOnly.length === 0)) && (
+          ((activeCategory === 'events' && eventsOnly.length === 0) ||
+           (activeCategory === 'news' && newsOnly.length === 0) ||
+           (activeCategory === 'media' && mediaOnly.length === 0)) && (
           <div className="text-center py-16 text-slate-400 font-bold">
             {lang === 'en' ? 'No content yet' : 'ยังไม่มีเนื้อหา'}
           </div>

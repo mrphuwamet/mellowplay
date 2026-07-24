@@ -217,6 +217,39 @@ export class CalendarRepository {
     return upcoming;
   }
 
+  // Single-slot capacity check used server-side at booking creation time —
+  // getUpcomingSlots/getAvailableSlots only feed the UI, which a stale page,
+  // a race between two simultaneous bookers, or a direct API call can all
+  // bypass, so nothing previously stopped a booking past max_capacity.
+  async getSlotAvailability(calendarId: number, slotDate: string, slotStartTime: string, branchId?: number): Promise<{ maxCapacity: number; booked: number; available: number } | null> {
+    await this.expirePendingBookings();
+
+    const dow = new Date(slotDate).getDay();
+    const { results: rules } = await this.db.prepare(`
+      SELECT * FROM Calendar_Slot_Rules
+      WHERE calendar_id=? AND is_active=1
+        AND valid_from <= ? AND (valid_until IS NULL OR valid_until >= ?)
+        AND (day_of_week=? OR specific_date=?)
+        AND SUBSTR(start_time, 1, 5) = ?
+    `).bind(calendarId, slotDate, slotDate, dow, slotDate, slotStartTime).all();
+
+    const rule = (rules as any[])[0];
+    if (!rule) return null;
+
+    const bookingsQuery = `
+      SELECT COUNT(*) as cnt FROM Bookings b
+      JOIN Courses c ON b.course_id = c.id
+      WHERE c.calendar_id=? ${branchId ? 'AND b.branch_id=?' : ''}
+        AND SUBSTR(b.scheduled_at, 1, 10)=? AND SUBSTR(b.scheduled_at, 12, 5)=?
+        AND ${OCCUPIES_SEAT_SQL}
+    `;
+    const bindArgs = branchId ? [calendarId, branchId, slotDate, slotStartTime] : [calendarId, slotDate, slotStartTime];
+    const { results: bookings } = await this.db.prepare(bookingsQuery).bind(...bindArgs).all();
+
+    const booked = (bookings[0] as any)?.cnt ?? 0;
+    return { maxCapacity: rule.max_capacity, booked, available: Math.max(0, rule.max_capacity - booked) };
+  }
+
   // ── Holidays ───────────────────────────────────────────────────────────────
   async getHolidays(calendarId: number): Promise<any[]> {
     const { results } = await this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? ORDER BY date').bind(calendarId).all();

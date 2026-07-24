@@ -123,6 +123,7 @@ const AppContent = () => {
         <Route path="/contact" element={<ContactUs />} />
         <Route path="/package-purchase-success" element={<PackagePurchaseSuccess />} />
         <Route path="/courses/:type" element={<CourseList />} />
+        <Route path="/event" element={<CourseList type="event" />} />
         <Route path="/class/:id" element={<CourseDetail />} />
         <Route path="/course/:id" element={<CourseToClassRedirect />} />
       </Routes>

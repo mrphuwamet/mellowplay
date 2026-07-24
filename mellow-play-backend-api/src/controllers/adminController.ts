@@ -10,6 +10,7 @@ import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants
 import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
+import { CalendarRepository } from '../repositories/calendarRepository';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -270,11 +271,11 @@ export class AdminController {
 
       const db = config.db;
 
-      // Extra classes have a one-off `location` field instead of a branch,
-      // so branchId is legitimately absent for them — only regular courses
-      // must have one.
-      const courseForBranchCheck = await db.prepare('SELECT is_extraclass FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
-      if (!courseForBranchCheck?.is_extraclass && !branchId)
+      // Extra classes and Events both have a one-off `location` field instead
+      // of a branch, so branchId is legitimately absent for them — only
+      // regular courses must have one.
+      const courseForBranchCheck = await db.prepare('SELECT is_extraclass, is_event FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      if (!courseForBranchCheck?.is_extraclass && !courseForBranchCheck?.is_event && !branchId)
         return c.json({ success: false, message: 'branchId required' }, 400);
 
       let ids = childIds ? childIds : (childId ? [childId] : []);
@@ -285,6 +286,19 @@ export class AdminController {
         return c.json({ success: false, message: 'No children selected' }, 400);
       }
 
+      // Batch-fetch parent_id for every child in this request up front — Check 2
+      // below needs to catch siblings booked together in the SAME request, which
+      // a per-child DB lookup can't see since none of them are inserted yet.
+      const realChildIds = parsedChildIds.filter((id: number) => id > 0);
+      const childParentMap = new Map<number, number>();
+      if (realChildIds.length > 0) {
+        const { results: childRows } = await db.prepare(
+          `SELECT id, parent_id FROM Children WHERE id IN (${realChildIds.join(',')})`
+        ).all();
+        for (const row of childRows as any[]) childParentMap.set(row.id, row.parent_id);
+      }
+      const seenParentIdsForLimitOne = new Set<number>();
+
       // Check for duplicates
       for (const parsedChildId of parsedChildIds) {
         if (parsedChildId > 0) {
@@ -293,11 +307,12 @@ export class AdminController {
           // course is marked non-repeatable (allow_repeat = 0). This is
           // independent of is_extraclass so an admin can control it directly.
           const { results: courseDetails } = await db.prepare(`
-            SELECT is_extraclass, allow_repeat FROM Courses WHERE id = ?
+            SELECT is_extraclass, allow_repeat, limit_one_per_parent FROM Courses WHERE id = ?
           `).bind(parseInt(courseId)).all();
 
           const isExtraClass = courseDetails[0]?.is_extraclass;
           const allowRepeat = courseDetails[0]?.allow_repeat;
+          const limitOnePerParent = courseDetails[0]?.limit_one_per_parent;
 
           if (!allowRepeat) {
             const { results: existingBookings } = await db.prepare(`
@@ -316,7 +331,44 @@ export class AdminController {
             }
           }
 
-          // Check 2: Extra Class same day restriction
+          // Check 2: Same-parent duplicate — for courses/events that should
+          // only ever be booked once per family regardless of which child
+          // attends (e.g. a Family Day event with one seat per household).
+          // Independent of Check 1 (which only looks at this exact child).
+          if (limitOnePerParent) {
+            const parentId = childParentMap.get(parsedChildId);
+            if (parentId) {
+              const { results: familyBookings } = await db.prepare(`
+                SELECT b.id FROM Bookings b
+                JOIN Children ch ON b.child_id = ch.id
+                WHERE ch.parent_id = ? AND b.course_id = ?
+                  AND b.status IN ('confirmed', 'confirmed_paid', 'completed')
+              `).bind(parentId, parseInt(courseId)).all();
+
+              if (familyBookings.length > 0) {
+                return c.json({
+                  success: false,
+                  error_code: 'DUPLICATE_FAMILY_BOOKING',
+                  message: 'ผู้ปกครองของเด็กคนนี้ได้ลงทะเบียนรายการนี้ไปแล้ว (จำกัด 1 ครอบครัวต่อ 1 สิทธิ์)',
+                  bookingId: familyBookings[0].id
+                }, 400);
+              }
+
+              // Also catch siblings booked together in THIS same request —
+              // none of them exist in Bookings yet, so the DB check above
+              // can't see this case on its own.
+              if (seenParentIdsForLimitOne.has(parentId)) {
+                return c.json({
+                  success: false,
+                  error_code: 'DUPLICATE_FAMILY_BOOKING',
+                  message: 'สามารถลงทะเบียนได้เพียง 1 คนต่อครอบครัวสำหรับรายการนี้ (จำกัด 1 ครอบครัวต่อ 1 สิทธิ์)'
+                }, 400);
+              }
+              seenParentIdsForLimitOne.add(parentId);
+            }
+          }
+
+          // Check 3: Extra Class same day restriction
           if (isExtraClass) {
             const targetDate = scheduledAt.split('T')[0];
             const { results: sameDayExtraBookings } = await db.prepare(`
@@ -337,6 +389,24 @@ export class AdminController {
               }, 400);
             }
           }
+        }
+      }
+
+      // Server-side capacity check — the frontend already grays out full
+      // slots, but that's UI-only. A stale page, two parents racing for the
+      // last seat, or a direct API call could all still overbook a slot
+      // past its max_capacity with nothing server-side to stop it.
+      if (calendarId && slotDate && slotStartTime) {
+        const calendarRepo = new CalendarRepository(db);
+        const availability = await calendarRepo.getSlotAvailability(
+          parseInt(calendarId), slotDate, slotStartTime, branchId ? parseInt(branchId) : undefined
+        );
+        if (availability && availability.available < parsedChildIds.length) {
+          return c.json({
+            success: false,
+            error_code: 'SLOT_FULL',
+            message: 'ขออภัย รอบเวลานี้เต็มแล้ว กรุณาเลือกรอบเวลาอื่น'
+          }, 400);
         }
       }
 
@@ -522,6 +592,16 @@ export class AdminController {
           await sendAlert(config.db, 'Payment Error (Beam Checkout)', {
             bookingIds: bookingIds.join(', '), error: e.message,
           });
+
+          // The Booking rows above were inserted optimistically so their IDs
+          // could be embedded in the Beam payment-link request. If that
+          // request itself fails, the user never even reached a checkout
+          // page — there's no real "pending payment" to speak of, so don't
+          // leave a ghost row behind for the CRM's booking list or slot
+          // capacity to see as a real one.
+          for (const id of bookingIds) {
+            await config.db.prepare('DELETE FROM Bookings WHERE id = ?').bind(id).run();
+          }
 
           return c.json({
             success: false,
@@ -1032,9 +1112,9 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const { name, description, color, imageUrl, imagePosition } = await c.req.json();
+      const { name, description, color, imageUrl, imagePosition, type } = await c.req.json();
       if (!name?.trim()) return c.json({ success: false, message: 'กรุณาระบุชื่อหมวดหมู่' }, 400);
-      const id = await adminRepo.createCategory(name.trim(), description || '', color, imageUrl, imagePosition);
+      const id = await adminRepo.createCategory(name.trim(), description || '', color, imageUrl, imagePosition, type);
       return c.json({ success: true, id });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -1046,9 +1126,9 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
-      const { name, description, color, imageUrl, imagePosition } = await c.req.json();
+      const { name, description, color, imageUrl, imagePosition, type } = await c.req.json();
       if (!name?.trim()) return c.json({ success: false, message: 'กรุณาระบุชื่อหมวดหมู่' }, 400);
-      await adminRepo.updateCategory(id, name.trim(), description || '', color, imageUrl, imagePosition);
+      await adminRepo.updateCategory(id, name.trim(), description || '', color, imageUrl, imagePosition, type);
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);

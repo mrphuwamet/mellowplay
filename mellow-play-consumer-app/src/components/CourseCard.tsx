@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, MapPin, CheckCircle, Star, Ticket } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Star, Ticket, PartyPopper, ConciergeBell } from 'lucide-react';
 import logo from '../assets/ui/logo.svg';
 import { getCourseView } from '../utils/courseImage';
 import { trackCourseView } from '../utils/analytics';
@@ -42,7 +42,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
     ? Math.round((discountAmount / course.original_price) * 100)
     : 0;
 
-  const badgeColorClass = tagColorClass || (course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark');
+  const badgeColorClass = tagColorClass || (course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark');
 
   return (
     <div
@@ -60,7 +60,19 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
         <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase ${badgeColorClass} shadow-sm`}>
           {course.category_name}
         </div>
-        {!!course.is_extraclass && (
+        {!!course.is_event && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-mellow-purple to-fuchsia-500 rounded-lg text-[10px] font-black uppercase text-white shadow-sm">
+            <PartyPopper size={11} />
+            {lang === 'en' ? 'Event' : 'กิจกรรม'}
+          </div>
+        )}
+        {!course.is_event && !!course.is_service && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-mellow-blue to-cyan-500 rounded-lg text-[10px] font-black uppercase text-white shadow-sm">
+            <ConciergeBell size={11} />
+            {lang === 'en' ? 'Service' : 'บริการ'}
+          </div>
+        )}
+        {!course.is_event && !course.is_service && !!course.is_extraclass && (
           <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-lg text-[10px] font-black uppercase text-white shadow-sm">
             <Star size={11} fill="currentColor" />
             {lang === 'en' ? 'Extra' : 'พิเศษ'}
@@ -127,7 +139,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
           </div>
           <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500">
             <MapPin size={14} className="text-slate-400 shrink-0" />
-            <span className="truncate">{course.is_extraclass ? (course.location || (lang === 'en' ? 'Pending location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</span>
+            <span className="truncate">{(course.is_extraclass || course.is_event) ? (course.location || (lang === 'en' ? 'Pending location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</span>
           </div>
         </div>
 

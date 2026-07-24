@@ -22,7 +22,7 @@ import ResponsiveModal from '../components/ResponsiveModal';
 import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; }
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -100,27 +100,48 @@ const Booking = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [childCourseStatus, setChildCourseStatus] = useState<Record<number, 'upcoming' | 'completed'>>({});
 
+  // Book Class / Book Service / Book Event are three distinct entry points
+  // into this exact same wizard — same steps, same screens ("ยึดตามการจอง
+  // คลาส"), but each browses its own course pool via a real is_event/
+  // is_service flag (not a category-name guess) so they stay clearly
+  // separate systems ("แยกระบบกันชัดเจน") rather than one blended list.
+  const bookingType: 'class' | 'service' | 'event' =
+    searchParams.get('type') === 'event' ? 'event' :
+    searchParams.get('type') === 'service' ? 'service' :
+    'class';
+
+  const coursePoolMatches = (course: Course) =>
+    bookingType === 'event' ? !!course.is_event :
+    bookingType === 'service' ? !!course.is_service :
+    !course.is_event && !course.is_service;
+
+  // The one visible difference between the three systems — everything else
+  // (progress steps, cards, payment screen) is the exact same component.
+  const bookingTypeTitle = bookingType === 'event'
+    ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
+    : bookingType === 'service'
+      ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
+      : (t.booking?.title || 'จองคลาสเรียน');
+  const stepCourseTitle = bookingType === 'event'
+    ? (lang === 'en' ? 'Choose an Event' : 'เลือกกิจกรรม')
+    : bookingType === 'service'
+      ? (lang === 'en' ? 'Choose a Service' : 'เลือกบริการ')
+      : (t.booking?.stepCourse || 'เลือกคลาส');
+
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
     courses.forEach(c => {
-      if (c.category_name) cats.add(c.category_name);
+      // Keep in sync with filteredCourses' own pool split below — otherwise
+      // a category shows up as a chip with nothing ever matching it here.
+      if (c.category_name && coursePoolMatches(c)) cats.add(c.category_name);
     });
     return Array.from(cats);
-  }, [courses]);
-
-  // Sidebar's "Book Service" sub-menu entry links here with ?category=service
-  // — there's no separate service-booking system, just a pre-selected
-  // category filter on this same course list. No-ops today since no CRM
-  // category is named anything service-like yet; starts working the moment
-  // staff create one (English "Service" or Thai "บริการ", either matches).
-  useEffect(() => {
-    if (searchParams.get('category') !== 'service' || categories.length === 0) return;
-    const match = categories.find(cat => /service|บริการ/i.test(cat));
-    if (match) setSelectedCategory(match);
-  }, [searchParams, categories]);
+  }, [courses, bookingType]);
 
   const filteredCourses = React.useMemo(() => {
     return courses.filter(course => {
+      if (!coursePoolMatches(course)) return false;
+
       if (courseSearch.trim()) {
         const q = courseSearch.toLowerCase();
         const matchName = course.name?.toLowerCase().includes(q);
@@ -146,7 +167,7 @@ const Booking = () => {
 
       return true;
     });
-  }, [courses, courseSearch, courseAgeFilter, customAgeMin, customAgeMax, selectedCategory]);
+  }, [courses, courseSearch, courseAgeFilter, customAgeMin, customAgeMax, selectedCategory, bookingType]);
 
   useEffect(() => {
     if (children.length > 0 && selectedChildren.length === 0) {
@@ -187,7 +208,7 @@ const Booking = () => {
   }, []);
 
   // Step Logic
-  const hasBranch = !(selectedCourse?.is_extraclass || branches.length <= 1);
+  const hasBranch = !(selectedCourse?.is_extraclass || selectedCourse?.is_event || branches.length <= 1);
   const flowSteps = ['course', 'child'];
   if (hasBranch) flowSteps.push('branch');
   flowSteps.push('date', 'payment');
@@ -297,7 +318,7 @@ const Booking = () => {
   useEffect(() => {
     const fetchUpcoming = async () => {
       if (!selectedCourse) return;
-      if (!selectedBranch && !selectedCourse.is_extraclass) return;
+      if (!selectedBranch && !selectedCourse.is_extraclass && !selectedCourse.is_event) return;
 
       setUpcomingDates([]);
       setSelectedDateObj(null);
@@ -334,7 +355,7 @@ const Booking = () => {
       }
     };
     fetchUpcoming();
-  }, [selectedCourse?.id, selectedBranch?.id, selectedCourse?.is_extraclass, selectedCourse?.calendar_id]);
+  }, [selectedCourse?.id, selectedBranch?.id, selectedCourse?.is_extraclass, selectedCourse?.is_event, selectedCourse?.calendar_id]);
 
   const currentYear = new Date().getFullYear();
   const birthYear = selectedChildren[0]?.birth_date ? new Date(selectedChildren[0].birth_date).getFullYear() : 2020;
@@ -355,7 +376,7 @@ const Booking = () => {
       return;
     }
 
-    if (!selectedCourse.is_extraclass && (!selectedDateObj || !selectedSlot)) {
+    if (!selectedCourse.is_extraclass && !selectedCourse.is_event && (!selectedDateObj || !selectedSlot)) {
       setErrorMsg(t.booking?.fillAllInfo || 'กรุณากรอกข้อมูลให้ครบถ้วน');
       setTimeout(() => setErrorMsg(''), 3000);
       return;
@@ -436,11 +457,30 @@ const Booking = () => {
         }
       }
     } catch (err: any) {
-      if (err.response?.data?.error_code === 'DUPLICATE_BOOKING' || err.response?.data?.error_code === 'EXTRA_CLASS_LIMIT') {
+      const errorCode = err.response?.data?.error_code;
+      if (errorCode === 'DUPLICATE_BOOKING' || errorCode === 'EXTRA_CLASS_LIMIT' || errorCode === 'DUPLICATE_FAMILY_BOOKING') {
         setDuplicateError({
           message: err.response.data.message,
-          error_code: err.response.data.error_code
+          error_code: errorCode
         });
+      } else if (errorCode === 'SLOT_FULL') {
+        // Someone else took the seat between the date-step fetch and this
+        // submit — send the user back to re-pick a slot instead of leaving
+        // them stuck on the payment step with a stale, already-full one.
+        setErrorMsg(err.response?.data?.message || 'ขออภัย รอบเวลานี้เต็มแล้ว กรุณาเลือกรอบเวลาอื่น');
+        setTimeout(() => setErrorMsg(''), 4000);
+        setSelectedSlot(null);
+        setCurrentStepIndex(flowSteps.indexOf('date'));
+        if (selectedCourse?.calendar_id) {
+          apiClient.get('/admin/calendar-slots/upcoming', {
+            params: { calendarId: selectedCourse.calendar_id, branchId: selectedBranch?.id }
+          }).then(res => {
+            if (res.data.success) {
+              const formatted = res.data.upcoming.map((ud: any) => ({ ...ud, isFull: ud.slots.every((s: any) => s.available === 0) }));
+              setUpcomingDates(formatted);
+            }
+          }).catch(() => { /* best-effort refresh */ });
+        }
       } else {
         setErrorMsg(err.response?.data?.message || t.booking?.bookingError || 'เกิดข้อผิดพลาดในการส่งข้อมูลการจอง');
       }
@@ -496,7 +536,7 @@ const Booking = () => {
         >
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight text-mellow-ink">{t.booking?.title || 'จองคลาสเรียน'}</h1>
+        <h1 className="text-[16px] font-black tracking-tight text-mellow-ink">{bookingTypeTitle}</h1>
         <div className="w-10" />
       </header>
 
@@ -522,7 +562,7 @@ const Booking = () => {
                 <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.course || 'Class'}</span>
                 <span className="text-slate-700 font-black text-sm">{successBooking.courseName}</span>
               </div>
-              {(!selectedCourse?.is_extraclass || selectedCourse?.location) && (
+              {((!selectedCourse?.is_extraclass && !selectedCourse?.is_event) || selectedCourse?.location) && (
                 <div>
                   <span className="text-slate-400 text-xs font-bold block mb-1 flex items-center gap-1">
                     <MapPin size={11} className="text-orange-400" />
@@ -530,7 +570,7 @@ const Booking = () => {
                   </span>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-slate-700 font-black text-sm">
-                      {selectedCourse?.is_extraclass ? selectedCourse.location : (successBooking.branchName || 'Mellow Play (Little Walk Pattaya)')}
+                      {(selectedCourse?.is_extraclass || selectedCourse?.is_event) ? selectedCourse.location : (successBooking.branchName || 'Mellow Play (Little Walk Pattaya)')}
                     </span>
                     <a
                       href={selectedCourse?.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
@@ -644,6 +684,14 @@ const Booking = () => {
                    <div className="h-px bg-slate-100 my-3" />
                    <div className="space-y-3">
                      <h4 className="text-sm font-black text-slate-800">{lang === 'en' ? 'Order Summary' : 'สรุปยอดชำระเงิน'}</h4>
+                     {selectedDateObj && selectedSlot && (
+                       <div className="flex justify-between text-sm font-bold text-slate-600">
+                         <span>{lang === 'en' ? 'Session' : 'รอบที่จอง'}</span>
+                         <span className="text-slate-800 text-right">
+                           {new Date(selectedDateObj.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })} · {selectedSlot.startTime} น.
+                         </span>
+                       </div>
+                     )}
                      <div className="flex justify-between text-sm font-bold text-slate-600">
                        <span>{lang === 'en' ? 'Price' : 'ราคา'}</span>
                        <span>{selectedCourse?.original_price?.toLocaleString() || 0} ฿</span>
@@ -694,7 +742,7 @@ const Booking = () => {
 
           {currentStep === 'course' && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <h3 className="text-lg font-black text-slate-800">{t.booking?.stepCourse || 'เลือกคลาส'}</h3>
+              <h3 className="text-lg font-black text-slate-800">{stepCourseTitle}</h3>
 
               {/* Search & Filter Bar */}
               <div className="space-y-3">
@@ -908,7 +956,7 @@ const Booking = () => {
           {currentStep === 'child' && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-black text-slate-800">{t.booking?.stepChild || 'เลือกผู้เรียน'}</h3>
+                <h3 className="text-lg font-black text-slate-800">{bookingType === 'event' ? (lang === 'en' ? 'Choose the child attending' : 'เลือกเด็กที่เข้าร่วม (เลือกได้ 1 คน)') : (t.booking?.stepChild || 'เลือกผู้เรียน')}</h3>
                 <button onClick={() => setIsAddChildOpen(true)} className="text-mellow-purple text-sm font-bold flex items-center gap-1 active:scale-95 transition-transform">
                   <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Sparkles size={12} /></div>{t.booking?.addChild || 'เพิ่มผู้เรียน'}
                 </button>
@@ -927,6 +975,14 @@ const Booking = () => {
                   return (
                     <button key={child.id} disabled={isDisabled} onClick={() => {
                       if (isDisabled) return;
+                      // Events are 1 child per booking (see bookingType) —
+                      // picking a child replaces the selection instead of
+                      // adding to it, unlike Class/Service which allow
+                      // booking several children into the same session.
+                      if (bookingType === 'event') {
+                        setSelectedChildren([child]);
+                        return;
+                      }
                       setSelectedChildren(prev => {
                         if (prev.some(c => c.id === child.id)) return prev.filter(c => c.id !== child.id);
                         return [...prev, child];
@@ -1196,7 +1252,7 @@ const Booking = () => {
 
                 <div className="flex-1 min-w-0">
                   {selectedCourse.category_name && (
-                    <span className={`inline-block text-[11px] font-black uppercase tracking-wide mb-1.5 ${selectedCourse.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                    <span className={`inline-block text-[11px] font-black uppercase tracking-wide mb-1.5 ${selectedCourse.is_event ? 'text-mellow-purple' : selectedCourse.is_service ? 'text-mellow-blue' : selectedCourse.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
                       {selectedCourse.category_name}
                     </span>
                   )}
@@ -1248,7 +1304,7 @@ const Booking = () => {
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600"
                     >
                       <MapPin size={14} className="text-orange-500 shrink-0" />
-                      {selectedCourse.is_extraclass ? (selectedCourse.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}
+                      {(selectedCourse.is_extraclass || selectedCourse.is_event) ? (selectedCourse.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}
                     </a>
                     <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600">
                       <Users size={14} className="text-mellow-blue-dark shrink-0" />
@@ -1466,7 +1522,9 @@ const Booking = () => {
             <h3 className="text-[19px] font-black text-slate-800 text-center mb-2 leading-tight">
               {duplicateError?.error_code === 'EXTRA_CLASS_LIMIT'
                 ? (lang === 'en' ? 'Limit Exceeded' : 'ไม่สามารถจองได้')
-                : (lang === 'en' ? 'Already Registered' : 'จองคลาสนี้ไปแล้ว')}
+                : duplicateError?.error_code === 'DUPLICATE_FAMILY_BOOKING'
+                  ? (lang === 'en' ? 'Already Registered (Family)' : 'ครอบครัวนี้ลงทะเบียนไปแล้ว')
+                  : (lang === 'en' ? 'Already Registered' : 'จองคลาสนี้ไปแล้ว')}
             </h3>
             <p className="text-[15px] font-medium text-slate-500 text-center mb-6 leading-relaxed">
               {duplicateError?.message}
