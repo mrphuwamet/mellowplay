@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, User, Mail, Phone, Save, Loader2, Settings as SettingsIcon, ShieldCheck, Link2, Unlink, Camera, LogOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, User, Mail, Phone, Save, Loader2, Settings as SettingsIcon, ShieldCheck, Link2, Unlink, Camera, LogOut, BookOpen } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 import { useChildStore } from '../store/useChildStore';
@@ -431,6 +431,18 @@ const SettingsProfile = () => {
             </p>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigate('/settings/community-guidelines')}
+          className="w-full flex items-center justify-between gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-4 text-slate-700 font-black text-[14px] active:scale-[0.98] transition-transform"
+        >
+          <span className="flex items-center gap-2">
+            <BookOpen size={18} className="text-mellow-purple" />
+            {lang === 'en' ? 'Community Guidelines' : 'แนวทางการใช้งานชุมชน'}
+          </span>
+          <ChevronRight size={18} className="text-slate-300" />
+        </button>
 
         {/* Logout — used to live behind the sidebar's account dropdown; that
             menu is gone now (the gear icon links straight here), so this is

@@ -14,6 +14,7 @@ import ReportDetail from './pages/ReportDetail';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
 import SettingsProfile from './pages/SettingsProfile';
+import CommunityGuidelines from './pages/CommunityGuidelines';
 import Booking from './pages/Booking';
 import CourseList from './pages/CourseList';
 import CourseDetail from './pages/CourseDetail';
@@ -117,6 +118,7 @@ const AppContent = () => {
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/settings" element={<SettingsProfile />} />
         <Route path="/settings/profile" element={<SettingsProfile />} />
+        <Route path="/settings/community-guidelines" element={<CommunityGuidelines />} />
         <Route path="/booking" element={<Booking />} />
         <Route path="/booking-success" element={<BookingSuccess />} />
         <Route path="/my-coupons" element={<MyCoupons />} />
