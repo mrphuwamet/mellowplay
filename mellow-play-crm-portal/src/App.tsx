@@ -43,6 +43,7 @@ import {
   People as PeopleIcon,
   PointOfSale as PosIcon,
   Security as SecurityIcon,
+  Http as ApiLogsMenuIcon,
   Settings as SettingsIcon,
   Store as StoreIcon,
   SwapHoriz as SwitchIcon,
@@ -108,6 +109,7 @@ import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
 import { SystemLogs } from './pages/SystemLogs';
+import { ApiCallLogs } from './pages/ApiCallLogs';
 import {
   canAccessFeature,
   FeatureKey,
@@ -134,7 +136,7 @@ const GROUP_PATHS: Record<string, string[]> = {
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
-  system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs'],
+  system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs', '/crm/api-logs'],
 };
 
 interface MenuItemConfig {
@@ -454,6 +456,7 @@ const AppContent = () => {
       { text: 'ตั้งค่าระบบและสาขา', icon: <SettingsIcon />, path: '/crm/settings', feature: 'settings' },
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
       { text: 'System Logs', icon: <SecurityIcon />, path: '/crm/system-logs', feature: 'settings' },
+      { text: 'API Call Logs', icon: <ApiLogsMenuIcon />, path: '/crm/api-logs', feature: 'settings' },
     ]);
 
     return filtered;
@@ -870,6 +873,7 @@ const AppContent = () => {
             <Route path="/crm/settings" element={protect('settings', <SystemSettings />)} />
             <Route path="/crm/permissions" element={protect('permissions', <RolePermissionManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/system-logs" element={protect('settings', <SystemLogs />)} />
+            <Route path="/crm/api-logs" element={protect('settings', <ApiCallLogs />)} />
             <Route path="/crm/skills-library"  element={protect('skills_library', <SkillsLibraryManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />

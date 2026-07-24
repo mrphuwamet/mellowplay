@@ -1933,11 +1933,74 @@ export class AdminController {
     }
   }
 
-  async getSystemLogs(c: Context<{ Bindings: Bindings }>) {
+  async getSystemLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
       const { results } = await config.db.prepare('SELECT * FROM System_Logs ORDER BY created_at DESC LIMIT 100').all();
       return c.json({ success: true, logs: results });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  // Was previously registered as a route (index.ts) with no method body at
+  // all — DELETE /system/logs 500'd every time, even though the CRM's own
+  // confirm dialog already promised "delete logs older than 30 days". This
+  // is that promise, finally implemented, on the same cutoff the scheduled()
+  // cron in index.ts uses so manual and automatic cleanup never disagree.
+  async clearSystemLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const result = await config.db.prepare('DELETE FROM System_Logs WHERE created_at < ?').bind(cutoff).run();
+      return c.json({ success: true, deleted: result.meta.changes });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  // Api_Call_Logs can grow large (every request, with bodies) — unlike
+  // getSystemLogs' flat LIMIT 100, this supports real pagination plus
+  // server-side filtering so the CRM viewer doesn't have to pull everything
+  // to filter client-side.
+  async getApiCallLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const limit = Math.min(200, parseInt(c.req.query('limit') || '50', 10));
+      const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10));
+      const method = c.req.query('method');
+      const status = c.req.query('status');
+      const callerType = c.req.query('callerType');
+      const pathSearch = c.req.query('path');
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (method) { conditions.push('method = ?'); params.push(method); }
+      if (status) { conditions.push('status_code = ?'); params.push(parseInt(status, 10)); }
+      if (callerType) { conditions.push('caller_type = ?'); params.push(callerType); }
+      if (pathSearch) { conditions.push('path LIKE ?'); params.push(`%${pathSearch}%`); }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const { results } = await config.db.prepare(
+        `SELECT * FROM Api_Call_Logs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+      ).bind(...params, limit, offset).all();
+
+      const totalRow = await config.db.prepare(
+        `SELECT COUNT(*) as total FROM Api_Call_Logs ${where}`
+      ).bind(...params).first<any>();
+
+      return c.json({ success: true, logs: results, total: totalRow?.total || 0 });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
+  async clearApiCallLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const result = await config.db.prepare('DELETE FROM Api_Call_Logs WHERE created_at < ?').bind(cutoff).run();
+      return c.json({ success: true, deleted: result.meta.changes });
     } catch (e: any) {
       return c.json({ success: false, message: e.message }, 500);
     }

@@ -27,6 +27,7 @@ import { AnalyticsController } from './controllers/analyticsController';
 import { ConfigService } from './services/configService';
 import { AuthService } from './services/authService';
 import { sendAlert } from './services/alertService';
+import { maskAndStringifyBody } from './utils/logMasking';
 
 const app = new Hono<{ Bindings: Bindings, Variables: Variables }>();
 const authController = new AuthController();
@@ -66,6 +67,78 @@ app.use('*', cors({
   maxAge: 600,
   credentials: true,
 }));
+
+// --- API call logging (all requests, kept 30 days — see scheduled() below
+// for the automatic cleanup, and AdminController.clearApiCallLogs for the
+// manual "delete now" button in the CRM) ---
+// Registered before every other middleware/route so its own next() call
+// wraps the full chain (auth, route handler, everything) and duration_ms
+// reflects true end-to-end time. Request/response bodies are cloned before
+// being read, never consuming the stream the real handler needs, and the
+// actual DB write is fire-and-forget (executionCtx.waitUntil) so a slow or
+// failed log write can never slow down or break the real response.
+app.use('*', async (c, next) => {
+  const start = Date.now();
+  const method = c.req.method;
+  const path = c.req.path;
+
+  let requestBodyText: string | null = null;
+  try {
+    if ((c.req.header('content-type') || '').includes('application/json')) {
+      requestBodyText = await c.req.raw.clone().text();
+    }
+  } catch { /* logging must never block the real request */ }
+
+  // A downstream handler throwing means this next() call itself throws
+  // (app.onError only wraps the whole chain from the very top) — caught
+  // here so logging still runs and records a row, then re-thrown unchanged
+  // so the existing onError/sendAlert behavior is completely unaffected.
+  let caughtError: unknown;
+  try {
+    await next();
+  } catch (err) {
+    caughtError = err;
+  }
+
+  try {
+    const duration = Date.now() - start;
+    const status = caughtError ? 500 : c.res.status;
+
+    let responseBodyText: string | null = null;
+    if (!caughtError && (c.res.headers.get('content-type') || '').includes('application/json')) {
+      responseBodyText = await c.res.clone().text();
+    }
+
+    // Reads whatever the auth middleware further down the chain already set
+    // (requireCrmAuth -> 'crmUser', Hono's jwt() middleware -> 'jwtPayload')
+    // rather than re-verifying a token here — this is informational logging,
+    // not a security check, so piggybacking on already-verified context is
+    // enough. Routes that verify their own token inline (e.g. community
+    // endpoints' optional-auth) won't populate either key, so those log as
+    // 'guest' even when actually called by a signed-in member — a known gap,
+    // not worth duplicating every controller's own auth logic to close.
+    const crmUser = c.get('crmUser') as any;
+    const jwtPayload = c.get('jwtPayload') as any;
+    const callerType = crmUser ? 'admin' : jwtPayload ? 'consumer' : 'guest';
+    const callerId = crmUser?.userId ?? jwtPayload?.userId ?? null;
+    const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || null;
+
+    const config = new ConfigService(c.env);
+    const insertPromise = config.db.prepare(`
+      INSERT INTO Api_Call_Logs (method, path, status_code, duration_ms, caller_type, caller_id, ip, request_body, response_body)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      method, path, status, duration, callerType, callerId, ip,
+      maskAndStringifyBody(requestBodyText), maskAndStringifyBody(responseBodyText),
+    ).run().catch(err => console.error('Failed to write Api_Call_Logs:', err));
+
+    c.executionCtx.waitUntil(insertPromise);
+  } catch (err) {
+    console.error('API call logging failed:', err);
+  }
+
+  if (caughtError) throw caughtError;
+});
 
 // --- System Routes ---
 app.get('/', (c) => c.text('Mellow Play API is running!'));
@@ -353,6 +426,8 @@ app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.upda
 app.delete('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.deleteUserCoupon(c));
 app.get   ('/api/v1/system/logs',        (c) => adminController.getSystemLogs(c));
 app.delete('/api/v1/system/logs',        (c) => adminController.clearSystemLogs(c));
+app.get   ('/api/v1/system/api-logs',    (c) => adminController.getApiCallLogs(c));
+app.delete('/api/v1/system/api-logs',    (c) => adminController.clearApiCallLogs(c));
 app.get   ('/api/v1/admin/system/settings', (c) => adminController.getSystemSettings(c));
 app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemSetting(c));
 
@@ -675,4 +750,20 @@ app.onError((err, c) => {
   return c.json({ success: false, message: 'Internal server error' }, 500);
 });
 
-export default app;
+// 30-day retention cleanup for Api_Call_Logs and System_Logs — runs once a
+// day via the Cloudflare Cron Trigger configured in wrangler.toml
+// ([triggers]/[env.dev.triggers]). Manual "delete now" buttons in the CRM
+// (adminController.clearApiCallLogs / clearSystemLogs) delete on the exact
+// same 30-day cutoff, so the automatic and manual paths never disagree.
+async function scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
+  const config = new ConfigService(env);
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    await config.db.prepare('DELETE FROM Api_Call_Logs WHERE created_at < ?').bind(cutoff).run();
+    await config.db.prepare('DELETE FROM System_Logs WHERE created_at < ?').bind(cutoff).run();
+  } catch (err) {
+    console.error('Scheduled log cleanup failed:', err);
+  }
+}
+
+export default { fetch: app.fetch, scheduled };

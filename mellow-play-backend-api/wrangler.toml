@@ -24,6 +24,12 @@ binding = "OTP_KV"
 id = "719ca37082ed4161b640df49cf8fce3d"
 preview_id = "e923d5d6ead848c88312b52bf8f79b6d"
 
+# Daily cleanup of Api_Call_Logs/System_Logs older than 30 days (see
+# scheduled() in src/index.ts) — 19:00 UTC = 02:00 Bangkok (UTC+7), a
+# low-traffic hour.
+[triggers]
+crons = ["0 19 * * *"]
+
 # Development (branch: dev)
 [env.dev]
 name = "mellow-play-backend-api-dev"
@@ -48,3 +54,6 @@ preview_bucket_name = "mellow-play-assets-dev"
 binding = "OTP_KV"
 id = "3b85a45ec6df4e9693e7696133cccf06"
 preview_id = "3b85a45ec6df4e9693e7696133cccf06"
+
+[env.dev.triggers]
+crons = ["0 19 * * *"]
