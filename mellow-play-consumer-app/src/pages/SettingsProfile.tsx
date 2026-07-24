@@ -26,6 +26,8 @@ const SettingsProfile = () => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    firstNameEn: '',
+    lastNameEn: '',
     phone: '',
     email: '',
     displayName: '',
@@ -45,7 +47,7 @@ const SettingsProfile = () => {
       const res = await apiClient.get('/auth/me');
       if (res.data.success) {
         const u = res.data.user;
-        setFormData(f => ({ ...f, phone: u.phone || '', email: u.email || '' }));
+        setFormData(f => ({ ...f, phone: u.phone || '', email: u.email || '', firstNameEn: u.firstNameEn || '', lastNameEn: u.lastNameEn || '' }));
         setAccount({ phoneVerified: u.phoneVerified, hasGoogleLinked: u.hasGoogleLinked });
         setAvatarUrl(u.avatarUrl || null);
       }
@@ -86,6 +88,8 @@ const SettingsProfile = () => {
       setFormData({
         firstName: user.firstName || '',
         lastName: user.lastName || '',
+        firstNameEn: user.firstNameEn || '',
+        lastNameEn: user.lastNameEn || '',
         phone: user.phone || '',
         email: user.email || '',
         displayName: user.displayName || '',
@@ -175,6 +179,8 @@ const SettingsProfile = () => {
       const response = await apiClient.put(`/admin/users/${user.id}`, {
         first_name: formData.firstName,
         last_name: formData.lastName,
+        first_name_en: formData.firstNameEn,
+        last_name_en: formData.lastNameEn,
         phone: formData.phone,
         email: formData.email,
         display_name: formData.displayName,
@@ -186,6 +192,8 @@ const SettingsProfile = () => {
           ...user,
           firstName: formData.firstName,
           lastName: formData.lastName,
+          firstNameEn: formData.firstNameEn,
+          lastNameEn: formData.lastNameEn,
           phone: formData.phone,
           email: formData.email,
           displayName: formData.displayName,
@@ -279,6 +287,32 @@ const SettingsProfile = () => {
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
                   required
+                />
+              </div>
+            </div>
+
+            {/* English name — optional, filled in either here or by CRM staff; left blank for anyone registered before this field existed. */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {lang === 'en' ? 'First Name (English)' : 'ชื่อจริง (อังกฤษ)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.firstNameEn}
+                  onChange={(e) => setFormData({ ...formData, firstNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {lang === 'en' ? 'Last Name (English)' : 'นามสกุล (อังกฤษ)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.lastNameEn}
+                  onChange={(e) => setFormData({ ...formData, lastNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
                 />
               </div>
             </div>

@@ -36,7 +36,7 @@ export class AdminController {
       if (!c.get('crmUser')) {
         return c.json({ success: false, message: 'Forbidden' }, 403);
       }
-      const { phone, password, prefix, firstName, lastName, dob, email, lineId, address } = await c.req.json();
+      const { phone, password, prefix, firstName, lastName, firstNameEn, lastNameEn, dob, email, lineId, address } = await c.req.json();
 
       if (!phone || !password || !firstName || !lastName) {
         return c.json({ success: false, message: 'phone, password, firstName, lastName required' }, 400);
@@ -49,7 +49,8 @@ export class AdminController {
       const userId = await userRepository.createWithChildren(
         phone, passwordHash, firstName, lastName, [],
         email || undefined, lineId || undefined,
-        true, false, address || undefined, prefix || undefined, dob || undefined
+        true, false, address || undefined, prefix || undefined, dob || undefined,
+        firstNameEn || undefined, lastNameEn || undefined
       );
       return c.json({ success: true, userId });
     } catch (error: any) {
@@ -110,6 +111,8 @@ export class AdminController {
       await adminRepo.updateUser(id, {
         firstName:          data.first_name !== undefined ? data.first_name : current.first_name,
         lastName:           data.last_name !== undefined ? data.last_name : current.last_name,
+        firstNameEn:        data.first_name_en !== undefined ? data.first_name_en : current.first_name_en,
+        lastNameEn:         data.last_name_en !== undefined ? data.last_name_en : current.last_name_en,
         phone,
         email:              data.email !== undefined ? data.email : current.email,
         relationship:       data.relationship !== undefined ? data.relationship : current.relationship,

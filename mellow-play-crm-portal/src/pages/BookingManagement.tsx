@@ -52,6 +52,7 @@ interface Booking {
   child_nickname?: string;
   child_birth_date?: string;
   parent_name?: string;
+  parent_name_en?: string;
   parent_phone?: string;
   parent_email?: string;
   course_name: string;
@@ -553,6 +554,9 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
             <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
+            {booking.parent_name_en && (
+              <Typography variant="body2" color="text.secondary">{booking.parent_name_en}</Typography>
+            )}
             <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
               <PhoneIcon sx={{ fontSize: 13 }} color="action" />
               <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
@@ -632,6 +636,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       b.child_name?.toLowerCase().includes(q) ||
       b.child_nickname?.toLowerCase().includes(q) ||
       b.parent_name?.toLowerCase().includes(q) ||
+      b.parent_name_en?.toLowerCase().includes(q) ||
       b.parent_phone?.toLowerCase().includes(q) ||
       b.parent_email?.toLowerCase().includes(q) ||
       b.course_name?.toLowerCase().includes(q) ||
@@ -680,6 +685,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       'วันเกิดเด็ก',
       'อายุจริง',
       'ชื่อผู้ปกครอง',
+      'ชื่อผู้ปกครอง (English)',
       'เบอร์โทรผู้ปกครอง',
       'อีเมลผู้ปกครอง',
       'สาขา',
@@ -705,6 +711,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         `"${childBdate}"`,
         `"${actualAge}"`,
         `"${b.parent_name || '-'}"`,
+        `"${b.parent_name_en || '-'}"`,
         `"${formatPhone(b.parent_phone)}"`,
         `"${b.parent_email || '-'}"`,
         `"${b.branch_name || ''}"`,

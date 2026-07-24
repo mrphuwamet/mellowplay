@@ -58,6 +58,8 @@ const Register = () => {
     prefix: '',
     firstName: '',
     lastName: '',
+    firstNameEn: '',
+    lastNameEn: '',
     dob: '',
     password: '',
     email: '',
@@ -408,6 +410,31 @@ const Register = () => {
           onChange={(e) => { setFormData({...formData, lastName: e.target.value}); setFieldErrors(prev => ({...prev, lastName: undefined})); }}
           className={`w-full px-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.lastName)}`}
         />
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
+          <input
+            id="reg-firstNameEn"
+            type="text"
+            placeholder={t.register.firstNameEn}
+            value={formData.firstNameEn}
+            onChange={(e) => setFormData({...formData, firstNameEn: e.target.value})}
+            className="w-full px-4 py-[14px] bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm focus:outline-none"
+          />
+        </div>
+        <div className="relative flex-1">
+          <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
+          <input
+            id="reg-lastNameEn"
+            type="text"
+            placeholder={t.register.lastNameEn}
+            value={formData.lastNameEn}
+            onChange={(e) => setFormData({...formData, lastNameEn: e.target.value})}
+            className="w-full px-4 py-[14px] bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm focus:outline-none"
+          />
+        </div>
       </div>
 
       <div className="relative">

@@ -84,6 +84,8 @@ export class AdminRepository {
   async updateUser(id: number, data: {
     firstName?: string;
     lastName?: string;
+    firstNameEn?: string;
+    lastNameEn?: string;
     phone?: string;
     email?: string;
     relationship?: string;
@@ -98,7 +100,7 @@ export class AdminRepository {
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Users SET
-        first_name = ?, last_name = ?, phone = ?, email = ?,
+        first_name = ?, last_name = ?, first_name_en = ?, last_name_en = ?, phone = ?, email = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
         application_date = ?, profile_image_url = ?, display_name = ?,
@@ -106,6 +108,7 @@ export class AdminRepository {
       WHERE id = ?
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
+      data.firstNameEn ?? null, data.lastNameEn ?? null,
       data.phone ?? null, data.email ?? null,
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
@@ -184,6 +187,7 @@ export class AdminRepository {
         hp.nickname as child_nickname,
         hp.birth_date as child_birth_date,
         (u.first_name || ' ' || u.last_name) as parent_name,
+        TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
         u.phone as parent_phone,
         u.email as parent_email,
         co.name as course_name, co.original_price,

@@ -103,7 +103,7 @@ export class AuthController {
   async register(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { phone, otp, password, prefix, firstName, lastName, dob, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
+      const { phone, otp, password, prefix, firstName, lastName, firstNameEn, lastNameEn, dob, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
 
       const childList = children || [];
       const invalidChild = childList.find((child: any) => !child.nickname || !child.gender);
@@ -126,7 +126,9 @@ export class AuthController {
         marketingConsent,
         address,
         prefix,
-        dob
+        dob,
+        firstNameEn,
+        lastNameEn
       );
       await sendNotification(config.db, 'สมาชิกใหม่', {
         'ชื่อ': `${prefix ?? ''}${firstName} ${lastName}`.trim(),
@@ -223,6 +225,8 @@ export class AuthController {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
+          firstNameEn: user.first_name_en,
+          lastNameEn: user.last_name_en,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
           isCommunityAdmin: !!user.is_community_admin
@@ -282,6 +286,8 @@ export class AuthController {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
+          firstNameEn: user.first_name_en,
+          lastNameEn: user.last_name_en,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
           isCommunityAdmin: !!user.is_community_admin
@@ -564,6 +570,8 @@ export class AuthController {
           id: user.id,
           firstName: user.first_name,
           lastName: user.last_name,
+          firstNameEn: user.first_name_en,
+          lastNameEn: user.last_name_en,
           phone: user.phone,
           phoneVerified: !!user.phone_verified,
           email: user.email,
