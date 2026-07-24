@@ -58,6 +58,7 @@ import {
   LocalActivity as TicketIcon,
   LocalOffer as PromoIcon,
   Feed as NewsFeedMenuIcon,
+  Flag as CommunityModerationMenuIcon,
   Campaign as AdsMenuIcon,
   Grade as StampImageMenuIcon,
   TrendingUp as SalesMenuIcon,
@@ -102,6 +103,7 @@ import POSSalesHistory from './pages/POSSalesHistory';
 import RedemptionManagement from './pages/RedemptionManagement';
 import RewardsManagement from './pages/RewardsManagement';
 import NewsFeedManagement from './pages/NewsFeedManagement';
+import CommunityModeration from './pages/CommunityModeration';
 import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
@@ -129,7 +131,7 @@ const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales'],
   people: ['/crm/staff', '/crm/parents'],
   classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/calendars', '/crm/bookings'],
-  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/ads'],
+  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
   system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs'],
@@ -426,6 +428,7 @@ const AppContent = () => {
       { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
       { text: 'จัดการรูปแสตมป์', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
       { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
+      { text: 'ตรวจสอบโพสต์ชุมชน', icon: <CommunityModerationMenuIcon />, path: '/crm/community-moderation', feature: 'news_feed' },
       { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },
       { text: 'โฆษณาในฟีด', icon: <AdsMenuIcon />, path: '/crm/ads', feature: 'ads' },
     ]);
@@ -871,6 +874,7 @@ const AppContent = () => {
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
             <Route path="/crm/news-feed"       element={protect('news_feed', <NewsFeedManagement />)} />
+            <Route path="/crm/community-moderation" element={protect('news_feed', <CommunityModeration />)} />
             <Route path="/crm/birthday-wishes" element={protect('news_feed', <BirthdayWishManagement />)} />
             <Route path="/crm/ads"             element={protect('ads', <AdsManagement />)} />
             <Route path="/crm/stamp-images"    element={protect('stamp_images', <StampImageManagement />)} />

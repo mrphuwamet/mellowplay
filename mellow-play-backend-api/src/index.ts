@@ -429,6 +429,14 @@ app.post('/api/v1/community/posts/:id/like', (c) => communityController.toggleLi
 app.get('/api/v1/community/posts/:id/comments', (c) => communityController.getComments(c));
 app.post('/api/v1/community/posts/:id/comments', (c) => communityController.addComment(c));
 app.post('/api/v1/community/posts/:id/vote', (c) => communityController.voteOnPoll(c));
+app.post('/api/v1/community/posts/:id/report', (c) => communityController.reportPost(c));
+
+// CRM moderation — under /admin/* so requireCrmAuth (registered above) protects it.
+app.get('/api/v1/admin/community/reported-posts', (c) => communityController.getReportedPosts(c));
+app.post('/api/v1/admin/community/posts/:id/hide', (c) => communityController.hidePost(c));
+app.post('/api/v1/admin/community/posts/:id/unhide', (c) => communityController.unhidePost(c));
+app.post('/api/v1/admin/community/posts/:id/dismiss-reports', (c) => communityController.dismissReports(c));
+app.delete('/api/v1/admin/community/posts/:id', (c) => communityController.adminDeletePost(c));
 
 app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 

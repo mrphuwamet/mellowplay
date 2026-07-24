@@ -47,6 +47,8 @@ export class CommunityRepository {
   }
 
   // userId is optional — guests still see the public feed, just no is_liked flag.
+  // Excludes posts a CRM moderator has hidden (see is_hidden) — reported but
+  // not-yet-actioned posts still show normally.
   async getFeed(userId?: number, limit = 20, offset = 0): Promise<any[]> {
     const { results } = await this.db.prepare(`
       SELECT Community_Posts.*,
@@ -57,6 +59,7 @@ export class CommunityRepository {
         (SELECT COUNT(*) FROM Community_Post_Likes l2 WHERE l2.post_id = Community_Posts.id AND l2.user_id = ?) as is_liked
       FROM Community_Posts
       JOIN Users u ON Community_Posts.user_id = u.id
+      WHERE Community_Posts.is_hidden = 0
       ORDER BY Community_Posts.created_at DESC
       LIMIT ? OFFSET ?
     `).bind(userId ?? 0, limit, offset).all();
@@ -179,5 +182,78 @@ export class CommunityRepository {
     await this.db.prepare(
       'INSERT INTO Community_Poll_Votes (option_id, user_id) VALUES (?, ?)'
     ).bind(optionId, userId).run();
+  }
+
+  // ================= MODERATION (report/flag, reviewed by CRM staff) =====
+
+  // ON CONFLICT DO NOTHING relies on the UNIQUE(post_id, reporter_user_id)
+  // constraint — a member can only report a given post once.
+  async reportPost(postId: number, reporterUserId: number, reason?: string): Promise<void> {
+    await this.db.prepare(`
+      INSERT INTO Community_Post_Reports (post_id, reporter_user_id, reason)
+      VALUES (?, ?, ?)
+      ON CONFLICT (post_id, reporter_user_id) DO NOTHING
+    `).bind(postId, reporterUserId, reason ?? null).run();
+  }
+
+  // One row per reported post (not per report) — reports_json bundles every
+  // still-pending report for that post so staff can see all the reasons at
+  // once without a second request per post.
+  async getReportedPosts(): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT
+        Community_Posts.id, Community_Posts.content, Community_Posts.image_url,
+        Community_Posts.is_hidden, Community_Posts.created_at,
+        Community_Posts.user_id as author_user_id,
+        COALESCE(u.display_name, u.first_name, 'สมาชิก') as author_name,
+        (SELECT COUNT(*) FROM Community_Post_Reports r WHERE r.post_id = Community_Posts.id AND r.status = 'pending') as report_count,
+        (
+          SELECT json_group_array(json_object(
+            'id', r2.id, 'reason', r2.reason, 'created_at', r2.created_at,
+            'reporter_name', COALESCE(ru.display_name, ru.first_name, 'สมาชิก')
+          ))
+          FROM Community_Post_Reports r2 JOIN Users ru ON r2.reporter_user_id = ru.id
+          WHERE r2.post_id = Community_Posts.id AND r2.status = 'pending'
+        ) as reports_json
+      FROM Community_Posts
+      JOIN Users u ON Community_Posts.user_id = u.id
+      WHERE EXISTS (SELECT 1 FROM Community_Post_Reports r3 WHERE r3.post_id = Community_Posts.id AND r3.status = 'pending')
+      ORDER BY report_count DESC, Community_Posts.created_at DESC
+    `).all<any>();
+    return results.map(r => ({ ...r, is_hidden: !!r.is_hidden, reports: r.reports_json ? JSON.parse(r.reports_json) : [] }));
+  }
+
+  // Hiding is the "acted on it" outcome — clears the post's pending reports
+  // to 'actioned' so it drops out of the moderation queue.
+  async hidePost(postId: number): Promise<void> {
+    await this.db.prepare('UPDATE Community_Posts SET is_hidden = 1 WHERE id = ?').bind(postId).run();
+    await this.db.prepare(`UPDATE Community_Post_Reports SET status = 'actioned' WHERE post_id = ? AND status = 'pending'`).bind(postId).run();
+  }
+
+  // Unhiding implies staff reviewed and decided the content is fine after
+  // all — dismisses any pending reports the same way dismissReports does.
+  async unhidePost(postId: number): Promise<void> {
+    await this.db.prepare('UPDATE Community_Posts SET is_hidden = 0 WHERE id = ?').bind(postId).run();
+    await this.db.prepare(`UPDATE Community_Post_Reports SET status = 'dismissed' WHERE post_id = ? AND status = 'pending'`).bind(postId).run();
+  }
+
+  // Staff decided the reports don't warrant hiding/deleting — clears the
+  // queue without changing the post itself.
+  async dismissReports(postId: number): Promise<void> {
+    await this.db.prepare(`UPDATE Community_Post_Reports SET status = 'dismissed' WHERE post_id = ? AND status = 'pending'`).bind(postId).run();
+  }
+
+  // Admin override delete — unlike the author-only deletePost() above, this
+  // has no user_id check (a CRM staff action, not a consumer one) and also
+  // clears the post's own report rows along with the rest of its data.
+  async adminDeletePost(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Community_Post_Likes WHERE post_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM Community_Post_Comments WHERE post_id = ?').bind(id).run();
+    await this.db.prepare(`
+      DELETE FROM Community_Poll_Votes WHERE option_id IN (SELECT id FROM Community_Poll_Options WHERE post_id = ?)
+    `).bind(id).run();
+    await this.db.prepare('DELETE FROM Community_Poll_Options WHERE post_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM Community_Post_Reports WHERE post_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM Community_Posts WHERE id = ?').bind(id).run();
   }
 }

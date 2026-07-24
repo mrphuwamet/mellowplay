@@ -177,6 +177,82 @@ export class CommunityController {
     }
   }
 
+  // ── Reporting (member-facing) ─────────────────────────────────────────────
+  async reportPost(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const userId = await this.getOptionalUserId(c, config);
+      if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const repo = new CommunityRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      const post = await repo.getById(id);
+      if (!post) return c.json({ success: false, message: 'Not found' }, 404);
+
+      const { reason } = await c.req.json().catch(() => ({ reason: undefined }));
+      await repo.reportPost(id, userId, reason);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // ── Moderation (CRM staff — routes gated by requireCrmAuth in index.ts) ──
+  async getReportedPosts(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CommunityRepository(config.db);
+      const posts = await repo.getReportedPosts();
+      return c.json({ success: true, posts });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async hidePost(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CommunityRepository(config.db);
+      await repo.hidePost(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async unhidePost(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CommunityRepository(config.db);
+      await repo.unhidePost(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async dismissReports(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CommunityRepository(config.db);
+      await repo.dismissReports(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async adminDeletePost(c: Ctx) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CommunityRepository(config.db);
+      await repo.adminDeletePost(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   // ── Polls ─────────────────────────────────────────────────────────────────
   async voteOnPoll(c: Ctx) {
     try {

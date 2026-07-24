@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Send, Trash2, MapPin, Check, AlertCircle } from 'lucide-react';
+import { Heart, MessageCircle, Send, Trash2, MapPin, Check, AlertCircle, Flag } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import { resolveImageUrl } from '../utils/courseImage';
@@ -32,6 +32,10 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
   const [commentSubmitting, setCommentSubmitting] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [showReportModal, setShowReportModal] = React.useState(false);
+  const [reportReason, setReportReason] = React.useState<string | null>(null);
+  const [reporting, setReporting] = React.useState(false);
+  const [reported, setReported] = React.useState(false);
 
   const youtubeEmbedUrl = React.useMemo(() => extractYouTubeEmbedUrl(post.content || ''), [post.content]);
 
@@ -107,6 +111,24 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
     }
   };
 
+  const REPORT_REASONS = lang === 'en'
+    ? ['Spam / advertising', 'Inappropriate content', 'Bullying / harassment', 'Other']
+    : ['สแปม/โฆษณา', 'เนื้อหาไม่เหมาะสม', 'กลั่นแกล้ง/คุกคาม', 'อื่นๆ'];
+
+  const handleReport = async () => {
+    if (reporting) return;
+    setReporting(true);
+    try {
+      await apiClient.post(`/community/posts/${post.id}/report`, { reason: reportReason || undefined });
+      setReported(true);
+      setShowReportModal(false);
+    } catch {
+      /* silently fail — reporting isn't critical enough to surface an error toast */
+    } finally {
+      setReporting(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
       <div className="flex items-center gap-3">
@@ -121,13 +143,22 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
           <p className="text-[14px] font-black text-slate-800 leading-tight truncate">{post.author_name}</p>
           <p className="text-[11px] text-slate-400 font-bold">{formatCustomDate(post.created_at, lang, 'short')}</p>
         </div>
-        {isAuthor && (
+        {isAuthor ? (
           <button
             onClick={() => setShowDeleteConfirm(true)}
             disabled={deleting}
             className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50 shrink-0"
           >
             <Trash2 size={14} />
+          </button>
+        ) : isLoggedIn && (
+          <button
+            onClick={() => { if (!reported) { setReportReason(null); setShowReportModal(true); } }}
+            disabled={reported}
+            className={`w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform shrink-0 ${reported ? 'text-emerald-500 bg-emerald-50' : 'bg-slate-50 text-slate-400'}`}
+            title={reported ? (lang === 'en' ? 'Reported' : 'รายงานแล้ว') : (lang === 'en' ? 'Report post' : 'รายงานโพสต์')}
+          >
+            {reported ? <Check size={14} /> : <Flag size={14} />}
           </button>
         )}
       </div>
@@ -286,6 +317,43 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
             className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[14px] active:scale-95 transition-transform disabled:opacity-60"
           >
             {lang === 'en' ? 'Delete' : 'ลบโพสต์'}
+          </button>
+        </div>
+      </ResponsiveModal>
+
+      <ResponsiveModal isOpen={showReportModal} onClose={() => setShowReportModal(false)} variant="dialog" size="sm">
+        <h3 className="text-[17px] font-black text-slate-800 mb-1">
+          {lang === 'en' ? 'Report this post' : 'รายงานโพสต์นี้'}
+        </h3>
+        <p className="text-[13px] text-slate-500 font-medium mb-4">
+          {lang === 'en' ? "Our team will review it — the post isn't removed automatically." : 'ทีมงานจะตรวจสอบ — โพสต์จะยังไม่ถูกลบทันที'}
+        </p>
+        <div className="flex flex-col gap-2 mb-5">
+          {REPORT_REASONS.map(r => (
+            <button
+              key={r}
+              onClick={() => setReportReason(r)}
+              className={`text-left px-4 py-2.5 rounded-2xl text-[13px] font-bold border transition-all ${
+                reportReason === r ? 'border-mellow-purple bg-mellow-purple/10 text-mellow-purple' : 'border-slate-100 bg-slate-50 text-slate-600'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setShowReportModal(false)}
+            className="h-[46px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[14px] active:scale-95 transition-transform"
+          >
+            {lang === 'en' ? 'Cancel' : 'ยกเลิก'}
+          </button>
+          <button
+            onClick={handleReport}
+            disabled={reporting || !reportReason}
+            className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[14px] active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {lang === 'en' ? 'Report' : 'รายงาน'}
           </button>
         </div>
       </ResponsiveModal>
