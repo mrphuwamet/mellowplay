@@ -117,8 +117,6 @@ export class AdminController {
         pdpaConsent:        data.pdpa_consent !== undefined ? data.pdpa_consent : !!current.pdpa_consent,
         marketingConsent:   data.marketing_consent !== undefined ? data.marketing_consent : (current.marketing_consent != null ? !!current.marketing_consent : null),
         applicationDate:    data.application_date !== undefined ? data.application_date : current.application_date,
-        membershipType:     data.membership_type !== undefined ? data.membership_type : current.membership_type,
-        membershipExpiresAt: data.membership_expires_at !== undefined ? data.membership_expires_at : current.membership_expires_at,
         profileImageUrl:    data.profile_image_url !== undefined ? data.profile_image_url : current.profile_image_url,
         displayName:        data.display_name !== undefined ? data.display_name : current.display_name,
         isCommunityAdmin:   data.is_community_admin !== undefined ? data.is_community_admin : !!current.is_community_admin,
@@ -141,8 +139,12 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const childId = parseInt(c.req.param('id'));
-      const { nickname, gender, relation } = await c.req.json();
-      await adminRepo.updateHdChild(childId, { nickname, gender, relation });
+      const { nickname, gender, relation, membership_type, membership_expires_at } = await c.req.json();
+      await adminRepo.updateHdChild(childId, {
+        nickname, gender, relation,
+        membershipType: membership_type,
+        membershipExpiresAt: membership_expires_at,
+      });
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -286,16 +288,23 @@ export class AdminController {
         return c.json({ success: false, message: 'No children selected' }, 400);
       }
 
-      // Batch-fetch parent_id for every child in this request up front — Check 2
-      // below needs to catch siblings booked together in the SAME request, which
-      // a per-child DB lookup can't see since none of them are inserted yet.
+      // Batch-fetch parent_id + membership for every child in this request up
+      // front — Check 2 below needs to catch siblings booked together in the
+      // SAME request (a per-child DB lookup can't see that, since none of
+      // them are inserted yet), and the price calculation further down needs
+      // to know which children are Premium.
       const realChildIds = parsedChildIds.filter((id: number) => id > 0);
       const childParentMap = new Map<number, number>();
+      const childPremiumMap = new Map<number, boolean>();
       if (realChildIds.length > 0) {
         const { results: childRows } = await db.prepare(
-          `SELECT id, parent_id FROM Children WHERE id IN (${realChildIds.join(',')})`
+          `SELECT id, parent_id, membership_type, membership_expires_at FROM Children WHERE id IN (${realChildIds.join(',')})`
         ).all();
-        for (const row of childRows as any[]) childParentMap.set(row.id, row.parent_id);
+        const now = new Date();
+        for (const row of childRows as any[]) {
+          childParentMap.set(row.id, row.parent_id);
+          childPremiumMap.set(row.id, row.membership_type === 'premium' && (!row.membership_expires_at || new Date(row.membership_expires_at) > now));
+        }
       }
       const seenParentIdsForLimitOne = new Set<number>();
 
@@ -410,17 +419,32 @@ export class AdminController {
         }
       }
 
-      // Calculate price and discount
-      const courseRow = await db.prepare('SELECT id, name, original_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
-      const unitPrice: number = courseRow?.original_price ?? 0;
+      // Calculate price and discount. Premium children (childPremiumMap,
+      // batched above from Children.membership_type) use Courses.premium_price
+      // when the course has one set; everyone else (regular children and
+      // guests) pays original_price — a mixed-status group (e.g. one Premium
+      // and one Regular sibling in the same request) is priced per child, not
+      // as one lump price times headcount.
+      const courseRow = await db.prepare('SELECT id, name, original_price, premium_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      const basePriceFor = (childId: number): number =>
+        (childId > 0 && childPremiumMap.get(childId) && courseRow?.premium_price != null)
+          ? courseRow.premium_price
+          : (courseRow?.original_price ?? 0);
 
-      // Compute active campaign discount (matching getCourses logic)
+      // Compute active campaign discount (matching getCourses logic). The
+      // winning campaign is picked the same way as before (evaluated against
+      // original_price, so the choice among multiple active campaigns doesn't
+      // change), but its rule (percent or flat) is then re-applied to each
+      // child's own base price below — a percent-off campaign should still
+      // take the same percentage off a Premium child's lower base price.
       const { results: activeCampaigns } = await db.prepare(
         "SELECT * FROM Sale_Campaigns WHERE is_active = 1"
       ).all();
 
       const now = new Date();
       let campaignDiscountAmt = 0;
+      let campaignDiscountPct = 0;
+      let bestCampaignDiscountForOriginal = 0;
 
       for (const camp of (activeCampaigns as any[])) {
         if (camp.valid_from && new Date(camp.valid_from) > now) continue;
@@ -428,7 +452,7 @@ export class AdminController {
 
         let itemDiscountAmt = camp.discount_amount || 0;
         let itemDiscountPct = camp.discount_percent || 0;
-        
+
         try {
           const applicableIds = JSON.parse(camp.applicable_course_ids || '[]');
           const specificItem = applicableIds.find((i: any) => i.id === courseRow.id);
@@ -438,43 +462,52 @@ export class AdminController {
           }
         } catch(e) {}
 
-        let calculatedDiscountAmt = 0;
-        if (itemDiscountPct > 0) {
-          calculatedDiscountAmt = (unitPrice * itemDiscountPct) / 100;
-        } else {
-          calculatedDiscountAmt = itemDiscountAmt;
-        }
+        const discountForOriginal = itemDiscountPct > 0
+          ? ((courseRow?.original_price ?? 0) * itemDiscountPct) / 100
+          : itemDiscountAmt;
 
-        if (calculatedDiscountAmt > campaignDiscountAmt) {
-          campaignDiscountAmt = calculatedDiscountAmt;
+        if (discountForOriginal > bestCampaignDiscountForOriginal) {
+          bestCampaignDiscountForOriginal = discountForOriginal;
+          campaignDiscountPct = itemDiscountPct > 0 ? itemDiscountPct : 0;
+          campaignDiscountAmt = itemDiscountPct > 0 ? 0 : itemDiscountAmt;
         }
       }
 
-      const priceAfterCampaign = Math.max(0, unitPrice - campaignDiscountAmt);
+      const priceAfterCampaignFor = (basePrice: number): number =>
+        Math.max(0, basePrice - (campaignDiscountPct > 0 ? (basePrice * campaignDiscountPct) / 100 : campaignDiscountAmt));
 
-      // Apply promo discount if provided
-      let promoDiscountAmount = 0;
+      // Apply promo discount if provided — same "compute the rule once,
+      // apply per child" approach as the campaign discount above.
+      let promoDiscountPct = 0;
+      let promoDiscountAmt = 0;
       if (promoCode) {
         const promo = await db.prepare(`
-          SELECT discount_amount, discount_percent FROM Promotions 
-          WHERE code = ? AND is_active = 1 
+          SELECT discount_amount, discount_percent FROM Promotions
+          WHERE code = ? AND is_active = 1
           AND (valid_until IS NULL OR valid_until > datetime('now'))
           AND (max_uses = 0 OR current_uses < max_uses)
         `).bind(promoCode).first() as any;
         if (promo) {
           if (promo.discount_percent > 0) {
-            promoDiscountAmount = Math.floor(priceAfterCampaign * promo.discount_percent / 100);
+            promoDiscountPct = promo.discount_percent;
           } else {
-            promoDiscountAmount = promo.discount_amount;
+            promoDiscountAmt = promo.discount_amount;
           }
         }
       }
 
-      const pricePerChild = Math.max(0, priceAfterCampaign - promoDiscountAmount);
+      const finalPriceFor = (childId: number): number => {
+        const priceAfterCampaign = priceAfterCampaignFor(basePriceFor(childId));
+        const promoDiscount = promoDiscountPct > 0 ? Math.floor(priceAfterCampaign * promoDiscountPct / 100) : promoDiscountAmt;
+        return Math.max(0, priceAfterCampaign - promoDiscount);
+      };
+
+      const childPrices = parsedChildIds.map((id: number) => finalPriceFor(id));
+      const totalPrice = childPrices.reduce((sum: number, p: number) => sum + p, 0);
       const settingsRepo = new SettingsRepository(config.db);
       const paymentEnabled = await settingsRepo.getSetting('payment_enabled') !== '0';
 
-      const isFree = pricePerChild === 0 && paymentMethod !== 'coupon';
+      const isFree = totalPrice === 0 && paymentMethod !== 'coupon';
       const shouldBypassPayment = isFree || !paymentEnabled;
       const targetStatus = shouldBypassPayment ? 'confirmed_paid' : (status || 'pending');
       const targetPaymentStatus = shouldBypassPayment ? 'paid' : (paymentStatus || 'pending');
@@ -527,6 +560,7 @@ export class AdminController {
           paymentStatus: targetPaymentStatus,
           paymentMethod: paymentMethod ?? undefined,
           notes: notes ?? undefined,
+          price: finalPriceFor(parsedChildId),
         });
         bookingIds.push(id);
       }
@@ -550,7 +584,7 @@ export class AdminController {
           const isAll = !['credit_card', 'promptpay', 'wallet', 'mobile_banking'].includes(paymentMethod);
           const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-          const netAmount = Math.round(pricePerChild * parsedChildIds.length * 100); // Beam uses satang
+          const netAmount = Math.round(totalPrice * 100); // Beam uses satang
 
           const payload = {
             linkSettings: {
@@ -630,13 +664,12 @@ export class AdminController {
             `).all();
             childNames = (results as any[]).map(r => r.nickname).filter(Boolean).join(', ') || childNames;
           }
-          const totalAmount = pricePerChild * parsedChildIds.length;
           const methodLabel = paymentMethod === 'coupon' ? 'คูปอง (Coupon)' : (isFree ? 'ฟรี (Free)' : (paymentMethod || 'อื่นๆ'));
           await sendNotification(config.db, 'การจองสำเร็จ (ชำระเงินแล้ว)', {
             'คลาส': courseRow?.name ?? `#${courseId}`,
             'เด็ก': childNames,
             'วันเวลา': scheduledAt,
-            'ยอดชำระ': `${totalAmount.toLocaleString('th-TH')} บาท`,
+            'ยอดชำระ': `${totalPrice.toLocaleString('th-TH')} บาท`,
             'ช่องทางชำระ': methodLabel,
             'เวลาชำระ': new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
             'รหัสจอง': bookingIds.join(', '),

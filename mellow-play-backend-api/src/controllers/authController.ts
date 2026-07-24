@@ -214,15 +214,6 @@ export class AuthController {
       const token = await AuthService.generateToken(user.id, config.jwtSecret);
       console.log('Token generated');
 
-      // Determine membership status
-      let membershipStatus = 'inactive';
-      if (user.membership_expires_at) {
-        const expiryDate = new Date(user.membership_expires_at);
-        if (expiryDate > new Date()) {
-          membershipStatus = 'active';
-        }
-      }
-      
       return c.json({
         success: true,
         token,
@@ -232,7 +223,6 @@ export class AuthController {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
-          membershipStatus,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
           isCommunityAdmin: !!user.is_community_admin
@@ -281,14 +271,6 @@ export class AuthController {
       const token = await AuthService.generateToken(user.id, config.jwtSecret);
       const childCount = await userRepository.countChildren(user.id);
 
-      let membershipStatus = 'inactive';
-      if (user.membership_expires_at) {
-        const expiryDate = new Date(user.membership_expires_at);
-        if (expiryDate > new Date()) {
-          membershipStatus = 'active';
-        }
-      }
-
       return c.json({
         success: true,
         token,
@@ -300,7 +282,6 @@ export class AuthController {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
-          membershipStatus,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
           isCommunityAdmin: !!user.is_community_admin

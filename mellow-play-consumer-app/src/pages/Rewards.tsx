@@ -5,6 +5,7 @@ import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import ResponsiveModal from '../components/ResponsiveModal';
+import { isPremiumChild } from '../utils/membership';
 
 interface Reward {
   id: number;
@@ -64,10 +65,7 @@ const Rewards = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [pageBackgrounds, setPageBackgrounds] = useState<{ page_number: number; image_url: string }[]>([]);
 
-  const userJson = localStorage.getItem('mellow_user');
-  const user = userJson ? JSON.parse(userJson) : null;
-  const membershipStatus = user?.membershipStatus || 'inactive';
-  const isPremium = membershipStatus === 'premium';
+  const isPremium = isPremiumChild(selectedChild);
 
   const fetchStamps = async () => {
     if (!selectedChild?.id) return;

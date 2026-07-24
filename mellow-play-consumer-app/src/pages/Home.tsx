@@ -21,6 +21,7 @@ import apiClient from '../utils/apiClient';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { resolveImageUrl } from '../utils/courseImage';
+import { isPremiumChild } from '../utils/membership';
 
 const COMMUNITY_PAGE_SIZE = 10;
 
@@ -89,7 +90,6 @@ const Home = () => {
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
-  const membershipStatus = user?.membershipStatus || 'inactive';
 
   // Sticky-shrinking composer — the full composer stays in normal flow;
   // once it scrolls out of view (tracked via IntersectionObserver against
@@ -137,6 +137,7 @@ const Home = () => {
   };
 
   const currentChild = isGuest ? guestChild : selectedChild;
+  const isPremium = isPremiumChild(currentChild);
   const { statusMap: courseBookingStatus, isLoading: isBookingStatusLoading } = useCourseBookingStatus(user?.id, currentChild?.id);
 
   React.useEffect(() => {
@@ -784,12 +785,12 @@ const Home = () => {
                         </button>
                       )}
                       <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full shadow-sm ${
-                        membershipStatus === 'premium'
+                        isPremium
                           ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white'
                           : 'bg-emerald-100 text-emerald-600'
                       }`}>
-                        {membershipStatus === 'premium' ? <Crown size={12} strokeWidth={2.5} /> : <Medal size={12} strokeWidth={2.5} />}
-                        {membershipStatus === 'premium' ? 'Premium' : 'Regular'}
+                        {isPremium ? <Crown size={12} strokeWidth={2.5} /> : <Medal size={12} strokeWidth={2.5} />}
+                        {isPremium ? 'Premium' : 'Regular'}
                       </span>
                     </div>
                   )}

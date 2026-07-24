@@ -29,14 +29,22 @@ export class AdminRepository {
     // — a plain LEFT JOIN against only one of them undercounts (usually to
     // zero) for regular app users. Sum both via correlated subqueries instead
     // of joining both tables directly, which would multiply rows together.
+    // Membership is per-child now (see Children.membership_type) — Users.
+    // membership_type/membership_expires_at are no longer read here, replaced
+    // by has_premium_child so the list view can still flag which parents have
+    // an active Premium child without fetching every child individually.
     const { results } = await this.db.prepare(`
       SELECT
         u.id, u.phone, u.email, u.first_name, u.last_name,
-        u.membership_expires_at, u.membership_type,
         (
           COALESCE((SELECT COUNT(*) FROM Children WHERE parent_id = u.id), 0) +
           COALESCE((SELECT COUNT(*) FROM User_CRM_Children WHERE user_id = u.id), 0)
-        ) as children_count
+        ) as children_count,
+        EXISTS (
+          SELECT 1 FROM Children ch WHERE ch.parent_id = u.id
+            AND ch.membership_type = 'premium'
+            AND (ch.membership_expires_at IS NULL OR ch.membership_expires_at > datetime('now'))
+        ) as has_premium_child
       FROM Users u
       ORDER BY u.created_at DESC
     `).all();
@@ -55,7 +63,8 @@ export class AdminRepository {
 
     const { results: hdChildren } = await this.db.prepare(`
       SELECT c.id, hp.name as full_name, hp.nickname, hp.gender, hp.birth_date as date_of_birth,
-             hp.relation, COALESCE(c.avatar, c.custom_photo_url) as avatar, 1 as is_hd
+             hp.relation, COALESCE(c.avatar, c.custom_photo_url) as avatar, 1 as is_hd,
+             c.membership_type, c.membership_expires_at
       FROM Children c
       JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
       WHERE hp.user_id = ?
@@ -70,6 +79,8 @@ export class AdminRepository {
     return { ...user, children: children || [], coupons: coupons || [] };
   }
 
+  // membership_type/membership_expires_at are no longer edited here — they
+  // moved to Children (see updateHdChild) since Premium status is per-child.
   async updateUser(id: number, data: {
     firstName?: string;
     lastName?: string;
@@ -80,8 +91,6 @@ export class AdminRepository {
     pdpaConsent?: boolean;
     marketingConsent?: boolean | null;
     applicationDate?: string;
-    membershipType?: string;
-    membershipExpiresAt?: string | null;
     profileImageUrl?: string;
     displayName?: string;
     isCommunityAdmin?: boolean;
@@ -90,7 +99,6 @@ export class AdminRepository {
     await this.db.prepare(`
       UPDATE Users SET
         first_name = ?, last_name = ?, phone = ?, email = ?,
-        membership_type = ?, membership_expires_at = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
         application_date = ?, profile_image_url = ?, display_name = ?,
@@ -99,7 +107,6 @@ export class AdminRepository {
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
       data.phone ?? null, data.email ?? null,
-      data.membershipType ?? null, data.membershipExpiresAt ?? null,
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
       data.applicationDate ?? null, data.profileImageUrl ?? null, data.displayName ?? null,
@@ -125,12 +132,20 @@ export class AdminRepository {
   // calculation (hd_type/hd_strategy/hd_authority etc.), so changing them
   // here without recalculating the whole chart would leave it inconsistent.
   // nickname/gender/relation are just display metadata — safe to edit directly.
-  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string }): Promise<void> {
+  // membership_type/membership_expires_at live on Children itself (not
+  // HD_Profiles), since premium status is per-child, not part of the HD chart.
+  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; membershipType?: string; membershipExpiresAt?: string | null }): Promise<void> {
     const child = await this.db.prepare('SELECT hd_profile_id FROM Children WHERE id = ?').bind(childId).first<{ hd_profile_id: number }>();
     if (!child) throw new Error('Child not found');
     await this.db.prepare(`
       UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ? WHERE id = ?
     `).bind(data.nickname ?? null, data.gender ?? null, data.relation ?? null, child.hd_profile_id).run();
+
+    if (data.membershipType !== undefined) {
+      await this.db.prepare(`
+        UPDATE Children SET membership_type = ?, membership_expires_at = ? WHERE id = ?
+      `).bind(data.membershipType, data.membershipExpiresAt ?? null, childId).run();
+    }
   }
 
   // ── User Coupon CRUD ──────────────────────────────────────────────────────
@@ -227,16 +242,18 @@ export class AdminRepository {
     paymentStatus?: string;
     paymentMethod?: string;
     notes?: string;
+    price?: number;
   }): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO Bookings
         (child_id, course_id, branch_id, scheduled_at, status, age_group,
-         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes, price)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup,
       data.calendarId ?? null, data.slotDate ?? null, data.slotStartTime ?? null,
-      data.paymentStatus ?? 'prepaid', data.paymentMethod ?? 'coupon', data.notes ?? null
+      data.paymentStatus ?? 'prepaid', data.paymentMethod ?? 'coupon', data.notes ?? null,
+      data.price ?? null
     ).run();
     return result.meta.last_row_id;
   }

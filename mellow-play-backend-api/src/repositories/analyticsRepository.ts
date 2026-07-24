@@ -53,12 +53,15 @@ export class AnalyticsRepository {
 
   async getParentStats(): Promise<any> {
     const totalRow = await this.db.prepare(`SELECT COUNT(*) as total FROM Users`).first<any>();
-    // membership_type only ever has two real values in the CRM ('regular' /
-    // 'premium' — see UserManagement.tsx's MEMBERSHIP_TYPES) — anything else
-    // (the unused DB default 'standard', blank, null) is really just "regular".
+    // Membership moved from Users to Children (per-child, not per-account) —
+    // this now counts CHILDREN by membership type, not parents. `total`
+    // above is unrelated and still counts Users (parent accounts). Values
+    // only ever have two real ones ('standard' default / 'premium' — see
+    // UserManagement.tsx's per-child membership editor), so anything else
+    // buckets to "regular".
     const { results: byType } = await this.db.prepare(`
       SELECT CASE WHEN LOWER(TRIM(membership_type)) = 'premium' THEN 'premium' ELSE 'regular' END as type, COUNT(*) as count
-      FROM Users
+      FROM Children
       GROUP BY type
     `).all<any>();
     return { total: totalRow?.total || 0, byMembershipType: byType };

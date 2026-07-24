@@ -40,6 +40,8 @@ export class HDProfileRepository {
         c.current_level,
         c.avatar,
         c.custom_photo_url,
+        c.membership_type,
+        c.membership_expires_at,
         COALESCE(mc.little_junior_balance, 0) as little_junior_balance,
         COALESCE(mc.junior_balance, 0) as junior_balance,
         (

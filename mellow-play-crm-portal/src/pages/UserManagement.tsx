@@ -51,6 +51,11 @@ interface Child {
   relation?: string;
   avatar?: string;
   is_hd?: boolean;
+  // Premium membership lives per-child now, not on the parent Users row —
+  // only real (is_hd) children have a Children row to attach it to; CRM
+  // walk-in children (User_CRM_Children) have no membership concept.
+  membership_type?: string;
+  membership_expires_at?: string | null;
 }
 
 interface User {
@@ -59,9 +64,8 @@ interface User {
   email: string;
   first_name: string;
   last_name: string;
-  membership_expires_at: string | null;
-  membership_type?: string;
   children_count: number;
+  has_premium_child?: boolean;
   profile_image_url?: string;
   relationship?: string;
   line_id?: string;
@@ -105,8 +109,6 @@ const emptyForm = {
   pdpa_consent: false,
   marketing_consent: '',
   application_date: '',
-  membership_type: 'standard',
-  membership_expires_at: '',
   profile_image_url: '',
   is_community_admin: false,
 };
@@ -160,9 +162,9 @@ const RELATIONSHIPS = [
   { label: 'อื่นๆ', value: 'other' },
 ];
 
-// Users.membership_type's real DB default is 'standard' (see schema.sql) —
-// this used to say 'regular', which never matched any actual row, so the
-// dropdown always rendered blank for every non-premium member.
+// Children.membership_type's DB default is 'standard' (see migration
+// 0050_child_membership.sql) — membership moved here from Users, since
+// Premium privileges apply per-child, not per parent account.
 const MEMBERSHIP_TYPES = [
   { label: 'Standard', value: 'standard' },
   { label: 'Premium Member', value: 'premium' },
@@ -347,8 +349,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         // rendered with neither option selected. Coerce through truthiness first.
         marketing_consent: d.marketing_consent == null ? '' : (d.marketing_consent ? 'true' : 'false'),
         application_date: d.application_date ? d.application_date.substring(0, 10) : '',
-        membership_type: d.membership_type ?? 'standard',
-        membership_expires_at: d.membership_expires_at ? d.membership_expires_at.substring(0, 10) : '',
         profile_image_url: d.profile_image_url ?? '',
         is_community_admin: Boolean(d.is_community_admin),
       });
@@ -364,6 +364,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         relation: c.relation ?? '',
         avatar: c.avatar ?? '',
         is_hd: Boolean(c.is_hd),
+        membership_type: c.membership_type ?? 'standard',
+        membership_expires_at: c.membership_expires_at ? c.membership_expires_at.substring(0, 10) : '',
       })));
     } catch {
       setForm({
@@ -376,8 +378,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         pdpa_consent: false,
         marketing_consent: '',
         application_date: '',
-        membership_type: 'standard',
-        membership_expires_at: user.membership_expires_at ? user.membership_expires_at.substring(0, 10) : '',
         profile_image_url: '',
         is_community_admin: Boolean(user.is_community_admin),
       });
@@ -441,8 +441,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setError('กรุณากรอกชื่อ-นามสกุลของเด็กทุกคนให้ครบถ้วน');
       return;
     }
-    if (form.membership_type === 'premium' && !form.membership_expires_at) {
-      setError('กรุณาระบุวันหมดอายุสมาชิก Premium');
+    if (children.some(c => c.is_hd && c.membership_type === 'premium' && !c.membership_expires_at)) {
+      setError('กรุณาระบุวันหมดอายุสมาชิก Premium ของเด็กทุกคนที่เป็น Premium');
       return;
     }
 
@@ -453,7 +453,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         pdpa_consent: Boolean(form.pdpa_consent),
         is_community_admin: Boolean(form.is_community_admin),
         marketing_consent: form.marketing_consent === '' ? null : form.marketing_consent === 'true',
-        membership_expires_at: form.membership_type === 'premium' ? form.membership_expires_at : null,
         children: children.filter(c => !c.is_hd).map(c => ({ ...c, date_of_birth: c.date_of_birth || null })),
       };
       await axios.put(`${API_BASE}/users/${editUser!.id}`, payload);
@@ -466,11 +465,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       }
       // HD-registered children (is_hd) live outside the CRM's own
       // User_CRM_Children table (User.children payload above only touches
-      // that one) — persist their nickname/gender/relation edits separately.
+      // that one) — persist their nickname/gender/relation/membership edits
+      // separately.
       await Promise.all(
         children.filter(c => c.is_hd && c.id).map(c =>
           axios.put(`${API_BASE}/children/${c.id}`, {
             nickname: c.nickname, gender: c.gender, relation: c.relation || null,
+            membership_type: c.membership_type ?? 'standard',
+            membership_expires_at: c.membership_type === 'premium' ? c.membership_expires_at : null,
           })
         )
       );
@@ -620,14 +622,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
     }
   };
 
-  const getMembershipChip = (user: User) => {
-    const isPremium = user.membership_type === 'premium';
-    if (!isPremium) return <Chip label="สมาชิกทั่วไป" size="small" variant="outlined" />;
-    if (!user.membership_expires_at) return <Chip icon={<PremiumIcon sx={{ fontSize: '14px !important' }} />} label="Premium" size="small" color="warning" sx={{ fontWeight: 800 }} />;
-    return new Date(user.membership_expires_at) > new Date()
-      ? <Chip icon={<PremiumIcon sx={{ fontSize: '14px !important' }} />} label="Premium" size="small" color="warning" sx={{ fontWeight: 800 }} />
-      : <Chip label="หมดอายุ" size="small" color="error" sx={{ fontWeight: 700 }} />;
-  };
+  // Membership is per-child now — this just flags whether ANY of this
+  // parent's children currently has an active Premium membership (see
+  // has_premium_child, computed server-side in adminRepository.getAllUsers).
+  // Per-child detail is in the child cards inside the edit view.
+  const getMembershipChip = (user: User) =>
+    user.has_premium_child
+      ? <Chip icon={<PremiumIcon sx={{ fontSize: '14px !important' }} />} label="มีลูก Premium" size="small" color="warning" sx={{ fontWeight: 800 }} />
+      : <Chip label="สมาชิกทั่วไป" size="small" variant="outlined" />;
 
   // Hard super_admin guard — protect() in App.tsx also blocks, this is defense-in-depth
   if (currentUserRole && currentUserRole !== 'super_admin') {
@@ -854,6 +856,41 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                               </Select>
                             </FormControl>
                           </Grid>
+                          {/* Premium membership is per-child — only real
+                              (is_hd) children have a Children row to attach
+                              it to; CRM-created walk-in children have no
+                              membership concept. */}
+                          {child.is_hd && (
+                            <>
+                              <Grid item xs={12} sm={6}>
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>ประเภทสมาชิก</InputLabel>
+                                  <Select
+                                    value={child.membership_type || 'standard'} label="ประเภทสมาชิก"
+                                    onChange={e => !readOnly && setChildren(prev => prev.map((c, i) => i === index ? {
+                                      ...c,
+                                      membership_type: e.target.value,
+                                      membership_expires_at: e.target.value === 'standard' ? '' : c.membership_expires_at,
+                                    } : c))}
+                                    inputProps={{ readOnly }}
+                                  >
+                                    {MEMBERSHIP_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              {child.membership_type === 'premium' && (
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    label="วันหมดอายุสมาชิก Premium *" fullWidth size="small" type="date"
+                                    value={child.membership_expires_at || ''}
+                                    onChange={e => !readOnly && updateChild(index, 'membership_expires_at', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    InputProps={{ readOnly }}
+                                  />
+                                </Grid>
+                              )}
+                            </>
+                          )}
                         </Grid>
                       </Box>
                     </Box>
@@ -968,12 +1005,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                 </FormControl>
               </Paper>
 
-              {/* Membership */}
+              {/* Registration — Premium membership itself moved to a
+                  per-child editor in each child's card above (see MEMBERSHIP_TYPES),
+                  since it's no longer a parent-account-level concept. */}
               <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, mt: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box sx={{ color: 'primary.main', display: 'flex' }}><MembershipIcon /></Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>ข้อมูลสมาชิก</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>ข้อมูลการสมัคร</Typography>
                   </Box>
                   <Button size="small" startIcon={<HistoryIcon />} onClick={openHistory} variant="outlined" sx={{ borderRadius: 2 }}>
                     ดูประวัติ
@@ -989,34 +1028,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                       InputProps={{ readOnly }}
                     />
                   </Grid>
-                  <Grid item xs={12}>
-                    <FormControl fullWidth>
-                      <InputLabel>ประเภทสมาชิก</InputLabel>
-                      <Select
-                        value={form.membership_type}
-                        label="ประเภทสมาชิก"
-                        onChange={e => !readOnly && setForm({
-                          ...form,
-                          membership_type: e.target.value,
-                          membership_expires_at: e.target.value === 'standard' ? '' : form.membership_expires_at,
-                        })}
-                        inputProps={{ readOnly }}
-                      >
-                        {MEMBERSHIP_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  {form.membership_type === 'premium' && (
-                    <Grid item xs={12}>
-                      <TextField
-                        label="วันหมดอายุสมาชิก *" fullWidth type="date"
-                        value={form.membership_expires_at}
-                        onChange={e => !readOnly && setForm({ ...form, membership_expires_at: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{ readOnly }}
-                      />
-                    </Grid>
-                  )}
                 </Grid>
               </Paper>
 
@@ -1434,7 +1445,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
               <TableCell sx={{ fontWeight: 800 }}>ชื่อผู้ใช้งาน</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ข้อมูลติดต่อ</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ประเภทสมาชิก</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>วันหมดอายุ</TableCell>
               <TableCell align="center" sx={{ fontWeight: 800 }}>จำนวนบุตร</TableCell>
               <TableCell align="center" sx={{ fontWeight: 800 }}>จัดการ</TableCell>
             </TableRow>
@@ -1442,7 +1452,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           <TableBody>
             {pagedUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
                   <Typography variant="body2" color="text.secondary">
                     {searchQuery ? 'ไม่พบผู้ใช้งานที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลผู้ใช้งาน'}
                   </Typography>
@@ -1469,13 +1479,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Typography variant="caption" color="text.secondary">{user.email}</Typography>
                 </TableCell>
                 <TableCell>{getMembershipChip(user)}</TableCell>
-                <TableCell>
-                  <Typography variant="body2">
-                    {user.membership_expires_at
-                      ? new Date(user.membership_expires_at).toLocaleDateString('th-TH')
-                      : '-'}
-                  </Typography>
-                </TableCell>
                 <TableCell align="center">
                   <Chip label={user.children_count} variant="outlined" size="small" />
                 </TableCell>

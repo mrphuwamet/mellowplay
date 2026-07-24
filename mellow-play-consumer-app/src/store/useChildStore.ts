@@ -20,6 +20,8 @@ interface Child {
   littleJuniorBalance: number;
   juniorBalance: number;
   coupons?: { id: number; name: string; color: string; icon_url?: string; balance: number; total_earned: number; }[];
+  membershipType?: string;
+  membershipExpiresAt?: string;
 }
 
 interface ChildStore {
@@ -66,7 +68,9 @@ export const useChildStore = create<ChildStore>((set, get) => ({
           hd_authority: p.hd_authority,
           littleJuniorBalance: p.little_junior_balance || 0,
           juniorBalance: p.junior_balance || 0,
-          coupons: p.coupons || []
+          coupons: p.coupons || [],
+          membershipType: p.membership_type,
+          membershipExpiresAt: p.membership_expires_at,
         }));
 
         // Restore previously selected child from localStorage (survives refresh)

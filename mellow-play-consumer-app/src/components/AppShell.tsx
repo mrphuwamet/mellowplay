@@ -9,6 +9,7 @@ import ResponsiveModal from './ResponsiveModal';
 import AddChildModal from './AddChildModal';
 import AvatarPickerModal from './AvatarPickerModal';
 import BirthdayModal from './BirthdayModal';
+import { isPremiumChild } from '../utils/membership';
 import logo from '../assets/ui/logo.svg';
 
 const NAV_PATHS = ['/', '/journey', '/album', '/explore', '/rewards'];
@@ -50,11 +51,9 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [isAddChildOpen, setIsAddChildOpen] = React.useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = React.useState(false);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
-  const userJson = localStorage.getItem('mellow_user');
-  const user = userJson ? JSON.parse(userJson) : null;
-  const membershipStatus = user?.membershipStatus || 'inactive';
 
   const selectedChild = kids.find(c => c.id === selectedChildId);
+  const isPremium = isPremiumChild(selectedChild);
 
   const calculateAge = (dobStr?: string) => {
     if (!dobStr) return '';
@@ -359,10 +358,10 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                   </button>
                 )}
                 <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${
-                  membershipStatus === 'premium' ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white' : 'bg-emerald-100 text-emerald-600'
+                  isPremium ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white' : 'bg-emerald-100 text-emerald-600'
                 }`}>
-                  {membershipStatus === 'premium' ? <Crown size={10} strokeWidth={2.5} /> : <Medal size={10} strokeWidth={2.5} />}
-                  {membershipStatus === 'premium' ? 'Premium' : 'Regular'}
+                  {isPremium ? <Crown size={10} strokeWidth={2.5} /> : <Medal size={10} strokeWidth={2.5} />}
+                  {isPremium ? 'Premium' : 'Regular'}
                 </span>
               </div>
             )}
