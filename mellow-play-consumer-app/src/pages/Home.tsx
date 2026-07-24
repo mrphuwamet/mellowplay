@@ -1,6 +1,6 @@
 import React from 'react';
 import { useChildStore } from '../store/useChildStore';
-import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake } from 'lucide-react';
+import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import AnimatedClouds from '../components/AnimatedClouds';
@@ -176,8 +176,12 @@ const Home = () => {
         }
 
         if (upcomingRes.data.success) {
-          const bookings = upcomingRes.data.bookings || [];
-          setUpcomingClasses(currentChild ? bookings.filter((b: any) => b.child_id === currentChild.id) : bookings);
+          // Unlike history/pending above, upcoming classes span ALL of the
+          // parent's children at once (not filtered to currentChild) — the
+          // API (getUpcomingBookings) is already parent-scoped and each
+          // booking carries its own child_nickname/child_avatar, which the
+          // card badge below uses to show whose class it is.
+          setUpcomingClasses(upcomingRes.data.bookings || []);
         }
       } catch (err) {
         console.error('Failed to fetch home data:', err);
@@ -211,12 +215,21 @@ const Home = () => {
 
   // CRM-authored promo cards (a class/news article the business wants to
   // push) — mixed into the feed the same way as course/news suggestions,
-  // just labeled "โฆษณา" instead of "คลาสแนะนำ"/"จากหน้าสำรวจ".
+  // just labeled "โฆษณา" instead of "คลาสแนะนำ"/"จากหน้าสำรวจ". Also shown as
+  // a separate rotating widget in the right sidebar (renderAdsSidebar below)
+  // — an additional placement, not a replacement for the feed one.
   React.useEffect(() => {
     apiClient.get('/ads/active')
       .then(res => { if (res.data.success) setAds(res.data.ads || []); })
       .catch(() => {});
   }, []);
+
+  const [adSidebarIndex, setAdSidebarIndex] = React.useState(0);
+  React.useEffect(() => {
+    if (ads.length <= 1) return;
+    const id = setInterval(() => setAdSidebarIndex(prev => (prev + 1) % ads.length), 5000);
+    return () => clearInterval(id);
+  }, [ads.length]);
 
   // Feed inserts — mobile no longer has fixed Upcoming/Recommended/History
   // sections above the feed; their content instead blends into the feed
@@ -280,7 +293,10 @@ const Home = () => {
           </span>
           <h4 className="font-black text-[14px] text-slate-800 leading-tight line-clamp-2">{item.title}</h4>
           {isBookingCard && item.booking?.scheduled_at && (
-            <p className="text-[11px] text-slate-400 font-bold mt-0.5">{new Date(item.booking.scheduled_at).toLocaleDateString()}</p>
+            <p className="text-[11px] text-slate-400 font-bold mt-0.5">
+              {new Date(item.booking.scheduled_at).toLocaleDateString()}
+              {item.kind === 'upcoming' && children.length > 1 && item.booking?.child_nickname && ` · ${item.booking.child_nickname}`}
+            </p>
           )}
         </div>
       </div>
@@ -478,13 +494,24 @@ const Home = () => {
               onClick={() => setSelectedBooking(booking)}
               className="shrink-0 w-[240px] min-h-[260px] snap-start bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative hover:z-10 cursor-pointer hover:shadow-md transition-all active:scale-[0.98] flex flex-col"
             >
-              {booking.course_thumbnail ? (
-                <img src={booking.course_thumbnail} alt={booking.course_name} className="w-full aspect-[4/3] rounded-xl object-cover mb-3" />
-              ) : (
-                <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 flex items-center justify-center mb-3">
-                  <Calendar size={28} className="text-slate-400" />
-                </div>
-              )}
+              <div className="relative mb-3">
+                {booking.course_thumbnail ? (
+                  <img src={booking.course_thumbnail} alt={booking.course_name} className="w-full aspect-[4/3] rounded-xl object-cover" />
+                ) : (
+                  <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 flex items-center justify-center">
+                    <Calendar size={28} className="text-slate-400" />
+                  </div>
+                )}
+                {/* Whose class this is — only needed once there's more than
+                    one child to disambiguate, since this list now spans all
+                    of the parent's children instead of just the selected one. */}
+                {children.length > 1 && booking.child_nickname && (
+                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full pl-0.5 pr-2 py-0.5 shadow-sm">
+                    <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5" />
+                    <span className="text-[10px] font-black text-slate-700">{booking.child_nickname}</span>
+                  </div>
+                )}
+              </div>
               <h4 className="font-bold text-slate-800 text-[13px] line-clamp-2">{booking.course_name}</h4>
               <p className="text-[11px] font-medium text-slate-500 mt-1.5">
                 {new Date(booking.scheduled_at).toLocaleDateString()}
@@ -646,6 +673,54 @@ const Home = () => {
     ) : null
   );
 
+  // Rotating ad widget for the right sidebar — auto-advances every 5s
+  // (adSidebarIndex/timer declared near the ads fetch above), click still
+  // goes through the same tracking endpoint the feed-mixed-in ad cards use.
+  const renderAdsSidebar = () => {
+    if (ads.length === 0) return null;
+    const ad = ads[adSidebarIndex % ads.length];
+    const handleAdClick = () => {
+      apiClient.post(`/ads/${ad.id}/click`).catch(() => {});
+      navigate(ad.targetType === 'course' ? `/class/${ad.targetId}` : `/news/${ad.targetId}`);
+    };
+    return (
+      <div>
+        <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
+          {lang === 'en' ? 'Sponsored' : 'โฆษณา'}
+        </h3>
+        <div
+          onClick={handleAdClick}
+          className="relative rounded-2xl overflow-hidden shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-transform bg-white aspect-[4/3]"
+        >
+          {ad.imageUrl ? (
+            <img src={resolveImageUrl(ad.imageUrl)} alt={ad.title || ''} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-slate-100">
+              <img src={logo} alt="" className="w-10 h-10 object-contain opacity-30 filter grayscale" />
+            </div>
+          )}
+          {(ad.caption || ad.targetTitle) && (
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
+              <p className="text-white text-[12px] font-bold line-clamp-2">{ad.caption || ad.targetTitle}</p>
+            </div>
+          )}
+        </div>
+        {ads.length > 1 && (
+          <div className="flex items-center justify-center gap-1.5 mt-2">
+            {ads.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setAdSidebarIndex(i)}
+                aria-label={`${i + 1}`}
+                className={`h-1.5 rounded-full transition-all ${i === adSidebarIndex ? 'w-5 bg-mellow-purple' : 'w-1.5 bg-slate-200'}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-200 via-blue-100 to-cyan-50 pb-28 lg:pb-0 relative overflow-hidden lg:flex lg:flex-col lg:h-screen">
       {isProfileSwitcherOpen && renderProfileSwitcherModal()}
@@ -733,6 +808,11 @@ const Home = () => {
             )}
           </div>
 
+          {/* Parent-centric: the parent's own identity is primary here
+              (avatar + name, tapping goes to their profile settings); the
+              currently-selected child is a secondary chip underneath —
+              tapping it opens the switcher (or Add Child if there isn't
+              one yet), same as the old avatar button used to. */}
           <div className="relative z-10 flex items-center gap-4 mt-2">
             <div className="flex-shrink-0">
               {isGuest ? (
@@ -741,15 +821,21 @@ const Home = () => {
                 </div>
               ) : (
                 <button
-                  onClick={() => currentChild ? setIsAvatarPickerOpen(true) : setIsAddChildOpen(true)}
+                  onClick={() => navigate('/settings/profile')}
                   className="relative block transition-transform active:scale-95"
                 >
-                  <ChildAvatar avatarType={currentChild?.avatar} className="w-20 h-20 ring-4 ring-white/60 shadow-lg" />
+                  <div className="w-20 h-20 rounded-[28px] overflow-hidden shadow-lg ring-4 ring-white/60 bg-slate-200 flex items-center justify-center">
+                    {user?.avatarUrl ? (
+                      <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={32} className="text-slate-400" />
+                    )}
+                  </div>
                 </button>
               )}
             </div>
 
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-[12px] font-black uppercase text-slate-400 mb-1">
                 {t.home.greeting}
               </p>
@@ -759,19 +845,35 @@ const Home = () => {
                 </button>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={() => !currentChild && setIsAddChildOpen(true)}
-                    className={`text-left transition-opacity ${!currentChild ? 'text-[18px] leading-tight font-black hover:opacity-70 text-mellow-purple underline decoration-2 underline-offset-4' : ''}`}
-                  >
-                    {currentChild ? (
-                      <>
-                        <span className="block text-[18px] leading-tight font-black text-slate-800">{currentChild.nickname || currentChild.name}</span>
-                        {currentChild.nickname && (
-                          <span className="block text-[12px] font-bold text-slate-400 mt-0.5">{currentChild.name}</span>
-                        )}
-                      </>
-                    ) : (lang === 'th' ? 'เพิ่มข้อมูลเด็ก' : 'Add My Child')}
-                  </button>
+                  <span className="block text-[18px] leading-tight font-black text-slate-800 truncate">
+                    {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => currentChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true)}
+                      className="flex items-center gap-1.5 self-start active:opacity-70 transition-opacity"
+                    >
+                      {currentChild ? (
+                        <>
+                          <ChildAvatar avatarType={currentChild.avatar} className="w-6 h-6" />
+                          <span className="text-[13px] font-bold text-slate-500">{currentChild.nickname || currentChild.name}</span>
+                        </>
+                      ) : (
+                        <span className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
+                          {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
+                        </span>
+                      )}
+                    </button>
+                    {currentChild && (
+                      <button
+                        onClick={() => setIsAvatarPickerOpen(true)}
+                        className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+                      >
+                        <Pencil size={10} strokeWidth={2.5} />
+                      </button>
+                    )}
+                  </div>
 
                   {currentChild && (
                     <div className="flex flex-wrap items-center gap-2">
@@ -979,6 +1081,7 @@ const Home = () => {
       <aside className="hidden lg:flex lg:flex-col lg:w-[300px] xl:w-[320px] lg:shrink-0 lg:gap-6 lg:h-full lg:overflow-y-auto lg:px-4 lg:py-8 lg:bg-white/50 lg:relative lg:z-10">
         {renderUpcomingClassesSidebar()}
         {renderRecommendedClassesSidebar()}
+        {renderAdsSidebar()}
         {renderRecentHistorySidebar()}
       </aside>
       </div>

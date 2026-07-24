@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Map, Star, Camera, Compass, Newspaper as HomeIcon, Lock, User, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, Crown, Medal, MessageCircle, ChevronDown, LayoutGrid, X, LogOut, Globe } from 'lucide-react';
+import { Map, Star, Camera, Compass, Newspaper as HomeIcon, Lock, User, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, Crown, Medal, MessageCircle, ChevronDown, LayoutGrid, X, LogOut, Globe, Pencil } from 'lucide-react';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { useChildStore } from '../store/useChildStore';
 import GuestUnlockModal from './GuestUnlockModal';
@@ -10,6 +10,7 @@ import AddChildModal from './AddChildModal';
 import AvatarPickerModal from './AvatarPickerModal';
 import BirthdayModal from './BirthdayModal';
 import { isPremiumChild } from '../utils/membership';
+import { resolveImageUrl } from '../utils/courseImage';
 import logo from '../assets/ui/logo.svg';
 
 const NAV_PATHS = ['/', '/journey', '/album', '/explore', '/rewards'];
@@ -51,6 +52,8 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [isAddChildOpen, setIsAddChildOpen] = React.useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = React.useState(false);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
+  const userJson = localStorage.getItem('mellow_user');
+  const user = userJson ? JSON.parse(userJson) : null;
 
   const selectedChild = kids.find(c => c.id === selectedChildId);
   const isPremium = isPremiumChild(selectedChild);
@@ -229,7 +232,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
       <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 mb-4">
         <button
-          onClick={() => { if (isGuest) return; closeMobileMenu(); selectedChild ? setIsAvatarPickerOpen(true) : setIsAddChildOpen(true); }}
+          onClick={() => { if (isGuest) return; closeMobileMenu(); navigate('/settings/profile'); }}
           className="shrink-0 active:scale-95 transition-transform"
         >
           {isGuest ? (
@@ -237,7 +240,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
               <User size={18} className="text-slate-400" />
             </div>
           ) : (
-            <ChildAvatar avatarType={selectedChild?.avatar} className="w-11 h-11 rounded-2xl ring-2 ring-white shadow-sm" />
+            <div className="w-11 h-11 rounded-2xl overflow-hidden ring-2 ring-white shadow-sm bg-slate-200 flex items-center justify-center">
+              {user?.avatarUrl ? (
+                <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User size={18} className="text-slate-400" />
+              )}
+            </div>
           )}
         </button>
         <div className="min-w-0 flex-1">
@@ -247,9 +256,17 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
               {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
             </button>
           ) : (
-            <p className="text-[14px] font-black text-slate-800 truncate">
-              {selectedChild ? (selectedChild.nickname || selectedChild.name) : (lang === 'th' ? 'เพิ่มข้อมูลเด็ก' : 'Add My Child')}
-            </p>
+            <>
+              <p className="text-[14px] font-black text-slate-800 truncate">
+                {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+              </p>
+              <button
+                onClick={() => { closeMobileMenu(); selectedChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true); }}
+                className="text-[11px] font-bold text-slate-400 truncate active:opacity-70 transition-opacity"
+              >
+                {selectedChild ? (selectedChild.nickname || selectedChild.name) : (lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child')}
+              </button>
+            </>
           )}
         </div>
         {!isGuest && kids.length > 1 && (
@@ -293,26 +310,20 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <img src={logo} alt="Mellow Play" className="h-9" />
         </div>
 
-        {/* Main profile — the currently selected child (guests/no-child show
-            a placeholder), moved here from Home's own hero so it's visible
-            (and stays put) on every page. Full "welcome card" detail
-            (greeting, age, membership badge) only fits at lg:+; md: shows
-            just the avatar, matching how nav labels also only appear at
-            lg:. Account actions (Settings/LINE OA/Facebook/Logout) live
-            behind the separate gear icon further down instead of here,
-            since this avatar's job is switching/editing the child. */}
+        {/* Main profile — parent-centric: the PARENT's own identity is
+            primary (avatar + name, tapping goes to their profile settings),
+            the currently selected child is a secondary chip underneath
+            (tapping switches, or opens Add Child if there isn't one yet;
+            the small pencil opens the avatar picker for that child). Full
+            "welcome card" detail (greeting, age, membership badge) only
+            fits at lg:+; md: shows just the avatar, matching how nav
+            labels also only appear at lg:. Account actions (Settings/LINE
+            OA/Facebook/Logout) live behind the separate gear icon further
+            down instead of here. */}
         <div className="hidden lg:block mb-3">
           <div className="rounded-3xl p-4 bg-white/70 border border-white/80 shadow-sm relative">
-            {!isGuest && kids.length > 1 && (
-              <button
-                onClick={() => setIsProfileSwitcherOpen(true)}
-                className="absolute top-3 right-3 w-7 h-7 rounded-full bg-white/90 shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 active:scale-95 transition-all"
-              >
-                <ArrowRightLeft size={13} />
-              </button>
-            )}
             <button
-              onClick={() => !isGuest && (selectedChild ? setIsAvatarPickerOpen(true) : setIsAddChildOpen(true))}
+              onClick={() => !isGuest && navigate('/settings/profile')}
               className="block mb-2.5 active:scale-95 transition-transform"
             >
               {isGuest ? (
@@ -320,7 +331,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                   <User size={22} className="text-slate-400" />
                 </div>
               ) : (
-                <ChildAvatar avatarType={selectedChild?.avatar} className="w-14 h-14 rounded-2xl ring-2 ring-white shadow-sm" />
+                <div className="w-14 h-14 rounded-2xl overflow-hidden ring-2 ring-white shadow-sm bg-slate-200 flex items-center justify-center">
+                  {user?.avatarUrl ? (
+                    <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={22} className="text-slate-400" />
+                  )}
+                </div>
               )}
             </button>
             <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
@@ -332,19 +349,44 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
               </button>
             ) : (
-              <button
-                onClick={() => !selectedChild && setIsAddChildOpen(true)}
-                className={`text-left block w-full ${!selectedChild ? 'text-[15px] font-black leading-tight truncate text-mellow-purple underline decoration-2 underline-offset-2' : ''}`}
-              >
-                {selectedChild ? (
-                  <>
-                    <span className="text-[15px] font-black text-slate-800 leading-tight truncate block">{selectedChild.nickname || selectedChild.name}</span>
-                    {selectedChild.nickname && (
-                      <span className="text-[11px] font-bold text-slate-400 truncate block mt-0.5">{selectedChild.name}</span>
+              <>
+                <span className="text-[15px] font-black text-slate-800 leading-tight truncate block mb-1.5">
+                  {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => selectedChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true)}
+                    className="flex items-center gap-1 min-w-0 active:opacity-70 transition-opacity"
+                  >
+                    {selectedChild ? (
+                      <>
+                        <ChildAvatar avatarType={selectedChild.avatar} className="w-5 h-5 shrink-0" />
+                        <span className="text-[12px] font-bold text-slate-500 truncate">{selectedChild.nickname || selectedChild.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-[12px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
+                        {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
+                      </span>
                     )}
-                  </>
-                ) : (lang === 'th' ? 'เพิ่มข้อมูลเด็ก' : 'Add My Child')}
-              </button>
+                  </button>
+                  {selectedChild && (
+                    <button
+                      onClick={() => setIsAvatarPickerOpen(true)}
+                      className="w-4 h-4 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform shrink-0"
+                    >
+                      <Pencil size={9} strokeWidth={2.5} />
+                    </button>
+                  )}
+                  {kids.length > 1 && (
+                    <button
+                      onClick={() => setIsProfileSwitcherOpen(true)}
+                      className="w-5 h-5 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 active:scale-95 transition-all shrink-0 ml-auto"
+                    >
+                      <ArrowRightLeft size={10} />
+                    </button>
+                  )}
+                </div>
+              </>
             )}
             {!isGuest && selectedChild && (
               <div className="flex flex-wrap items-center gap-1.5 mt-2">
