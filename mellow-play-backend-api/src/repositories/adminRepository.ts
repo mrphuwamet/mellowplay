@@ -874,6 +874,21 @@ export class AdminRepository {
   }
 
   async deleteBooking(id: number): Promise<void> {
-    await this.db.prepare('DELETE FROM Bookings WHERE id=?').bind(id).run();
+    // Four tables FK-reference Bookings, so the plain DELETE below fails
+    // with SQLITE_CONSTRAINT_FOREIGNKEY the moment any of them has a row for
+    // this booking. Stamps/Child_Journey/Course_Reviews are the child's real
+    // history (an earned stamp, a teacher's milestone note, a left review) —
+    // that's worth keeping even once the booking itself is gone, so their
+    // booking_id is just cleared (all three columns are nullable). A stock
+    // reservation has no meaning without its booking (booking_id is NOT
+    // NULL there), so those rows are deleted outright. All in one batch()
+    // so a mid-way failure can't leave the booking half-detached.
+    await this.db.batch([
+      this.db.prepare('UPDATE Stamps SET booking_id = NULL WHERE booking_id = ?').bind(id),
+      this.db.prepare('UPDATE Child_Journey SET booking_id = NULL WHERE booking_id = ?').bind(id),
+      this.db.prepare('UPDATE Course_Reviews SET booking_id = NULL WHERE booking_id = ?').bind(id),
+      this.db.prepare('DELETE FROM Stock_Reservations WHERE booking_id = ?').bind(id),
+      this.db.prepare('DELETE FROM Bookings WHERE id = ?').bind(id),
+    ]);
   }
 }
