@@ -61,12 +61,12 @@ const Booking = () => {
   const { t, lang } = useTranslation();
   
   const children = useChildStore(state => state.children);
-  const selectedChildId = useChildStore(state => state.selectedChildId);
   const fetchChildren = useChildStore(state => state.fetchChildren);
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [upcomingDates, setUpcomingDates] = useState<UpcomingDate[]>([]);
+  const [isLoadingDates, setIsLoadingDates] = useState(false);
   const [isAddChildOpen, setIsAddChildOpen] = useState(false);
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [modalUpcomingSlots, setModalUpcomingSlots] = useState<{ date: string; slots: TimeSlot[] }[]>([]);
@@ -169,12 +169,32 @@ const Booking = () => {
     });
   }, [courses, courseSearch, courseAgeFilter, customAgeMin, customAgeMax, selectedCategory, bookingType]);
 
+  // Only auto-pick when there's exactly one child to pick from — with 2+
+  // kids this silently pre-ticked whichever child was "active" in the app
+  // switcher, so tapping a *different* child (to book them instead) just
+  // added them to the selection instead of replacing it, since the child
+  // step is a multi-select (tap toggles membership, it doesn't replace the
+  // array). That looked like "the first child's data tags along even though
+  // I never ticked them." With one child there's no ambiguity to introduce.
   useEffect(() => {
-    if (children.length > 0 && selectedChildren.length === 0) {
-      const activeChild = children.find(c => c.id === selectedChildId) || children[0];
-      setSelectedChildren([activeChild]);
+    if (children.length === 1 && selectedChildren.length === 0) {
+      setSelectedChildren([children[0]]);
     }
-  }, [children, selectedChildId]);
+  }, [children]);
+
+  // A promo code's discount is banked as a flat baht amount validated
+  // against the course that was selected when "Apply" was pressed. If the
+  // user backs out and picks a *different* course without leaving this page,
+  // that stale amount stayed applied and the payment step showed a total
+  // that no longer matched what the backend would actually charge. Payment
+  // method/coupon selection is course-specific too (coupon balance & prices
+  // differ per course), so all four reset together whenever the course changes.
+  useEffect(() => {
+    setPromoCode('');
+    setPromoDiscount(0);
+    setPaymentMethod(null);
+    setSelectedCoupon(null);
+  }, [selectedCourse?.id]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -317,6 +337,7 @@ const Booking = () => {
 
   useEffect(() => {
     const fetchUpcoming = async () => {
+      setIsLoadingDates(false);
       if (!selectedCourse) return;
       if (!selectedBranch && !selectedCourse.is_extraclass && !selectedCourse.is_event) return;
 
@@ -328,6 +349,7 @@ const Booking = () => {
       // must show zero slots, not silently borrow calendar #1's.
       if (!selectedCourse.calendar_id) return;
 
+      setIsLoadingDates(true);
       try {
         const response = await apiClient.get('/admin/calendar-slots/upcoming', {
           params: {
@@ -341,7 +363,7 @@ const Booking = () => {
             return { ...ud, isFull };
           });
           setUpcomingDates(formatted);
-          
+
           // Auto select first available date
           const firstAvailable = formatted.find((d: any) => !d.isFull);
           if (firstAvailable) {
@@ -352,6 +374,8 @@ const Booking = () => {
         }
       } catch (err) {
         console.error('Failed to fetch upcoming dates:', err);
+      } finally {
+        setIsLoadingDates(false);
       }
     };
     fetchUpcoming();
@@ -366,7 +390,11 @@ const Booking = () => {
   const coursePrice = selectedCourse?.original_price || 0;
   const campaignDiscount = (selectedCourse as any)?.active_campaign_discount_amount || 0;
   const priceAfterCampaign = Math.max(0, coursePrice - campaignDiscount);
-  const totalPrice = Math.max(0, (priceAfterCampaign * selectedChildren.length) - promoDiscount);
+  // promoDiscount is a per-child amount (validated against a single child's
+  // priceAfterCampaign below), so it must scale with headcount just like the
+  // campaign discount does — otherwise a 100% code only ever wipes out the
+  // equivalent of one child's price no matter how many are selected.
+  const totalPrice = Math.max(0, (priceAfterCampaign - promoDiscount) * selectedChildren.length);
   const isFreeBooking = totalPrice === 0;
 
   const handleBookingSubmit = async () => {
@@ -493,7 +521,10 @@ const Booking = () => {
     if (!promoCode.trim()) return;
     setIsApplyingPromo(true);
     try {
-      const price = selectedCourse?.original_price || 0;
+      // Validate against the per-child price after campaign discount (not
+      // raw original_price) so this preview matches what the backend
+      // actually charges when a campaign and promo code are stacked.
+      const price = priceAfterCampaign;
       const response = await apiClient.get(`/promotions/validate?code=${promoCode}&price=${price}`);
       if (response.data.success) {
         setPromoDiscount(response.data.discountAmount);
@@ -727,7 +758,7 @@ const Booking = () => {
                      </div>
                      <div className="flex justify-between text-sm font-bold text-slate-600">
                        <span>{lang === 'en' ? 'Promo Discount' : 'ส่วนลดโค้ด'}</span>
-                       <span className="text-mellow-green">{promoDiscount > 0 ? `- ${promoDiscount.toLocaleString()} ฿` : '- 0 ฿'}</span>
+                       <span className="text-mellow-green">{promoDiscount > 0 ? `- ${(promoDiscount * selectedChildren.length).toLocaleString()} ฿` : '- 0 ฿'}</span>
                      </div>
                      <div className="h-px bg-slate-100 my-2" />
                      <div className="flex justify-between items-center text-base font-black text-slate-700">
@@ -1026,7 +1057,11 @@ const Booking = () => {
                   );
                 })}
               </div>
-              <button disabled={selectedChildren.length === 0} onClick={() => setCurrentStepIndex(currentStepIndex + 1)} className="w-full mt-6 py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all">
+              {/* Also disabled while branches/courses are still loading —
+                  whether a branch step even exists depends on branches.length,
+                  so advancing before that resolves could jump straight into
+                  what a moment later becomes a different step. */}
+              <button disabled={selectedChildren.length === 0 || isLoading} onClick={() => setCurrentStepIndex(currentStepIndex + 1)} className="w-full mt-6 py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all">
                 {t.booking?.nextStep || 'ขั้นตอนถัดไป'}
               </button>
             </div>
@@ -1036,15 +1071,25 @@ const Booking = () => {
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <h3 className="text-lg font-black text-slate-800">{t.booking?.stepBranch || 'เลือกสาขา'}</h3>
               <div className="space-y-2">
-                {branches.map(branch => (
-                  <button key={branch.id} onClick={() => setSelectedBranch(branch)} className={`w-full p-4 rounded-2xl border text-left flex items-start gap-3 transition-all ${selectedBranch?.id === branch.id ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
-                    <div className={`p-2 rounded-xl mt-0.5 ${selectedBranch?.id === branch.id ? 'bg-mellow-purple/10 text-mellow-purple' : 'bg-slate-100 text-slate-400'}`}><MapPin size={18} /></div>
-                    <div>
-                      <b className="text-sm font-black text-slate-700 block">{branch.name}</b>
-                      <p className="text-[12px] text-slate-400 font-bold leading-snug mt-0.5">{branch.location}</p>
-                    </div>
-                  </button>
-                ))}
+                {isLoading ? (
+                  [0, 1].map(i => (
+                    <div key={i} className="w-full h-[68px] rounded-2xl bg-slate-100 animate-pulse" />
+                  ))
+                ) : branches.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 font-medium text-sm">
+                    {lang === 'en' ? 'No branches available right now' : 'ไม่พบสาขาให้เลือกในขณะนี้'}
+                  </div>
+                ) : (
+                  branches.map(branch => (
+                    <button key={branch.id} onClick={() => setSelectedBranch(branch)} className={`w-full p-4 rounded-2xl border text-left flex items-start gap-3 transition-all ${selectedBranch?.id === branch.id ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
+                      <div className={`p-2 rounded-xl mt-0.5 ${selectedBranch?.id === branch.id ? 'bg-mellow-purple/10 text-mellow-purple' : 'bg-slate-100 text-slate-400'}`}><MapPin size={18} /></div>
+                      <div>
+                        <b className="text-sm font-black text-slate-700 block">{branch.name}</b>
+                        <p className="text-[12px] text-slate-400 font-bold leading-snug mt-0.5">{branch.location}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
               <button disabled={!selectedBranch} onClick={() => setCurrentStepIndex(currentStepIndex + 1)} className="w-full mt-6 py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all">
                 {t.booking?.nextStep || 'ขั้นตอนถัดไป'}
@@ -1057,7 +1102,11 @@ const Booking = () => {
               <div>
                 <h3 className="text-lg font-black text-slate-800 mb-3">{t.booking?.stepDate || 'เลือกวันที่'}</h3>
                 <div className="flex overflow-x-auto pb-4 -mx-5 px-5 gap-3 hide-scrollbar">
-                  {upcomingDates.length === 0 ? (
+                  {isLoadingDates ? (
+                    [0, 1, 2, 3].map(i => (
+                      <div key={i} className="shrink-0 w-[72px] h-[84px] rounded-[20px] bg-slate-100 animate-pulse" />
+                    ))
+                  ) : upcomingDates.length === 0 ? (
                     <div className="w-full text-center py-8 text-slate-400 font-medium">{t.booking?.noClasses || 'ไม่พบรอบเรียนในขณะนี้'}</div>
                   ) : (
                     upcomingDates.map(ud => {
@@ -1138,11 +1187,16 @@ const Booking = () => {
               ) : (
                 <div className="space-y-3">
                   {courseCoupons.map((cc) => {
-                    const childCoupon = selectedChildren[0]?.coupons?.find((c: any) => c.id === cc.id);
-                    const balance = childCoupon?.balance || 0;
+                    // Every selected child spends this coupon type individually
+                    // at booking time (see backend createBooking), so the option
+                    // is only really usable when EACH of them has enough — not
+                    // just whichever child happens to be first in the array.
+                    // Showing the lowest balance surfaces the actual bottleneck.
+                    const balances = selectedChildren.map(child => child?.coupons?.find((c: any) => c.id === cc.id)?.balance || 0);
+                    const balance = balances.length > 0 ? Math.min(...balances) : 0;
                     const isSelected = paymentMethod === 'coupon' && selectedCoupon === cc.id;
                     const hasEnough = balance >= cc.quantity_required;
-                    
+
                     return (
                       <button 
                         key={cc.id}
