@@ -99,6 +99,22 @@ export class WebhookController {
     try {
       const referenceId = extractReferenceId(payload);
       if (!referenceId) {
+        // Beam's "purchase.*" events (purchase.succeeded, purchase.created,
+        // ...) describe the underlying Purchase resource itself — just
+        // merchantId/purchaseId/state/customer, never referenceId, order,
+        // or amount. Confirmed against Beam's own docs: the payment-link
+        // completion event that actually carries order.referenceId and the
+        // amount is payment_link.paid, and the card-network settlement is
+        // charge.succeeded — both of those already fire (and get fully
+        // processed above) for the exact same transaction. So a purchase.*
+        // event never having a referenceId is structural, not a sign a
+        // payment was missed — ack quietly instead of alerting on every
+        // single successful payment.
+        if (eventHeader && /^purchase\./i.test(eventHeader)) {
+          await logger.info('beam-webhook', `Purchase event acknowledged (informational only, no reference data by design, event=${eventHeader})`);
+          return c.json({ success: true, message: 'Acknowledged (informational purchase event)' });
+        }
+
         if (hasReferenceIdField(payload)) {
           // A recognized Beam event that just isn't ours — a Bolt terminal
           // sale at another outlet, a walk-in charge rung up directly on

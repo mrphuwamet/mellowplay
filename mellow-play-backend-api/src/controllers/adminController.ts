@@ -1804,7 +1804,7 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
-      const { status, scheduledAt, paidAt } = await c.req.json();
+      const { status, scheduledAt, paidAt, calendarId, slotDate, slotStartTime } = await c.req.json();
       // Every status value actually used anywhere in the system (both the
       // 'pending'/'pending_payment' naming variants included — the two are
       // used inconsistently across the codebase for the same conceptual
@@ -1831,11 +1831,39 @@ export class AdminController {
       } else if (status === 'pending' || status === 'pending_payment') {
         sets.push("payment_status = 'pending'");
       }
-      if (scheduledAt) { sets.push('scheduled_at = ?'); binds.push(scheduledAt); }
+      if (scheduledAt) {
+        sets.push('scheduled_at = ?'); binds.push(scheduledAt);
+        // slot_date/slot_start_time are separate columns from scheduled_at
+        // (set at booking creation from the round the customer picked) that
+        // the Bookings list's "group by round" view reads preferentially —
+        // this endpoint used to touch scheduled_at alone, so rescheduling a
+        // booking to a new round left it grouped under its old, now-stale
+        // round forever. The picker on the frontend sends the exact
+        // slotDate/slotStartTime of the round it just booked; anything
+        // typed as a raw date+time (calendar-less courses) has no real slot
+        // to reference, so fall back to deriving it from scheduledAt itself
+        // ("YYYY-MM-DD HH:MM:SS") so the two can never drift apart again.
+        const [derivedDate, derivedTime] = String(scheduledAt).split(' ');
+        sets.push('slot_date = ?'); binds.push(slotDate ?? derivedDate ?? null);
+        sets.push('slot_start_time = ?'); binds.push(slotStartTime ?? derivedTime ?? null);
+      }
+      if (calendarId) { sets.push('calendar_id = ?'); binds.push(parseInt(calendarId)); }
       if (paidAt) { sets.push('paid_at = ?'); binds.push(paidAt); }
       binds.push(id);
 
       await config.db.prepare(`UPDATE Bookings SET ${sets.join(', ')} WHERE id=?`).bind(...binds).run();
+
+      // getAllBookings/CSV export/booking-detail all show COALESCE(t.created_at,
+      // b.paid_at) — a Transaction row exists for virtually every paid booking,
+      // so without this the b.paid_at override above is silently invisible
+      // everywhere it's actually displayed. Keep the transaction's own
+      // timestamp in sync so the correction is actually visible.
+      if (paidAt) {
+        await config.db.prepare(
+          `UPDATE Transactions SET created_at = ? WHERE booking_id = ? AND is_voided = 0`
+        ).bind(paidAt, id).run();
+      }
+
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

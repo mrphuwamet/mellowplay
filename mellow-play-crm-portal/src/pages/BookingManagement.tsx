@@ -59,6 +59,7 @@ interface Booking {
   branch_name: string;
   paid_at?: string;
   payment_method?: string;
+  paid_amount?: number;
   payment_status?: string;
   original_price?: number;
   notes?: string;
@@ -576,6 +577,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>การชำระเงิน</Typography>
             <Typography variant="body2">ราคา: {booking.original_price != null ? `${booking.original_price.toLocaleString()} บาท` : '-'}</Typography>
+            <Typography variant="body2">ยอดที่ชำระจริง: {booking.paid_amount != null ? `${booking.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท` : '-'}</Typography>
             <Typography variant="body2">ช่องทาง: {booking.payment_method || '-'}</Typography>
             <Typography variant="body2">ชำระเมื่อ: {formatUtcDateTime(booking.paid_at)}</Typography>
           </Box>
@@ -696,6 +698,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       'สถานะ',
       'วันที่จอง',
       'วันที่รับชำระเงิน',
+      'ยอดเงินที่ชำระ',
       'ช่องทางชำระเงิน'
     ];
     const rows = filtered.map(b => {
@@ -722,6 +725,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         `"${status}"`,
         `"${formatUtcDateTime(b.created_at)}"`,
         `"${formatUtcDateTime(b.paid_at)}"`,
+        `"${b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}"`,
         `"${b.payment_method || '-'}"`
       ].join(',');
     });
@@ -846,7 +850,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
               {b.paid_at && (
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2e7d32', fontWeight: 700 }}>
                   <PaymentsIcon sx={{ fontSize: 13 }} />
-                  ชำระ {formatUtcDateTime(b.paid_at)}{b.payment_method ? ` · ${b.payment_method}` : ''}
+                  ชำระ {formatUtcDateTime(b.paid_at)}{b.paid_amount != null ? ` · ${b.paid_amount.toLocaleString('th-TH')} บาท` : ''}{b.payment_method ? ` · ${b.payment_method}` : ''}
                 </Typography>
               )}
             </Box>
@@ -1632,6 +1636,47 @@ const BookingManagement = () => {
   const [forceStatusError, setForceStatusError] = useState('');
   const [forceStatusSuccess, setForceStatusSuccess] = useState(false);
 
+  // Round/slot picker for the edit dialog — same date-chip + slot-button
+  // pattern as AddBookingDialog (GET /calendar-slots/upcoming), so changing
+  // a booking's round is a couple of clicks instead of hand-typing a
+  // datetime that has to happen to land on a real round. Only kicks in for
+  // courses bound to a Calendar; calendar-less courses (extra classes,
+  // one-off events) keep the raw datetime-local field further down.
+  const [rescheduleDates, setRescheduleDates] = useState<UpcomingSlotDate[]>([]);
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
+  const [rescheduleSelectedDate, setRescheduleSelectedDate] = useState<UpcomingSlotDate | null>(null);
+  const [rescheduleSelectedSlot, setRescheduleSelectedSlot] = useState<TimeSlot | null>(null);
+  const rescheduleCourse = courses.find(c => c.id === forceStatusBooking?.course_id);
+  const usesReschedulePicker = !!rescheduleCourse?.calendar_id;
+
+  useEffect(() => {
+    setRescheduleDates([]);
+    setRescheduleSelectedDate(null);
+    setRescheduleSelectedSlot(null);
+    if (!forceStatusBooking || !rescheduleCourse?.calendar_id) return;
+    setRescheduleLoading(true);
+    axios.get(`${API_BASE}/calendar-slots/upcoming`, {
+      params: { calendarId: rescheduleCourse.calendar_id, branchId: forceStatusBooking.branch_id },
+    }).then(res => {
+      if (!res.data.success) return;
+      const formatted: UpcomingSlotDate[] = res.data.upcoming.map((ud: any) => ({
+        ...ud, isFull: ud.slots.every((s: TimeSlot) => s.available === 0),
+      }));
+      setRescheduleDates(formatted);
+      // Pre-select the booking's own current round if it's still in the
+      // upcoming window, so opening the dialog shows where it is now
+      // instead of forcing the admin to hunt for it before they can even
+      // tell what's changing.
+      const curDate = forceStatusBooking.scheduled_at?.split(' ')[0] ?? forceStatusBooking.scheduled_at?.split('T')[0];
+      const curTime = (forceStatusBooking.slot_start_time || forceStatusBooking.scheduled_at?.split(/[ T]/)[1] || '').slice(0, 5);
+      const match = formatted.find(d => d.date === curDate) || formatted.find(d => !d.isFull) || formatted[0] || null;
+      setRescheduleSelectedDate(match);
+      if (match && curDate === match.date) {
+        setRescheduleSelectedSlot(match.slots.find(s => s.startTime === curTime) || null);
+      }
+    }).catch(() => {}).finally(() => setRescheduleLoading(false));
+  }, [forceStatusBooking?.id, rescheduleCourse?.calendar_id]);
+
   // Super Admin hard-delete — requires typing "ยืนยัน" verbatim before the
   // delete button enables at all, since this permanently removes the row
   // (unlike Cancel, which just sets status='cancelled' and keeps history).
@@ -1660,12 +1705,23 @@ const BookingManagement = () => {
 
   const submitForceStatus = async () => {
     if (!forceStatusBooking) return;
+    if (usesReschedulePicker && (!rescheduleSelectedDate || !rescheduleSelectedSlot)) {
+      setForceStatusError('กรุณาเลือกวันและรอบเวลา');
+      return;
+    }
     setForceStatusLoading(true);
     setForceStatusError('');
     try {
       await axios.patch(`${API_BASE}/bookings/${forceStatusBooking.id}/status`, {
         status: forceStatusValue,
-        scheduledAt: forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined,
+        scheduledAt: usesReschedulePicker
+          ? `${rescheduleSelectedDate!.date} ${rescheduleSelectedSlot!.startTime}:00`
+          : (forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined),
+        ...(usesReschedulePicker && {
+          calendarId: rescheduleCourse!.calendar_id,
+          slotDate: rescheduleSelectedDate!.date,
+          slotStartTime: rescheduleSelectedSlot!.startTime,
+        }),
         paidAt: forcePaidAt ? fromDatetimeLocalValue(forcePaidAt) : undefined,
       });
       setForceStatusBooking(null);
@@ -1963,7 +2019,7 @@ const BookingManagement = () => {
           role gets just a reschedule field (change to a different
           class round/time) plus a simple "mark complete" toggle, replacing
           what used to be a separate one-click Complete button. */}
-      <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth="xs" fullWidth>
+      <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth={usesReschedulePicker ? 'sm' : 'xs'} fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการจอง (Super Admin)' : 'แก้ไขการจอง'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -2001,15 +2057,75 @@ const BookingManagement = () => {
               />
             )
           )}
-          <TextField
-            label="วันที่และเวลาเรียน (เปลี่ยนรอบเรียนได้ที่นี่)"
-            type="datetime-local"
-            fullWidth
-            sx={{ mb: 2 }}
-            InputLabelProps={{ shrink: true }}
-            value={forceScheduledAt}
-            onChange={e => setForceScheduledAt(e.target.value)}
-          />
+          {usesReschedulePicker ? (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                เปลี่ยนรอบเรียน — เลือกวันและรอบเวลา
+              </Typography>
+              {rescheduleLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
+              ) : rescheduleDates.length === 0 ? (
+                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้จองในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
+              ) : (
+                <>
+                  <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
+                    {rescheduleDates.map(ud => {
+                      const d = new Date(`${ud.date}T00:00:00`);
+                      const isSelected = rescheduleSelectedDate?.date === ud.date;
+                      return (
+                        <Box
+                          key={ud.date}
+                          onClick={() => { if (!ud.isFull) { setRescheduleSelectedDate(ud); setRescheduleSelectedSlot(null); } }}
+                          sx={{
+                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: ud.isFull ? 'not-allowed' : 'pointer',
+                            bgcolor: isSelected ? 'primary.main' : '#fafafa',
+                            color: isSelected ? 'white' : ud.isFull ? 'text.disabled' : 'text.primary',
+                            border: '1px solid', borderColor: isSelected ? 'primary.main' : '#eee',
+                            opacity: ud.isFull ? 0.5 : 1,
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', fontSize: '10px' }}>{THAI_DAYS[d.getDay()]}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 900 }}>{d.getDate()}</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '9px', display: 'block' }}>{THAI_MONTHS_SHORT[d.getMonth()]}</Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+
+                  {rescheduleSelectedDate && (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
+                      {rescheduleSelectedDate.slots.map(slot => {
+                        const isSelected = rescheduleSelectedSlot?.startTime === slot.startTime;
+                        const isFull = slot.available === 0;
+                        return (
+                          <Chip
+                            key={slot.startTime}
+                            label={`${slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
+                            clickable={!isFull}
+                            disabled={isFull}
+                            color={isSelected ? 'primary' : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'}
+                            onClick={() => setRescheduleSelectedSlot(slot)}
+                            sx={{ fontWeight: 700 }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+          ) : (
+            <TextField
+              label="วันที่และเวลาเรียน (เปลี่ยนรอบเรียนได้ที่นี่)"
+              type="datetime-local"
+              fullWidth
+              sx={{ mb: 2 }}
+              InputLabelProps={{ shrink: true }}
+              value={forceScheduledAt}
+              onChange={e => setForceScheduledAt(e.target.value)}
+            />
+          )}
           {isSuperAdmin && (
             <TextField
               label="วันที่จ่ายเงิน (ถ้ามี)"

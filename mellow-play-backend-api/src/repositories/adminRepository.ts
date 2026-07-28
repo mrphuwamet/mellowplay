@@ -193,7 +193,8 @@ export class AdminRepository {
         co.name as course_name, co.original_price,
         br.name as branch_name,
         COALESCE(t.created_at, b.paid_at) as paid_at,
-        t.payment_method as payment_method
+        t.payment_method as payment_method,
+        t.amount as paid_amount
       FROM Bookings b
       LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
       LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
