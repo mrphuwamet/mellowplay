@@ -23,7 +23,12 @@ import { renderSkillIcon, type SkillItem } from '../utils/skillsLibrary';
 const API_BASE = `${API_URL}/api/v1`;
 
 interface RecordMilestoneProps {
-  booking: any;
+  // `booking` (single, still used by POSBookingView/CourseManagement) or
+  // `bookings` (BookingManagement's List view — lets one report be filed
+  // once across every selected child, e.g. a whole group that did the same
+  // activity) — exactly one of the two is provided by any given caller.
+  booking?: any;
+  bookings?: any[];
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -42,12 +47,19 @@ const getImageUrl = (url?: string) => {
   return `${API_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
-const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onSuccess }) => {
+const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [availableSkills, setAvailableSkills] = useState<{ id: string; skill: BilingualSkill; icon: React.ReactElement; type: 'achievement' | 'indicator' }[]>([]);
   const [course, setCourse] = useState<any>(null);
+
+  // Bulk mode only ever prefills a blank form (see isEditMode below) — the
+  // whole point is one shared report applied to every selected child, not
+  // reopening N different existing reports at once.
+  const targets: any[] = bookings && bookings.length > 0 ? bookings : [booking];
+  const isBulk = targets.length > 1;
+  const primary = targets[0];
 
   const [formData, setFormData] = useState({
     skills: [] as BilingualSkill[],
@@ -61,11 +73,11 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
   // A report already exists for this booking (opened via "แก้ไขรายงาน" on a
   // completed booking) — prefill instead of starting from a blank form, and
   // update it in place on submit rather than filing a duplicate.
-  const isEditMode = booking.status === 'completed';
+  const isEditMode = !isBulk && primary.status === 'completed';
 
   useEffect(() => {
     if (!isEditMode) return;
-    axios.get(`${API_BASE}/admin/journey/progress-by-booking/${booking.id}`)
+    axios.get(`${API_BASE}/admin/journey/progress-by-booking/${primary.id}`)
       .then(res => {
         const progress = res.data.success ? res.data.progress : null;
         if (!progress) return;
@@ -85,7 +97,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
       })
       .catch(err => console.error('Failed to load existing report', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking.id, isEditMode]);
+  }, [primary.id, isEditMode]);
 
   // Skills selectable in a report must come from THIS course's own setup
   // (achievement_skills_json / metrics_json, picked from the Skills Library
@@ -101,7 +113,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
         ]);
 
         if (coursesRes.data.success) {
-          const course = coursesRes.data.courses.find((c: any) => c.id === booking.course_id);
+          const course = coursesRes.data.courses.find((c: any) => c.id === primary.course_id);
           setCourse(course || null);
           // Both are arrays of { th, en } pairs — set via SkillTagInput in
           // CourseManagement, NOT plain strings.
@@ -139,7 +151,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
       }
     };
     fetchCourseSkills();
-  }, [booking.course_id]);
+  }, [primary.course_id]);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -197,26 +209,30 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
     }
   };
 
+  // Same loop for a single booking or a bulk one — one iteration for the
+  // ordinary case, so nothing about the single-booking flow actually changes.
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
     try {
-      await axios.post(`${API_BASE}/journey/record`, {
-        childId: booking.child_id,
-        bookingId: booking.id,
-        skillsLearned: formData.skills,
-        teacherComment: formData.teacherComment,
-        media: [
-          ...formData.images.map(url => ({ url, type: 'image' })),
-          ...(formData.videoUrl ? [{ url: formData.videoUrl, type: 'video' }] : [])
-        ]
-      });
-      // The booking only becomes "completed" (stock deducted, stamps
-      // awarded) once the report is first filed — see BookingManagement's
-      // handleComplete. Skip this when editing an already-completed booking,
-      // or it would deduct stock / award stamps a second time.
-      if (!isEditMode) {
-        await axios.post(`${API_BASE}/admin/bookings/${booking.id}/complete`);
+      for (const b of targets) {
+        await axios.post(`${API_BASE}/journey/record`, {
+          childId: b.child_id,
+          bookingId: b.id,
+          skillsLearned: formData.skills,
+          teacherComment: formData.teacherComment,
+          media: [
+            ...formData.images.map(url => ({ url, type: 'image' })),
+            ...(formData.videoUrl ? [{ url: formData.videoUrl, type: 'video' }] : [])
+          ]
+        });
+        // Each booking only becomes "completed" (stock deducted, stamps
+        // awarded) once its report is first filed — see BookingManagement's
+        // handleComplete. Skip any booking already completed, or it would
+        // deduct stock / award stamps a second time.
+        if (b.status !== 'completed') {
+          await axios.post(`${API_BASE}/admin/bookings/${b.id}/complete`);
+        }
       }
       onSuccess();
     } catch (err: any) {
@@ -243,7 +259,9 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
         <IconButton onClick={onClose} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <BackIcon />
         </IconButton>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>{isEditMode ? 'แก้ไขรายงานการเรียนรู้' : 'บันทึกรายงานการเรียนรู้วันนี้'}</Typography>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>
+          {isEditMode ? 'แก้ไขรายงานการเรียนรู้' : isBulk ? `บันทึกรายงานการเรียนรู้วันนี้ (${targets.length} คน)` : 'บันทึกรายงานการเรียนรู้วันนี้'}
+        </Typography>
       </Box>
 
       {/* Class header — cover image + details, for context while filling the report */}
@@ -258,9 +276,11 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, onClose, onS
           )}
         </Box>
         <Box sx={{ p: 2.5, flex: 1, minWidth: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }}>{booking.course_name}</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }}>{primary.course_name}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            นักเรียน: {booking.child_name}
+            {isBulk
+              ? `กำลังกรอกรายงานให้ ${targets.length} คน: ${targets.map(b => b.child_nickname || b.child_name).join(', ')}`
+              : `นักเรียน: ${primary.child_name}`}
           </Typography>
           {course?.short_description && (
             <Typography variant="body2" color="text.secondary" sx={{

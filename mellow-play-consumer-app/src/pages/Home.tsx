@@ -1,6 +1,6 @@
 import React from 'react';
 import { useChildStore } from '../store/useChildStore';
-import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil } from 'lucide-react';
+import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil, Heart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import AnimatedClouds from '../components/AnimatedClouds';
@@ -22,6 +22,8 @@ import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { resolveImageUrl } from '../utils/courseImage';
 import { isPremiumChild } from '../utils/membership';
+import { stripHtml } from '../utils/stripHtml';
+import { trackCourseView } from '../utils/analytics';
 
 const COMMUNITY_PAGE_SIZE = 10;
 
@@ -140,6 +142,79 @@ const Home = () => {
   const isPremium = isPremiumChild(currentChild);
   const { statusMap: courseBookingStatus, isLoading: isBookingStatusLoading } = useCourseBookingStatus(user?.id, currentChild?.id);
 
+  // A one-time (non-repeatable) course the child already took/booked has
+  // nothing left to "recommend" — CourseCard would just render it disabled
+  // anyway, so drop it before it ever reaches the recommended carousel or
+  // the feed's mixed-in course suggestions instead of cluttering both with
+  // cards nobody can act on. Repeatable courses still surface normally.
+  const visibleRecommendedCourses = React.useMemo(
+    () => recommendedCourses.filter((c: any) => !(courseBookingStatus[c.id] && !c.allow_repeat)),
+    [recommendedCourses, courseBookingStatus]
+  );
+
+  // Real, persisted like/comment state for the feed's course-recommendation
+  // cards (Course_Likes/Course_Comments) — kept at this level rather than
+  // inside renderFeedInsertCard since that's a plain render function, not a
+  // component, so it can't hold its own hooks.
+  const [courseEngagement, setCourseEngagement] = React.useState<Record<number, { likeCount: number; commentCount: number; isLiked: boolean }>>({});
+  const [openCommentsCourseId, setOpenCommentsCourseId] = React.useState<number | null>(null);
+  const [courseComments, setCourseComments] = React.useState<Record<number, any[] | undefined>>({});
+  const [commentDraft, setCommentDraft] = React.useState('');
+  const [commentSubmitting, setCommentSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    const courseIds = visibleRecommendedCourses.slice(0, 6).map((c: any) => c.id);
+    if (courseIds.length === 0) return;
+    apiClient.get('/courses/engagement', { params: { ids: courseIds.join(',') } })
+      .then(res => { if (res.data.success) setCourseEngagement(res.data.engagement || {}); })
+      .catch(() => {});
+  }, [visibleRecommendedCourses]);
+
+  const handleToggleCourseLike = async (courseId: number) => {
+    if (isGuest || !user?.id) { navigate('/login'); return; }
+    const current = courseEngagement[courseId] || { likeCount: 0, commentCount: 0, isLiked: false };
+    const optimistic = { ...current, isLiked: !current.isLiked, likeCount: current.likeCount + (current.isLiked ? -1 : 1) };
+    setCourseEngagement(prev => ({ ...prev, [courseId]: optimistic }));
+    try {
+      await apiClient.post(`/courses/${courseId}/like`);
+    } catch {
+      setCourseEngagement(prev => ({ ...prev, [courseId]: current }));
+    }
+  };
+
+  const loadCourseComments = async (courseId: number) => {
+    if (openCommentsCourseId === courseId) { setOpenCommentsCourseId(null); return; }
+    setOpenCommentsCourseId(courseId);
+    setCommentDraft('');
+    if (courseComments[courseId] !== undefined) return;
+    try {
+      const res = await apiClient.get(`/courses/${courseId}/comments`);
+      setCourseComments(prev => ({ ...prev, [courseId]: res.data.success ? res.data.comments : [] }));
+    } catch {
+      setCourseComments(prev => ({ ...prev, [courseId]: [] }));
+    }
+  };
+
+  const handleSubmitCourseComment = async (courseId: number) => {
+    if (!commentDraft.trim()) return;
+    if (isGuest || !user?.id) { navigate('/login'); return; }
+    setCommentSubmitting(true);
+    try {
+      await apiClient.post(`/courses/${courseId}/comments`, { comment: commentDraft.trim() });
+      setCommentDraft('');
+      const res = await apiClient.get(`/courses/${courseId}/comments`);
+      if (res.data.success) setCourseComments(prev => ({ ...prev, [courseId]: res.data.comments }));
+      setCourseEngagement(prev => {
+        const current = prev[courseId] || { likeCount: 0, commentCount: 0, isLiked: false };
+        return { ...prev, [courseId]: { ...current, commentCount: current.commentCount + 1 } };
+      });
+    } catch {
+      /* keep typed text so the user can retry */
+    } finally {
+      setCommentSubmitting(false);
+    }
+  };
+
   React.useEffect(() => {
     const fetchData = async () => {
       setIsDataLoading(true);
@@ -236,14 +311,11 @@ const Home = () => {
   // itself alongside Explore/news suggestions, matching how a real social
   // feed mixes content instead of stacking separate labeled sections.
   const feedInserts = React.useMemo(() => {
-    const courseItems = recommendedCourses.slice(0, 6).map((c: any) => ({
-      kind: 'course' as const, id: c.id, title: c.name, image: c.thumbnail_url,
+    const courseItems = visibleRecommendedCourses.slice(0, 6).map((c: any) => ({
+      kind: 'course' as const, id: c.id, title: c.name, image: c.thumbnail_url, course: c,
     }));
     const newsAsItems = newsItems.slice(0, 10).map((n: any) => ({
       kind: 'news' as const, id: n.id, title: (lang === 'en' && n.title_en) ? n.title_en : n.title, image: n.image_url, newsType: n.type,
-    }));
-    const upcomingItems = upcomingClasses.slice(0, 3).map((b: any) => ({
-      kind: 'upcoming' as const, id: b.id, title: b.course_name || (lang === 'en' ? 'Class' : 'คลาสเรียน'), image: b.course_thumbnail, booking: b,
     }));
     const historyItems = recentHistory.slice(0, 3).map((b: any) => ({
       kind: 'history' as const, id: b.id, title: b.course_name || (lang === 'en' ? 'Class' : 'คลาสเรียน'), image: undefined, booking: b,
@@ -252,12 +324,16 @@ const Home = () => {
       kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
       adTargetType: a.targetType, adTargetId: a.targetId,
     }));
-    const combined = [...upcomingItems, ...courseItems, ...historyItems, ...newsAsItems, ...adItems];
+    // 'upcoming' bookings no longer get randomly mixed in here — they're
+    // now always pinned first (mobile: renderUpcomingClassesMobile, desktop:
+    // the sidebar), so including them here too would just show the same
+    // booking twice.
+    const combined = [...courseItems, ...historyItems, ...newsAsItems, ...adItems];
     return [...combined].sort(() => Math.random() - 0.5).slice(0, 6);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recommendedCourses.length, newsItems.length, upcomingClasses.length, recentHistory.length, ads.length, lang]);
+  }, [visibleRecommendedCourses, newsItems.length, upcomingClasses.length, recentHistory.length, ads.length, lang]);
 
-  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number }) => {
+  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any }) => {
     const isBookingCard = item.kind === 'upcoming' || item.kind === 'history';
     const handleClick = () => {
       if (isBookingCard) { setSelectedBooking(item.booking); return; }
@@ -268,37 +344,168 @@ const Home = () => {
       }
       navigate(item.kind === 'course' ? `/class/${item.id}` : `/news/${item.id}`);
     };
+    const eyebrow = item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
+      : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Class' : 'คลาสที่กำลังจะมาถึง')
+      : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
+      : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
+      : (lang === 'en' ? 'From Explore' : 'จากหน้าสำรวจ');
+    const ctaLabel = item.kind === 'course' ? (lang === 'en' ? 'View class' : 'ดูรายละเอียดคลาส')
+      : item.kind === 'ad' ? (lang === 'en' ? 'Learn more' : 'ดูเพิ่มเติม')
+      : isBookingCard ? (lang === 'en' ? 'View booking' : 'ดูรายละเอียดการจอง')
+      : (lang === 'en' ? 'Read more' : 'อ่านต่อ');
+    const statusMeta = isBookingCard && item.booking?.status ? BOOKING_STATUS_META[item.booking.status] : undefined;
+
+    // Same one-time-booked check CourseCard/CourseDetail use — a recommended
+    // course card gets a real "จองเลย" button, so it has to respect the same
+    // "already taken and non-repeatable" gate they do instead of always
+    // linking to a booking flow that would just reject it.
+    const course = item.course;
+    const shortDescription = item.kind === 'course' && course
+      ? (course.short_description || stripHtml(course.description || ''))
+      : undefined;
+    const bookingStatus = item.kind === 'course' && course ? courseBookingStatus[course.id] : undefined;
+    const isOneTimeBooked = !!bookingStatus && !course?.allow_repeat;
+    const bookLabel = isOneTimeBooked
+      ? (bookingStatus === 'upcoming' ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว') : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว'))
+      : (lang === 'en' ? 'Book Now' : 'จองเลย');
+    const handleBook = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isOneTimeBooked || !course) return;
+      trackCourseView(course.id);
+      navigate(`/booking?courseId=${course.id}`);
+    };
+
+    // Styled to read as a post FROM Mellow Play in the feed (same card
+    // shell/header/footer rhythm as CommunityPostCard) instead of the old
+    // compact horizontal thumbnail strip, which visually clashed with real
+    // posts around it.
     return (
       <div
         key={`insert-${item.kind}-${item.id}`}
         onClick={handleClick}
-        className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform flex"
+        className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 cursor-pointer active:scale-[0.98] transition-transform"
       >
-        <div className="w-24 h-24 bg-slate-100 shrink-0 overflow-hidden flex items-center justify-center">
-          {item.image ? (
-            <img src={resolveImageUrl(item.image)} alt={item.title} className="w-full h-full object-cover" />
-          ) : isBookingCard ? (
-            <Calendar size={28} className="text-slate-300" />
-          ) : (
-            <img src={logo} alt="" className="w-10 h-10 object-contain opacity-30 filter grayscale" />
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-mellow-purple/10 flex items-center justify-center shrink-0 overflow-hidden">
+            {isBookingCard ? <Calendar size={18} className="text-mellow-purple" /> : <img src={logo} alt="" className="w-5 h-5 object-contain" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-black text-slate-800 leading-tight truncate">Mellow Play</p>
+            <p className="text-[11px] text-mellow-purple font-black uppercase tracking-widest">{eyebrow}</p>
+          </div>
+          {statusMeta && (
+            <span className={`shrink-0 px-2 py-1 rounded-full text-[10px] font-black ${statusMeta.bg} ${statusMeta.fg}`}>
+              {lang === 'en' ? statusMeta.en : statusMeta.th}
+            </span>
           )}
         </div>
-        <div className="flex-1 min-w-0 p-3.5 flex flex-col justify-center">
-          <span className="text-[10px] font-black uppercase tracking-widest text-mellow-purple mb-1">
-            {item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
-              : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Class' : 'คลาสที่กำลังจะมาถึง')
-              : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
-              : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
-              : (lang === 'en' ? 'From Explore' : 'จากหน้าสำรวจ')}
-          </span>
-          <h4 className="font-black text-[14px] text-slate-800 leading-tight line-clamp-2">{item.title}</h4>
-          {isBookingCard && item.booking?.scheduled_at && (
-            <p className="text-[11px] text-slate-400 font-bold mt-0.5">
-              {new Date(item.booking.scheduled_at).toLocaleDateString()}
-              {item.kind === 'upcoming' && children.length > 1 && item.booking?.child_nickname && ` · ${item.booking.child_nickname}`}
-            </p>
+
+        <h4 className="text-[15px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
+        {shortDescription && (
+          <p className="text-[13px] text-slate-500 leading-snug mt-1 line-clamp-2">{shortDescription}</p>
+        )}
+        {isBookingCard && item.booking?.scheduled_at && (
+          <p className="text-[12px] text-slate-400 font-bold mt-0.5">
+            {new Date(item.booking.scheduled_at).toLocaleDateString()}
+            {item.kind === 'upcoming' && children.length > 1 && item.booking?.child_nickname && ` · ${item.booking.child_nickname}`}
+          </p>
+        )}
+
+        {item.image ? (
+          <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
+            <img src={resolveImageUrl(item.image)} alt={item.title} loading="lazy" className="w-full max-h-[260px] object-cover" />
+          </div>
+        ) : !isBookingCard && (
+          <div className="mt-3 rounded-2xl bg-slate-50 aspect-[16/9] flex items-center justify-center">
+            <img src={logo} alt="" className="w-16 h-16 object-contain opacity-20 filter grayscale" />
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+          <button onClick={handleClick} className="flex items-center gap-1.5 text-mellow-purple active:scale-95 transition-transform">
+            <span className="text-sm font-black">{ctaLabel}</span>
+            <ChevronRight size={16} />
+          </button>
+          {item.kind === 'course' && (
+            <button
+              onClick={handleBook}
+              disabled={isOneTimeBooked}
+              className={`ml-auto px-4 py-2 rounded-xl text-[13px] font-black active:scale-95 transition-transform ${
+                isOneTimeBooked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-mellow-purple text-white'
+              }`}
+            >
+              {bookLabel}
+            </button>
           )}
         </div>
+
+        {item.kind === 'course' && (() => {
+          const engagement = courseEngagement[course.id] || { likeCount: 0, commentCount: 0, isLiked: false };
+          const commentsForCourse = courseComments[course.id];
+          const commentsAreOpen = openCommentsCourseId === course.id;
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
+                <button onClick={() => handleToggleCourseLike(course.id)} className="flex items-center gap-1.5 active:scale-95 transition-transform">
+                  <Heart size={18} className={engagement.isLiked ? 'text-red-500' : 'text-slate-400'} fill={engagement.isLiked ? 'currentColor' : 'none'} />
+                  <span className="text-sm font-black text-slate-600">{engagement.likeCount}</span>
+                </button>
+                <button onClick={() => loadCourseComments(course.id)} className="flex items-center gap-1.5 active:scale-95 transition-transform">
+                  <MessageCircle size={18} className="text-slate-400" />
+                  <span className="text-sm font-black text-slate-600">{engagement.commentCount}</span>
+                </button>
+              </div>
+
+              {commentsAreOpen && (
+                <div className="mt-3 space-y-3">
+                  {commentsForCourse === undefined ? (
+                    <div className="flex justify-center py-3">
+                      <div className="w-5 h-5 border-2 border-slate-200 border-t-mellow-purple rounded-full animate-spin" />
+                    </div>
+                  ) : commentsForCourse.length === 0 ? (
+                    <p className="text-center text-slate-400 text-xs font-bold py-2">
+                      {lang === 'en' ? 'No comments yet — be the first!' : 'ยังไม่มีคอมเมนท์ เป็นคนแรกเลย!'}
+                    </p>
+                  ) : commentsForCourse.map((c: any) => (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
+                        {c.avatar_url ? (
+                          <img src={resolveImageUrl(c.avatar_url)} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-[11px] font-black text-slate-400">{c.display_name?.[0] || '?'}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 bg-slate-50 rounded-2xl px-3 py-2">
+                        <p className="text-[12px] font-black text-slate-700">{c.display_name}</p>
+                        <p className="text-[13px] text-slate-600 leading-snug whitespace-pre-wrap">{c.comment_text}</p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {!isGuest && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={commentDraft}
+                        onChange={e => setCommentDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !commentSubmitting) handleSubmitCourseComment(course.id); }}
+                        placeholder={lang === 'en' ? 'Write a comment...' : 'แสดงความคิดเห็น...'}
+                        className="flex-1 min-w-0 px-3.5 py-2 bg-slate-50 rounded-full text-[13px] font-medium focus:outline-none"
+                      />
+                      <button
+                        onClick={() => handleSubmitCourseComment(course.id)}
+                        disabled={commentSubmitting || !commentDraft.trim()}
+                        className="shrink-0 w-9 h-9 rounded-full bg-mellow-purple text-white flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -496,7 +703,7 @@ const Home = () => {
             >
               <div className="relative mb-3">
                 {booking.course_thumbnail ? (
-                  <img src={booking.course_thumbnail} alt={booking.course_name} className="w-full aspect-[4/3] rounded-xl object-cover" />
+                  <img src={booking.course_thumbnail} alt={booking.course_name} loading="lazy" className="w-full aspect-[4/3] rounded-xl object-cover" />
                 ) : (
                   <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 flex items-center justify-center">
                     <Calendar size={28} className="text-slate-400" />
@@ -537,6 +744,73 @@ const Home = () => {
       )}
     </div>
   );
+
+  // Mobile/tablet gets its own prominent, pinned-first version instead of
+  // just being one of several kinds randomly mixed into feedInserts below —
+  // an actual upcoming class is time-sensitive in a way a course suggestion
+  // or old history entry isn't, so it needs to be seen first, not stumbled
+  // into a few scrolls down. Desktop already has this via the right sidebar
+  // (renderUpcomingClassesSidebar), so this is lg:hidden.
+  const getCountdownLabel = (scheduledAt: string) => {
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const diffDays = Math.round((startOfDay(new Date(scheduledAt)) - startOfDay(new Date())) / 86400000);
+    if (diffDays <= 0) return lang === 'en' ? 'Today' : 'วันนี้';
+    if (diffDays === 1) return lang === 'en' ? 'Tomorrow' : 'พรุ่งนี้';
+    return lang === 'en' ? `In ${diffDays} days` : `อีก ${diffDays} วัน`;
+  };
+  const renderUpcomingClassesMobile = () => {
+    if (isDataLoading || upcomingClasses.length === 0) return null;
+    return (
+      <div className="lg:hidden mb-5">
+        <div
+          className={`flex gap-3 pb-1 ${upcomingClasses.length > 1 ? 'overflow-x-auto scrollbar-hide snap-x snap-mandatory [mask-image:linear-gradient(to_right,black_92%,transparent_100%)]' : ''}`}
+        >
+          {upcomingClasses.map(booking => {
+            const dt = new Date(booking.scheduled_at);
+            const hasValidDate = !isNaN(dt.getTime());
+            return (
+              <div
+                key={booking.id}
+                onClick={() => setSelectedBooking(booking)}
+                className={`shrink-0 ${upcomingClasses.length > 1 ? 'w-[280px] snap-center' : 'w-full'} rounded-3xl overflow-hidden shadow-lg border-2 border-mellow-purple/30 bg-white cursor-pointer active:scale-[0.98] transition-transform`}
+              >
+                <div className="h-1.5 bg-gradient-to-r from-mellow-purple to-mellow-blue" />
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-mellow-purple text-white shrink-0">
+                      {hasValidDate ? getCountdownLabel(booking.scheduled_at) : (lang === 'en' ? 'Upcoming' : 'กำลังจะถึง')}
+                    </span>
+                    {children.length > 1 && booking.child_nickname && (
+                      <div className="flex items-center gap-1 bg-slate-50 rounded-full pl-0.5 pr-2 py-0.5 min-w-0">
+                        <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5 shrink-0" />
+                        <span className="text-[10px] font-black text-slate-700 truncate">{booking.child_nickname}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="shrink-0 w-14 h-14 rounded-2xl bg-mellow-purple/10 flex flex-col items-center justify-center">
+                      <span className="text-[10px] font-black text-mellow-purple uppercase leading-none">
+                        {hasValidDate ? dt.toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { month: 'short' }) : '-'}
+                      </span>
+                      <span className="text-[20px] font-black text-mellow-purple leading-none mt-1">
+                        {hasValidDate ? dt.getDate() : '?'}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-black text-slate-800 text-[14px] leading-tight line-clamp-2">{booking.course_name}</h4>
+                      <p className="text-[12px] font-bold text-slate-500 mt-1">
+                        {hasValidDate ? `${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} น.` : ''}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const renderRecentHistorySidebar = () => (
     <div>
@@ -624,12 +898,12 @@ const Home = () => {
           ))}
         </div>
       </div>
-    ) : recommendedCourses.length > 0 ? (
+    ) : visibleRecommendedCourses.length > 0 ? (
       <div>
         <div className="flex justify-between items-center mb-3 gap-2">
           <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
           <div className="flex items-center gap-2 shrink-0">
-            {recommendedCourses.length > 1 && (
+            {visibleRecommendedCourses.length > 1 && (
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => scrollRecommendedSidebar('left')}
@@ -657,7 +931,7 @@ const Home = () => {
           ref={recommendedSidebarScrollRef}
           className="flex items-stretch gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 [mask-image:linear-gradient(to_right,black_85%,transparent_100%)]"
         >
-          {recommendedCourses.map((course) => (
+          {visibleRecommendedCourses.map((course) => (
             <div
               key={course.id}
               data-course-card-id={course.id}
@@ -693,7 +967,7 @@ const Home = () => {
           className="relative rounded-2xl overflow-hidden shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-transform bg-white aspect-[4/3]"
         >
           {ad.imageUrl ? (
-            <img src={resolveImageUrl(ad.imageUrl)} alt={ad.title || ''} className="w-full h-full object-cover" />
+            <img src={resolveImageUrl(ad.imageUrl)} alt={ad.title || ''} loading="lazy" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-slate-100">
               <img src={logo} alt="" className="w-10 h-10 object-contain opacity-30 filter grayscale" />
@@ -933,6 +1207,8 @@ const Home = () => {
             {lang === 'en' ? 'Story Feed' : 'ฟีดเรื่องราว'}
           </h3>
 
+          {renderUpcomingClassesMobile()}
+
           {isGuest ? (
             <div className="mellow-card bg-white/85 border border-white p-6 text-center shadow-sm">
               <p className="text-[14px] font-black text-slate-600 mb-3">
@@ -1015,9 +1291,6 @@ const Home = () => {
               ))
             ) : communityPosts.length === 0 ? (
               <>
-                <p className="text-center text-slate-400 text-sm font-bold py-4">
-                  {lang === 'en' ? 'No posts yet — be the first to share!' : 'ยังไม่มีโพสต์ เป็นคนแรกที่แชร์เลย!'}
-                </p>
                 {feedInserts.map(renderFeedInsertCard)}
               </>
             ) : (

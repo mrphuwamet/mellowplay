@@ -11,6 +11,7 @@ import { trackCourseView } from '../utils/analytics';
 import PosterCarousel from '../components/PosterCarousel';
 import PromotionCountdown from '../components/PromotionCountdown';
 import { useChildStore } from '../store/useChildStore';
+import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 import ResponsiveModal from '../components/ResponsiveModal';
 
@@ -20,6 +21,15 @@ const CourseDetail = () => {
   const { lang, setLang, t } = useTranslation();
   const selectedChild = useChildStore(state => state.getSelectedChild());
   const couponTypes = useCouponTypes();
+  const userJson = localStorage.getItem('mellow_user');
+  const userId = userJson ? JSON.parse(userJson).id : undefined;
+  // Same check Explore/Home's CourseCard already uses to grey out "Book Now"
+  // for a one-time (non-repeatable) course the child already took/booked —
+  // this page's own Register button (both the sidebar and mobile-bar
+  // versions below) had no such check at all, so staff kept seeing parents
+  // land here, tap Register, and only get blocked once inside the booking
+  // flow's child-selection step instead of right here up front.
+  const { statusMap: courseBookingStatusMap } = useCourseBookingStatus(userId, selectedChild?.id);
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -134,9 +144,20 @@ const CourseDetail = () => {
     ? Math.round((discountAmount / course.original_price) * 100)
     : 0;
 
+  // Mirrors CourseCard's own isOneTimeBooked check — only non-repeatable
+  // courses actually block re-registration.
+  const courseBookingStatus = courseBookingStatusMap[course.id];
+  const isOneTimeBooked = !!courseBookingStatus && !course.allow_repeat;
+  const registerLabel = isOneTimeBooked
+    ? (courseBookingStatus === 'upcoming'
+        ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
+        : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว'))
+    : (lang === 'en' ? 'Register' : 'ลงทะเบียน');
+
   // Shared by the mobile fixed-bottom bar and the lg:+ inline sidebar
   // button below — same action, two different placements per breakpoint.
   const handleRegisterClick = () => {
+    if (isOneTimeBooked) return;
     const isGuest = localStorage.getItem('mellow_guest') === 'true';
     if (isGuest) {
       setShowGuestModal(true);
@@ -278,10 +299,15 @@ const CourseDetail = () => {
             })()}
             <button
               onClick={handleRegisterClick}
-              className="hidden lg:flex w-full h-[52px] mt-2 bg-mellow-ink text-white rounded-2xl font-black text-[15px] shadow-lg shadow-black/20 items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              disabled={isOneTimeBooked}
+              className={`hidden lg:flex w-full h-[52px] mt-2 rounded-2xl font-black text-[15px] items-center justify-center gap-2 transition-transform ${
+                isOneTimeBooked
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-mellow-ink text-white shadow-lg shadow-black/20 active:scale-[0.98]'
+              }`}
             >
-              {lang === 'en' ? 'Register' : 'ลงทะเบียน'}
-              <ArrowRight size={18} />
+              {registerLabel}
+              {!isOneTimeBooked && <ArrowRight size={18} />}
             </button>
           </div>
 
@@ -445,10 +471,15 @@ const CourseDetail = () => {
       <div className="lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
         <button
           onClick={handleRegisterClick}
-          className="w-full h-[56px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+          disabled={isOneTimeBooked}
+          className={`w-full h-[56px] rounded-2xl font-black text-[16px] flex items-center justify-center gap-2 transition-transform ${
+            isOneTimeBooked
+              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              : 'bg-mellow-ink text-white shadow-lg shadow-black/20 active:scale-[0.98]'
+          }`}
         >
-          {lang === 'en' ? 'Register' : 'ลงทะเบียน'}
-          <ArrowRight size={20} />
+          {registerLabel}
+          {!isOneTimeBooked && <ArrowRight size={20} />}
         </button>
       </div>
 

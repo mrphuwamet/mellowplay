@@ -640,7 +640,7 @@ const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose
 
 const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
   bookings: Booking[];
-  onReport: (b: Booking) => void;
+  onReport: (bs: Booking[]) => void;
   onCancel: (id: number) => void;
   onEdit: (b: Booking) => void;
   courses: Course[];
@@ -673,6 +673,17 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
+  // Row selection for bulk actions (e.g. filing one report across several
+  // children at once) — keyed against `filtered`, not whatever's currently
+  // paginated/grouped on screen, so "select all" and the CSV export button
+  // right next to it always mean the same universe of rows.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const toggleSelected = (id: number) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
   const filtered = useMemo(() => {
     if (!search.trim()) return bookings;
     const q = search.toLowerCase();
@@ -688,6 +699,13 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       String(b.id).includes(q)
     );
   }, [bookings, search]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
+  const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
+  const toggleSelectAll = () => setSelectedIds(allFilteredSelected ? new Set() : new Set(filtered.map(b => b.id)));
+  // Cancelled bookings can't sensibly get a class report — silently exclude
+  // them from a bulk selection instead of failing partway through the loop.
+  const selectedBookingsForReport = bookings.filter(b => selectedIds.has(b.id) && b.status !== 'cancelled');
 
   const sorted = useMemo(() => sortBookings(filtered, sortKey), [filtered, sortKey]);
 
@@ -800,6 +818,14 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         {/* Status accent — the whole row's state at a glance */}
         <Box sx={{ width: 5, flexShrink: 0, bgcolor: si.fgColor }} />
 
+        <Box sx={{ display: 'flex', alignItems: 'center', pl: 0.5, flexShrink: 0 }}>
+          <Checkbox
+            size="small"
+            checked={selectedIds.has(b.id)}
+            onChange={() => toggleSelected(b.id)}
+          />
+        </Box>
+
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
             {/* Date block */}
@@ -877,11 +903,28 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
               sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26, flexShrink: 0 }}
             />
 
+            {/* Filing a report no longer needs the class to have already
+                happened — a real class-time check + confirm step lives in
+                onReport itself (see openReport in the parent). Only a
+                cancelled booking has no sensible report to file. */}
+            {b.status !== 'cancelled' && (
+              <Tooltip title={b.status === 'awaiting_report' ? 'กรอกรายงาน (ค้างอยู่)' : b.status === 'completed' ? 'แก้ไขรายงาน' : 'กรอกรายงาน'}>
+                <IconButton
+                  size="small"
+                  color={b.status === 'awaiting_report' ? 'warning' : b.status === 'completed' ? 'success' : 'default'}
+                  onClick={() => onReport([b])}
+                  sx={{ ml: 'auto', flexShrink: 0 }}
+                >
+                  <ReportIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+
             {/* One manage button instead of 2-3 competing ones */}
             <IconButton
               size="small"
               onClick={(e) => setManageMenu({ anchor: e.currentTarget, booking: b })}
-              sx={{ ml: 'auto', flexShrink: 0 }}
+              sx={{ ml: b.status === 'cancelled' ? 'auto' : 0, flexShrink: 0 }}
             >
               <MoreVertIcon fontSize="small" />
             </IconButton>
@@ -1002,6 +1045,40 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         </Stack>
       </Paper>
 
+      {/* Selection bar — "all" + per-row checkboxes drive bulk actions
+          (currently just bulk report-filing: a teacher who ran one activity
+          for a whole group can log it once instead of per child). */}
+      {filtered.length > 0 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, px: 0.5, flexWrap: 'wrap' }}>
+          <Checkbox
+            size="small"
+            checked={allFilteredSelected}
+            indeterminate={!allFilteredSelected && someFilteredSelected}
+            onChange={toggleSelectAll}
+          />
+          <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+            {selectedIds.size > 0 ? `เลือกแล้ว ${selectedIds.size} รายการ` : 'เลือกทั้งหมด'}
+          </Typography>
+          {selectedIds.size > 0 && (
+            <>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<ReportIcon />}
+                onClick={() => onReport(selectedBookingsForReport)}
+                disabled={selectedBookingsForReport.length === 0}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                กรอกรายงาน ({selectedBookingsForReport.length})
+              </Button>
+              <Button size="small" onClick={() => setSelectedIds(new Set())} sx={{ fontWeight: 700 }}>
+                ล้างการเลือก
+              </Button>
+            </>
+          )}
+        </Box>
+      )}
+
       {/* List — a scannable card per booking instead of a dense table row.
           Each card leads with a big date block and a colored status
           accent (read the whole row's status at a glance without reading
@@ -1066,12 +1143,6 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
           ดูรายละเอียดคลาส
         </MenuItem>
         <Divider />
-        {manageMenu && ['completed', 'awaiting_report'].includes(manageMenu.booking.status) && (
-          <MenuItem onClick={() => { onReport(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
-            <ReportIcon fontSize="small" color={manageMenu.booking.status === 'awaiting_report' ? 'warning' : 'success'} />
-            กรอกรายงาน
-          </MenuItem>
-        )}
         <MenuItem onClick={() => { if (manageMenu) onEdit(manageMenu.booking); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
           <EditIcon fontSize="small" color="primary" />
           แก้ไข
@@ -1575,7 +1646,25 @@ const BookingManagement = () => {
   const [fetchError, setFetchError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [addOpen, setAddOpen] = useState(false);
-  const [reportBooking, setReportBooking] = useState<Booking | null>(null);
+  // Array-based (even for a single booking) so the same state also drives
+  // ListView's bulk "กรอกรายงาน" — one report filed once across every
+  // selected child instead of the old one-booking-at-a-time flow.
+  const [reportBookings, setReportBookings] = useState<Booking[] | null>(null);
+  // Filing a report is now allowed from the moment a class is booked, not
+  // just once it's actually happened — but opening it early for a class
+  // whose real scheduled time hasn't arrived yet needs a deliberate
+  // confirm step first, so staff don't do it by accident days ahead.
+  const [reportConfirm, setReportConfirm] = useState<Booking[] | null>(null);
+  const openReport = (list: Booking[]) => {
+    if (list.length === 0) return;
+    const now = Date.now();
+    const hasUpcoming = list.some(b => {
+      const dt = new Date(b.scheduled_at);
+      return !isNaN(dt.getTime()) && dt.getTime() > now;
+    });
+    if (hasUpcoming) setReportConfirm(list);
+    else setReportBookings(list);
+  };
   const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
 
@@ -1692,7 +1781,7 @@ const BookingManagement = () => {
   const handleComplete = async (booking: Booking) => {
     try {
       await axios.patch(`${API_BASE}/bookings/${booking.id}/status`, { status: 'awaiting_report' });
-      setReportBooking({ ...booking, status: 'awaiting_report' });
+      setReportBookings([{ ...booking, status: 'awaiting_report' }]);
       fetchBookings();
     } catch (e: any) {
       setActionError(e.response?.data?.message || 'เกิดข้อผิดพลาด');
@@ -1871,12 +1960,12 @@ const BookingManagement = () => {
   };
 
   // ── record milestone pass-through ────────────────────────────────────────
-  if (reportBooking) {
+  if (reportBookings) {
     return (
       <RecordMilestone
-        booking={reportBooking}
-        onClose={() => setReportBooking(null)}
-        onSuccess={() => { setReportBooking(null); fetchBookings(); }}
+        bookings={reportBookings}
+        onClose={() => setReportBookings(null)}
+        onSuccess={() => { setReportBookings(null); fetchBookings(); }}
       />
     );
   }
@@ -2035,13 +2124,13 @@ const BookingManagement = () => {
           <CircularProgress />
         </Box>
       ) : viewMode === 'day' ? (
-        <DayView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} onComplete={handleComplete} onCancel={handleCancel} isSuperAdmin={isSuperAdmin} onForceStatus={openForceStatus} />
+        <DayView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} onComplete={handleComplete} onCancel={handleCancel} isSuperAdmin={isSuperAdmin} onForceStatus={openForceStatus} />
       ) : viewMode === 'week' ? (
-        <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={setReportBooking} />
+        <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={(b) => openReport([b])} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={setReportBooking} onCancel={handleCancel} onEdit={openForceStatus} courses={courses} />
+        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onEdit={openForceStatus} courses={courses} />
       ) : (
-        <MonthView bookings={filteredBookings} date={currentDate} onReport={setReportBooking} />
+        <MonthView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} />
       )}
 
       <AddBookingDialog
@@ -2086,6 +2175,34 @@ const BookingManagement = () => {
           แก้ไขสถานะการจองเรียบร้อยแล้ว
         </Alert>
       </Snackbar>
+
+      {/* Filing a report early — before the booking's real scheduled class
+          time — needs a deliberate confirm instead of silently letting it
+          happen, since "กรอกรายงาน" is now reachable at any point after
+          booking, not just once the class is actually done. */}
+      <Dialog open={!!reportConfirm} onClose={() => setReportConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยังไม่ถึงเวลาเรียนตามที่จองไว้</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {reportConfirm && reportConfirm.length > 1
+              ? `มี ${reportConfirm.filter(b => new Date(b.scheduled_at).getTime() > Date.now()).length} จาก ${reportConfirm.length} รายการที่ยังไม่ถึงเวลาเรียนจริง`
+              : `รอบเรียนของ ${reportConfirm?.[0]?.child_nickname || reportConfirm?.[0]?.child_name || 'รายการนี้'} ยังไม่ถึงเวลาที่จองไว้`}
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            ต้องการกรอกรายงานล่วงหน้าก่อนถึงเวลาเรียนจริงหรือไม่?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setReportConfirm(null)}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => { setReportBookings(reportConfirm); setReportConfirm(null); }}
+          >
+            ยืนยัน กรอกรายงานเลย
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Edit dialog — Super Admin gets full status control (error
           correction) + payment-time override + hard-delete; every other

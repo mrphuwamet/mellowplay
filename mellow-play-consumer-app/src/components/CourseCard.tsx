@@ -51,7 +51,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
     >
       <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
         {view.url ? (
-          <img src={view.url} alt={course.name} style={view.style} className={`w-full h-full object-cover ${isOneTimeBooked ? 'grayscale-[40%]' : ''}`} />
+          <img src={view.url} alt={course.name} style={view.style} loading="lazy" className={`w-full h-full object-cover ${isOneTimeBooked ? 'grayscale-[40%]' : ''}`} />
         ) : (
           <div className="w-full h-full flex items-center justify-center p-6 opacity-30">
             <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />

@@ -134,7 +134,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
           {post.author_avatar_url ? (
-            <img src={resolveImageUrl(post.author_avatar_url)} alt="" className="w-full h-full object-cover" />
+            <img src={resolveImageUrl(post.author_avatar_url)} alt="" loading="lazy" className="w-full h-full object-cover" />
           ) : (
             <span className="text-sm font-black text-slate-400">{post.author_name?.[0] || '?'}</span>
           )}
@@ -167,7 +167,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
 
       {post.image_url && (
         <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
-          <img src={resolveImageUrl(post.image_url)} alt="" className="w-full max-h-[420px] object-cover" />
+          <img src={resolveImageUrl(post.image_url)} alt="" loading="lazy" className="w-full max-h-[420px] object-cover" />
         </div>
       )}
 

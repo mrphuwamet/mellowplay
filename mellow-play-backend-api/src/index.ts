@@ -19,6 +19,7 @@ import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
 import { NewsFeedController } from './controllers/newsFeedController';
+import { CourseEngagementController } from './controllers/courseEngagementController';
 import { CommunityController } from './controllers/communityController';
 import { ContactController } from './controllers/contactController';
 import { AdsController } from './controllers/adsController';
@@ -46,6 +47,7 @@ const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
 const newsFeedController       = new NewsFeedController();
+const courseEngagementController = new CourseEngagementController();
 const communityController      = new CommunityController();
 const contactController        = new ContactController();
 const adsController            = new AdsController();
@@ -539,6 +541,12 @@ app.post('/api/v1/visits/ping',                    (c) => analyticsController.pi
 app.post('/api/v1/courses/:courseId/view',         (c) => analyticsController.recordCourseView(c));
 app.get ('/api/v1/courses/:courseId/reviews',      (c) => analyticsController.getCourseReviews(c));
 app.post('/api/v1/courses/reviews',                (c) => analyticsController.createCourseReview(c));
+
+// ================= COURSE ENGAGEMENT (likes/comments on a recommended-class feed card) =================
+app.get ('/api/v1/courses/engagement',   (c) => courseEngagementController.getEngagement(c));
+app.post('/api/v1/courses/:id/like',     (c) => courseEngagementController.toggleLike(c));
+app.get ('/api/v1/courses/:id/comments', (c) => courseEngagementController.getComments(c));
+app.post('/api/v1/courses/:id/comments', (c) => courseEngagementController.addComment(c));
 
 app.get('/api/v1/admin/coupon-types', (c) => couponController.getCouponTypes(c));
 app.post('/api/v1/admin/coupon-types', (c) => couponController.createCouponType(c));
