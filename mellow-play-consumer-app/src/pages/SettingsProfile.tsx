@@ -514,6 +514,7 @@ const SettingsProfile = () => {
                       setEditingChild({
                         id: child.id,
                         name: child.name,
+                        nameEn: child.nameEn || '',
                         nickname: child.nickname || '',
                         dob: child.dob || '',
                         relation: child.relation || 'Child',

@@ -5,6 +5,7 @@ import { DEFAULT_CHARACTER_AVATAR_ID } from '../utils/characterAvatars';
 interface Child {
   id: number;
   name: string;
+  nameEn?: string;
   nickname?: string;
   relation?: string;
   gender?: string;
@@ -54,6 +55,7 @@ export const useChildStore = create<ChildStore>((set, get) => ({
         const mappedChildren = response.data.profiles.map((p: any) => ({
           id: p.child_id || p.id,
           name: p.name,
+          nameEn: p.name_en,
           nickname: p.nickname,
           relation: p.relation,
           gender: p.gender,

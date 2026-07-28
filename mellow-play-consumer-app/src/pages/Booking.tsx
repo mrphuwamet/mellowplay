@@ -576,8 +576,7 @@ const Booking = () => {
           <div className="w-20 h-20 rounded-full bg-mellow-green/10 flex items-center justify-center text-mellow-green mb-6">
             <CheckCircle size={56} />
           </div>
-          <h2 className="text-2xl font-black text-slate-800 text-center mb-2">{t.booking?.bookingSuccess || 'ยืนยันการจองสำเร็จ!'}</h2>
-          <p className="text-slate-500 font-bold text-[14px] text-center mb-6">{t.booking?.bookingSuccessDesc || 'คูปองของคุณถูกหักออก 1 สแตมป์เรียบร้อยแล้ว'}</p>
+          <h2 className="text-2xl font-black text-slate-800 text-center mb-6">{t.booking?.bookingSuccess || 'ยืนยันการจองสำเร็จ!'}</h2>
           <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-br from-mellow-green/10 to-mellow-blue/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
             <div className="relative z-10 space-y-4">

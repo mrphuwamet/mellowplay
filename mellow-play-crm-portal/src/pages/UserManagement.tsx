@@ -1,5 +1,6 @@
 import { API_URL } from '../config';
 import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Paper, Typography, Box, CircularProgress,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
@@ -46,6 +47,7 @@ const COVER_GRADIENT = 'linear-gradient(135deg, #1a237e 0%, #1565c0 50%, #0288d1
 interface Child {
   id?: number;
   full_name: string;
+  full_name_en?: string;
   nickname: string;
   gender: string;
   date_of_birth: string;
@@ -137,6 +139,7 @@ const emptyCreateForm = {
 
 const emptyChild: Child = {
   full_name: '',
+  full_name_en: '',
   nickname: '',
   gender: '',
   date_of_birth: '',
@@ -272,10 +275,25 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   
   const [couponTypes, setCouponTypes] = useState<any[]>([]);
 
-  useEffect(() => { 
-    fetchUsers(); 
+  useEffect(() => {
+    fetchUsers();
     fetchCouponTypes();
   }, []);
+
+  // Deep-link from the Children Directory's "จัดการ" button
+  // (?openUserId=123) — jumps straight into that parent's edit view instead
+  // of making staff search for them again in this list. Waits for `users`
+  // since openEdit's fallback path needs the row from this list if the
+  // detail fetch below ever fails.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const openUserId = searchParams.get('openUserId');
+    if (!openUserId || users.length === 0) return;
+    const target = users.find(u => String(u.id) === openUserId);
+    if (target) openEdit(target, false);
+    setSearchParams(prev => { prev.delete('openUserId'); return prev; }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, searchParams]);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -389,6 +407,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setChildren((d.children ?? []).map((c: any) => ({
         id: c.id,
         full_name: c.full_name ?? '',
+        full_name_en: c.full_name_en ?? '',
         nickname: c.nickname ?? '',
         gender: c.gender ?? '',
         date_of_birth: c.date_of_birth ? c.date_of_birth.substring(0, 10) : '',
@@ -504,6 +523,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         children.filter(c => c.is_hd && c.id).map(c =>
           axios.put(`${API_BASE}/children/${c.id}`, {
             nickname: c.nickname, gender: c.gender, relation: c.relation || null,
+            name_en: c.full_name_en || null,
             membership_type: c.membership_type ?? 'standard',
             membership_expires_at: c.membership_type === 'premium' ? c.membership_expires_at : null,
           })
@@ -845,6 +865,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                               onChange={e => !readOnly && !child.is_hd && updateChild(index, 'full_name', e.target.value)}
                               InputProps={{ readOnly: readOnly || child.is_hd }}
                               disabled={child.is_hd}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              label="ชื่อ-นามสกุล (English)" fullWidth size="small"
+                              value={child.full_name_en || ''}
+                              onChange={e => !readOnly && updateChild(index, 'full_name_en', e.target.value)}
+                              InputProps={{ readOnly }}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>

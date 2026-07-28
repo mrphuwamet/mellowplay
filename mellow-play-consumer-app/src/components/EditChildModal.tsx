@@ -12,6 +12,7 @@ interface EditChildModalProps {
   childInfo?: {
     id: number;
     name: string;
+    nameEn?: string;
     nickname?: string;
     dob?: string;
     relation?: string;
@@ -28,6 +29,8 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    firstNameEn: '',
+    lastNameEn: '',
     nickname: '',
     gender: 'Boy',
     dob: '',
@@ -39,9 +42,12 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
     if (childInfo && isOpen) {
       const cleanedFullName = cleanNamePrefix(childInfo.name);
       const parts = cleanedFullName.split(' ');
+      const enParts = (childInfo.nameEn || '').split(' ');
       setFormData({
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
+        firstNameEn: enParts[0] || '',
+        lastNameEn: enParts.slice(1).join(' ') || '',
         nickname: childInfo.nickname || '',
         gender: childInfo.gender || 'Boy',
         dob: childInfo.dob || '',
@@ -69,8 +75,12 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
     setIsSubmitting(true);
     try {
       const fullName = `${cleanNamePrefix(formData.firstName)} ${cleanNamePrefix(formData.lastName)}`.trim();
+      const nameEn = (formData.firstNameEn || formData.lastNameEn)
+        ? `${cleanNamePrefix(formData.firstNameEn)} ${formData.lastNameEn ? cleanNamePrefix(formData.lastNameEn) : ''}`.trim()
+        : undefined;
       const payload = {
         name: fullName,
+        nameEn,
         nickname: formData.nickname,
         dob: formData.dob,
         relation: formData.relation === 'Other' && formData.customRelation 
@@ -146,7 +156,32 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
             <p className="text-[10px] text-mellow-purple/70 font-bold px-1 -mt-2">
               * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
             </p>
-            
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {t.register?.firstNameEnLabel || 'First Name (English)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.firstNameEn}
+                  onChange={e => setFormData({ ...formData, firstNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {t.register?.lastNameEnLabel || 'Last Name (English)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.lastNameEn}
+                  onChange={e => setFormData({ ...formData, lastNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
                 {t.register?.nickname || 'Nickname'}

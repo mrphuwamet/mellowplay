@@ -423,6 +423,7 @@ app.use('/api/v1/system/*', requireCrmAuth);
 app.get('/api/v1/admin/stats', (c) => adminController.getStats(c));
 app.post('/api/v1/admin/users', (c) => adminController.createUser(c));
 app.get('/api/v1/admin/users', (c) => adminController.getUsers(c));
+app.get('/api/v1/admin/children-directory', (c) => adminController.getChildrenDirectory(c));
 app.get('/api/v1/admin/users/:id', (c) => adminController.getUserById(c));
 app.put('/api/v1/admin/users/:id', (c) => adminController.updateUser(c));
 app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadUserAvatar(c));

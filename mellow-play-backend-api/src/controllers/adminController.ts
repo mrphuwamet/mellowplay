@@ -75,6 +75,17 @@ export class AdminController {
     }
   }
 
+  async getChildrenDirectory(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const children = await adminRepo.getChildrenDirectory();
+      return c.json({ success: true, children });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async getUserById(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -142,9 +153,9 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const childId = parseInt(c.req.param('id'));
-      const { nickname, gender, relation, membership_type, membership_expires_at } = await c.req.json();
+      const { nickname, gender, relation, name_en, membership_type, membership_expires_at } = await c.req.json();
       await adminRepo.updateHdChild(childId, {
-        nickname, gender, relation,
+        nickname, gender, relation, nameEn: name_en,
         membershipType: membership_type,
         membershipExpiresAt: membership_expires_at,
       });

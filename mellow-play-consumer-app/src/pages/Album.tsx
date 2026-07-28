@@ -153,20 +153,64 @@ const Album = () => {
     setSelectedIds(new Set());
   };
 
-  const downloadOne = (url: string) => {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  // Media lives on the BACKEND API's own origin (adminController.uploadFile
+  // returns an absolute URL on the worker's domain), never the consumer
+  // app's — a plain `<a download>` to a cross-origin URL is silently
+  // ignored by the browser per spec (it just navigates instead of saving),
+  // which is exactly why this looked broken. Fetching the bytes and saving
+  // a blob: URL instead works regardless of origin, since the download
+  // attribute always honors blob: URLs.
+  const downloadOne = async (url: string, type: string = 'image') => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = blob.type.split('/')[1] || (type === 'video' ? 'mp4' : 'jpg');
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `mellow-play-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error('Download failed, falling back to opening in a new tab:', err);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const downloadSelected = () => {
     const items = filteredMedia.filter(m => selectedIds.has(m.id));
-    items.forEach((item, idx) => setTimeout(() => downloadOne(item.url), idx * 300));
+    items.forEach((item, idx) => setTimeout(() => downloadOne(item.url, item.type), idx * 300));
+  };
+
+  // Sharing just the remote URL leaves whatever app the user picks to fetch
+  // and preview it itself, which some in-app share targets handle poorly
+  // (or not at all) for a plain API URL with no page around it. Sharing the
+  // actual file gives recipients the real photo/video directly, the way a
+  // native photo app would — falls back to a URL share, then to download,
+  // for browsers that don't support file sharing at all.
+  const shareOne = async (url: string, type: string) => {
+    try {
+      if (navigator.share) {
+        if (navigator.canShare) {
+          const res = await fetch(url);
+          const blob = await res.blob();
+          const ext = blob.type.split('/')[1] || (type === 'video' ? 'mp4' : 'jpg');
+          const file = new File([blob], `mellow-play.${ext}`, { type: blob.type || (type === 'video' ? 'video/mp4' : 'image/jpeg') });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file] });
+            return;
+          }
+        }
+        await navigator.share({ url });
+        return;
+      }
+    } catch (err) {
+      if ((err as any)?.name === 'AbortError') return; // user cancelled the share sheet
+      console.error('Share failed, falling back to download:', err);
+    }
+    downloadOne(url, type);
   };
 
   if (isLoading) {
@@ -277,13 +321,13 @@ const Album = () => {
           {!selectMode && viewMode === 'grid' && (
             <div className="absolute top-2 right-2 z-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                onClick={e => { e.stopPropagation(); downloadOne(img.url); }}
+                onClick={e => { e.stopPropagation(); downloadOne(img.url, img.type); }}
                 className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white"
               >
                 <Download size={14} />
               </button>
               <button
-                onClick={e => { e.stopPropagation(); navigator.share ? navigator.share({ url: img.url }).catch(() => {}) : downloadOne(img.url); }}
+                onClick={e => { e.stopPropagation(); shareOne(img.url, img.type); }}
                 className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white"
               >
                 <Share2 size={14} />
@@ -297,13 +341,13 @@ const Album = () => {
           {!selectMode && viewMode === 'list' && (
             <div className="absolute inset-0 rounded-[24px] flex items-center justify-center gap-3 bg-black/10">
               <button
-                onClick={e => { e.stopPropagation(); downloadOne(img.url); }}
+                onClick={e => { e.stopPropagation(); downloadOne(img.url, img.type); }}
                 className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
               >
                 <Download size={18} />
               </button>
               <button
-                onClick={e => { e.stopPropagation(); navigator.share ? navigator.share({ url: img.url }).catch(() => {}) : downloadOne(img.url); }}
+                onClick={e => { e.stopPropagation(); shareOne(img.url, img.type); }}
                 className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
               >
                 <Share2 size={18} />

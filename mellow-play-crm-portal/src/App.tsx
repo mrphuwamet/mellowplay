@@ -66,6 +66,7 @@ import {
   Lock as LockMenuIcon,
   Celebration as EventMenuIcon,
   MiscellaneousServices as CourseServiceMenuIcon,
+  ManageSearch as ChildDirectoryMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -73,6 +74,7 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
 import UserManagement from './pages/UserManagement';
+import ChildrenDirectory from './pages/ChildrenDirectory';
 import BookingManagement from './pages/BookingManagement';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
@@ -411,6 +413,7 @@ const AppContent = () => {
     pushGroup('people', 'ผู้ใช้งาน', <PeopleIcon />, [
       { text: 'จัดการพนักงาน', icon: <BadgeIcon />, path: '/crm/staff', feature: 'crm_users' },
       { text: 'จัดการผู้ใช้งาน (ลูกค้า)', icon: <PeopleIcon />, path: '/crm/parents', feature: 'consumer_users' },
+      { text: 'ค้นหาเด็ก + ผู้ปกครอง', icon: <ChildDirectoryMenuIcon />, path: '/crm/children-directory', feature: 'consumer_users' },
     ]);
 
     pushGroup('classes', 'คลาสเรียนและการจอง', <BookingIcon />, [
@@ -850,6 +853,7 @@ const AppContent = () => {
             />
             <Route path="/crm/staff" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
+            <Route path="/crm/children-directory" element={protect('consumer_users', <ChildrenDirectory />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
             <Route path="/crm/events" element={protect('courses', <CourseManagement courseType="event" />)} />
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />

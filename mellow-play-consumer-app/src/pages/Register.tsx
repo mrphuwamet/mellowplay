@@ -25,6 +25,8 @@ const ddmmyyyyToISO = (value: string) => {
 interface ChildInput {
   firstName: string;
   lastName: string;
+  firstNameEn?: string;
+  lastNameEn?: string;
   nickname: string;
   gender: string;
   dob: string;
@@ -71,7 +73,7 @@ const Register = () => {
   });
 
   const [children, setChildren] = useState<ChildInput[]>([
-    { firstName: '', lastName: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }
+    { firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }
   ]);
 
   const [fieldErrors, setFieldErrors] = useState<{
@@ -256,7 +258,7 @@ const Register = () => {
   };
 
   const handleAddChild = () => {
-    setChildren([...children, { firstName: '', lastName: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }]);
+    setChildren([...children, { firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }]);
     setChildErrors((prev) => [...prev, {}]);
   };
 
@@ -305,6 +307,9 @@ const Register = () => {
         ...c,
         dob: ddmmyyyyToISO(c.dob),
         name: `${cleanNamePrefix(c.firstName)} ${c.lastName ? cleanNamePrefix(c.lastName) : ''}`.trim(),
+        nameEn: (c.firstNameEn || c.lastNameEn)
+          ? `${cleanNamePrefix(c.firstNameEn || '')} ${c.lastNameEn ? cleanNamePrefix(c.lastNameEn) : ''}`.trim()
+          : undefined,
         relation: c.relation === 'Other' && c.customRelation ? c.customRelation : c.relation
       }))
     };
@@ -578,6 +583,31 @@ const Register = () => {
               <p className="text-[10px] text-mellow-purple/70 font-bold -mt-2">
                 * {t.register.noTitlePrefix}
               </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
+                  <input
+                    id={`reg-child-${index}-firstNameEn`}
+                    type="text"
+                    placeholder={t.register.firstNameEn}
+                    value={child.firstNameEn || ''}
+                    onChange={(e) => handleChildChange(index, 'firstNameEn', e.target.value)}
+                    className="w-full px-4 py-[14px] bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none"
+                  />
+                </div>
+                <div className="relative">
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
+                  <input
+                    id={`reg-child-${index}-lastNameEn`}
+                    type="text"
+                    placeholder={t.register.lastNameEn}
+                    value={child.lastNameEn || ''}
+                    onChange={(e) => handleChildChange(index, 'lastNameEn', e.target.value)}
+                    className="w-full px-4 py-[14px] bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">

@@ -23,6 +23,39 @@ export class AdminRepository {
     };
   }
 
+  // Flat, one-row-per-child directory across BOTH child sources (HD-based
+  // app registrations and CRM-created walk-ins) with their parent's contact
+  // info attached — getAllUsers nests children under each parent instead,
+  // which is the right shape for the parent-edit screen but useless for
+  // "find this specific kid by name/nickname/phone" search across the whole
+  // customer base.
+  async getChildrenDirectory(): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT
+        c.id as child_id, hp.name as full_name, hp.name_en as full_name_en, hp.nickname,
+        hp.gender, hp.birth_date as date_of_birth, 1 as is_hd,
+        c.membership_type, c.membership_expires_at,
+        u.id as user_id, u.first_name || ' ' || u.last_name as parent_name,
+        TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
+        u.phone as parent_phone, u.email as parent_email
+      FROM Children c
+      JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
+      JOIN Users u ON hp.user_id = u.id
+      UNION ALL
+      SELECT
+        cc.id as child_id, cc.full_name, cc.full_name_en, cc.nickname,
+        cc.gender, cc.date_of_birth, 0 as is_hd,
+        NULL as membership_type, NULL as membership_expires_at,
+        u.id as user_id, u.first_name || ' ' || u.last_name as parent_name,
+        TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
+        u.phone as parent_phone, u.email as parent_email
+      FROM User_CRM_Children cc
+      JOIN Users u ON cc.user_id = u.id
+      ORDER BY full_name ASC
+    `).all();
+    return results;
+  }
+
   async getAllUsers(): Promise<any[]> {
     // Children can come from either the app's HD-based registration flow
     // (Children, parent_id) or CRM-created walk-in records (User_CRM_Children)
@@ -62,7 +95,7 @@ export class AdminRepository {
     ).bind(id).all();
 
     const { results: hdChildren } = await this.db.prepare(`
-      SELECT c.id, hp.name as full_name, hp.nickname, hp.gender, hp.birth_date as date_of_birth,
+      SELECT c.id, hp.name as full_name, hp.name_en as full_name_en, hp.nickname, hp.gender, hp.birth_date as date_of_birth,
              hp.relation, COALESCE(c.avatar, c.custom_photo_url) as avatar, 1 as is_hd,
              c.membership_type, c.membership_expires_at
       FROM Children c
@@ -96,7 +129,7 @@ export class AdminRepository {
     profileImageUrl?: string;
     displayName?: string;
     isCommunityAdmin?: boolean;
-    children?: Array<{ id?: number; full_name: string; nickname?: string; gender?: string; date_of_birth?: string }>;
+    children?: Array<{ id?: number; full_name: string; full_name_en?: string; nickname?: string; gender?: string; date_of_birth?: string }>;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Users SET
@@ -122,9 +155,9 @@ export class AdminRepository {
       await this.db.prepare('DELETE FROM User_CRM_Children WHERE user_id = ?').bind(id).run();
       for (const child of data.children) {
         await this.db.prepare(`
-          INSERT INTO User_CRM_Children (user_id, full_name, nickname, gender, date_of_birth)
-          VALUES (?, ?, ?, ?, ?)
-        `).bind(id, child.full_name, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null).run();
+          INSERT INTO User_CRM_Children (user_id, full_name, full_name_en, nickname, gender, date_of_birth)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null).run();
       }
     }
   }
@@ -135,14 +168,17 @@ export class AdminRepository {
   // calculation (hd_type/hd_strategy/hd_authority etc.), so changing them
   // here without recalculating the whole chart would leave it inconsistent.
   // nickname/gender/relation are just display metadata — safe to edit directly.
+  // name_en is likewise just a display label (an English translation of the
+  // Thai name already on file), not fed into the HD chart, so it's safe here
+  // too even though the Thai `name` itself stays locked.
   // membership_type/membership_expires_at live on Children itself (not
   // HD_Profiles), since premium status is per-child, not part of the HD chart.
-  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; membershipType?: string; membershipExpiresAt?: string | null }): Promise<void> {
+  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; nameEn?: string; membershipType?: string; membershipExpiresAt?: string | null }): Promise<void> {
     const child = await this.db.prepare('SELECT hd_profile_id FROM Children WHERE id = ?').bind(childId).first<{ hd_profile_id: number }>();
     if (!child) throw new Error('Child not found');
     await this.db.prepare(`
-      UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ? WHERE id = ?
-    `).bind(data.nickname ?? null, data.gender ?? null, data.relation ?? null, child.hd_profile_id).run();
+      UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ?, name_en = ? WHERE id = ?
+    `).bind(data.nickname ?? null, data.gender ?? null, data.relation ?? null, data.nameEn ?? null, child.hd_profile_id).run();
 
     if (data.membershipType !== undefined) {
       await this.db.prepare(`
@@ -184,8 +220,10 @@ export class AdminRepository {
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
+        hp.name_en as child_name_en,
         hp.nickname as child_nickname,
         hp.birth_date as child_birth_date,
+        hp.gender as child_gender,
         (u.first_name || ' ' || u.last_name) as parent_name,
         TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
         u.phone as parent_phone,

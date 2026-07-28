@@ -195,16 +195,17 @@ export class ProfileController {
     try {
       const config = new ConfigService(c.env);
       const childId = parseInt(c.req.param('childId'));
-      const { name, nickname, birth_date, dob, relation, gender } = await c.req.json();
+      const { name, nameEn, nickname, birth_date, dob, relation, gender } = await c.req.json();
 
       const hdProfileRepository = new HDProfileRepository(config.db);
       const updated = await hdProfileRepository.updateChildProfile(
-        childId, 
-        name || '', 
-        nickname || '', 
-        birth_date || dob || null, 
+        childId,
+        name || '',
+        nickname || '',
+        birth_date || dob || null,
         relation || '',
-        gender || ''
+        gender || '',
+        nameEn || null
       );
 
       if (updated) {

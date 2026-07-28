@@ -28,6 +28,8 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    firstNameEn: '',
+    lastNameEn: '',
     nickname: '',
     gender: 'Boy',
     dob: '',
@@ -52,6 +54,9 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
         ...formData,
         dob: ddmmyyyyToISO(formData.dob),
         name: `${cleanNamePrefix(formData.firstName)} ${cleanNamePrefix(formData.lastName)}`.trim(),
+        nameEn: (formData.firstNameEn || formData.lastNameEn)
+          ? `${cleanNamePrefix(formData.firstNameEn)} ${formData.lastNameEn ? cleanNamePrefix(formData.lastNameEn) : ''}`.trim()
+          : undefined,
         relation: formData.relation === 'Other' && formData.customRelation
           ? formData.customRelation
           : formData.relation
@@ -65,7 +70,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           const user = JSON.parse(userJson);
           await fetchChildren(user.id);
         }
-        setFormData({ firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' });
+        setFormData({ firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' });
         onClose();
         await onSuccess?.();
       }
@@ -126,7 +131,32 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
             <p className="text-[10px] text-mellow-purple/70 font-bold px-1 -mt-2">
               * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
             </p>
-            
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {t.register?.firstNameEnLabel || 'First Name (English)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.firstNameEn}
+                  onChange={e => setFormData({ ...formData, firstNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                  {t.register?.lastNameEnLabel || 'Last Name (English)'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.lastNameEn}
+                  onChange={e => setFormData({ ...formData, lastNameEn: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
                 {t.register?.nickname || 'Nickname'}

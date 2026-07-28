@@ -104,15 +104,15 @@ export class HDProfileRepository {
     return result.success;
   }
 
-  async updateChildProfile(childId: number, name: string, nickname: string, birth_date: string, relation: string, gender: string = ""): Promise<boolean> {
+  async updateChildProfile(childId: number, name: string, nickname: string, birth_date: string, relation: string, gender: string = "", nameEn: string | null = null): Promise<boolean> {
     // First find the hd_profile_id from Children
     const child = await this.db.prepare(`SELECT hd_profile_id FROM Children WHERE id = ?`).bind(childId).first<{ hd_profile_id: number }>();
     if (!child) return false;
 
     const result = await this.db.prepare(`
-      UPDATE HD_Profiles SET name = ?, nickname = ?, birth_date = ?, relation = ?, gender = ? WHERE id = ?
-    `).bind(name, nickname, birth_date, relation, gender, child.hd_profile_id).run();
-    
+      UPDATE HD_Profiles SET name = ?, name_en = ?, nickname = ?, birth_date = ?, relation = ?, gender = ? WHERE id = ?
+    `).bind(name, nameEn, nickname, birth_date, relation, gender, child.hd_profile_id).run();
+
     return result.success;
   }
 }

@@ -155,7 +155,7 @@ export class UserRepository {
     passwordHash: string,
     firstName: string,
     lastName: string,
-    children: Array<{ name: string; dob: string; relation: string; nickname: string; gender: string }>,
+    children: Array<{ name: string; nameEn?: string; dob: string; relation: string; nickname: string; gender: string }>,
     email?: string,
     lineId?: string,
     pdpaConsent: boolean = false,
@@ -195,9 +195,9 @@ export class UserRepository {
       }
 
       const hdResult = await this.db.prepare(`
-        INSERT INTO HD_Profiles (user_id, name, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(userId, child.name, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+        INSERT INTO HD_Profiles (user_id, name, name_en, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(userId, child.name, child.nameEn || null, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
 
       const hdProfileId = hdResult.meta.last_row_id;
 
@@ -211,7 +211,7 @@ export class UserRepository {
 
   async addSingleChild(
     userId: number,
-    child: { name: string; dob: string; relation: string; nickname: string; gender: string }
+    child: { name: string; nameEn?: string; dob: string; relation: string; nickname: string; gender: string }
   ): Promise<number> {
     const hdService = new HDService(''); // Empty API key forces mock calculation
 
@@ -234,9 +234,9 @@ export class UserRepository {
     }
 
     const hdResult = await this.db.prepare(`
-      INSERT INTO HD_Profiles (user_id, name, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(userId, child.name, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+      INSERT INTO HD_Profiles (user_id, name, name_en, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(userId, child.name, child.nameEn || null, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
 
     const hdProfileId = hdResult.meta.last_row_id;
 

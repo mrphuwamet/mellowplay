@@ -11,6 +11,9 @@ import {
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
+  ExpandMore as ExpandMoreIcon,
+  UnfoldMore as ExpandAllIcon,
+  UnfoldLess as CollapseAllIcon,
   Add as AddIcon,
   Search as SearchIcon,
   HistoryEdu as ReportIcon,
@@ -49,8 +52,10 @@ interface Booking {
   status: string;
   age_group: string;
   child_name: string;
+  child_name_en?: string;
   child_nickname?: string;
   child_birth_date?: string;
+  child_gender?: string;
   parent_name?: string;
   parent_name_en?: string;
   parent_phone?: string;
@@ -404,6 +409,15 @@ const calculateAge = (birthDateStr: string | undefined) => {
   return age >= 0 ? `${age} ปี` : '0 ปี';
 };
 
+// Stored as 'Boy'/'Girl'/'Other' (see Register.tsx / UserManagement.tsx) —
+// guest bookings have no HD_Profiles row at all, hence '-'.
+const getGenderLabel = (gender: string | undefined): string => {
+  if (gender === 'Boy') return 'ชาย';
+  if (gender === 'Girl') return 'หญิง';
+  if (gender === 'Other') return 'อื่นๆ';
+  return '-';
+};
+
 // Bookings.created_at / Transactions.created_at (the source of paid_at for
 // every real payment) are D1 `DEFAULT CURRENT_TIMESTAMP` values — UTC,
 // stored as "YYYY-MM-DD HH:MM:SS" with no timezone marker. Parsing that
@@ -548,10 +562,16 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
             <Typography sx={{ fontWeight: 700 }}>
               {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
             </Typography>
+            {booking.child_name_en && (
+              <Typography variant="body2" color="text.secondary">{booking.child_name_en}</Typography>
+            )}
             <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
               <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
               {booking.child_birth_date && (
                 <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+              )}
+              {booking.child_gender && (
+                <Chip label={getGenderLabel(booking.child_gender)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
               )}
             </Stack>
           </Box>
@@ -627,6 +647,24 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
 }) => {
   const [search, setSearch] = useState('');
   const [groupByFields, setGroupByFields] = useState<string[]>([]);
+  // Keyed by the group's full path ("parentKey>childKey>...") rather than
+  // just its own key, since e.g. a "confirmed" status group appears once
+  // per date when grouped by date+status — a bare key would collapse every
+  // one of those at once instead of just the one the admin actually clicked.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroupCollapsed = (path: string) => setCollapsedGroups(prev => {
+    const next = new Set(prev);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    return next;
+  });
+  // Every path currently present in `grouped` — used by "expand/collapse
+  // all" so they act on what's actually on screen right now, not on stale
+  // paths left over from a previous grouping choice.
+  const collectGroupPaths = (nodes: GroupNode[], parentPath: string): string[] =>
+    nodes.flatMap(n => {
+      const path = parentPath ? `${parentPath}>${n.key}` : n.key;
+      return n.children ? [path, ...collectGroupPaths(n.children, path)] : [path];
+    });
   const [sortKey, setSortKey] = useState('scheduled_asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -687,7 +725,9 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       'เวลา',
       'คลาส',
       'ชื่อเด็ก',
+      'ชื่อเด็ก (English)',
       'ชื่อเล่นเด็ก',
+      'เพศเด็ก',
       'วันเกิดเด็ก',
       'อายุจริง',
       'ชื่อผู้ปกครอง',
@@ -714,7 +754,9 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         `"${time}"`,
         `"${b.course_name || ''}"`,
         `"${b.child_name || ''}"`,
+        `"${b.child_name_en || '-'}"`,
         `"${b.child_nickname || '-'}"`,
+        `"${getGenderLabel(b.child_gender)}"`,
         `"${childBdate}"`,
         `"${actualAge}"`,
         `"${b.parent_name || '-'}"`,
@@ -796,10 +838,17 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
                       sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
                     />
                   )}
+                  {b.child_gender && (
+                    <Chip
+                      label={getGenderLabel(b.child_gender)}
+                      size="small"
+                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                    />
+                  )}
                 </Stack>
                 {hasRealName && (
                   <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.child_name}
+                    {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
                   </Typography>
                 )}
                 {b.parent_name && (
@@ -860,21 +909,31 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
     );
   };
 
-  const renderGroup = (node: GroupNode, depth: number): React.ReactNode => (
-    <Box key={`${depth}-${node.key}`} sx={{ pl: depth * 2.5 }}>
-      {node.key && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, mt: depth > 0 ? 2.5 : 0 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: depth === 0 ? '15px' : '13.5px' }}>{node.key}</Typography>
-          <Chip label={`${node.items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: '#eef1f5' }} />
-        </Box>
-      )}
-      {node.children ? (
-        <Stack spacing={2}>{node.children.map(child => renderGroup(child, depth + 1))}</Stack>
-      ) : (
-        <Stack spacing={1.25}>{node.items.map(renderBookingCard)}</Stack>
-      )}
-    </Box>
-  );
+  const renderGroup = (node: GroupNode, depth: number, parentPath: string): React.ReactNode => {
+    const path = parentPath ? `${parentPath}>${node.key}` : node.key;
+    const isCollapsed = collapsedGroups.has(path);
+    return (
+      <Box key={`${depth}-${node.key}`} sx={{ pl: depth * 2.5 }}>
+        {node.key && (
+          <Box
+            onClick={() => toggleGroupCollapsed(path)}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, mt: depth > 0 ? 2.5 : 0, cursor: 'pointer', userSelect: 'none', width: 'fit-content' }}
+          >
+            <ExpandMoreIcon sx={{ fontSize: 20, color: 'text.secondary', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'none' }} />
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: depth === 0 ? '15px' : '13.5px' }}>{node.key}</Typography>
+            <Chip label={`${node.items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: '#eef1f5' }} />
+          </Box>
+        )}
+        {!isCollapsed && (
+          node.children ? (
+            <Stack spacing={2}>{node.children.map(child => renderGroup(child, depth + 1, path))}</Stack>
+          ) : (
+            <Stack spacing={1.25}>{node.items.map(renderBookingCard)}</Stack>
+          )
+        )}
+      </Box>
+    );
+  };
 
   return (
     <Box>
@@ -911,6 +970,20 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
               ))}
             </Select>
           </FormControl>
+          {groupByFields.length > 0 && (
+            <Stack direction="row" spacing={0.5}>
+              <Tooltip title="ขยายทั้งหมด">
+                <IconButton size="small" onClick={() => setCollapsedGroups(new Set())}>
+                  <ExpandAllIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="ยุบทั้งหมด">
+                <IconButton size="small" onClick={() => setCollapsedGroups(new Set(collectGroupPaths(grouped, '')))}>
+                  <CollapseAllIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          )}
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
             <InputLabel sx={{ fontWeight: 700 }}>เรียงลำดับ</InputLabel>
             <Select value={sortKey} onChange={e => setSortKey(e.target.value)} label="เรียงลำดับ" sx={{ borderRadius: 2, fontWeight: 700 }}>
@@ -950,7 +1023,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       ) : (
         <>
           <Stack spacing={2.5}>
-            {grouped.map(node => renderGroup(node, 0))}
+            {grouped.map(node => renderGroup(node, 0, ''))}
           </Stack>
 
           {/* Pagination — only meaningful against the flat, ungrouped list;

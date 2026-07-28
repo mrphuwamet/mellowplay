@@ -13,6 +13,8 @@ import ResponsiveModal from '../components/ResponsiveModal';
 interface ChildInput {
   firstName: string;
   lastName: string;
+  firstNameEn?: string;
+  lastNameEn?: string;
   nickname: string;
   gender: string;
   dob: string;
@@ -34,7 +36,7 @@ const ddmmyyyyToISO = (value: string) => {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 };
 
-const emptyChild = (): ChildInput => ({ firstName: '', lastName: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' });
+const emptyChild = (): ChildInput => ({ firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' });
 
 const AddChild = () => {
   const navigate = useNavigate();
@@ -105,6 +107,9 @@ const AddChild = () => {
       for (const child of children) {
         await apiClient.post('/profiles/children', {
           name: `${cleanNamePrefix(child.firstName)} ${child.lastName ? cleanNamePrefix(child.lastName) : ''}`.trim(),
+          nameEn: (child.firstNameEn || child.lastNameEn)
+            ? `${cleanNamePrefix(child.firstNameEn || '')} ${child.lastNameEn ? cleanNamePrefix(child.lastNameEn) : ''}`.trim()
+            : undefined,
           nickname: child.nickname,
           gender: child.gender,
           dob: ddmmyyyyToISO(child.dob),
@@ -191,6 +196,29 @@ const AddChild = () => {
                 <p className="text-[10px] text-mellow-purple/70 font-bold -mt-2">
                   * {t.register.noTitlePrefix}
                 </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative">
+                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
+                    <input
+                      type="text"
+                      placeholder={t.register.firstNameEn}
+                      value={child.firstNameEn || ''}
+                      onChange={(e) => handleChildChange(index, 'firstNameEn', e.target.value)}
+                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
+                    <input
+                      type="text"
+                      placeholder={t.register.lastNameEn}
+                      value={child.lastNameEn || ''}
+                      onChange={(e) => handleChildChange(index, 'lastNameEn', e.target.value)}
+                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
+                    />
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="relative">
