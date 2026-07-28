@@ -418,6 +418,13 @@ const getGenderLabel = (gender: string | undefined): string => {
   return '-';
 };
 
+const formatParentPhone = (phoneStr: string | undefined) => {
+  if (!phoneStr) return '-';
+  const clean = phoneStr.replace(/[-\s]/g, '');
+  if (clean.length === 10) return `${clean.slice(0, 3)}-${clean.slice(3)}`;
+  return phoneStr;
+};
+
 // Bookings.created_at / Transactions.created_at (the source of paid_at for
 // every real payment) are D1 `DEFAULT CURRENT_TIMESTAMP` values — UTC,
 // stored as "YYYY-MM-DD HH:MM:SS" with no timezone marker. Parsing that
@@ -638,10 +645,12 @@ const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose
   </Dialog>
 );
 
-const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
+const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses }: {
   bookings: Booking[];
   onReport: (bs: Booking[]) => void;
   onCancel: (id: number) => void;
+  onBulkCancel: (ids: number[]) => void;
+  onMarkComplete: (ids: number[]) => void;
   onEdit: (b: Booking) => void;
   courses: Course[];
 }) => {
@@ -683,6 +692,23 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  const [contactsCopied, setContactsCopied] = useState(false);
+  const copyContactList = (rows: Booking[]) => {
+    // Dedup by phone — a parent with several children/bookings selected at
+    // once shouldn't turn into the same number pasted N times into whatever
+    // messaging tool this list gets pasted into.
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const b of rows) {
+      const phone = formatParentPhone(b.parent_phone);
+      const key = b.parent_phone || phone;
+      if (phone === '-' || seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`${b.parent_name || '-'} - ${phone}`);
+    }
+    if (lines.length === 0) return;
+    navigator.clipboard.writeText(lines.join('\n')).then(() => setContactsCopied(true)).catch(() => {});
+  };
 
   const filtered = useMemo(() => {
     if (!search.trim()) return bookings;
@@ -703,9 +729,17 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
   const toggleSelectAll = () => setSelectedIds(allFilteredSelected ? new Set() : new Set(filtered.map(b => b.id)));
+  const selectedBookings = bookings.filter(b => selectedIds.has(b.id));
   // Cancelled bookings can't sensibly get a class report — silently exclude
   // them from a bulk selection instead of failing partway through the loop.
-  const selectedBookingsForReport = bookings.filter(b => selectedIds.has(b.id) && b.status !== 'cancelled');
+  const selectedBookingsForReport = selectedBookings.filter(b => b.status !== 'cancelled');
+  // Same eligibility the single-row "ยกเลิก" menu item already uses (see the
+  // manage menu below) — only a still-active booking has a seat/stock to
+  // release.
+  const selectedBookingsForCancel = selectedBookings.filter(b => ['confirmed', 'confirmed_paid'].includes(b.status));
+  // Same "still active, hasn't happened/been reported yet" eligibility as
+  // the single-row "เรียนเสร็จ" action.
+  const selectedBookingsForComplete = selectedBookings.filter(b => ['confirmed', 'confirmed_paid'].includes(b.status));
 
   const sorted = useMemo(() => sortBookings(filtered, sortKey), [filtered, sortKey]);
 
@@ -727,16 +761,9 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
 
   const courseMap = useMemo(() => new Map(courses.map(c => [c.id, c])), [courses]);
 
-  const exportCSV = () => {
-    const formatPhone = (phoneStr: string | undefined) => {
-      if (!phoneStr) return '-';
-      const clean = phoneStr.replace(/[-\s]/g, '');
-      if (clean.length === 10) {
-        return `${clean.slice(0, 3)}-${clean.slice(3)}`;
-      }
-      return phoneStr;
-    };
-
+  // Defaults to the full filtered set (the toolbar button), but also reused
+  // by the selection bar's "Export CSV ที่เลือก" to dump just the checked rows.
+  const exportCSV = (rows: Booking[] = filtered) => {
     const headers = [
       'รหัสจอง',
       'วันที่',
@@ -759,7 +786,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
       'ยอดเงินที่ชำระ',
       'ช่องทางชำระเงิน'
     ];
-    const rows = filtered.map(b => {
+    const csvRows = rows.map(b => {
       const dt = new Date(b.scheduled_at);
       const date = isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH');
       const time = isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -779,7 +806,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         `"${actualAge}"`,
         `"${b.parent_name || '-'}"`,
         `"${b.parent_name_en || '-'}"`,
-        `"${formatPhone(b.parent_phone)}"`,
+        `"${formatParentPhone(b.parent_phone)}"`,
         `"${b.parent_email || '-'}"`,
         `"${b.branch_name || ''}"`,
         `"${status}"`,
@@ -789,7 +816,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         `"${b.payment_method || '-'}"`
       ].join(',');
     });
-    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const csv = '\uFEFF' + [headers.join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -903,6 +930,24 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
               sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor, border: 'none', fontSize: '12px', px: 1, height: 26, flexShrink: 0 }}
             />
 
+            {/* Marks the class as attended (status → awaiting_report) without
+                also forcing the report open right away, unlike the calendar
+                views' "เรียนเสร็จ" — here it's a separate, batchable step so
+                staff can mark a whole day's worth of classes attended first
+                and come back to actually write reports later. */}
+            {['confirmed', 'confirmed_paid'].includes(b.status) && (
+              <Tooltip title="เรียนเสร็จ — ทำเครื่องหมายว่าเข้าเรียนแล้ว">
+                <IconButton
+                  size="small"
+                  color="success"
+                  onClick={() => onMarkComplete([b.id])}
+                  sx={{ ml: 'auto', flexShrink: 0 }}
+                >
+                  <CheckCircleIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+
             {/* Filing a report no longer needs the class to have already
                 happened — a real class-time check + confirm step lives in
                 onReport itself (see openReport in the parent). Only a
@@ -913,7 +958,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
                   size="small"
                   color={b.status === 'awaiting_report' ? 'warning' : b.status === 'completed' ? 'success' : 'default'}
                   onClick={() => onReport([b])}
-                  sx={{ ml: 'auto', flexShrink: 0 }}
+                  sx={{ ml: ['confirmed', 'confirmed_paid'].includes(b.status) ? 0 : 'auto', flexShrink: 0 }}
                 >
                   <ReportIcon fontSize="small" />
                 </IconButton>
@@ -924,7 +969,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
             <IconButton
               size="small"
               onClick={(e) => setManageMenu({ anchor: e.currentTarget, booking: b })}
-              sx={{ ml: b.status === 'cancelled' ? 'auto' : 0, flexShrink: 0 }}
+              sx={{ ml: (b.status === 'cancelled') ? 'auto' : 0, flexShrink: 0 }}
             >
               <MoreVertIcon fontSize="small" />
             </IconButton>
@@ -1036,7 +1081,7 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
           <Button
             variant="outlined"
             startIcon={<DownloadIcon />}
-            onClick={exportCSV}
+            onClick={() => exportCSV()}
             disabled={filtered.length === 0}
             sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
           >
@@ -1045,9 +1090,10 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
         </Stack>
       </Paper>
 
-      {/* Selection bar — "all" + per-row checkboxes drive bulk actions
-          (currently just bulk report-filing: a teacher who ran one activity
-          for a whole group can log it once instead of per child). */}
+      {/* Selection bar — "all" + per-row checkboxes drive bulk actions:
+          mark-attended, report-filing, cancel (confirm required), CSV export
+          of just the selection, and copying the selected parents' contact
+          info for a quick broadcast message. */}
       {filtered.length > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, px: 0.5, flexWrap: 'wrap' }}>
           <Checkbox
@@ -1063,6 +1109,17 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
             <>
               <Button
                 size="small"
+                variant="outlined"
+                color="success"
+                startIcon={<CheckCircleIcon />}
+                onClick={() => onMarkComplete(selectedBookingsForComplete.map(b => b.id))}
+                disabled={selectedBookingsForComplete.length === 0}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                เรียนเสร็จ ({selectedBookingsForComplete.length})
+              </Button>
+              <Button
+                size="small"
                 variant="contained"
                 startIcon={<ReportIcon />}
                 onClick={() => onReport(selectedBookingsForReport)}
@@ -1071,6 +1128,34 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
               >
                 กรอกรายงาน ({selectedBookingsForReport.length})
               </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={() => onBulkCancel(selectedBookingsForCancel.map(b => b.id))}
+                disabled={selectedBookingsForCancel.length === 0}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                ยกเลิก ({selectedBookingsForCancel.length})
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DownloadIcon />}
+                onClick={() => exportCSV(selectedBookings)}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                Export CSV ที่เลือก
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => copyContactList(selectedBookings)}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                คัดลอกเบอร์ติดต่อ
+              </Button>
               <Button size="small" onClick={() => setSelectedIds(new Set())} sx={{ fontWeight: 700 }}>
                 ล้างการเลือก
               </Button>
@@ -1078,6 +1163,17 @@ const ListView = ({ bookings, onReport, onCancel, onEdit, courses }: {
           )}
         </Box>
       )}
+
+      <Snackbar
+        open={contactsCopied}
+        autoHideDuration={3000}
+        onClose={() => setContactsCopied(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setContactsCopied(false)} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          คัดลอกเบอร์ติดต่อแล้ว
+        </Alert>
+      </Snackbar>
 
       {/* List — a scannable card per booking instead of a dense table row.
           Each card leads with a big date block and a colored status
@@ -1770,7 +1866,7 @@ const BookingManagement = () => {
     };
   }, [bookings]);
 
-  const [confirmAction, setConfirmAction] = useState<{ type: 'cancel'; bookingId: number } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'cancel'; bookingId: number } | { type: 'bulk-cancel'; bookingIds: number[] } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -1788,6 +1884,27 @@ const BookingManagement = () => {
     }
   };
   const handleCancel = (bookingId: number) => setConfirmAction({ type: 'cancel', bookingId });
+  const handleBulkCancel = (bookingIds: number[]) => {
+    if (bookingIds.length === 0) return;
+    setConfirmAction({ type: 'bulk-cancel', bookingIds });
+  };
+
+  // List view's own "เรียนเสร็จ" (standalone button + bulk action) — unlike
+  // handleComplete above (calendar views), this deliberately only flips the
+  // status and stops there, so marking attendance and writing the report
+  // are two separate, independently-batchable steps instead of one action
+  // forcing the other.
+  const handleMarkComplete = async (bookingIds: number[]) => {
+    if (bookingIds.length === 0) return;
+    try {
+      await Promise.allSettled(
+        bookingIds.map(id => axios.patch(`${API_BASE}/bookings/${id}/status`, { status: 'awaiting_report' }))
+      );
+      fetchBookings();
+    } catch (e: any) {
+      setActionError(e.response?.data?.message || 'เกิดข้อผิดพลาด');
+    }
+  };
 
   // ── Super Admin force-status patch (error correction) ────────────────────
   const [forceStatusBooking, setForceStatusBooking] = useState<Booking | null>(null);
@@ -1927,7 +2044,16 @@ const BookingManagement = () => {
     if (!confirmAction) return;
     setConfirmLoading(true);
     try {
-      await axios.post(`${API_BASE}/bookings/${confirmAction.bookingId}/cancel`);
+      if (confirmAction.type === 'cancel') {
+        await axios.post(`${API_BASE}/bookings/${confirmAction.bookingId}/cancel`);
+      } else {
+        // Best-effort — one booking failing to cancel (e.g. already touched
+        // by another staff member in the meantime) shouldn't block the rest
+        // of the batch.
+        await Promise.allSettled(
+          confirmAction.bookingIds.map(id => axios.post(`${API_BASE}/bookings/${id}/cancel`))
+        );
+      }
       setConfirmAction(null);
       fetchBookings();
     } catch (e: any) {
@@ -2128,7 +2254,7 @@ const BookingManagement = () => {
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={(b) => openReport([b])} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onEdit={openForceStatus} courses={courses} />
+        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} />
       )}
@@ -2144,8 +2270,12 @@ const BookingManagement = () => {
 
       <ConfirmDialog
         open={!!confirmAction}
-        title="ยืนยันการยกเลิกการจอง?"
-        description="ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับรายการนี้"
+        title={confirmAction?.type === 'bulk-cancel' ? `ยืนยันการยกเลิก ${confirmAction.bookingIds.length} รายการ?` : 'ยืนยันการยกเลิกการจอง?'}
+        description={
+          confirmAction?.type === 'bulk-cancel'
+            ? `ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับ ${confirmAction.bookingIds.length} รายการนี้ — ดำเนินการนี้ย้อนกลับไม่ได้`
+            : 'ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับรายการนี้'
+        }
         confirmLabel="ยืนยันยกเลิก"
         confirmColor="error"
         icon={<CancelIcon sx={{ fontSize: 30 }} />}

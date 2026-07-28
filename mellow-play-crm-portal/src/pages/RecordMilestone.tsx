@@ -4,6 +4,8 @@ import {
   Typography, Box, CircularProgress,
   Grid, Button, Chip, Alert,
   TextField, IconButton, Paper,
+  Avatar, Stack, Divider,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -16,6 +18,10 @@ import {
   PhotoLibrary as MediaStepIcon,
   Groups as AgeIcon,
   Check as CheckIcon,
+  ChevronLeft as PrevIcon,
+  ChevronRight as NextIcon,
+  Phone as PhoneIcon,
+  EventNote as BookingIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem } from '../utils/skillsLibrary';
@@ -24,9 +30,9 @@ const API_BASE = `${API_URL}/api/v1`;
 
 interface RecordMilestoneProps {
   // `booking` (single, still used by POSBookingView/CourseManagement) or
-  // `bookings` (BookingManagement's List view — lets one report be filed
-  // once across every selected child, e.g. a whole group that did the same
-  // activity) — exactly one of the two is provided by any given caller.
+  // `bookings` (BookingManagement's List view — a report per selected
+  // child, filled one at a time via the Prev/Next wizard below) — exactly
+  // one of the two is provided by any given caller.
   booking?: any;
   bookings?: any[];
   onClose: () => void;
@@ -38,6 +44,17 @@ interface RecordMilestoneProps {
 // to just get flattened into one list on save, making it impossible to
 // show them as separate sections later (BookingDetailModal/ReportDetail).
 interface BilingualSkill { th: string; en: string; type?: 'achievement' | 'indicator'; }
+
+interface ReportForm {
+  skills: BilingualSkill[];
+  teacherComment: string;
+  images: string[];
+  videoUrl: string;
+}
+
+const blankForm = (): ReportForm => ({ skills: [], teacherComment: '', images: [], videoUrl: '' });
+const isFormBlank = (f: ReportForm | undefined) =>
+  !f || (f.skills.length === 0 && !f.teacherComment.trim() && f.images.length === 0 && !f.videoUrl);
 
 const skillKey = (s: BilingualSkill) => `${s.th}|${s.en}`;
 
@@ -51,58 +68,78 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skillsLoading, setSkillsLoading] = useState(true);
-  const [availableSkills, setAvailableSkills] = useState<{ id: string; skill: BilingualSkill; icon: React.ReactElement; type: 'achievement' | 'indicator' }[]>([]);
-  const [course, setCourse] = useState<any>(null);
+  const [allCourses, setAllCourses] = useState<any[]>([]);
+  const [skillsLibrary, setSkillsLibrary] = useState<SkillItem[]>([]);
 
-  // Bulk mode only ever prefills a blank form (see isEditMode below) — the
-  // whole point is one shared report applied to every selected child, not
-  // reopening N different existing reports at once.
   const targets: any[] = bookings && bookings.length > 0 ? bookings : [booking];
   const isBulk = targets.length > 1;
-  const primary = targets[0];
 
-  const [formData, setFormData] = useState({
-    skills: [] as BilingualSkill[],
-    teacherComment: '',
-    images: [] as string[],
-    videoUrl: ''
-  });
+  // Which person (booking) is currently being filled in — always 0 outside
+  // bulk mode, so every currentTarget-based computation below is exactly
+  // the old single-booking behavior when isBulk is false.
+  const [bulkIndex, setBulkIndex] = useState(0);
+  const currentTarget = targets[bulkIndex];
+  const currentIsEditMode = currentTarget.status === 'completed';
+
+  // Each person's in-progress report, kept independently so navigating away
+  // and back (or jumping via the avatar strip) never loses what was typed.
+  const [bulkForms, setBulkForms] = useState<Record<number, ReportForm>>({});
+  const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+  const [formData, setFormData] = useState<ReportForm>(blankForm());
+  const [prefillLoading, setPrefillLoading] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
-  // A report already exists for this booking (opened via "แก้ไขรายงาน" on a
-  // completed booking) — prefill instead of starting from a blank form, and
-  // update it in place on submit rather than filing a duplicate.
-  const isEditMode = !isBulk && primary.status === 'completed';
-
+  // Loads whichever form belongs to the currently-shown person — from
+  // memory if they've already been visited this session, from their
+  // existing filed report if reopening a completed booking, or blank.
   useEffect(() => {
-    if (!isEditMode) return;
-    axios.get(`${API_BASE}/admin/journey/progress-by-booking/${primary.id}`)
-      .then(res => {
-        const progress = res.data.success ? res.data.progress : null;
-        if (!progress) return;
-        let skills: BilingualSkill[] = [];
-        try {
-          skills = typeof progress.skills_learned === 'string'
-            ? JSON.parse(progress.skills_learned)
-            : (progress.skills_learned || []);
-        } catch { skills = []; }
-        const media: { url: string; type: string }[] = progress.media || [];
-        setFormData({
-          skills,
-          teacherComment: progress.teacher_comment || '',
-          images: media.filter(m => m.type === 'image').map(m => m.url),
-          videoUrl: media.find(m => m.type === 'video')?.url || '',
-        });
-      })
-      .catch(err => console.error('Failed to load existing report', err));
+    let cancelled = false;
+    const existing = bulkForms[currentTarget.id];
+    if (existing) {
+      setFormData(existing);
+      return;
+    }
+    if (currentTarget.status === 'completed') {
+      setPrefillLoading(true);
+      axios.get(`${API_BASE}/admin/journey/progress-by-booking/${currentTarget.id}`)
+        .then(res => {
+          if (cancelled) return;
+          const progress = res.data.success ? res.data.progress : null;
+          let skills: BilingualSkill[] = [];
+          if (progress) {
+            try {
+              skills = typeof progress.skills_learned === 'string'
+                ? JSON.parse(progress.skills_learned)
+                : (progress.skills_learned || []);
+            } catch { skills = []; }
+          }
+          const media: { url: string; type: string }[] = progress?.media || [];
+          const loaded: ReportForm = {
+            skills,
+            teacherComment: progress?.teacher_comment || '',
+            images: media.filter(m => m.type === 'image').map(m => m.url),
+            videoUrl: media.find(m => m.type === 'video')?.url || '',
+          };
+          setFormData(loaded);
+          setBulkForms(prev => ({ ...prev, [currentTarget.id]: loaded }));
+        })
+        .catch(err => console.error('Failed to load existing report', err))
+        .finally(() => { if (!cancelled) setPrefillLoading(false); });
+    } else {
+      setFormData(blankForm());
+    }
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [primary.id, isEditMode]);
+  }, [currentTarget.id]);
 
-  // Skills selectable in a report must come from THIS course's own setup
-  // (achievement_skills_json / metrics_json, picked from the Skills Library
-  // when the course was configured) — different courses teach different
-  // skills, so a fixed global list would be wrong here.
+  // Course list + Skills Library fetched once, independent of which person
+  // is currently shown — each person can be a different course in bulk
+  // mode, so which skills are selectable is derived per-target below
+  // instead of being tied to a single fetch.
   useEffect(() => {
     const fetchCourseSkills = async () => {
       setSkillsLoading(true);
@@ -111,39 +148,8 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
           axios.get(`${API_BASE}/admin/courses`),
           axios.get(`${API_BASE}/admin/skills-library`),
         ]);
-
-        if (coursesRes.data.success) {
-          const course = coursesRes.data.courses.find((c: any) => c.id === primary.course_id);
-          setCourse(course || null);
-          // Both are arrays of { th, en } pairs — set via SkillTagInput in
-          // CourseManagement, NOT plain strings.
-          let achievementSkills: BilingualSkill[] = [];
-          let indicatorSkills: BilingualSkill[] = [];
-          try { achievementSkills = course?.achievement_skills_json ? JSON.parse(course.achievement_skills_json) : []; } catch {}
-          try { indicatorSkills = course?.metrics_json ? JSON.parse(course.metrics_json) : []; } catch {}
-
-          const library: SkillItem[] = libraryRes.data.success ? libraryRes.data.skills : [];
-          const tagged = [
-            ...achievementSkills.map(skill => ({ skill, type: 'achievement' as const })),
-            ...indicatorSkills.map(skill => ({ skill, type: 'indicator' as const })),
-          ];
-          setAvailableSkills(tagged.map(({ skill, type }) => {
-            const found = library.find(s => s.name === skill.th);
-            // Backfill a missing translation from the Skills Library so the
-            // report page can still show both languages even if whoever
-            // configured the course only filled in one.
-            const resolved: BilingualSkill = {
-              th: skill.th || found?.name || '',
-              en: skill.en || found?.name_en || '',
-            };
-            return {
-              id: skillKey(skill),
-              skill: resolved,
-              icon: renderSkillIcon(found?.icon || 'Star', { fontSize: 'small' }),
-              type,
-            };
-          }));
-        }
+        if (coursesRes.data.success) setAllCourses(coursesRes.data.courses);
+        if (libraryRes.data.success) setSkillsLibrary(libraryRes.data.skills);
       } catch (err) {
         console.error('Failed to load course skills', err);
       } finally {
@@ -151,7 +157,41 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
       }
     };
     fetchCourseSkills();
-  }, [primary.course_id]);
+  }, []);
+
+  const currentCourse = React.useMemo(
+    () => allCourses.find((c: any) => c.id === currentTarget.course_id) || null,
+    [allCourses, currentTarget.course_id]
+  );
+
+  // Both are arrays of { th, en } pairs — set via SkillTagInput in
+  // CourseManagement, NOT plain strings.
+  const availableSkills = React.useMemo(() => {
+    let achievementSkills: BilingualSkill[] = [];
+    let indicatorSkills: BilingualSkill[] = [];
+    try { achievementSkills = currentCourse?.achievement_skills_json ? JSON.parse(currentCourse.achievement_skills_json) : []; } catch { /* malformed json */ }
+    try { indicatorSkills = currentCourse?.metrics_json ? JSON.parse(currentCourse.metrics_json) : []; } catch { /* malformed json */ }
+    const tagged = [
+      ...achievementSkills.map(skill => ({ skill, type: 'achievement' as const })),
+      ...indicatorSkills.map(skill => ({ skill, type: 'indicator' as const })),
+    ];
+    return tagged.map(({ skill, type }) => {
+      const found = skillsLibrary.find(s => s.name === skill.th);
+      // Backfill a missing translation from the Skills Library so the
+      // report page can still show both languages even if whoever
+      // configured the course only filled in one.
+      const resolved: BilingualSkill = {
+        th: skill.th || found?.name || '',
+        en: skill.en || found?.name_en || '',
+      };
+      return {
+        id: skillKey(skill),
+        skill: resolved,
+        icon: renderSkillIcon(found?.icon || 'Star', { fontSize: 'small' }),
+        type,
+      };
+    });
+  }, [currentCourse, skillsLibrary]);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -209,36 +249,105 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
     }
   };
 
-  // Same loop for a single booking or a bulk one — one iteration for the
-  // ordinary case, so nothing about the single-booking flow actually changes.
+  const submitReportForTarget = async (target: any, form: ReportForm) => {
+    await axios.post(`${API_BASE}/journey/record`, {
+      childId: target.child_id,
+      bookingId: target.id,
+      skillsLearned: form.skills,
+      teacherComment: form.teacherComment,
+      media: [
+        ...form.images.map(url => ({ url, type: 'image' })),
+        ...(form.videoUrl ? [{ url: form.videoUrl, type: 'video' }] : [])
+      ]
+    });
+  };
+
+  // ── Single-booking flow (unchanged behavior) ──────────────────────────────
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
     try {
-      for (const b of targets) {
-        await axios.post(`${API_BASE}/journey/record`, {
-          childId: b.child_id,
-          bookingId: b.id,
-          skillsLearned: formData.skills,
-          teacherComment: formData.teacherComment,
-          media: [
-            ...formData.images.map(url => ({ url, type: 'image' })),
-            ...(formData.videoUrl ? [{ url: formData.videoUrl, type: 'video' }] : [])
-          ]
-        });
-        // Each booking only becomes "completed" (stock deducted, stamps
-        // awarded) once its report is first filed — see BookingManagement's
-        // handleComplete. Skip any booking already completed, or it would
-        // deduct stock / award stamps a second time.
-        if (b.status !== 'completed') {
-          await axios.post(`${API_BASE}/admin/bookings/${b.id}/complete`);
-        }
+      await submitReportForTarget(currentTarget, formData);
+      // The booking only becomes "completed" (stock deducted, stamps
+      // awarded) once the report is first filed — see BookingManagement's
+      // handleComplete. Skip this when editing an already-completed booking,
+      // or it would deduct stock / award stamps a second time.
+      if (currentTarget.status !== 'completed') {
+        await axios.post(`${API_BASE}/admin/bookings/${currentTarget.id}/complete`);
       }
       onSuccess();
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to submit report');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ── Bulk wizard flow ──────────────────────────────────────────────────────
+  const flushCurrentForm = () => {
+    setBulkForms(prev => ({ ...prev, [currentTarget.id]: formData }));
+    return { ...bulkForms, [currentTarget.id]: formData };
+  };
+
+  const goTo = (newIndex: number) => {
+    if (newIndex < 0 || newIndex >= targets.length || newIndex === bulkIndex) return;
+    flushCurrentForm();
+    setBulkIndex(newIndex);
+  };
+  const goPrev = () => goTo(bulkIndex - 1);
+  const goNext = () => goTo(bulkIndex + 1);
+
+  const handleSaveDraft = async () => {
+    setDraftSaving(true);
+    setError(null);
+    try {
+      await submitReportForTarget(currentTarget, formData);
+      setBulkForms(prev => ({ ...prev, [currentTarget.id]: formData }));
+      setSavedIds(prev => new Set(prev).add(currentTarget.id));
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'บันทึกฉบับร่างไม่สำเร็จ');
+    } finally {
+      setDraftSaving(false);
+    }
+  };
+
+  const countFilled = (formsMap: Record<number, ReportForm>) => {
+    let filled = 0;
+    for (const t of targets) if (!isFormBlank(formsMap[t.id])) filled++;
+    return filled;
+  };
+
+  const mergedForms = { ...bulkForms, [currentTarget.id]: formData };
+  const filledCount = countFilled(mergedForms);
+  const unfilledCount = targets.length - filledCount;
+
+  const runFinish = async (formsMap: Record<number, ReportForm>) => {
+    setFinishing(true);
+    setError(null);
+    try {
+      for (const t of targets) {
+        const form = formsMap[t.id];
+        if (isFormBlank(form)) continue; // no report typed — leave this booking untouched
+        await submitReportForTarget(t, form!);
+        if (t.status !== 'completed') {
+          await axios.post(`${API_BASE}/admin/bookings/${t.id}/complete`);
+        }
+      }
+      onSuccess();
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'Failed to submit report');
+    } finally {
+      setFinishing(false);
+      setFinishConfirmOpen(false);
+    }
+  };
+
+  const handleFinishClick = () => {
+    const merged = flushCurrentForm();
+    if (countFilled(merged) < targets.length) {
+      setFinishConfirmOpen(true);
+    } else {
+      runFinish(merged);
     }
   };
 
@@ -254,50 +363,106 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
   ];
 
   return (
-    <Box sx={{ pb: 10, maxWidth: 900, mx: 'auto' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+    <Box sx={{ pb: 10, maxWidth: isBulk ? 1100 : 900, mx: 'auto' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: isBulk ? 2 : 3 }}>
         <IconButton onClick={onClose} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <BackIcon />
         </IconButton>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>
-          {isEditMode ? 'แก้ไขรายงานการเรียนรู้' : isBulk ? `บันทึกรายงานการเรียนรู้วันนี้ (${targets.length} คน)` : 'บันทึกรายงานการเรียนรู้วันนี้'}
-        </Typography>
-      </Box>
-
-      {/* Class header — cover image + details, for context while filling the report */}
-      <Paper sx={{ borderRadius: 4, border: '1px solid #f1f3f9', overflow: 'hidden', mb: 4, display: 'flex' }}>
-        <Box sx={{ width: 140, minHeight: 140, flexShrink: 0, bgcolor: '#f1f5f9' }}>
-          {course?.thumbnail_url ? (
-            <img src={getImageUrl(course.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <MediaStepIcon sx={{ fontSize: 28, color: 'text.disabled' }} />
-            </Box>
-          )}
-        </Box>
-        <Box sx={{ p: 2.5, flex: 1, minWidth: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }}>{primary.course_name}</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
             {isBulk
-              ? `กำลังกรอกรายงานให้ ${targets.length} คน: ${targets.map(b => b.child_nickname || b.child_name).join(', ')}`
-              : `นักเรียน: ${primary.child_name}`}
+              ? `บันทึกรายงานการเรียนรู้ (คนที่ ${bulkIndex + 1}/${targets.length})`
+              : (currentIsEditMode ? 'แก้ไขรายงานการเรียนรู้' : 'บันทึกรายงานการเรียนรู้วันนี้')}
           </Typography>
-          {course?.short_description && (
-            <Typography variant="body2" color="text.secondary" sx={{
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            }}>
-              {course.short_description}
+          {isBulk && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+              กรอกแล้ว {filledCount}/{targets.length} คน
             </Typography>
           )}
-          {(course?.age_min || course?.age_max) && (
-            <Chip icon={<AgeIcon sx={{ fontSize: 14 }} />} label={`${course.age_min}-${course.age_max} ปี`} size="small" sx={{ mt: 1.5, fontWeight: 700 }} />
-          )}
         </Box>
-      </Paper>
+      </Box>
+
+      {/* Avatar strip — jump directly to any person, or step with the arrows;
+          a green check marks who already has content typed (or saved). */}
+      {isBulk && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, overflowX: 'auto', pb: 1, mb: 3 }}>
+          <IconButton onClick={goPrev} disabled={bulkIndex === 0} size="small" sx={{ bgcolor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', flexShrink: 0 }}>
+            <PrevIcon fontSize="small" />
+          </IconButton>
+          {targets.map((t, i) => {
+            const isCurrent = i === bulkIndex;
+            const filled = !isFormBlank(mergedForms[t.id]);
+            return (
+              <Box
+                key={t.id}
+                onClick={() => goTo(i)}
+                sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, cursor: 'pointer', flexShrink: 0, px: 0.5, opacity: isCurrent ? 1 : 0.65 }}
+              >
+                <Box sx={{ position: 'relative' }}>
+                  <Avatar sx={{
+                    width: 38, height: 38, fontSize: 14, fontWeight: 800,
+                    bgcolor: isCurrent ? '#7c3aed' : '#e2e8f0', color: isCurrent ? 'white' : '#64748b',
+                    border: isCurrent ? '2px solid #7c3aed' : 'none',
+                  }}>
+                    {(t.child_nickname || t.child_name || '?').charAt(0)}
+                  </Avatar>
+                  {filled && (
+                    <Box sx={{
+                      position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%',
+                      bgcolor: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white',
+                    }}>
+                      <CheckIcon sx={{ fontSize: 10, color: 'white' }} />
+                    </Box>
+                  )}
+                </Box>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, maxWidth: 52, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.child_nickname || t.child_name}
+                </Typography>
+              </Box>
+            );
+          })}
+          <IconButton onClick={goNext} disabled={bulkIndex === targets.length - 1} size="small" sx={{ bgcolor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', flexShrink: 0 }}>
+            <NextIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      )}
+
+      {/* Class header — cover image + details, single-booking mode only; in
+          bulk mode the same info lives in the right-hand sidebar instead
+          (see below), scoped to whichever person is currently shown. */}
+      {!isBulk && (
+        <Paper sx={{ borderRadius: 4, border: '1px solid #f1f3f9', overflow: 'hidden', mb: 4, display: 'flex' }}>
+          <Box sx={{ width: 140, minHeight: 140, flexShrink: 0, bgcolor: '#f1f5f9' }}>
+            {currentCourse?.thumbnail_url ? (
+              <img src={getImageUrl(currentCourse.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <MediaStepIcon sx={{ fontSize: 28, color: 'text.disabled' }} />
+              </Box>
+            )}
+          </Box>
+          <Box sx={{ p: 2.5, flex: 1, minWidth: 0 }}>
+            <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }}>{currentTarget.course_name}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              นักเรียน: {currentTarget.child_name}
+            </Typography>
+            {currentCourse?.short_description && (
+              <Typography variant="body2" color="text.secondary" sx={{
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {currentCourse.short_description}
+              </Typography>
+            )}
+            {(currentCourse?.age_min || currentCourse?.age_max) && (
+              <Chip icon={<AgeIcon sx={{ fontSize: 14 }} />} label={`${currentCourse.age_min}-${currentCourse.age_max} ปี`} size="small" sx={{ mt: 1.5, fontWeight: 700 }} />
+            )}
+          </Box>
+        </Paper>
+      )}
 
       <Grid container spacing={3}>
         {/* Left step rail — visual progress, not interactive navigation (everything below is on one page) */}
-        <Grid item xs={1} sx={{ display: { xs: 'none', sm: 'block' } }}>
+        <Grid item xs={1} sx={{ display: { xs: 'none', sm: isBulk ? 'none' : 'block', md: isBulk ? 'block' : 'block' } }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', pt: 2 }}>
             {steps.map((step, i) => (
               <React.Fragment key={step.key}>
@@ -318,7 +483,11 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
           </Box>
         </Grid>
 
-        <Grid item xs={12} sm={11}>
+        <Grid item xs={12} sm={isBulk ? 12 : 11} md={isBulk ? 7 : 11}>
+          {prefillLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
+          ) : (
+          <>
           <Paper sx={{ p: 4, borderRadius: 4, border: '1px solid #f1f3f9', mb: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 3 }}>วันนี้น้องได้เรียนรู้อะไรบ้าง</Typography>
 
@@ -474,19 +643,135 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
 
           {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert>}
 
-          <Button
-            variant="contained"
-            fullWidth
-            size="large"
-            disabled={loading}
-            onClick={handleSubmit}
-            startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
-            sx={{ py: 2, fontWeight: 800 }}
-          >
-            {isEditMode ? 'บันทึกการแก้ไข' : 'ส่งรายงานให้ผู้ปกครอง'}
-          </Button>
+          {isBulk ? (
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+              <Button
+                variant="outlined"
+                onClick={goPrev}
+                disabled={bulkIndex === 0}
+                startIcon={<PrevIcon />}
+                sx={{ fontWeight: 800, borderRadius: 2.5 }}
+              >
+                ก่อนหน้า
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleSaveDraft}
+                disabled={draftSaving}
+                startIcon={draftSaving ? <CircularProgress size={16} /> : <SaveIcon />}
+                sx={{ fontWeight: 800, borderRadius: 2.5 }}
+              >
+                {savedIds.has(currentTarget.id) ? 'บันทึกฉบับร่างอีกครั้ง' : 'บันทึกฉบับร่าง'}
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={goNext}
+                disabled={bulkIndex === targets.length - 1}
+                endIcon={<NextIcon />}
+                sx={{ fontWeight: 800, borderRadius: 2.5 }}
+              >
+                ถัดไป
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleFinishClick}
+                disabled={finishing}
+                sx={{ fontWeight: 800, borderRadius: 2.5, ml: 'auto' }}
+              >
+                {finishing ? <CircularProgress size={18} color="inherit" /> : `เสร็จสิ้น (${filledCount}/${targets.length})`}
+              </Button>
+            </Stack>
+          ) : (
+            <Button
+              variant="contained"
+              fullWidth
+              size="large"
+              disabled={loading}
+              onClick={handleSubmit}
+              startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
+              sx={{ py: 2, fontWeight: 800 }}
+            >
+              {currentIsEditMode ? 'บันทึกการแก้ไข' : 'ส่งรายงานให้ผู้ปกครอง'}
+            </Button>
+          )}
+          </>
+          )}
         </Grid>
+
+        {/* Right sidebar — who this report is for, and which class/round it
+            was booked against. Only in bulk mode; single-booking mode keeps
+            showing this in the class-header banner above instead. */}
+        {isBulk && (
+          <Grid item xs={12} md={4}>
+            <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid #f1f3f9', mb: 3 }}>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: 1 }}>ข้อมูลเด็ก</Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1.5, mb: 2 }}>
+                <Avatar sx={{ width: 48, height: 48, bgcolor: '#7c3aed', fontWeight: 800 }}>
+                  {(currentTarget.child_nickname || currentTarget.child_name || '?').charAt(0)}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 800 }}>{currentTarget.child_nickname || currentTarget.child_name}</Typography>
+                  {currentTarget.child_nickname && currentTarget.child_name && currentTarget.child_nickname !== currentTarget.child_name && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      {currentTarget.child_name}{currentTarget.child_name_en ? ` (${currentTarget.child_name_en})` : ''}
+                    </Typography>
+                  )}
+                </Box>
+              </Stack>
+              <Divider sx={{ my: 1.5 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{currentTarget.parent_name || '-'}</Typography>
+              {currentTarget.parent_phone && (
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25 }}>
+                  <PhoneIcon sx={{ fontSize: 13 }} color="action" />
+                  <Typography variant="body2" color="text.secondary">{currentTarget.parent_phone}</Typography>
+                </Stack>
+              )}
+            </Paper>
+
+            <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid #f1f3f9' }}>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: 1 }}>ข้อมูลการจอง</Typography>
+              <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: 1.5 }}>
+                <BookingIcon sx={{ fontSize: 18, color: '#7c3aed', mt: 0.25 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 800 }}>{currentTarget.course_name}</Typography>
+                  {currentTarget.scheduled_at && !isNaN(new Date(currentTarget.scheduled_at).getTime()) && (
+                    <Typography variant="body2" color="text.secondary">
+                      {new Date(currentTarget.scheduled_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      {' · '}
+                      {new Date(currentTarget.scheduled_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                    </Typography>
+                  )}
+                  {currentTarget.branch_name && (
+                    <Typography variant="body2" color="text.secondary">{currentTarget.branch_name}</Typography>
+                  )}
+                </Box>
+              </Stack>
+            </Paper>
+          </Grid>
+        )}
       </Grid>
+
+      {/* Finish confirmation — only shown when at least one person still has
+          a completely blank form; skips straight through otherwise. */}
+      <Dialog open={finishConfirmOpen} onClose={() => !finishing && setFinishConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยืนยันจบการกรอกรายงาน?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            กรอกแล้ว {filledCount} คน — ยังไม่ได้กรอก {unfilledCount} คน
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            คนที่ยังไม่ได้กรอกจะไม่ถูกบันทึกรายงานและจะไม่ถูกทำเครื่องหมายว่าเรียนเสร็จ ต้องการดำเนินการต่อหรือไม่?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setFinishConfirmOpen(false)} disabled={finishing}>ยกเลิก</Button>
+          <Button variant="contained" color="warning" onClick={() => runFinish(mergedForms)} disabled={finishing}>
+            {finishing ? <CircularProgress size={18} color="inherit" /> : 'ยืนยัน จบการกรอก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
