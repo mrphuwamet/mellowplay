@@ -249,7 +249,7 @@ const SettingsProfile = () => {
             </label>
           </div>
 
-          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Parent Information' : 'ข้อมูลผู้ปกครอง'}</h2>
+          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Parent Information (Primary)' : 'ข้อมูลผู้ปกครอง (หลัก)'}</h2>
 
           <form onSubmit={handleSave} className="space-y-4">
             {success && (
@@ -409,6 +409,60 @@ const SettingsProfile = () => {
           </form>
         </div>
 
+        {/* Family Members Section — always rendered (not gated on having
+            any yet), since a user with zero saved family members still
+            needs a way to add their first one; this list covers every
+            relation (children, parents, grandparents, etc.), not just kids,
+            so the heading/button wording says "family member", not "child". */}
+        <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
+          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Family Members' : 'สมาชิกในครอบครัว'}</h2>
+          {children.length > 0 && (
+            <div className="space-y-4">
+              {children.map((child) => (
+                <div key={child.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                  <div className="flex items-center gap-4">
+                    <ChildAvatar avatarType={child.avatar} className="w-12 h-12 rounded-full ring-2 ring-white shadow-sm" />
+                    <div>
+                      <h3 className="font-black text-slate-800 text-[16px] leading-tight">{child.name}</h3>
+                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">
+                        {child.relation ? (() => {
+                          const { role, customText } = normalizeFamilyRole(child.relation);
+                          return customText || getFamilyRoleLabel(role, lang);
+                        })() : (lang === 'en' ? 'Child' : 'เด็ก')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingChild({
+                        id: child.id,
+                        name: child.name,
+                        nameEn: child.nameEn || '',
+                        nickname: child.nickname || '',
+                        dob: child.dob || '',
+                        relation: child.relation || 'Child',
+                        gender: child.gender || ''
+                      });
+                      setIsEditChildOpen(true);
+                    }}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-mellow-purple hover:border-mellow-purple/30 hover:bg-mellow-purple/5 transition-colors shadow-sm"
+                  >
+                    <SettingsIcon size={18} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={() => setIsAddChildOpen(true)}
+            className="mt-6 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600 transition-all flex items-center justify-center gap-2"
+          >
+            <User size={18} />
+            {lang === 'en' ? 'Add Family Member' : 'เพิ่มสมาชิกในครอบครัว'}
+          </button>
+        </div>
+
         {/* Account Security / Google Link */}
         <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
           <h2 className="text-xl font-black text-slate-800 mb-1">{lang === 'en' ? 'Account & Security' : 'บัญชีและความปลอดภัย'}</h2>
@@ -502,60 +556,6 @@ const SettingsProfile = () => {
           <LogOut size={18} />
           {lang === 'en' ? 'Logout' : 'ออกจากระบบ'}
         </button>
-
-        {/* Family Members Section — always rendered (not gated on having
-            any yet), since a user with zero saved family members still
-            needs a way to add their first one; this list covers every
-            relation (children, parents, grandparents, etc.), not just kids,
-            so the heading/button wording says "family member", not "child". */}
-        <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
-          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Family Members' : 'สมาชิกในครอบครัว'}</h2>
-          {children.length > 0 && (
-            <div className="space-y-4">
-              {children.map((child) => (
-                <div key={child.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
-                  <div className="flex items-center gap-4">
-                    <ChildAvatar avatarType={child.avatar} className="w-12 h-12 rounded-full ring-2 ring-white shadow-sm" />
-                    <div>
-                      <h3 className="font-black text-slate-800 text-[16px] leading-tight">{child.name}</h3>
-                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">
-                        {child.relation ? (() => {
-                          const { role, customText } = normalizeFamilyRole(child.relation);
-                          return customText || getFamilyRoleLabel(role, lang);
-                        })() : (lang === 'en' ? 'Child' : 'เด็ก')}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setEditingChild({
-                        id: child.id,
-                        name: child.name,
-                        nameEn: child.nameEn || '',
-                        nickname: child.nickname || '',
-                        dob: child.dob || '',
-                        relation: child.relation || 'Child',
-                        gender: child.gender || ''
-                      });
-                      setIsEditChildOpen(true);
-                    }}
-                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-mellow-purple hover:border-mellow-purple/30 hover:bg-mellow-purple/5 transition-colors shadow-sm"
-                  >
-                    <SettingsIcon size={18} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button
-            onClick={() => setIsAddChildOpen(true)}
-            className="mt-6 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600 transition-all flex items-center justify-center gap-2"
-          >
-            <User size={18} />
-            {lang === 'en' ? 'Add Family Member' : 'เพิ่มสมาชิกในครอบครัว'}
-          </button>
-        </div>
       </main>
 
       <EditChildModal
