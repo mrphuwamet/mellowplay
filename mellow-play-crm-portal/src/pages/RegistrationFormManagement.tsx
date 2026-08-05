@@ -275,8 +275,8 @@ const RegistrationFormManagement = () => {
                   <Paper key={field.fieldKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                     <Stack direction="row" spacing={1.5} alignItems="flex-start">
                       <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
-                      <Box sx={{ flex: 1 }}>
-                        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+                      <Stack spacing={1.5} sx={{ flex: 1 }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
                           <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
                           {field.type !== 'heading' && (
                             <FormControlLabel
@@ -289,7 +289,6 @@ const RegistrationFormManagement = () => {
                           fullWidth size="small" label="ข้อความ/คำถาม"
                           value={field.label}
                           onChange={e => updateField(idx, { label: e.target.value })}
-                          sx={{ mb: field.options || field.role ? 1.5 : 0 }}
                         />
                         {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && (
                           <TextField
@@ -299,7 +298,7 @@ const RegistrationFormManagement = () => {
                           />
                         )}
                         {field.type === 'family_member_picker' && (
-                          <FormControl size="small" sx={{ minWidth: 200, mb: 1.5 }}>
+                          <FormControl size="small" sx={{ minWidth: 200 }}>
                             <InputLabel>ให้เลือกสมาชิกบทบาท</InputLabel>
                             <Select
                               value={field.role || 'child'}
@@ -333,7 +332,7 @@ const RegistrationFormManagement = () => {
                             )}
                           </FormControl>
                         )}
-                      </Box>
+                      </Stack>
                       <Stack spacing={0.5}>
                         <IconButton size="small" disabled={idx === 0} onClick={() => moveField(idx, -1)}><UpIcon fontSize="small" /></IconButton>
                         <IconButton size="small" disabled={idx === currentPageFields.length - 1} onClick={() => moveField(idx, 1)}><DownIcon fontSize="small" /></IconButton>
