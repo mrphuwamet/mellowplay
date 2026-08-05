@@ -809,7 +809,7 @@ const Booking = () => {
                        })}
                      <div className="flex justify-between text-sm font-bold text-slate-600">
                        <span>{lang === 'en' ? 'Price' : 'ราคา'}</span>
-                       <span>{selectedCourse?.original_price?.toLocaleString() || 0} ฿</span>
+                       <span>{selectedCourse?.original_price ? `${selectedCourse.original_price.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}</span>
                      </div>
                      <div className="flex justify-between text-sm font-bold text-slate-600">
                        <span>{lang === 'en' ? 'Number of Children' : 'จำนวนเด็ก'}</span>
@@ -847,7 +847,7 @@ const Booking = () => {
                      <div className="h-px bg-slate-100 my-2" />
                      <div className="flex justify-between items-center text-base font-black text-slate-700">
                        <span>{lang === 'en' ? 'Total' : 'ยอดที่ต้องชำระ'}</span>
-                       <span className="text-2xl font-black text-mellow-purple">{totalPrice.toLocaleString()} ฿</span>
+                       <span className="text-2xl font-black text-mellow-purple">{totalPrice > 0 ? `${totalPrice.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}</span>
                      </div>
                    </div>
                  </>
@@ -1029,7 +1029,10 @@ const Booking = () => {
                             {(course as any).active_campaign_discount_amount > 0 ? (
                               <div className="flex items-baseline gap-1.5">
                                 <span className="text-[16px] font-black text-mellow-purple leading-none">
-                                  {((course.original_price || 0) - (course as any).active_campaign_discount_amount).toLocaleString()} ฿
+                                  {(() => {
+                                    const discounted = (course.original_price || 0) - (course as any).active_campaign_discount_amount;
+                                    return discounted > 0 ? `${discounted.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี');
+                                  })()}
                                 </span>
                                 <span className="text-[11px] text-slate-400 line-through font-medium">
                                   {course.original_price?.toLocaleString()} ฿
@@ -1170,6 +1173,7 @@ const Booking = () => {
               childPickerMode={bookingType === 'event' ? 'single' : 'multi'}
               selectedChildIds={formHasChildPicker ? selectedChildren.map(c => c.id) : undefined}
               onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
+              onAddFamilyMember={() => setIsAddChildOpen(true)}
             />
           )}
 

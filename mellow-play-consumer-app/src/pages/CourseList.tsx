@@ -97,7 +97,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
                          </span>
                        )}
                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[12px] font-bold">
-                         ฿{course.original_price?.toLocaleString() || 0}
+                         {course.original_price ? `฿${course.original_price.toLocaleString()}` : 'ฟรี'}
                        </span>
                     </div>
 

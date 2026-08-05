@@ -324,7 +324,7 @@ const Dashboard = () => {
               on Users.relationship, distinct from membership_type
               (Premium/Regular), which has its own section elsewhere. */}
           <Grid item xs={12} sm={6} md={3}>
-            <SectionPaper title="ความสัมพันธ์กับลูก">
+            <SectionPaper title="ประเภทผู้ปกครอง">
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie data={parentRelationshipData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} label>

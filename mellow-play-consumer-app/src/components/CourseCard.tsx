@@ -121,7 +121,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
                 </span>
               )}
               <span className="text-[17px] font-black text-mellow-red tracking-tight leading-none shrink-0">
-                ฿{discountedPrice.toLocaleString()}
+                {discountedPrice > 0 ? `฿${discountedPrice.toLocaleString()}` : (lang === 'en' ? 'Free' : 'ฟรี')}
               </span>
               {/* Price OR coupon — a class bookable either way shows both,
                   price first per the card's compact layout. */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Plus } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
 
 interface RegFormField {
@@ -44,6 +45,11 @@ interface Props {
   childPickerMode?: 'single' | 'multi';
   selectedChildIds?: number[];
   onChildSelectionChange?: (ids: number[]) => void;
+  // Lets a family_member_picker with nobody to pick from (or missing the
+  // one they need) add a new family member without leaving this step —
+  // wired by the caller to whatever "add family member" modal it already
+  // has, so the roster refresh stays centralized there.
+  onAddFamilyMember?: () => void;
 }
 
 // Renders whatever pages/fields a CRM-built Registration_Form has, one page
@@ -52,7 +58,7 @@ interface Props {
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
   form, answers, onChange, roster, onBack, onNext, lang,
-  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange,
+  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember,
 }) => {
   const pages = useMemo(() => {
     const grouped: RegFormField[][] = [];
@@ -250,9 +256,9 @@ const DynamicRegistrationForm: React.FC<Props> = ({
               <div key={field.field_key}>
                 {labelEl}
                 {list.length === 0 ? (
-                  <p className="text-xs font-bold text-slate-400">{lang === 'en' ? 'No family members found' : 'ไม่พบสมาชิกในครอบครัว'}</p>
+                  <p className="text-xs font-bold text-slate-400 mb-2">{lang === 'en' ? 'No family members found' : 'ไม่พบสมาชิกในครอบครัว'}</p>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
                     {list.map(member => {
                       const display = member.nickname || member.name;
                       const selected = isChildPicker ? currentIds.includes(member.id) : value === display;
@@ -265,6 +271,13 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                       );
                     })}
                   </div>
+                )}
+                {onAddFamilyMember && (
+                  <button type="button" onClick={onAddFamilyMember}
+                    className="flex items-center gap-1.5 text-mellow-purple text-xs font-bold active:scale-95 transition-transform">
+                    <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Plus size={12} /></div>
+                    {lang === 'en' ? 'Add family member' : 'เพิ่มสมาชิกในครอบครัว'}
+                  </button>
                 )}
               </div>
             );

@@ -287,7 +287,7 @@ const CourseDetail = () => {
                 </span>
               )}
               <span className="text-[28px] font-black text-mellow-red tracking-tight leading-none">
-                ฿{discountedPrice.toLocaleString()}
+                {discountedPrice > 0 ? `฿${discountedPrice.toLocaleString()}` : (lang === 'en' ? 'Free!' : 'ฟรี! ไม่มีค่าใช้จ่าย')}
               </span>
             </div>
             {/* Bookable either with coupons or cash — spelled out as an

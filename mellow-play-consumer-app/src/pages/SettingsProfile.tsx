@@ -496,10 +496,14 @@ const SettingsProfile = () => {
           {lang === 'en' ? 'Logout' : 'ออกจากระบบ'}
         </button>
 
-        {/* Children Settings Section */}
-        {children.length > 0 && (
-          <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
-            <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Child Profiles' : 'ข้อมูลเด็ก'}</h2>
+        {/* Family Members Section — always rendered (not gated on having
+            any yet), since a user with zero saved family members still
+            needs a way to add their first one; this list covers every
+            relation (children, parents, grandparents, etc.), not just kids,
+            so the heading/button wording says "family member", not "child". */}
+        <div className="mellow-card bg-white shadow-xl relative overflow-hidden p-6 mb-6">
+          <h2 className="text-xl font-black text-slate-800 mb-6">{lang === 'en' ? 'Family Members' : 'สมาชิกในครอบครัว'}</h2>
+          {children.length > 0 && (
             <div className="space-y-4">
               {children.map((child) => (
                 <div key={child.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
@@ -515,7 +519,7 @@ const SettingsProfile = () => {
                       </p>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => {
                       setEditingChild({
                         id: child.id,
@@ -535,16 +539,16 @@ const SettingsProfile = () => {
                 </div>
               ))}
             </div>
-            
-            <button
-              onClick={() => setIsAddChildOpen(true)}
-              className="mt-6 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600 transition-all flex items-center justify-center gap-2"
-            >
-              <User size={18} />
-              {lang === 'en' ? 'Add Child' : 'เพิ่มข้อมูลเด็ก'}
-            </button>
-          </div>
-        )}
+          )}
+
+          <button
+            onClick={() => setIsAddChildOpen(true)}
+            className="mt-6 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600 transition-all flex items-center justify-center gap-2"
+          >
+            <User size={18} />
+            {lang === 'en' ? 'Add Family Member' : 'เพิ่มสมาชิกในครอบครัว'}
+          </button>
+        </div>
       </main>
 
       <EditChildModal
