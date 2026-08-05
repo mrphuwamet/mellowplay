@@ -1,34 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, User, Users, Plus, ArrowRight, Trash2 } from 'lucide-react';
+import { Loader2, Plus, ArrowRight, Trash2 } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
-import DateField from '../components/DateField';
-import FieldHint from '../components/FieldHint';
 import { cleanNamePrefix } from '../utils/nameUtils';
 import logo from '../assets/ui/logo.svg';
 import ResponsiveModal from '../components/ResponsiveModal';
-
-interface ChildInput {
-  firstName: string;
-  lastName: string;
-  firstNameEn?: string;
-  lastNameEn?: string;
-  nickname: string;
-  gender: string;
-  dob: string;
-  relation: string;
-  customRelation?: string;
-}
-
-interface ChildFieldErrors {
-  firstName?: string;
-  nickname?: string;
-  gender?: string;
-  dob?: string;
-  customRelation?: string;
-}
+import FamilyMemberFields, { emptyFamilyMemberFormValue, type FamilyMemberFormValue } from '../components/FamilyMemberFields';
+import { OTHER_FAMILY_ROLE } from '../utils/familyRoles';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -36,29 +16,27 @@ const ddmmyyyyToISO = (value: string) => {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 };
 
-const emptyChild = (): ChildInput => ({ firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' });
-
 const AddChild = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const [children, setChildren] = useState<ChildInput[]>([emptyChild()]);
-  const [childErrors, setChildErrors] = useState<ChildFieldErrors[]>([{}]);
-  const [childToRemove, setChildToRemove] = useState<number | null>(null);
+  const [members, setMembers] = useState<FamilyMemberFormValue[]>([emptyFamilyMemberFormValue('child')]);
+  const [memberErrors, setMemberErrors] = useState<Array<Record<string, string>>>([{}]);
+  const [memberToRemove, setMemberToRemove] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleAddChild = () => {
-    setChildren([...children, emptyChild()]);
-    setChildErrors((prev) => [...prev, {}]);
+  const handleAddMember = () => {
+    setMembers([...members, emptyFamilyMemberFormValue('child')]);
+    setMemberErrors((prev) => [...prev, {}]);
   };
 
-  const handleRemoveChild = (index: number) => {
-    if (children.length > 1) {
-      const newChildren = [...children];
-      newChildren.splice(index, 1);
-      setChildren(newChildren);
-      setChildErrors((prev) => {
+  const handleRemoveMember = (index: number) => {
+    if (members.length > 1) {
+      const newMembers = [...members];
+      newMembers.splice(index, 1);
+      setMembers(newMembers);
+      setMemberErrors((prev) => {
         const newErrs = [...prev];
         newErrs.splice(index, 1);
         return newErrs;
@@ -66,37 +44,35 @@ const AddChild = () => {
     }
   };
 
-  const handleChildChange = (index: number, field: keyof ChildInput, value: string) => {
-    const newChildren = [...children];
-    newChildren[index][field] = value;
-    setChildren(newChildren);
-
-    setChildErrors((prev) => {
-      if (!prev[index]?.[field as keyof ChildFieldErrors]) return prev;
+  const handleMemberChange = (index: number, value: FamilyMemberFormValue) => {
+    const newMembers = [...members];
+    newMembers[index] = value;
+    setMembers(newMembers);
+    setMemberErrors((prev) => {
+      if (!Object.keys(prev[index] || {}).length) return prev;
       const newErrs = [...prev];
-      newErrs[index] = { ...newErrs[index], [field]: undefined };
+      newErrs[index] = {};
       return newErrs;
     });
   };
 
-  const validateChildren = () => {
-    const cErrs: ChildFieldErrors[] = children.map((c) => {
-      const e: ChildFieldErrors = {};
-      if (!c.firstName.trim()) e.firstName = t.register.requiredFirstName;
-      if (!c.nickname.trim()) e.nickname = t.register.requiredNickname;
-      if (!c.gender) e.gender = t.register.requiredGender;
-      if (!c.dob) e.dob = t.register.requiredDob;
-      if (c.relation === 'Other' && !(c.customRelation || '').trim()) e.customRelation = t.register.requiredRelation;
+  const validateMembers = () => {
+    const errs = members.map((m) => {
+      const e: Record<string, string> = {};
+      if (!m.firstName.trim()) e.firstName = t.register.requiredFirstName;
+      if (!m.nickname.trim()) e.nickname = t.register.requiredNickname;
+      if (!m.dob) e.dob = t.register.requiredDob;
+      if (m.role === OTHER_FAMILY_ROLE && !m.customRole.trim()) e.customRole = t.register.requiredRelation;
       return e;
     });
-    setChildErrors(cErrs);
-    return !cErrs.some((e) => Object.keys(e).length > 0);
+    setMemberErrors(errs);
+    return !errs.some((e) => Object.keys(e).length > 0);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateChildren()) {
+    if (!validateMembers()) {
       return;
     }
 
@@ -104,16 +80,13 @@ const AddChild = () => {
     setError('');
 
     try {
-      for (const child of children) {
+      for (const member of members) {
         await apiClient.post('/profiles/children', {
-          name: `${cleanNamePrefix(child.firstName)} ${child.lastName ? cleanNamePrefix(child.lastName) : ''}`.trim(),
-          nameEn: (child.firstNameEn || child.lastNameEn)
-            ? `${cleanNamePrefix(child.firstNameEn || '')} ${child.lastNameEn ? cleanNamePrefix(child.lastNameEn) : ''}`.trim()
-            : undefined,
-          nickname: child.nickname,
-          gender: child.gender,
-          dob: ddmmyyyyToISO(child.dob),
-          relation: child.relation === 'Other' && child.customRelation ? child.customRelation : child.relation
+          name: `${cleanNamePrefix(member.firstName)} ${member.lastName ? cleanNamePrefix(member.lastName) : ''}`.trim(),
+          nickname: member.nickname,
+          gender: member.gender,
+          dob: ddmmyyyyToISO(member.dob),
+          relation: member.role === OTHER_FAMILY_ROLE && member.customRole ? member.customRole : member.role,
         });
       }
       navigate('/', { replace: true });
@@ -140,12 +113,12 @@ const AddChild = () => {
 
       <form onSubmit={handleSave} noValidate className="space-y-4 flex-1 flex flex-col">
         <div className="space-y-4">
-          {children.map((child, index) => (
+          {members.map((member, index) => (
             <div key={index} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 relative group">
-              {children.length > 1 && (
+              {members.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => setChildToRemove(index)}
+                  onClick={() => setMemberToRemove(index)}
                   className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
                 >
                   <Trash2 size={16} />
@@ -159,152 +132,18 @@ const AddChild = () => {
                 <h3 className="font-black text-mellow-ink text-sm">{t.register.childInfo}</h3>
               </div>
 
-              <div className="space-y-3 mt-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameLabel}</label>
-                    <FieldHint message={childErrors[index]?.firstName} />
-                    <div className="relative">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                        <User size={18} />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder={t.register.firstName}
-                        value={child.firstName}
-                        onChange={(e) => handleChildChange(index, 'firstName', e.target.value)}
-                        className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
-                    <div className="relative">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                        <User size={18} />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder={t.register.lastName}
-                        value={child.lastName}
-                        onChange={(e) => handleChildChange(index, 'lastName', e.target.value)}
-                        className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[10px] text-mellow-purple/70 font-bold -mt-2">
-                  * {t.register.noTitlePrefix}
-                </p>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
-                    <input
-                      type="text"
-                      placeholder={t.register.firstNameEn}
-                      value={child.firstNameEn || ''}
-                      onChange={(e) => handleChildChange(index, 'firstNameEn', e.target.value)}
-                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    />
-                  </div>
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
-                    <input
-                      type="text"
-                      placeholder={t.register.lastNameEn}
-                      value={child.lastNameEn || ''}
-                      onChange={(e) => handleChildChange(index, 'lastNameEn', e.target.value)}
-                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.nickname}</label>
-                    <FieldHint message={childErrors[index]?.nickname} />
-                    <div className="relative">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                        <User size={18} />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder={t.register.nickname}
-                        value={child.nickname}
-                        onChange={(e) => handleChildChange(index, 'nickname', e.target.value)}
-                        className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.genderLabel}</label>
-                    <FieldHint message={childErrors[index]?.gender} />
-                    <select
-                      value={child.gender}
-                      onChange={(e) => handleChildChange(index, 'gender', e.target.value)}
-                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    >
-                      <option value="" disabled>{t.register.selectGender}</option>
-                      <option value="Boy">{t.register.genderBoy}</option>
-                      <option value="Girl">{t.register.genderGirl}</option>
-                      <option value="Other">{t.register.genderOther}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.dateOfBirth}</label>
-                  <FieldHint message={childErrors[index]?.dob} />
-                  <DateField
-                    value={child.dob}
-                    onChange={(v) => handleChildChange(index, 'dob', v)}
-                    placeholder={t.register.dobPlaceholder}
-                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    iconSize={18}
-                  />
-                </div>
-
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.relationship}{t.register.optionalSuffix}</label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <Users size={18} />
-                    </div>
-                    <select
-                      value={child.relation}
-                      onChange={(e) => handleChildChange(index, 'relation', e.target.value)}
-                      className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    >
-                      <option value="">{t.register.notSpecified}</option>
-                      <option value="Father">{t.register.father}</option>
-                      <option value="Mother">{t.register.mother}</option>
-                      <option value="Relative">{t.register.relative}</option>
-                      <option value="Other">{t.register.other}</option>
-                    </select>
-                  </div>
-                </div>
-
-                {child.relation === 'Other' && (
-                  <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
-                    <FieldHint message={childErrors[index]?.customRelation} />
-                    <input
-                      type="text"
-                      placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
-                      value={child.customRelation || ''}
-                      onChange={(e) => handleChildChange(index, 'customRelation', e.target.value)}
-                      className="w-full px-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                    />
-                  </div>
-                )}
-              </div>
+              <FamilyMemberFields
+                value={member}
+                onChange={(v) => handleMemberChange(index, v)}
+                errors={memberErrors[index]}
+              />
             </div>
           ))}
         </div>
 
         <button
           type="button"
-          onClick={handleAddChild}
+          onClick={handleAddMember}
           className="w-full py-[14px] border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
         >
           <Plus size={18} /> {t.register.addChild}
@@ -324,7 +163,7 @@ const AddChild = () => {
         </div>
       </form>
 
-      <ResponsiveModal isOpen={childToRemove !== null} onClose={() => setChildToRemove(null)} variant="dialog" size="xs" className="text-center">
+      <ResponsiveModal isOpen={memberToRemove !== null} onClose={() => setMemberToRemove(null)} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 size={32} />
             </div>
@@ -332,15 +171,15 @@ const AddChild = () => {
             <p className="text-sm font-bold text-slate-500 mb-6">{t.register.removeChildDesc}</p>
             <div className="flex gap-3">
               <button
-                onClick={() => setChildToRemove(null)}
+                onClick={() => setMemberToRemove(null)}
                 className="flex-1 py-[14px] rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
               >
                 {t.register.removeChildCancel}
               </button>
               <button
                 onClick={() => {
-                  if (childToRemove !== null) handleRemoveChild(childToRemove);
-                  setChildToRemove(null);
+                  if (memberToRemove !== null) handleRemoveMember(memberToRemove);
+                  setMemberToRemove(null);
                 }}
                 className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
               >

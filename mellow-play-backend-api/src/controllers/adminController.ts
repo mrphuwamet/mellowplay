@@ -11,6 +11,7 @@ import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
 import { CalendarRepository } from '../repositories/calendarRepository';
+import { RegistrationFormRepository } from '../repositories/registrationFormRepository';
 
 export class AdminController {
   async getStats(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -280,7 +281,8 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const { childId, childIds, courseId, branchId, scheduledAt, isGuest, status,
-              calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode } = await c.req.json();
+              calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode, sponsorTag,
+              formId, formAnswers } = await c.req.json();
       
       if (!courseId || !scheduledAt)
         return c.json({ success: false, message: 'courseId, scheduledAt required' }, 400);
@@ -302,26 +304,58 @@ export class AdminController {
         return c.json({ success: false, message: 'No children selected' }, 400);
       }
 
-      // Batch-fetch parent_id + membership for every child in this request up
-      // front — Check 2 below needs to catch siblings booked together in the
-      // SAME request (a per-child DB lookup can't see that, since none of
-      // them are inserted yet), and the price calculation further down needs
-      // to know which children are Premium.
+      // Batch-fetch membership for every child in this request up front —
+      // the price calculation further down needs to know which children are
+      // Premium.
       const realChildIds = parsedChildIds.filter((id: number) => id > 0);
-      const childParentMap = new Map<number, number>();
       const childPremiumMap = new Map<number, boolean>();
+      // Also used below (parentUserId) to attribute a Form_Submissions row —
+      // all children in one checkout share the same account, so any one of
+      // them gives the right parent.
+      let parentUserId: number | null = null;
       if (realChildIds.length > 0) {
         const { results: childRows } = await db.prepare(
-          `SELECT id, parent_id, membership_type, membership_expires_at FROM Children WHERE id IN (${realChildIds.join(',')})`
+          `SELECT id, membership_type, membership_expires_at, parent_id FROM Children WHERE id IN (${realChildIds.join(',')})`
         ).all();
         const now = new Date();
         for (const row of childRows as any[]) {
-          childParentMap.set(row.id, row.parent_id);
           childPremiumMap.set(row.id, row.membership_type === 'premium' && (!row.membership_expires_at || new Date(row.membership_expires_at) > now));
+          if (parentUserId === null && row.parent_id) parentUserId = row.parent_id;
         }
       }
-      const seenParentIdsForLimitOne = new Set<number>();
 
+      // Registration-form duplicate check — only meaningful for a real
+      // family (guests have no parent identity to dedupe against, mirroring
+      // the guard already used by Check 1/Check 3 below). Scoped per field:
+      // only fields the CRM builder marked with duplicate_check_scope are
+      // compared, as plain normalized text against prior submissions for
+      // this same form+course (and same scheduledAt for 'round' scope).
+      if (formId && formAnswers && realChildIds.length > 0) {
+        const registrationFormRepo = new RegistrationFormRepository(db);
+        const form = await registrationFormRepo.getFormWithFields(parseInt(formId));
+        if (form) {
+          for (const field of (form.fields || [])) {
+            if (!field.duplicate_check_scope) continue;
+            const value = formAnswers[field.field_key];
+            if (value == null || String(value).trim() === '') continue;
+            const isDuplicate = await registrationFormRepo.findDuplicateSubmission({
+              formId: parseInt(formId),
+              courseId: parseInt(courseId),
+              fieldKey: field.field_key,
+              scope: field.duplicate_check_scope,
+              normalizedValue: String(value).trim().toLowerCase(),
+              scheduledAt: field.duplicate_check_scope === 'round' ? scheduledAt : undefined,
+            });
+            if (isDuplicate) {
+              return c.json({
+                success: false,
+                error_code: 'DUPLICATE_FORM_SUBMISSION',
+                message: 'ข้อมูลนี้เคยลงทะเบียนไว้แล้ว กรุณาตรวจสอบอีกครั้ง',
+              }, 400);
+            }
+          }
+        }
+      }
       // Check for duplicates
       for (const parsedChildId of parsedChildIds) {
         if (parsedChildId > 0) {
@@ -330,12 +364,11 @@ export class AdminController {
           // course is marked non-repeatable (allow_repeat = 0). This is
           // independent of is_extraclass so an admin can control it directly.
           const { results: courseDetails } = await db.prepare(`
-            SELECT is_extraclass, allow_repeat, limit_one_per_parent FROM Courses WHERE id = ?
+            SELECT is_extraclass, allow_repeat FROM Courses WHERE id = ?
           `).bind(parseInt(courseId)).all();
 
           const isExtraClass = courseDetails[0]?.is_extraclass;
           const allowRepeat = courseDetails[0]?.allow_repeat;
-          const limitOnePerParent = courseDetails[0]?.limit_one_per_parent;
 
           if (!allowRepeat) {
             const { results: existingBookings } = await db.prepare(`
@@ -351,43 +384,6 @@ export class AdminController {
                 message: 'One of the selected children has already registered for this class.',
                 bookingId: existingBookings[0].id
               }, 400);
-            }
-          }
-
-          // Check 2: Same-parent duplicate — for courses/events that should
-          // only ever be booked once per family regardless of which child
-          // attends (e.g. a Family Day event with one seat per household).
-          // Independent of Check 1 (which only looks at this exact child).
-          if (limitOnePerParent) {
-            const parentId = childParentMap.get(parsedChildId);
-            if (parentId) {
-              const { results: familyBookings } = await db.prepare(`
-                SELECT b.id FROM Bookings b
-                JOIN Children ch ON b.child_id = ch.id
-                WHERE ch.parent_id = ? AND b.course_id = ?
-                  AND b.status IN ('confirmed', 'confirmed_paid', 'completed')
-              `).bind(parentId, parseInt(courseId)).all();
-
-              if (familyBookings.length > 0) {
-                return c.json({
-                  success: false,
-                  error_code: 'DUPLICATE_FAMILY_BOOKING',
-                  message: 'ผู้ปกครองของเด็กคนนี้ได้ลงทะเบียนรายการนี้ไปแล้ว (จำกัด 1 ครอบครัวต่อ 1 สิทธิ์)',
-                  bookingId: familyBookings[0].id
-                }, 400);
-              }
-
-              // Also catch siblings booked together in THIS same request —
-              // none of them exist in Bookings yet, so the DB check above
-              // can't see this case on its own.
-              if (seenParentIdsForLimitOne.has(parentId)) {
-                return c.json({
-                  success: false,
-                  error_code: 'DUPLICATE_FAMILY_BOOKING',
-                  message: 'สามารถลงทะเบียนได้เพียง 1 คนต่อครอบครัวสำหรับรายการนี้ (จำกัด 1 ครอบครัวต่อ 1 สิทธิ์)'
-                }, 400);
-              }
-              seenParentIdsForLimitOne.add(parentId);
             }
           }
 
@@ -579,8 +575,27 @@ export class AdminController {
           paymentMethod: paymentMethod ?? undefined,
           notes: notes ?? undefined,
           price: finalPriceFor(parsedChildId),
+          sponsorTag: sponsorTag || undefined,
         });
         bookingIds.push(id);
+      }
+
+      // One Form_Submissions row per checkout (not per child) — a checkout
+      // answers the form once even though it just created several sibling
+      // Bookings rows above (one per child); each of those rows points back
+      // at this single shared submission.
+      if (formId && formAnswers && realChildIds.length > 0) {
+        const registrationFormRepo = new RegistrationFormRepository(db);
+        const submissionId = await registrationFormRepo.createSubmission({
+          formId: parseInt(formId),
+          courseId: parseInt(courseId),
+          parentUserId,
+          answersJson: JSON.stringify(formAnswers),
+          scheduledAt,
+        });
+        for (const id of bookingIds) {
+          await db.prepare('UPDATE Bookings SET form_submission_id = ? WHERE id = ?').bind(submissionId, id).run();
+        }
       }
 
       const firstId = bookingIds[0];

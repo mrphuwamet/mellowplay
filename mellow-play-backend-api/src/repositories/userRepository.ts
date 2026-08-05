@@ -164,12 +164,13 @@ export class UserRepository {
     prefix?: string,
     dob?: string,
     firstNameEn?: string,
-    lastNameEn?: string
+    lastNameEn?: string,
+    relationship?: string
   ): Promise<number> {
     // 1. Create User
     const userResult = await this.db.prepare(
-      'INSERT INTO Users (phone, password_hash, prefix, first_name, last_name, first_name_en, last_name_en, dob, email, line_id, pdpa_consent, marketing_consent, address, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)'
-    ).bind(phone, passwordHash, prefix || null, firstName, lastName, firstNameEn || null, lastNameEn || null, dob || null, email || null, lineId || null, pdpaConsent ? 1 : 0, marketingConsent ? 1 : 0, address || null).run();
+      'INSERT INTO Users (phone, password_hash, prefix, first_name, last_name, first_name_en, last_name_en, dob, email, line_id, pdpa_consent, marketing_consent, address, relationship, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)'
+    ).bind(phone, passwordHash, prefix || null, firstName, lastName, firstNameEn || null, lastNameEn || null, dob || null, email || null, lineId || null, pdpaConsent ? 1 : 0, marketingConsent ? 1 : 0, address || null, relationship || null).run();
 
     const userId = userResult.meta.last_row_id;
     const hdService = new HDService(''); // Empty API key forces mock calculation

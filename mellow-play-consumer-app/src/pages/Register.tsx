@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Phone, Mail, User, ChevronLeft, ChevronRight, MessageCircle, AlertCircle, EyeOff, Eye, Plus, ArrowRight, Trash2, Users, Camera } from 'lucide-react';
+import { Loader2, Phone, Mail, User, ChevronLeft, MessageCircle, AlertCircle, Plus, ArrowRight } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -15,6 +15,8 @@ import { formatCustomDate } from '../utils/dateFormat';
 import { getOtpErrorMessage } from '../utils/otpError';
 import { useChildStore } from '../store/useChildStore';
 import ResponsiveModal from '../components/ResponsiveModal';
+import FamilyMemberFields, { emptyFamilyMemberFormValue, type FamilyMemberFormValue } from '../components/FamilyMemberFields';
+import { FAMILY_ROLE_OPTIONS, PARENT_ROLE_OPTIONS, OTHER_FAMILY_ROLE } from '../utils/familyRoles';
 
 const ddmmyyyyToISO = (value: string) => {
   const [d, m, y] = value.split('/');
@@ -22,26 +24,7 @@ const ddmmyyyyToISO = (value: string) => {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 };
 
-interface ChildInput {
-  firstName: string;
-  lastName: string;
-  firstNameEn?: string;
-  lastNameEn?: string;
-  nickname: string;
-  gender: string;
-  dob: string;
-  relation: string;
-  customRelation?: string;
-}
-
-interface ChildFieldErrors {
-  firstName?: string;
-  lastName?: string;
-  nickname?: string;
-  gender?: string;
-  dob?: string;
-  customRelation?: string;
-}
+type FamilyStepView = 'grid' | 'form' | 'list';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -52,16 +35,14 @@ const Register = () => {
   const fetchChildren = useChildStore(state => state.fetchChildren);
 
   // Form State
-  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'avatar' | 'summary'>('consent');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'family' | 'summary'>('consent');
   const [formData, setFormData] = useState({
     phone: '',
     prefix: '',
     firstName: '',
     lastName: '',
-    firstNameEn: '',
-    lastNameEn: '',
+    relationship: '',
+    customRelationship: '',
     dob: '',
     password: '',
     email: '',
@@ -72,30 +53,37 @@ const Register = () => {
     otp: ''
   });
 
-  const [children, setChildren] = useState<ChildInput[]>([
-    { firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }
-  ]);
-
   const [fieldErrors, setFieldErrors] = useState<{
-    prefix?: string; firstName?: string; lastName?: string; phone?: string; email?: string;
+    prefix?: string; firstName?: string; lastName?: string; phone?: string; email?: string; customRelationship?: string;
   }>({});
-  const [childErrors, setChildErrors] = useState<ChildFieldErrors[]>([]);
+  const [phoneAlreadyRegistered, setPhoneAlreadyRegistered] = useState(false);
 
   const [prevPhone, setPrevPhone] = useState('');
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [childToRemove, setChildToRemove] = useState<number | null>(null);
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [otpRef, setOtpRef] = useState('');
-  
+
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pinStep, setPinStep] = useState<'create' | 'confirm'>('create');
-  
+
   const [resendTimer, setResendTimer] = useState(60);
 
+  // The account itself is created right after PIN confirm (see
+  // handlePinConfirmed) — everything from here on (family members) is added
+  // to an already-real, already-logged-in account via the same endpoint
+  // AddChildModal uses. This is what makes an abandoned signup resumable:
+  // if someone drops off before adding anyone, they already have a working
+  // account and just log back in.
+  const [familyStepView, setFamilyStepView] = useState<FamilyStepView>('grid');
+  const [familyMembers, setFamilyMembers] = useState<FamilyMemberFormValue[]>([]);
+  const [memberForm, setMemberForm] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue());
+  const [memberFormErrors, setMemberFormErrors] = useState<Partial<Record<'firstName' | 'lastName' | 'nickname' | 'dob' | 'customRole', string>>>({});
+  const [isSavingMember, setIsSavingMember] = useState(false);
+
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (step === 'otp' && resendTimer > 0) {
       interval = setInterval(() => {
         setResendTimer(prev => prev - 1);
@@ -113,6 +101,9 @@ const Register = () => {
     if (!formData.prefix) errs.prefix = t.register.requiredPrefix;
     if (!formData.firstName.trim()) errs.firstName = t.register.requiredFirstName;
     if (!formData.lastName.trim()) errs.lastName = t.register.requiredLastName;
+    if (formData.relationship === OTHER_FAMILY_ROLE && !formData.customRelationship.trim()) {
+      errs.customRelationship = t.register.requiredRelation;
+    }
     if (!formData.phone.trim()) {
       errs.phone = t.register.requiredPhone;
     } else if (formData.phone.replace(/\D/g, '').length !== 10) {
@@ -123,40 +114,18 @@ const Register = () => {
     }
     if (!formData.email.trim()) errs.email = t.register.requiredEmail;
 
-    const cErrs: ChildFieldErrors[] = children.map((c) => {
-      const e: ChildFieldErrors = {};
-      if (!c.firstName.trim()) e.firstName = t.register.requiredFirstName;
-      if (!c.lastName.trim()) e.lastName = t.register.requiredLastName;
-      if (!c.nickname.trim()) e.nickname = t.register.requiredNickname;
-      if (!c.gender) e.gender = t.register.requiredGender;
-      if (!c.dob) e.dob = t.register.requiredDob;
-      if (c.relation === 'Other' && !(c.customRelation || '').trim()) e.customRelation = t.register.requiredRelation;
-      return e;
-    });
-
     setFieldErrors(errs);
-    setChildErrors(cErrs);
 
-    const isValid = Object.keys(errs).length === 0 && !cErrs.some((e) => Object.keys(e).length > 0);
+    const isValid = Object.keys(errs).length === 0;
 
     if (!isValid) {
-      // Scroll to the first invalid field, in on-screen order (parent
-      // fields, then each child in turn) — otherwise an error at the very
-      // top of a long form (e.g. missing prefix) is invisible if the user
-      // was scrolled down filling in a child's details.
-      let targetId: string | null = null;
-      for (const key of ['prefix', 'firstName', 'lastName', 'phone', 'email'] as const) {
-        if (errs[key]) { targetId = `reg-${key}`; break; }
-      }
-      if (!targetId) {
-        outer: for (let i = 0; i < cErrs.length; i++) {
-          for (const key of ['firstName', 'lastName', 'nickname', 'gender', 'dob', 'customRelation'] as const) {
-            if (cErrs[i][key]) { targetId = `reg-child-${i}-${key}`; break outer; }
-          }
+      // Scroll to the first invalid field so an error at the very top of
+      // the form is visible even if the user was scrolled further down.
+      for (const key of ['prefix', 'firstName', 'lastName', 'customRelationship', 'phone', 'email'] as const) {
+        if (errs[key]) {
+          document.getElementById(`reg-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          break;
         }
-      }
-      if (targetId) {
-        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
 
@@ -176,7 +145,7 @@ const Register = () => {
       setStep('pin');
       return;
     }
-    
+
     if (step === 'otp' && resendTimer > 0) return; // Prevent spam
 
     setIsLoading(true);
@@ -213,6 +182,10 @@ const Register = () => {
         const isEmailIssue = backendMessage.includes('อีเมล') || /email/i.test(backendMessage);
         if (isPhoneIssue) {
           setFieldErrors(prev => ({ ...prev, phone: backendMessage }));
+          // The account may already be a real, fully-working one that this
+          // person just abandoned before adding family members — send them
+          // to login instead of leaving them stuck at a dead-end error.
+          setPhoneAlreadyRegistered(true);
           document.getElementById('reg-phone')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else if (isEmailIssue) {
           setFieldErrors(prev => ({ ...prev, email: backendMessage }));
@@ -235,16 +208,16 @@ const Register = () => {
       setError(t.register.invalidOtp);
       return;
     }
-    
+
     setIsLoading(true);
     setError('');
-    
+
     try {
       const response = await apiClient.post('/auth/verify-otp', {
         phone: formData.phone,
         otp: formData.otp
       });
-      
+
       if (response.data.success) {
         setPrevPhone(formData.phone);
         setStep('pin');
@@ -257,96 +230,35 @@ const Register = () => {
     }
   };
 
-  const handleAddChild = () => {
-    setChildren([...children, { firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: '', dob: '', relation: '', customRelation: '' }]);
-    setChildErrors((prev) => [...prev, {}]);
-  };
-
-  const handleRemoveChild = (index: number) => {
-    if (children.length > 1) {
-      const newChildren = [...children];
-      newChildren.splice(index, 1);
-      setChildren(newChildren);
-      setChildErrors((prev) => {
-        const newErrs = [...prev];
-        newErrs.splice(index, 1);
-        return newErrs;
-      });
-    }
-  };
-
-  const handleChildChange = (index: number, field: keyof ChildInput, value: string) => {
-    const newChildren = [...children];
-    newChildren[index][field] = value;
-    setChildren(newChildren);
-
-    setChildErrors((prev) => {
-      if (!prev[index]?.[field as keyof ChildFieldErrors]) return prev;
-      const newErrs = [...prev];
-      newErrs[index] = { ...newErrs[index], [field]: undefined };
-      return newErrs;
-    });
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validate pdpa consent
-    if (!formData.pdpaConsent) {
-      setError(t.register.pdpaConsent); // Simple fallback message
-      return;
-    }
-
+  // Fires the moment the PIN is confirmed — the account is created here,
+  // right in the middle of the flow, not at the very end. Family members
+  // added afterward each land on an already-real account via the same
+  // endpoint AddChildModal uses.
+  const handlePinConfirmed = async (pin: string) => {
     setIsLoading(true);
     setError('');
 
     const payload = {
       ...formData,
+      password: pin,
       dob: formData.dob ? ddmmyyyyToISO(formData.dob) : '',
-      children: children.filter(c => c.firstName && c.dob).map(c => ({
-        ...c,
-        dob: ddmmyyyyToISO(c.dob),
-        name: `${cleanNamePrefix(c.firstName)} ${c.lastName ? cleanNamePrefix(c.lastName) : ''}`.trim(),
-        nameEn: (c.firstNameEn || c.lastNameEn)
-          ? `${cleanNamePrefix(c.firstNameEn || '')} ${c.lastNameEn ? cleanNamePrefix(c.lastNameEn) : ''}`.trim()
-          : undefined,
-        relation: c.relation === 'Other' && c.customRelation ? c.customRelation : c.relation
-      }))
+      relationship: formData.relationship === OTHER_FAMILY_ROLE && formData.customRelationship
+        ? formData.customRelationship
+        : formData.relationship,
+      children: [],
     };
 
     try {
       const response = await apiClient.post('/auth/register', payload);
       if (response.data.success) {
-        // Registration itself doesn't return a session token, so log in
-        // immediately with the credentials just created — this is what lets
-        // the user skip the login screen entirely instead of re-entering
-        // their phone + PIN right after already typing it into this form.
         try {
-          const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: formData.password });
+          const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: pin });
           if (loginRes.data.success) {
-            if (avatarFile) {
-              try {
-                const fd = new FormData();
-                fd.append('file', avatarFile);
-                await apiClient.post('/profiles/avatar', fd, {
-                  headers: { Authorization: `Bearer ${loginRes.data.token}`, 'Content-Type': 'multipart/form-data' },
-                });
-              } catch (avatarErr) {
-                // Never block the auto-login flow — the user can always set
-                // an avatar later from Settings.
-                console.error('Avatar upload during registration failed:', avatarErr);
-              }
-            }
-
             localStorage.setItem('mellow_token', loginRes.data.token);
             localStorage.setItem('mellow_user', JSON.stringify(loginRes.data.user));
             localStorage.removeItem('mellow_guest');
             await fetchChildren(loginRes.data.user.id);
-
-            // Preserve the original intent — e.g. someone who hit Register
-            // mid-booking (redirect=/booking?courseId=5) lands right back on
-            // that class instead of a generic home screen.
-            navigate(redirect ? decodeURIComponent(redirect) : '/', { replace: true });
+            setStep('family');
             return;
           }
         } catch (autoLoginErr) {
@@ -360,14 +272,66 @@ const Register = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.message || t.register.registerFailed);
+      setPinStep('create');
+      setConfirmPassword('');
+      setFormData(prev => ({ ...prev, password: '' }));
     } finally {
       setIsLoading(false);
     }
   };
 
+  const startAddingRole = (role: string) => {
+    setMemberForm(emptyFamilyMemberFormValue(role));
+    setMemberFormErrors({});
+    setFamilyStepView('form');
+  };
+
+  const validateMemberForm = (m: FamilyMemberFormValue) => {
+    const e: typeof memberFormErrors = {};
+    if (!m.firstName.trim()) e.firstName = t.register.requiredFirstName;
+    if (!m.lastName.trim()) e.lastName = t.register.requiredLastName;
+    if (!m.nickname.trim()) e.nickname = t.register.requiredNickname;
+    if (!m.dob) e.dob = t.register.requiredDob;
+    if (m.role === OTHER_FAMILY_ROLE && !m.customRole.trim()) e.customRole = t.register.requiredRelation;
+    return e;
+  };
+
+  const handleSaveFamilyMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs = validateMemberForm(memberForm);
+    setMemberFormErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setIsSavingMember(true);
+    setError('');
+    try {
+      const payload = {
+        name: `${cleanNamePrefix(memberForm.firstName)} ${memberForm.lastName ? cleanNamePrefix(memberForm.lastName) : ''}`.trim(),
+        nickname: memberForm.nickname,
+        gender: memberForm.gender,
+        dob: ddmmyyyyToISO(memberForm.dob),
+        relation: memberForm.role === OTHER_FAMILY_ROLE && memberForm.customRole ? memberForm.customRole : memberForm.role,
+      };
+      const response = await apiClient.post('/profiles/children', payload);
+      if (response.data.success) {
+        setFamilyMembers(prev => [...prev, memberForm]);
+        const userJson = localStorage.getItem('mellow_user');
+        if (userJson) {
+          const user = JSON.parse(userJson);
+          await fetchChildren(user.id);
+        }
+        setFamilyStepView('list');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || t.register.registerFailed);
+    } finally {
+      setIsSavingMember(false);
+    }
+  };
+
   const renderStepInfo = () => (
     <form onSubmit={handleRequestOtp} noValidate className="space-y-4 mt-2">
-      <h3 className="font-black text-mellow-ink text-sm">{t.register.parentInfoTitle}</h3>
+      <h3 className="font-black text-mellow-ink text-lg">{t.register.parentInfoTitle}</h3>
 
       <div className="flex gap-3">
          <div className="relative shrink-0 w-[130px]">
@@ -417,29 +381,31 @@ const Register = () => {
         />
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1">
-          <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
-          <input
-            id="reg-firstNameEn"
-            type="text"
-            placeholder={t.register.firstNameEn}
-            value={formData.firstNameEn}
-            onChange={(e) => setFormData({...formData, firstNameEn: e.target.value})}
-            className="w-full px-4 py-[14px] bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm focus:outline-none"
-          />
-        </div>
-        <div className="relative flex-1">
-          <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
-          <input
-            id="reg-lastNameEn"
-            type="text"
-            placeholder={t.register.lastNameEn}
-            value={formData.lastNameEn}
-            onChange={(e) => setFormData({...formData, lastNameEn: e.target.value})}
-            className="w-full px-4 py-[14px] bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm focus:outline-none"
-          />
-        </div>
+      <div className="relative">
+        <label className="text-xs font-bold text-slate-500 mb-1 block">{lang === 'en' ? 'You are...' : 'คุณคือ...'}</label>
+        <select
+          value={formData.relationship}
+          onChange={(e) => setFormData({...formData, relationship: e.target.value})}
+          className="w-full px-4 py-[14px] bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm focus:outline-none"
+        >
+          <option value="">{lang === 'en' ? 'Select relationship' : 'เลือกความสัมพันธ์'}</option>
+          {PARENT_ROLE_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{lang === 'en' ? o.labelEn : o.labelTh}</option>
+          ))}
+        </select>
+        {formData.relationship === OTHER_FAMILY_ROLE && (
+          <div className="mt-2">
+            <FieldHint message={fieldErrors.customRelationship} />
+            <input
+              id="reg-customRelationship"
+              type="text"
+              placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
+              value={formData.customRelationship}
+              onChange={(e) => { setFormData({...formData, customRelationship: e.target.value}); setFieldErrors(prev => ({...prev, customRelationship: undefined})); }}
+              className={`w-full px-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.customRelationship)}`}
+            />
+          </div>
+        )}
       </div>
 
       <div className="relative">
@@ -469,11 +435,20 @@ const Register = () => {
               type="tel"
               placeholder={t.register.phone}
               value={formData.phone}
-              onChange={(e) => { setFormData({...formData, phone: e.target.value}); setFieldErrors(prev => ({...prev, phone: undefined})); }}
+              onChange={(e) => { setFormData({...formData, phone: e.target.value}); setFieldErrors(prev => ({...prev, phone: undefined})); setPhoneAlreadyRegistered(false); }}
               className={`w-full pl-12 pr-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.phone)}`}
             />
           </div>
         </div>
+        {phoneAlreadyRegistered && (
+          <button
+            type="button"
+            onClick={() => navigate(`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''}`)}
+            className="mt-2 text-xs font-black text-mellow-purple underline underline-offset-2"
+          >
+            {lang === 'en' ? 'Go to login' : 'ไปเข้าสู่ระบบ'}
+          </button>
+        )}
       </div>
 
       <div className="relative">
@@ -521,187 +496,6 @@ const Register = () => {
         />
       </div>
 
-      <h3 className="font-black text-mellow-ink text-sm pt-2">{t.register.childrenInfoTitle}</h3>
-
-      <div className="space-y-4">
-        {children.map((child, index) => (
-          <div key={index} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 relative group">
-            {children.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setChildToRemove(index)}
-                className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
-
-            <div className="mb-4 flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-mellow-purple/10 text-mellow-purple flex items-center justify-center text-xs font-black">
-                {index + 1}
-              </div>
-              <h3 className="font-black text-mellow-ink text-sm">{t.register.childInfo}</h3>
-            </div>
-
-            <div className="space-y-3 mt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameLabel}</label>
-                  <FieldHint message={childErrors[index]?.firstName} />
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <User size={18} />
-                    </div>
-                    <input
-                      id={`reg-child-${index}-firstName`}
-                      type="text"
-                      placeholder={t.register.firstName}
-                      value={child.firstName}
-                      onChange={(e) => handleChildChange(index, 'firstName', e.target.value)}
-                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.firstName)}`}
-                    />
-                  </div>
-                </div>
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameLabel}</label>
-                  <FieldHint message={childErrors[index]?.lastName} />
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <User size={18} />
-                    </div>
-                    <input
-                      id={`reg-child-${index}-lastName`}
-                      type="text"
-                      placeholder={t.register.lastName}
-                      value={child.lastName}
-                      onChange={(e) => handleChildChange(index, 'lastName', e.target.value)}
-                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.lastName)}`}
-                    />
-                  </div>
-                </div>
-              </div>
-              <p className="text-[10px] text-mellow-purple/70 font-bold -mt-2">
-                * {t.register.noTitlePrefix}
-              </p>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.firstNameEnLabel}{t.register.optionalSuffix}</label>
-                  <input
-                    id={`reg-child-${index}-firstNameEn`}
-                    type="text"
-                    placeholder={t.register.firstNameEn}
-                    value={child.firstNameEn || ''}
-                    onChange={(e) => handleChildChange(index, 'firstNameEn', e.target.value)}
-                    className="w-full px-4 py-[14px] bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none"
-                  />
-                </div>
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.lastNameEnLabel}{t.register.optionalSuffix}</label>
-                  <input
-                    id={`reg-child-${index}-lastNameEn`}
-                    type="text"
-                    placeholder={t.register.lastNameEn}
-                    value={child.lastNameEn || ''}
-                    onChange={(e) => handleChildChange(index, 'lastNameEn', e.target.value)}
-                    className="w-full px-4 py-[14px] bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.nickname}</label>
-                  <FieldHint message={childErrors[index]?.nickname} />
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <User size={18} />
-                    </div>
-                    <input
-                      id={`reg-child-${index}-nickname`}
-                      type="text"
-                      placeholder={t.register.nickname}
-                      value={child.nickname}
-                      onChange={(e) => handleChildChange(index, 'nickname', e.target.value)}
-                      className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.nickname)}`}
-                    />
-                  </div>
-                </div>
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.genderLabel}</label>
-                  <FieldHint message={childErrors[index]?.gender} />
-                  <select
-                    id={`reg-child-${index}-gender`}
-                    value={child.gender}
-                    onChange={(e) => handleChildChange(index, 'gender', e.target.value)}
-                    className={`w-full px-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.gender)}`}
-                  >
-                    <option value="" disabled>{t.register.selectGender}</option>
-                    <option value="Boy">{t.register.genderBoy}</option>
-                    <option value="Girl">{t.register.genderGirl}</option>
-                    <option value="Other">{t.register.genderOther}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="relative" id={`reg-child-${index}-dob`}>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.dateOfBirth}</label>
-                <FieldHint message={childErrors[index]?.dob} />
-                <DateField
-                  value={child.dob}
-                  onChange={(v) => handleChildChange(index, 'dob', v)}
-                  placeholder={t.register.dobPlaceholder}
-                  className={`w-full pl-11 pr-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.dob)}`}
-                  iconSize={18}
-                />
-              </div>
-
-              <div className="relative">
-                <label className="text-xs font-bold text-slate-500 mb-1 block">{t.register.relationship}{t.register.optionalSuffix}</label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <Users size={18} />
-                  </div>
-                  <select
-                    value={child.relation}
-                    onChange={(e) => handleChildChange(index, 'relation', e.target.value)}
-                    className="w-full pl-11 pr-4 py-[14px] bg-white border border-slate-100 rounded-xl font-bold text-sm focus:outline-none"
-                  >
-                    <option value="">{t.register.notSpecified}</option>
-                    <option value="Father">{t.register.father}</option>
-                    <option value="Mother">{t.register.mother}</option>
-                    <option value="Relative">{t.register.relative}</option>
-                    <option value="Other">{t.register.other}</option>
-                  </select>
-                </div>
-              </div>
-
-              {child.relation === 'Other' && (
-                <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
-                  <FieldHint message={childErrors[index]?.customRelation} />
-                  <input
-                    id={`reg-child-${index}-customRelation`}
-                    type="text"
-                    placeholder={t.register?.specifyRelation || 'Please specify relationship...'}
-                    value={child.customRelation || ''}
-                    onChange={(e) => handleChildChange(index, 'customRelation', e.target.value)}
-                    className={`w-full px-4 py-[14px] bg-white border rounded-xl font-bold text-sm focus:outline-none ${errClass(childErrors[index]?.customRelation)}`}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        onClick={handleAddChild}
-        className="w-full py-[14px] border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
-      >
-        <Plus size={18} /> {t.register.addChild}
-      </button>
-
       <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary mt-6">
         {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.nextStep} <ArrowRight size={20} /></>}
       </button>
@@ -711,10 +505,10 @@ const Register = () => {
   const renderStepOtp = () => (
     <form onSubmit={handleVerifyOtp} className="space-y-6">
       <div className="flex justify-center gap-2">
-        <PinInput 
-          length={6} 
-          value={formData.otp} 
-          onChange={(val) => setFormData({...formData, otp: val})} 
+        <PinInput
+          length={6}
+          value={formData.otp}
+          onChange={(val) => setFormData({...formData, otp: val})}
           type="text"
         />
       </div>
@@ -766,7 +560,7 @@ const Register = () => {
             setConfirmPassword(val);
             if (val.length === 6) {
               if (val === formData.password) {
-                setTimeout(() => setStep('avatar'), 300);
+                setTimeout(() => handlePinConfirmed(val), 300);
               } else {
                 setError(t.register.pinNotMatch);
                 setConfirmPassword('');
@@ -775,12 +569,12 @@ const Register = () => {
               }
             }
           }
-        }} 
+        }}
       />
 
       <div className="flex justify-between items-center mt-6">
-        <button 
-          type="button" 
+        <button
+          type="button"
           onClick={() => {
             if (pinStep === 'confirm') {
               setPinStep('create');
@@ -790,69 +584,29 @@ const Register = () => {
               setStep('info');
               setFormData({...formData, password: ''});
             }
-          }} 
+          }}
           className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-700"
+          disabled={isLoading}
         >
           <ChevronLeft size={16} className="mr-1" /> {t.register.back}
         </button>
-      </div>
-    </div>
-  );
-
-  const renderStepAvatar = () => (
-    <div className="flex flex-col flex-1 pb-6">
-      <div className="flex flex-col items-center mt-4 mb-8">
-        <label className="relative w-32 h-32 cursor-pointer group block">
-          <div className="w-32 h-32 rounded-full bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden">
-            {avatarPreview ? (
-              <img src={avatarPreview} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <User size={56} className="text-slate-300" />
-            )}
-            <div className="absolute inset-0 bg-black/0 group-active:bg-black/10 transition-colors rounded-full" />
-          </div>
-          <div className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-mellow-purple text-white flex items-center justify-center shadow-lg border-2 border-white">
-            <Camera size={16} />
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              setAvatarFile(file);
-              setAvatarPreview(URL.createObjectURL(file));
-            }}
-          />
-        </label>
-        {avatarPreview && (
-          <button
-            type="button"
-            onClick={() => { setAvatarFile(null); setAvatarPreview(null); }}
-            className="mt-3 text-xs font-bold text-slate-400 underline underline-offset-4"
-          >
-            {t.register.removePhoto}
-          </button>
-        )}
-      </div>
-
-      <div className="mt-auto pt-4 flex flex-col gap-3">
-        {avatarPreview ? (
-          <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
-            {t.register.nextStep} <ArrowRight size={20} />
-          </button>
-        ) : (
-          <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
-            {t.register.skipForNow} <ArrowRight size={20} />
-          </button>
-        )}
+        {isLoading && <Loader2 size={18} className="animate-spin text-mellow-purple" />}
       </div>
     </div>
   );
 
   const renderStepConsent = () => (
     <form onSubmit={(e) => { e.preventDefault(); setStep('info'); }} className="space-y-6 flex flex-col flex-1 pb-6">
+      {/* Arriving here mid-booking (guest gate redirected them) should read
+          as one continuous errand, not a detour into an unrelated signup
+          flow — so say so, instead of a generic registration screen. */}
+      {redirect && (redirect.includes('booking') || redirect.includes('/class/')) && (
+        <div className="bg-mellow-purple/10 text-mellow-purple text-xs font-bold rounded-2xl px-4 py-3 text-center">
+          {lang === 'en'
+            ? "You're almost there — finish this to continue your booking."
+            : 'อีกไม่กี่ขั้นตอนก็จะลงทะเบียนสำเร็จ'}
+        </div>
+      )}
       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex-1 min-h-[150px] max-h-[35vh] overflow-y-auto">
         <p className="text-xs text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">
           {t.register.pdpaPolicyText}
@@ -861,8 +615,8 @@ const Register = () => {
 
       <div className="space-y-4">
         <label className="flex items-start gap-3 p-5 bg-slate-50 rounded-3xl border border-slate-100 cursor-pointer hover:border-mellow-purple/30 transition-all">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             checked={formData.pdpaConsent}
             onChange={(e) => setFormData({...formData, pdpaConsent: e.target.checked})}
             className="mt-1 w-5 h-5 rounded border-slate-300 text-mellow-purple focus:ring-mellow-purple shrink-0"
@@ -870,10 +624,10 @@ const Register = () => {
           />
           <span className="text-sm font-bold text-slate-600 leading-relaxed">{t.register.pdpaConsent}</span>
         </label>
-        
+
         <label className="flex items-start gap-3 p-5 bg-slate-50 rounded-3xl border border-slate-100 cursor-pointer hover:border-mellow-purple/30 transition-all">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             checked={formData.marketingConsent}
             onChange={(e) => setFormData({...formData, marketingConsent: e.target.checked})}
             className="mt-1 w-5 h-5 rounded border-slate-300 text-mellow-purple focus:ring-mellow-purple shrink-0"
@@ -883,14 +637,6 @@ const Register = () => {
       </div>
 
       <div className="mt-auto pt-4 flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={() => setFormData({...formData, pdpaConsent: true, marketingConsent: true})}
-          className="w-full text-sm font-bold text-mellow-purple hover:text-purple-700 bg-purple-50 py-4 rounded-[18px] transition-all"
-        >
-          {t.register.acceptAll}
-        </button>
-
         <button type="submit" disabled={isLoading} className="w-full mellow-btn-primary">
           {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.nextStep} <ArrowRight size={20} /></>}
         </button>
@@ -898,41 +644,166 @@ const Register = () => {
     </form>
   );
 
+  const renderStepFamily = () => {
+    if (familyStepView === 'form') {
+      return (
+        <form onSubmit={handleSaveFamilyMember} className="space-y-4 flex flex-col flex-1 pb-6">
+          <FamilyMemberFields value={memberForm} onChange={setMemberForm} errors={memberFormErrors} />
+          <div className="mt-auto pt-4 flex flex-col gap-3">
+            <button type="submit" disabled={isSavingMember} className="w-full mellow-btn-primary">
+              {isSavingMember ? <Loader2 className="animate-spin" /> : <>{t.common?.save || (lang === 'th' ? 'บันทึก' : 'Save')} <ArrowRight size={20} /></>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFamilyStepView(familyMembers.length > 0 ? 'list' : 'grid')}
+              className="w-full text-center text-sm font-bold text-slate-400 hover:text-slate-500"
+            >
+              {t.register.back}
+            </button>
+          </div>
+        </form>
+      );
+    }
+
+    if (familyStepView === 'list') {
+      return (
+        <div className="flex flex-col flex-1 pb-6">
+          <div className="space-y-3">
+            {familyMembers.map((m, i) => {
+              const roleOpt = FAMILY_ROLE_OPTIONS.find(o => o.value === m.role);
+              return (
+                <div key={i} className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="w-10 h-10 rounded-full bg-mellow-purple/10 text-mellow-purple flex items-center justify-center shrink-0">
+                    {roleOpt && <roleOpt.icon size={20} />}
+                  </div>
+                  <div>
+                    <p className="font-black text-slate-800 text-sm">{m.nickname || m.firstName}</p>
+                    <p className="text-xs font-bold text-slate-400">
+                      {m.role === OTHER_FAMILY_ROLE ? m.customRole : (lang === 'en' ? roleOpt?.labelEn : roleOpt?.labelTh)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setFamilyStepView('grid')}
+            className="w-full mt-4 py-[14px] border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold text-sm hover:border-mellow-purple hover:text-mellow-purple transition-all"
+          >
+            <Plus size={18} /> {lang === 'en' ? 'Add another family member' : 'เพิ่มสมาชิกคนอื่นๆ'}
+          </button>
+
+          <div className="mt-auto pt-6">
+            <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
+              {t.register.nextStep} <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // 'grid' — the hero hint view: shown first (zero members yet) and again
+    // whenever "add another family member" is tapped from the list.
+    return (
+      <div className="flex flex-col flex-1 pb-6">
+        <p className="text-sm font-bold text-slate-500 text-center mb-5">
+          {familyMembers.length === 0
+            ? (lang === 'en' ? 'Add your family members — for faster booking next time' : 'เพิ่มสมาชิกในครอบครัวของคุณ (เพื่อความสะดวกในการกรอกข้อมูลครั้งถัดไป)')
+            : (lang === 'en' ? 'Who else would you like to add?' : 'อยากเพิ่มใครอีก?')}
+        </p>
+        <div className="grid grid-cols-4 gap-3">
+          {FAMILY_ROLE_OPTIONS.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => startAddingRole(o.value)}
+              className="flex flex-col items-center justify-center gap-1.5 py-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-mellow-purple/30 hover:bg-mellow-purple/5 active:scale-95 transition-all"
+            >
+              <o.icon size={26} className="text-mellow-purple" />
+              <span className="text-[11px] font-bold text-slate-600 text-center">{lang === 'en' ? o.labelEn : o.labelTh}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-auto pt-6 flex flex-col gap-3">
+          {familyMembers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFamilyStepView('list')}
+              className="w-full text-center text-sm font-bold text-slate-400 hover:text-slate-500"
+            >
+              {lang === 'en' ? 'Back to list' : 'กลับไปดูรายชื่อ'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setStep('summary')}
+            className="w-full text-center text-sm font-bold text-slate-400 hover:text-slate-500"
+          >
+            {t.register.skip}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderStepSummary = () => (
     <div className="flex flex-col flex-1 pb-6 space-y-6">
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{t.register.parentInfoTitle}</h3>
+        <h3 className="text-lg font-black text-slate-800 mb-3">{t.register.parentInfoTitle}</h3>
         <div className="space-y-2 text-sm">
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{formData.prefix} {formData.firstName} {formData.lastName}</span></p>
-          <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.parentDobLabel}:</span> <span className="font-bold text-slate-800">{formatCustomDate(ddmmyyyyToISO(formData.dob), lang, 'full')}</span></p>
+          {formData.relationship && (() => {
+            const roleOpt = FAMILY_ROLE_OPTIONS.find(o => o.value === formData.relationship);
+            const roleLabel = formData.relationship === OTHER_FAMILY_ROLE
+              ? formData.customRelationship
+              : (roleOpt ? (lang === 'en' ? roleOpt.labelEn : roleOpt.labelTh) : formData.relationship);
+            return (
+              <p className="flex items-center gap-1">
+                <span className="text-slate-500 font-bold w-28 inline-block">{lang === 'en' ? 'Role' : 'สถานะ'}:</span>
+                {roleOpt && <roleOpt.icon size={16} className="text-mellow-purple" />}
+                <span className="font-bold text-slate-800">{roleLabel}</span>
+              </p>
+            );
+          })()}
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.phone}:</span> <span className="font-bold text-slate-800">{formData.phone}</span></p>
           <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.email}:</span> <span className="font-bold text-slate-800">{formData.email}</span></p>
         </div>
       </div>
-      
+
       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-        <h3 className="text-sm font-black text-slate-800 mb-3">{t.register.childrenInfoTitle}</h3>
-        <div className="space-y-4">
-          {children.filter(c => c.firstName && c.dob).map((child, i) => (
-            <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
-              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{child.firstName} {child.lastName} {child.nickname && `(${child.nickname})`}</span></p>
-              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{formatCustomDate(ddmmyyyyToISO(child.dob), lang, 'full')}</span></p>
-              <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.relationship}:</span> <span className="font-bold text-slate-800">{child.relation === 'Other' ? child.customRelation : child.relation}</span></p>
-            </div>
-          ))}
-        </div>
-      </div>
-      
-      <div className="bg-mellow-purple/5 p-4 rounded-2xl flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-mellow-purple/20 flex items-center justify-center text-mellow-purple shrink-0">
-           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        </div>
-        <p className="text-xs font-bold text-slate-600">{t.register.pdpaConsent}</p>
+        <h3 className="text-lg font-black text-slate-800 mb-3">{lang === 'en' ? 'Family Members' : 'สมาชิกในครอบครัว'}</h3>
+        {familyMembers.length === 0 ? (
+          <p className="text-sm font-bold text-slate-400">{lang === 'en' ? 'None added yet — you can add more anytime from Settings.' : 'ยังไม่ได้เพิ่มสมาชิก — เพิ่มได้ภายหลังจากหน้าตั้งค่า'}</p>
+        ) : (
+          <div className="space-y-4">
+            {familyMembers.map((m, i) => {
+              const roleOpt = FAMILY_ROLE_OPTIONS.find(o => o.value === m.role);
+              const roleLabel = m.role === OTHER_FAMILY_ROLE ? m.customRole : (lang === 'en' ? roleOpt?.labelEn : roleOpt?.labelTh);
+              return (
+                <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
+                  <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.firstName}:</span> <span className="font-bold text-slate-800">{m.firstName} {m.lastName} {m.nickname && `(${m.nickname})`}</span></p>
+                  <p><span className="text-slate-500 font-bold w-28 inline-block">{t.register.dateOfBirth}:</span> <span className="font-bold text-slate-800">{formatCustomDate(ddmmyyyyToISO(m.dob), lang, 'full')}</span></p>
+                  <p className="flex items-center gap-1">
+                    <span className="text-slate-500 font-bold w-28 inline-block">{lang === 'en' ? 'Role' : 'สถานะ'}:</span>
+                    {roleOpt && <roleOpt.icon size={16} className="text-mellow-purple" />}
+                    <span className="font-bold text-slate-800">{roleLabel}</span>
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="mt-auto pt-4">
-        <button onClick={handleRegister} disabled={isLoading} className="w-full mellow-btn-primary">
-          {isLoading ? <Loader2 className="animate-spin" /> : <>{t.register.complete} <ArrowRight size={20} /></>}
+        <button
+          onClick={() => navigate(redirect ? decodeURIComponent(redirect) : '/', { replace: true })}
+          className="w-full mellow-btn-primary"
+        >
+          {t.register.complete} <ArrowRight size={20} />
         </button>
       </div>
     </div>
@@ -943,7 +814,7 @@ const Register = () => {
       case 'info': return t.register.stepInfo;
       case 'otp': return t.register.stepOtp;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreate : t.register.stepPinConfirm;
-      case 'avatar': return t.register.stepAvatar;
+      case 'family': return t.register.stepFamily;
       case 'consent': return t.register.stepConsent;
       case 'summary': return t.register.stepSummary;
       default: return '';
@@ -955,49 +826,55 @@ const Register = () => {
       case 'info': return t.register.stepInfoDesc;
       case 'otp': return `${t.register.stepOtpDesc} ${formData.phone}`;
       case 'pin': return pinStep === 'create' ? t.register.stepPinCreateDesc : t.register.stepPinConfirmDesc;
-      case 'avatar': return t.register.stepAvatarDesc;
+      case 'family': return t.register.stepFamilyDesc;
       case 'consent': return t.register.stepConsentDesc;
       case 'summary': return t.register.stepSummaryDesc;
       default: return '';
     }
   };
 
-  // The consent (terms/PDPA) and info (parent + children details) steps are
-  // both long, content-heavy forms — the full-size header used by the
-  // shorter steps pushed content below the fold on smaller phones. Both get
-  // the compact header (logo up top, no description line); the rest of the
-  // steps are unaffected.
-  const useCompactHeader = step === 'consent' || step === 'info';
+  // The consent, info, and family steps are all long/content-heavy — the
+  // full-size header used by the shorter steps pushed content below the
+  // fold on smaller phones. All three get the compact header (logo up top,
+  // no description line); the rest of the steps are unaffected.
+  const useCompactHeader = step === 'consent' || step === 'info' || step === 'family';
+
+  // Once the account exists (from 'family' onward), there's nothing
+  // meaningful for "back" to undo — hide it there rather than pretend
+  // stepping back rewinds account creation. 'summary' still allows
+  // returning to 'family' to add more people.
+  const canGoBack = step !== 'family';
 
   return (
     <div className="mellow-flow-page flex flex-col px-8 bg-white">
       <header className={`flex justify-between items-center ${useCompactHeader ? 'pt-4 mb-2' : 'pt-10 mb-8'}`}>
-        <button
-          onClick={() => {
-            if (step === 'consent') {
-              // A guest who tapped "Register" from a course/feature they
-              // were looking at, then changes their mind here, expects Back
-              // to return them there — not to a login screen they never
-              // asked for.
-              navigate(-1);
-            } else if (step === 'info') {
-              setStep('consent');
-            } else if (step === 'otp') {
-              setStep('info');
-            } else if (step === 'pin') {
-              setStep('info');
-            } else if (step === 'avatar') {
-              setPinStep('create');
-              setFormData({...formData, password: ''});
-              setStep('pin');
-            } else if (step === 'summary') {
-              setStep('avatar');
-            }
-          }} 
-          className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0"
-        >
-          <ChevronLeft size={24} />
-        </button>
+        {canGoBack ? (
+          <button
+            onClick={() => {
+              if (step === 'consent') {
+                // A guest who tapped "Register" from a course/feature they
+                // were looking at, then changes their mind here, expects Back
+                // to return them there — not to a login screen they never
+                // asked for.
+                navigate(-1);
+              } else if (step === 'info') {
+                setStep('consent');
+              } else if (step === 'otp') {
+                setStep('info');
+              } else if (step === 'pin') {
+                setStep('info');
+              } else if (step === 'summary') {
+                setFamilyStepView(familyMembers.length > 0 ? 'list' : 'grid');
+                setStep('family');
+              }
+            }}
+            className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center active:scale-90 transition-all shrink-0"
+          >
+            <ChevronLeft size={24} />
+          </button>
+        ) : (
+          <div className="w-10 h-10 shrink-0" />
+        )}
         <LanguageToggle />
       </header>
 
@@ -1027,12 +904,12 @@ const Register = () => {
         {step === 'info' && renderStepInfo()}
         {step === 'otp' && renderStepOtp()}
         {step === 'pin' && renderStepPin()}
-        {step === 'avatar' && renderStepAvatar()}
+        {step === 'family' && renderStepFamily()}
         {step === 'summary' && renderStepSummary()}
       </div>
 
       <div className="mt-8 mb-4 text-center">
-        <button 
+        <button
           onClick={() => setShowCancelModal(true)}
           className="text-slate-400 font-bold text-sm underline underline-offset-4 decoration-slate-200 hover:text-slate-500 hover:decoration-slate-400 transition-colors"
         >
@@ -1064,34 +941,8 @@ const Register = () => {
               </button>
             </div>
       </ResponsiveModal>
-
-      <ResponsiveModal isOpen={childToRemove !== null} onClose={() => setChildToRemove(null)} variant="dialog" size="xs" className="text-center">
-            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={32} />
-            </div>
-            <h3 className="text-xl font-black text-slate-800 mb-2">{t.register.removeChildTitle}</h3>
-            <p className="text-sm font-bold text-slate-500 mb-6">{t.register.removeChildDesc}</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setChildToRemove(null)}
-                className="flex-1 py-[14px] rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200"
-              >
-                {t.register.removeChildCancel}
-              </button>
-              <button
-                onClick={() => {
-                  if (childToRemove !== null) handleRemoveChild(childToRemove);
-                  setChildToRemove(null);
-                }}
-                className="flex-1 py-[14px] rounded-xl font-bold text-white bg-red-500 hover:bg-red-600"
-              >
-                {t.register.removeChildConfirm}
-              </button>
-            </div>
-      </ResponsiveModal>
     </div>
   );
 };
 
 export default Register;
-

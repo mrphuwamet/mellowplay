@@ -67,7 +67,6 @@ export const translations = {
       lastNameEnLabel: 'Last Name (English)',
       nickname: 'Nickname',
       dateOfBirth: 'Date of Birth',
-      relationship: 'Relationship',
       phone: 'Phone Number',
       phoneLabel: 'Phone Number',
       email: 'Email',
@@ -83,10 +82,6 @@ export const translations = {
       didntReceive: "Didn't receive code?",
       childInfo: 'Child Information',
       childName: "Child's Name",
-      father: 'Father',
-      mother: 'Mother',
-      relative: 'Relative',
-      other: 'Other',
       addChild: 'Add Child',
       complete: 'Complete Registration',
       hasAccount: 'Already have an account?',
@@ -104,6 +99,8 @@ export const translations = {
       stepAvatarDesc: 'Add a profile picture (optional)',
       removePhoto: 'Remove photo',
       skipForNow: 'Skip for now',
+      stepFamily: 'Add Family Members',
+      stepFamilyDesc: 'Optional — makes booking faster next time',
       stepConsent: 'Terms & Conditions',
       stepConsentDesc: 'Please review and accept',
       pdpaConsent: 'I agree to the PDPA terms and conditions',
@@ -118,11 +115,17 @@ Mellow World Co., Ltd. (the "Company"), acting as a Data Controller, places the 
 1. Personal Data We Collect
 The Company will collect personal data only as necessary for providing our services. This includes:
 
-Parent's Information: First and Last Name, Phone Number, Email, LINE ID, and Address.
+Parent/Account Holder Information: Title, First and Last Name (Thai and English), Date of Birth, Phone Number, Email, Address, Profile Picture, Password (stored in encrypted form and never recoverable as plain text), and information from third-party sign-in such as LINE or Google (only if you choose to use it).
 
-Child's Information: First and Last Name, Nickname, Gender, Date of Birth, and Relationship to the parent.
+Child's or Family Member's Information: First and Last Name (Thai and English), Nickname, Gender, Date of Birth, Relationship to the parent, and — only if you use our Human Design analysis or related services — time and place of birth.
 
-Activity Participation Data: Registration history, activity records, as well as photos and videos of your child taken during activities, which are strictly used for developmental assessment and generating learning reports.
+Transaction and Payment Data: Booking and purchase history, payment method, amount paid, and coupon or benefit usage. Your credit/debit card details are processed and stored only by our external, security-standard-compliant payment service provider — the Company does not store your card numbers.
+
+Activity Participation Data: Registration history, activity records, as well as photos and videos of you and your child taken while participating in classes or activities, which may be used for developmental assessment, generating learning reports, and/or publication on social media, television, or other public channels.
+
+Technical and Usage Data: IP address, device and browser type, application/website usage logs, and cookies or similar tracking technologies, used to secure our systems and improve service quality.
+
+Referral Data: such as a referral tag included in the link you used to access our services, used to measure the effectiveness of our marketing channels and partners.
 
 2. Purposes and Legal Bases for Data Processing
 The Company will process your personal data under lawful bases (such as Contractual Basis or Legitimate Interest) for the following purposes:
@@ -132,6 +135,14 @@ To process registration, manage user accounts, and verify identity (OTP/PIN) for
 To design, plan, and improve activities to suit your child’s age and developmental stage.
 
 To generate Learning Reports and share media (photos/videos) with you via our application or the Company's official channels.
+
+To record photos and videos while you or your child participate in classes or activities, and to publish them on social media, television, or any other public channel for the Company's promotional purposes.
+
+To process payments, manage coupons and benefits, and issue proof of payment.
+
+To secure our systems, prevent fraud or unauthorized use, and improve service quality using technical and usage data.
+
+To measure and improve the effectiveness of our promotional channels using referral tag data.
 
 To communicate, notify, coordinate, and provide after-sales customer service.
 
@@ -196,9 +207,6 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       prefixMiss: 'Miss',
       parentDobLabel: 'Date of Birth',
       selectTitle: 'Select Title',
-      genderLabel: 'Gender',
-      selectGender: 'Select Gender',
-      notSpecified: 'Not specified',
       optionalSuffix: ' (Optional)',
       dobPlaceholder: 'DD/MM/YYYY',
       phoneCountryCode: '+66',
@@ -549,7 +557,6 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       lastNameEnLabel: 'นามสกุล (ภาษาอังกฤษ)',
       nickname: 'ชื่อเล่น',
       dateOfBirth: 'วัน/เดือน/ปีเกิด',
-      relationship: 'ความสัมพันธ์',
       phone: 'เบอร์โทรศัพท์',
       phoneLabel: 'เบอร์โทรศัพท์',
       email: 'อีเมล',
@@ -565,10 +572,6 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       didntReceive: 'ไม่ได้รับรหัส?',
       childInfo: 'ข้อมูลของลูก',
       childName: 'ชื่อลูก',
-      father: 'พ่อ',
-      mother: 'แม่',
-      relative: 'ญาติ',
-      other: 'อื่นๆ',
       addChild: 'เพิ่มข้อมูลเด็ก',
       complete: 'สมัครสมาชิกเสร็จสิ้น',
       hasAccount: 'มีบัญชีอยู่แล้ว?',
@@ -586,6 +589,8 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       stepAvatarDesc: 'เพิ่มรูปโปรไฟล์ (ไม่บังคับ)',
       removePhoto: 'ลบรูปภาพ',
       skipForNow: 'ข้ามไปก่อน',
+      stepFamily: 'เพิ่มสมาชิกในครอบครัว',
+      stepFamilyDesc: 'ไม่บังคับ — เพื่อความสะดวกในการจองครั้งถัดไป',
       stepConsent: 'ข้อกำหนดและเงื่อนไข',
       stepConsentDesc: 'กรุณาตรวจสอบและยอมรับ',
       pdpaConsent: 'ฉันยอมรับข้อตกลงและเงื่อนไข PDPA',
@@ -598,11 +603,17 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
 1. ข้อมูลส่วนบุคคลที่บริษัทฯ เก็บรวบรวม
 บริษัทฯ จะเก็บรวบรวมข้อมูลส่วนบุคคลเท่าที่จำเป็นต่อการให้บริการ โดยครอบคลุมข้อมูลดังต่อไปนี้:
 
-ข้อมูลของผู้ปกครอง: ชื่อ-นามสกุล, หมายเลขโทรศัพท์, อีเมล, LINE ID และข้อมูลที่อยู่
+ข้อมูลของผู้ปกครอง/เจ้าของบัญชี: คำนำหน้าชื่อ ชื่อ-นามสกุล (ไทยและอังกฤษ) วัน/เดือน/ปีเกิด หมายเลขโทรศัพท์ อีเมล ที่อยู่ รูปโปรไฟล์ รหัสผ่าน (จัดเก็บในรูปแบบเข้ารหัส ไม่สามารถอ่านย้อนกลับเป็นข้อความจริงได้) และข้อมูลจากการเข้าสู่ระบบผ่านบุคคลที่สาม เช่น LINE หรือ Google (เฉพาะกรณีที่ท่านเลือกใช้บริการดังกล่าว)
 
-ข้อมูลของบุตรหลาน: ชื่อ-นามสกุล, ชื่อเล่น, เพศ, วัน/เดือน/ปีเกิด และความสัมพันธ์กับผู้ปกครอง
+ข้อมูลของบุตรหลานหรือสมาชิกในครอบครัว: ชื่อ-นามสกุล (ไทยและอังกฤษ) ชื่อเล่น เพศ วัน/เดือน/ปีเกิด ความสัมพันธ์กับผู้ปกครอง และในกรณีที่ท่านเลือกใช้บริการวิเคราะห์ Human Design หรือบริการที่เกี่ยวข้อง อาจรวมถึงเวลาและสถานที่เกิด
 
-ข้อมูลการเข้าร่วมกิจกรรม: ประวัติการลงทะเบียน กิจกรรมที่เข้าร่วม รวมถึงภาพถ่ายและวิดีโอของบุตรหลานระหว่างการทำกิจกรรม ซึ่งใช้เพื่อการประเมินพัฒนาการและจัดทำรายงานการเรียนรู้เท่านั้น
+ข้อมูลการทำธุรกรรมและการชำระเงิน: ประวัติการสั่งจอง/สั่งซื้อ วิธีการชำระเงิน จำนวนเงิน และการใช้คูปองหรือสิทธิประโยชน์ต่างๆ ทั้งนี้ ข้อมูลบัตรเครดิต/เดบิตของท่านจะถูกประมวลผลและจัดเก็บโดยผู้ให้บริการรับชำระเงินภายนอกที่ได้มาตรฐานความปลอดภัยเท่านั้น บริษัทฯ ไม่มีการจัดเก็บหมายเลขบัตรของท่านไว้ในระบบของบริษัทฯ
+
+ข้อมูลการเข้าร่วมกิจกรรม: ประวัติการลงทะเบียน กิจกรรมที่เข้าร่วม รวมถึงภาพถ่ายและวิดีโอของท่านและบุตรหลานระหว่างการเข้าร่วมคลาสเรียนหรือกิจกรรมต่างๆ ซึ่งอาจถูกนำไปใช้เพื่อการประเมินพัฒนาการ จัดทำรายงานการเรียนรู้ และ/หรือเผยแพร่ประชาสัมพันธ์ผ่านช่องทางสื่อสังคมออนไลน์ (Social Media) โทรทัศน์ หรือช่องทางสาธารณะอื่นใดของบริษัทฯ
+
+ข้อมูลทางเทคนิคและการใช้งานบริการ: หมายเลข IP Address ประเภทอุปกรณ์และเบราว์เซอร์ที่ใช้งาน บันทึกการเข้าใช้งานเว็บไซต์/แอปพลิเคชัน และคุกกี้หรือเทคโนโลยีติดตามลักษณะเดียวกัน ซึ่งใช้เพื่อการรักษาความปลอดภัยของระบบและปรับปรุงคุณภาพการให้บริการ
+
+ข้อมูลที่มาของการเข้าถึงบริการ: เช่น รหัสอ้างอิง (Referral Tag) ที่ปรากฏในลิงก์ซึ่งท่านใช้เข้าถึงบริการ เพื่อวัดผลประสิทธิภาพของช่องทางการประชาสัมพันธ์และพันธมิตรของบริษัทฯ
 
 2. วัตถุประสงค์และฐานทางกฎหมายในการประมวลผลข้อมูล
 บริษัทฯ จะประมวลผลข้อมูลส่วนบุคคลของท่านภายใต้ฐานทางกฎหมาย (เช่น ฐานสัญญา ฐานประโยชน์อันชอบธรรม) เพื่อวัตถุประสงค์ดังต่อไปนี้:
@@ -612,6 +623,14 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
 เพื่อใช้ในการออกแบบ วางแผน และปรับปรุงรูปแบบกิจกรรมให้สอดคล้องกับช่วงวัยและพัฒนาการของบุตรหลาน
 
 เพื่อจัดทำรายงานผลการเรียนรู้ (Learning Report) และส่งมอบสื่อประมวลภาพ (ภาพถ่าย/วิดีโอ) ให้แก่ท่านผ่านแอปพลิเคชันหรือช่องทางของบริษัทฯ
+
+เพื่อบันทึกภาพและวิดีโอระหว่างการเข้าร่วมคลาสเรียนหรือกิจกรรม และนำไปเผยแพร่ประชาสัมพันธ์ผ่านสื่อสังคมออนไลน์ (Social Media) โทรทัศน์ หรือช่องทางสาธารณะอื่นใด เพื่อการประชาสัมพันธ์กิจกรรมของบริษัทฯ
+
+เพื่อดำเนินการรับชำระเงิน จัดการคูปองและสิทธิประโยชน์ และออกหลักฐานการชำระเงิน
+
+เพื่อรักษาความปลอดภัยของระบบ ป้องกันการทุจริตหรือการใช้งานโดยไม่ได้รับอนุญาต และปรับปรุงคุณภาพการให้บริการโดยอาศัยข้อมูลทางเทคนิคและการใช้งาน
+
+เพื่อวัดผลและปรับปรุงประสิทธิภาพของช่องทางการประชาสัมพันธ์ผ่านข้อมูลรหัสอ้างอิง (Tag)
 
 เพื่อการติดต่อสื่อสาร แจ้งเตือน ประสานงาน และให้บริการดูแลหลังการขาย
 
@@ -676,9 +695,6 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       prefixMiss: 'นางสาว',
       parentDobLabel: 'วัน/เดือน/ปีเกิด',
       selectTitle: 'เลือกคำนำหน้า',
-      genderLabel: 'เพศ',
-      selectGender: 'เลือกเพศ',
-      notSpecified: 'ไม่ระบุ',
       optionalSuffix: ' (ไม่บังคับ)',
       dobPlaceholder: 'วว/ดด/ปปปป',
       phoneCountryCode: '+66',

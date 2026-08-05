@@ -1,0 +1,11 @@
+-- Moves the duplicate-registration check from the whole form down to a
+-- specific field — a form can have more than one identity-bearing field
+-- (e.g. an adult's name and a child's name), so "prevent duplicates" needs
+-- to say which field it's checking, not just be a single form-wide switch.
+-- In practice this is set on whichever field represents the participant
+-- (usually a family_member_picker or a name-like text field).
+-- Registration_Forms.duplicate_check_scope (added in migration 0059) is
+-- left in place unused rather than dropped, same reasoning as migration
+-- 0050 — SQLite/D1 can't cheaply drop a column, and nothing real ever
+-- depended on it.
+ALTER TABLE Registration_Form_Fields ADD COLUMN duplicate_check_scope TEXT;

@@ -63,6 +63,8 @@ import {
   Campaign as AdsMenuIcon,
   Grade as StampImageMenuIcon,
   TrendingUp as SalesMenuIcon,
+  Link as TagAttributionMenuIcon,
+  Assignment as RegistrationFormMenuIcon,
   Lock as LockMenuIcon,
   Celebration as EventMenuIcon,
   MiscellaneousServices as CourseServiceMenuIcon,
@@ -78,6 +80,7 @@ import ChildrenDirectory from './pages/ChildrenDirectory';
 import BookingManagement from './pages/BookingManagement';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
+import RegistrationFormManagement from './pages/RegistrationFormManagement';
 import IncentiveTracking from './pages/IncentiveTracking';
 import MySchedule from './pages/MySchedule';
 import AttendanceManagement from './pages/AttendanceManagement';
@@ -124,6 +127,7 @@ import {
 // are only needed by super_admin-level roles, so keep them out of the main
 // bundle for everyone else.
 const SalesDashboard = lazy(() => import('./pages/SalesDashboard'));
+const TagAttributionDashboard = lazy(() => import('./pages/TagAttributionDashboard'));
 
 const drawerWidth = 280;
 
@@ -132,9 +136,9 @@ const drawerWidth = 280;
 // filtered menuEntries memo below so this doesn't need to be recomputed
 // per-permission-change.
 const GROUP_PATHS: Record<string, string[]> = {
-  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales'],
+  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/calendars', '/crm/bookings'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/calendars', '/crm/bookings'],
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -399,6 +403,7 @@ const AppContent = () => {
         children: [
           { text: 'ภาพรวม', icon: <DashboardIcon />, path: '/crm/dashboard/overview', feature: 'dashboard' },
           { text: 'ยอดขายและรายได้', icon: <SalesMenuIcon />, path: '/crm/dashboard/sales', feature: 'dashboard_sales', locked: !hasPermission('dashboard_sales') },
+          { text: 'ติดตาม Tag', icon: <TagAttributionMenuIcon />, path: '/crm/dashboard/tag-attribution', feature: 'dashboard_tag_attribution', locked: !hasPermission('dashboard_tag_attribution') },
         ],
       } as MenuGroupConfig,
     ];
@@ -420,6 +425,7 @@ const AppContent = () => {
       { text: 'จัดการข้อมูลคลาส', icon: <ReportIcon />, path: '/crm/courses', feature: 'courses' },
       { text: 'จัดการกิจกรรม (Event)', icon: <EventMenuIcon />, path: '/crm/events', feature: 'courses' },
       { text: 'จัดการบริการ (Service)', icon: <CourseServiceMenuIcon />, path: '/crm/course-services', feature: 'courses' },
+      { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
     ]);
@@ -851,12 +857,21 @@ const AppContent = () => {
                 </Suspense>
               ))}
             />
+            <Route
+              path="/crm/dashboard/tag-attribution"
+              element={protect('dashboard_tag_attribution', (
+                <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>}>
+                  <TagAttributionDashboard />
+                </Suspense>
+              ))}
+            />
             <Route path="/crm/staff" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/parents" element={protect('consumer_users', <UserManagement currentUserRole={currentUser?.role} />)} />
             <Route path="/crm/children-directory" element={protect('consumer_users', <ChildrenDirectory />)} />
             <Route path="/crm/courses" element={protect('courses', <CourseManagement />)} />
             <Route path="/crm/events" element={protect('courses', <CourseManagement courseType="event" />)} />
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
+            <Route path="/crm/registration-forms" element={protect('courses', <RegistrationFormManagement />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/users" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />

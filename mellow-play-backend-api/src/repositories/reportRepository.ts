@@ -170,4 +170,66 @@ export class ReportRepository {
       cancelledBookings: bookings?.cancelled ?? 0,
     };
   }
+
+  // ── Sponsor/Marketing Tag Attribution ──────────────────────────────────────
+  // sponsor_tag is set on Bookings.created_at from a ?tag= URL param the
+  // consumer app captured before checkout; NULL covers both "never tagged"
+  // and "tag expired before booking" (organic), grouped into one bucket here
+  // so staff can see attributed-vs-organic at a glance.
+  async getTagAttributionSummary(startDate: string, endDate: string, branchId?: number): Promise<any[]> {
+    const branchClause = branchId ? ' AND b.branch_id = ?' : '';
+    const params: any[] = [startDate, endDate];
+    if (branchId) params.push(branchId);
+    const { results } = await this.db.prepare(`
+      SELECT
+        COALESCE(b.sponsor_tag, '(ไม่มี tag)') AS tag,
+        COUNT(*) AS booking_count,
+        COUNT(DISTINCT b.child_id) AS unique_children,
+        MIN(DATE(b.created_at, '+7 hours')) AS first_seen,
+        MAX(DATE(b.created_at, '+7 hours')) AS last_seen
+      FROM Bookings b
+      WHERE DATE(b.created_at, '+7 hours') BETWEEN ? AND ? AND b.status != 'cancelled'${branchClause}
+      GROUP BY COALESCE(b.sponsor_tag, '(ไม่มี tag)')
+      ORDER BY booking_count DESC
+    `).bind(...params).all();
+    return results;
+  }
+
+  async getTagAttributionTrend(startDate: string, endDate: string, branchId?: number): Promise<any[]> {
+    const branchClause = branchId ? ' AND b.branch_id = ?' : '';
+    const params: any[] = [startDate, endDate];
+    if (branchId) params.push(branchId);
+    const { results } = await this.db.prepare(`
+      SELECT
+        DATE(b.created_at, '+7 hours') AS date,
+        COALESCE(b.sponsor_tag, '(ไม่มี tag)') AS tag,
+        COUNT(*) AS booking_count
+      FROM Bookings b
+      WHERE DATE(b.created_at, '+7 hours') BETWEEN ? AND ? AND b.status != 'cancelled'${branchClause}
+      GROUP BY DATE(b.created_at, '+7 hours'), COALESCE(b.sponsor_tag, '(ไม่มี tag)')
+      ORDER BY date ASC
+    `).bind(...params).all();
+    return results;
+  }
+
+  // Per tag × activity — lets staff see not just how many signups a tag
+  // drove, but which course/event/service they signed up for.
+  async getTagAttributionByCourse(startDate: string, endDate: string, branchId?: number): Promise<any[]> {
+    const branchClause = branchId ? ' AND b.branch_id = ?' : '';
+    const params: any[] = [startDate, endDate];
+    if (branchId) params.push(branchId);
+    const { results } = await this.db.prepare(`
+      SELECT
+        COALESCE(b.sponsor_tag, '(ไม่มี tag)') AS tag,
+        co.name AS course_name,
+        COUNT(*) AS booking_count,
+        COUNT(DISTINCT b.child_id) AS unique_children
+      FROM Bookings b
+      JOIN Courses co ON b.course_id = co.id
+      WHERE DATE(b.created_at, '+7 hours') BETWEEN ? AND ? AND b.status != 'cancelled'${branchClause}
+      GROUP BY COALESCE(b.sponsor_tag, '(ไม่มี tag)'), co.name
+      ORDER BY tag ASC, booking_count DESC
+    `).bind(...params).all();
+    return results;
+  }
 }

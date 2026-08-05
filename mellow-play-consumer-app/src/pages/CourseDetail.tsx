@@ -483,26 +483,20 @@ const CourseDetail = () => {
         </button>
       </div>
 
-      {/* Guest Modal */}
+      {/* Guest Modal — framed as "have you signed up before?" with two equal
+          paths rather than a single "go register" CTA, so registering reads
+          as one continuous step toward booking this class, not a detour. */}
       <ResponsiveModal isOpen={showGuestModal} onClose={() => setShowGuestModal(false)} variant="dialog" size="sm" className="text-center">
-            <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users size={32} className="text-mellow-yellow-dark" />
-            </div>
+            <img src={logo} alt="Mellow Play" className="h-9 mx-auto mb-4" />
             <h3 className="text-[20px] font-black text-slate-800 mb-2">
-              {lang === 'en' ? 'Please Register First' : 'กรุณาสมัครสมาชิกก่อน'}
+              {lang === 'en' ? 'Have you signed up with Mellow Play before?' : 'เคยเป็นสมาชิก Mellow Play ไหม?'}
             </h3>
             <p className="text-[14px] text-slate-500 font-medium mb-6">
               {lang === 'en'
-                ? 'Register now to book this class and track your child\'s journey!'
-                : 'สมัคสมาชิกเพื่อทำการจองคลาสเรียนและติดตามพัฒนาการของน้องๆ'}
+                ? `Just one more step to book "${lang === 'en' && course.name_en ? course.name_en : course.name}" — pick whichever applies to you.`
+                : `อีกนิดเดียวก็จะจอง "${course.name}" ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setShowGuestModal(false)}
-                className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
-              >
-                {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
-              </button>
+            <div className="flex flex-col gap-3">
               <button
                 onClick={() => {
                   setShowGuestModal(false);
@@ -510,17 +504,23 @@ const CourseDetail = () => {
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
-                {t.common?.register || 'สมัครสมาชิก'}
+                {lang === 'en' ? 'Not yet — Sign up' : 'ยังไม่มี — สมัครเลย'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowGuestModal(false);
+                  navigate(`/login?redirect=/class/${course.id}`);
+                }}
+                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+              >
+                {lang === 'en' ? 'Yes — Login' : 'มีแล้ว — เข้าสู่ระบบ'}
               </button>
             </div>
             <button
-              onClick={() => {
-                setShowGuestModal(false);
-                navigate(`/login?redirect=/class/${course.id}`);
-              }}
+              onClick={() => setShowGuestModal(false)}
               className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
             >
-              {lang === 'en' ? 'Already have an account? Login' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ'}
+              {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>
       </ResponsiveModal>
     </div>

@@ -5,6 +5,7 @@ import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import { Toast } from './Toast';
 import { cleanNamePrefix } from '../utils/nameUtils';
+import { FAMILY_ROLE_OPTIONS, normalizeFamilyRole } from '../utils/familyRoles';
 
 interface EditChildModalProps {
   isOpen: boolean;
@@ -34,7 +35,7 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
     nickname: '',
     gender: 'Boy',
     dob: '',
-    relation: 'Mother',
+    relation: 'mother',
     customRelation: ''
   });
 
@@ -43,6 +44,7 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
       const cleanedFullName = cleanNamePrefix(childInfo.name);
       const parts = cleanedFullName.split(' ');
       const enParts = (childInfo.nameEn || '').split(' ');
+      const { role, customText } = normalizeFamilyRole(childInfo.relation);
       setFormData({
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
@@ -51,12 +53,8 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
         nickname: childInfo.nickname || '',
         gender: childInfo.gender || 'Boy',
         dob: childInfo.dob || '',
-        relation: ['Mother', 'Father', 'Brother', 'Sister', 'Grandparent'].includes(childInfo.relation || '') 
-          ? (childInfo.relation || 'Mother') 
-          : 'Other',
-        customRelation: ['Mother', 'Father', 'Brother', 'Sister', 'Grandparent'].includes(childInfo.relation || '') 
-          ? '' 
-          : (childInfo.relation || '')
+        relation: role,
+        customRelation: customText
       });
     }
   }, [childInfo, isOpen]);
@@ -83,8 +81,8 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
         nameEn,
         nickname: formData.nickname,
         dob: formData.dob,
-        relation: formData.relation === 'Other' && formData.customRelation 
-          ? formData.customRelation 
+        relation: formData.relation === 'other' && formData.customRelation
+          ? formData.customRelation
           : formData.relation,
         gender: formData.gender
       };
@@ -224,21 +222,20 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                {t.register?.relationship || 'Relationship'}
+                {lang === 'th' ? 'คุณคือ...' : 'You are...'}
               </label>
               <select
                 value={formData.relation}
                 onChange={e => setFormData({ ...formData, relation: e.target.value })}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
               >
-                <option value="Mother">{t.register?.mother || 'Mother'}</option>
-                <option value="Father">{t.register?.father || 'Father'}</option>
-                <option value="Relative">{t.register?.relative || 'Relative'}</option>
-                <option value="Other">{t.register?.other || 'Other'}</option>
+                {FAMILY_ROLE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{lang === 'en' ? o.labelEn : o.labelTh}</option>
+                ))}
               </select>
             </div>
-            
-            {formData.relation === 'Other' && (
+
+            {formData.relation === 'other' && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                 <input
                   type="text"

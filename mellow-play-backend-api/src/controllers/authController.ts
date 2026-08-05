@@ -103,7 +103,7 @@ export class AuthController {
   async register(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { phone, otp, password, prefix, firstName, lastName, firstNameEn, lastNameEn, dob, children, email, lineId, pdpaConsent, marketingConsent, address } = await c.req.json();
+      const { phone, otp, password, prefix, firstName, lastName, firstNameEn, lastNameEn, dob, children, email, lineId, pdpaConsent, marketingConsent, address, relationship } = await c.req.json();
 
       const childList = children || [];
       const invalidChild = childList.find((child: any) => !child.nickname || !child.gender);
@@ -128,7 +128,8 @@ export class AuthController {
         prefix,
         dob,
         firstNameEn,
-        lastNameEn
+        lastNameEn,
+        relationship
       );
       await sendNotification(config.db, 'สมาชิกใหม่', {
         'ชื่อ': `${prefix ?? ''}${firstName} ${lastName}`.trim(),

@@ -107,7 +107,7 @@ interface Course {
   is_event?: boolean;
   is_service?: boolean;
   allow_repeat?: boolean;
-  limit_one_per_parent?: boolean;
+  registration_form_id?: number | null;
   stamps_on_completion?: number;
   stamp_expiry_months?: number;
   // Legacy fields — used for migration only
@@ -252,6 +252,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [calendars, setCalendars] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [couponTypes, setCouponTypes] = useState<any[]>([]);
+  const [registrationForms, setRegistrationForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -330,7 +331,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     isEvent: false,
     isService: false,
     allowRepeat: true,
-    limitOnePerParent: false,
+    registrationFormId: 0,
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
   });
@@ -559,18 +560,20 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [coursesRes, catsRes, calRes, branchesRes, couponsRes] = await Promise.all([
+      const [coursesRes, catsRes, calRes, branchesRes, couponsRes, formsRes] = await Promise.all([
         axios.get(`${API_BASE}/courses`),
         axios.get(`${API_BASE}/categories`),
         axios.get(`${API_BASE}/calendars`),
         axios.get(`${API_BASE}/branches`),
         axios.get(`${API_BASE}/coupon-types`),
+        axios.get(`${API_BASE}/registration-forms`),
       ]);
       if (coursesRes.data.success) setCourses(coursesRes.data.courses || []);
       if (catsRes.data.success) setCategories(catsRes.data.categories || []);
       if (calRes.data.success) setCalendars(calRes.data.calendars || []);
       if (branchesRes.data.success) setBranches(branchesRes.data.branches || []);
       if (couponsRes.data.success) setCouponTypes(couponsRes.data.couponTypes || []);
+      if (formsRes.data.success) setRegistrationForms(formsRes.data.forms || []);
     } catch (e) { console.error('Failed to fetch data', e); }
     finally { setLoading(false); }
   };
@@ -687,7 +690,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         isEvent: !!course.is_event,
         isService: !!course.is_service,
         allowRepeat: course.allow_repeat === undefined || course.allow_repeat === null ? true : !!course.allow_repeat,
-        limitOnePerParent: !!course.limit_one_per_parent,
+        registrationFormId: course.registration_form_id || 0,
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
       });
@@ -709,7 +712,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         // "allow repeat" off for new Events; staff can flip it back on
         // manually afterward if a specific event genuinely needs it.
         allowRepeat: courseType !== 'event',
-        limitOnePerParent: false,
+        registrationFormId: 0,
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
       });
@@ -783,7 +786,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         isEvent:                formData.isEvent,
         isService:              formData.isService,
         allowRepeat:            formData.allowRepeat,
-        limitOnePerParent:      formData.limitOnePerParent,
+        registrationFormId:     formData.registrationFormId || null,
         stampsOnCompletion:     formData.stampsOnCompletion,
         stampExpiryMonths:      formData.stampExpiryMonths,
       };
@@ -1005,11 +1008,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       control={<Switch checked={formData.allowRepeat} onChange={e => setFormData({ ...formData, allowRepeat: e.target.checked })} />}
                       label="อนุญาตให้เข้าร่วมซ้ำ"
                     />
-                    <FormControlLabel
-                      control={<Switch checked={formData.limitOnePerParent} onChange={e => setFormData({ ...formData, limitOnePerParent: e.target.checked })} color="warning" />}
-                      label="จำกัด 1 สิทธิ์ต่อผู้ปกครอง (นับรวมทุกลูกในบัญชีเดียวกัน)"
-                    />
                   </Box>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>แบบฟอร์มลงทะเบียน</InputLabel>
+                    <Select
+                      value={formData.registrationFormId || 0}
+                      label="แบบฟอร์มลงทะเบียน"
+                      onChange={e => setFormData({ ...formData, registrationFormId: Number(e.target.value) })}
+                    >
+                      <MenuItem value={0}>ไม่ใช้ฟอร์มเพิ่มเติม</MenuItem>
+                      {registrationForms.map(f => (
+                        <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField

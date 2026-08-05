@@ -5,7 +5,8 @@ import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import { Toast } from './Toast';
 import { cleanNamePrefix } from '../utils/nameUtils';
-import DateField from './DateField';
+import FamilyMemberFields, { emptyFamilyMemberFormValue, type FamilyMemberFormValue } from './FamilyMemberFields';
+import { OTHER_FAMILY_ROLE } from '../utils/familyRoles';
 
 interface AddChildModalProps {
   isOpen: boolean;
@@ -20,30 +21,20 @@ const ddmmyyyyToISO = (value: string) => {
 };
 
 const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { t, lang } = useTranslation();
+  const { t } = useTranslation();
   const fetchChildren = useChildStore(state => state.fetchChildren);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
-  
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    firstNameEn: '',
-    lastNameEn: '',
-    nickname: '',
-    gender: 'Boy',
-    dob: '',
-    relation: 'Mother',
-    customRelation: ''
-  });
+
+  const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue('mother'));
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
-    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.dob) {
+
+    if (!formValue.firstName.trim() || !formValue.lastName.trim() || !formValue.dob) {
       setError(t.login?.fillRequiredInfo || 'Please fill out all required fields');
       return;
     }
@@ -51,17 +42,15 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
     setIsSubmitting(true);
     try {
       const payload = {
-        ...formData,
-        dob: ddmmyyyyToISO(formData.dob),
-        name: `${cleanNamePrefix(formData.firstName)} ${cleanNamePrefix(formData.lastName)}`.trim(),
-        nameEn: (formData.firstNameEn || formData.lastNameEn)
-          ? `${cleanNamePrefix(formData.firstNameEn)} ${formData.lastNameEn ? cleanNamePrefix(formData.lastNameEn) : ''}`.trim()
-          : undefined,
-        relation: formData.relation === 'Other' && formData.customRelation
-          ? formData.customRelation
-          : formData.relation
+        firstName: formValue.firstName,
+        lastName: formValue.lastName,
+        nickname: formValue.nickname,
+        gender: formValue.gender,
+        dob: ddmmyyyyToISO(formValue.dob),
+        name: `${cleanNamePrefix(formValue.firstName)} ${cleanNamePrefix(formValue.lastName)}`.trim(),
+        relation: formValue.role === OTHER_FAMILY_ROLE && formValue.customRole ? formValue.customRole : formValue.role,
       };
-      
+
       const response = await apiClient.post('/profiles/children', payload);
       if (response.data.success) {
         // Refresh children
@@ -70,7 +59,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           const user = JSON.parse(userJson);
           await fetchChildren(user.id);
         }
-        setFormData({ firstName: '', lastName: '', firstNameEn: '', lastNameEn: '', nickname: '', gender: 'Boy', dob: '', relation: 'Mother', customRelation: '' });
+        setFormValue(emptyFamilyMemberFormValue('mother'));
         onClose();
         await onSuccess?.();
       }
@@ -84,13 +73,13 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 animate-in fade-in duration-200">
       <div className="absolute inset-0 bg-mellow-ink/40 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-xl font-black text-mellow-ink">
             {t.register?.addChild || 'Add Child'}
           </h2>
-          <button 
+          <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all active:scale-95"
           >
@@ -100,131 +89,10 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
 
         <div className="p-5 overflow-y-auto">
           {error && <Toast message={error} type="error" onClose={() => setError('')} />}
-          
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.firstNameLabel || 'First Name'} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstName}
-                  onChange={e => setFormData({ ...formData, firstName: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.lastNameLabel || 'Last Name'} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={e => setFormData({ ...formData, lastName: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                  required
-                />
-              </div>
-            </div>
-            <p className="text-[10px] text-mellow-purple/70 font-bold px-1 -mt-2">
-              * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
-            </p>
+            <FamilyMemberFields value={formValue} onChange={setFormValue} />
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.firstNameEnLabel || 'First Name (English)'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstNameEn}
-                  onChange={e => setFormData({ ...formData, firstNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.lastNameEnLabel || 'Last Name (English)'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastNameEn}
-                  onChange={e => setFormData({ ...formData, lastNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                {t.register?.nickname || 'Nickname'}
-              </label>
-              <input
-                type="text"
-                value={formData.nickname}
-                onChange={e => setFormData({ ...formData, nickname: e.target.value })}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                {t.register?.dateOfBirth || 'Date of Birth'} <span className="text-red-500">*</span>
-              </label>
-              <DateField
-                value={formData.dob}
-                onChange={(v) => setFormData({ ...formData, dob: v })}
-                placeholder={t.register?.dobPlaceholder || 'DD/MM/YYYY'}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                {lang === 'th' ? 'เพศ' : 'Gender'}
-              </label>
-              <select
-                value={formData.gender}
-                onChange={e => setFormData({ ...formData, gender: e.target.value })}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-              >
-                <option value="Boy">{lang === 'th' ? 'ชาย' : 'Boy'}</option>
-                <option value="Girl">{lang === 'th' ? 'หญิง' : 'Girl'}</option>
-                <option value="Not Specified">{lang === 'th' ? 'ไม่ระบุ' : 'Not Specified'}</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                {t.register?.relationship || 'Relationship'}
-              </label>
-              <select
-                value={formData.relation}
-                onChange={e => setFormData({ ...formData, relation: e.target.value })}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-              >
-                <option value="Mother">{t.register?.mother || 'Mother'}</option>
-                <option value="Father">{t.register?.father || 'Father'}</option>
-                <option value="Relative">{t.register?.relative || 'Relative'}</option>
-                <option value="Other">{t.register?.other || 'Other'}</option>
-              </select>
-            </div>
-            
-            {formData.relation === 'Other' && (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <input
-                  type="text"
-                  placeholder={lang === 'th' ? 'โปรดระบุความสัมพันธ์...' : 'Please specify relationship...'}
-                  value={formData.customRelation}
-                  onChange={e => setFormData({ ...formData, customRelation: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                  required
-                />
-              </div>
-            )}
-            
             <button
               type="submit"
               disabled={isSubmitting}

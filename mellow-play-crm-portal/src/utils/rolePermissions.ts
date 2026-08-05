@@ -26,6 +26,7 @@ export type FeatureKey =
   | 'news_feed'
   | 'stamp_images'
   | 'dashboard_sales'
+  | 'dashboard_tag_attribution'
   | 'ads';
 
 export type RolePermissionConfig = Record<UserRole, Record<FeatureKey, boolean>>;
@@ -59,6 +60,7 @@ const defaultPermissionTemplate: Record<FeatureKey, boolean> = {
   news_feed: false,
   stamp_images: false,
   dashboard_sales: false,
+  dashboard_tag_attribution: false,
   ads: false,
 };
 
@@ -89,6 +91,7 @@ const defaultPermissions: RolePermissionConfig = {
     news_feed: true,
     stamp_images: true,
     dashboard_sales: true,
+    dashboard_tag_attribution: true,
     ads: true,
   },
   operator: {
@@ -117,6 +120,7 @@ const defaultPermissions: RolePermissionConfig = {
     news_feed: true,
     stamp_images: false,
     dashboard_sales: false,
+    dashboard_tag_attribution: false,
     ads: true,
   },
   play_facilitator: {
@@ -145,6 +149,7 @@ const defaultPermissions: RolePermissionConfig = {
     news_feed: false,
     stamp_images: false,
     dashboard_sales: false,
+    dashboard_tag_attribution: false,
     ads: false,
   },
 };
@@ -181,6 +186,7 @@ export const permissionFeatureLabels: Record<FeatureKey, string> = {
   news_feed: 'จัดการฟีดข่าวสาร/สื่อความรู้',
   stamp_images: 'จัดการรูปแสตมป์',
   dashboard_sales: 'ยอดขายและรายได้',
+  dashboard_tag_attribution: 'ติดตาม Tag ที่มาของลิงก์',
   ads: 'จัดการโฆษณาในฟีด',
 };
 

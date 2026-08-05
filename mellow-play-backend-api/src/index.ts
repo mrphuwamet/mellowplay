@@ -12,6 +12,7 @@ import { HRController } from './controllers/hrController';
 import { CalendarController } from './controllers/calendarController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
+import { RegistrationFormController } from './controllers/registrationFormController';
 import { RedemptionController } from './controllers/redemptionController';
 import { QueueController } from './controllers/queueController';
 import { OrderController } from './controllers/orderController';
@@ -43,6 +44,7 @@ const queueController         = new QueueController();
 const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
+const registrationFormController = new RegistrationFormController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
@@ -383,6 +385,7 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/branches$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/coupons$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/registration-form$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
   { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },
@@ -463,6 +466,7 @@ app.get('/api/v1/admin/courses/:id/image-views', (c) => adminController.getCours
 app.put('/api/v1/admin/courses/:id/image-views', (c) => adminController.updateCourseImageViews(c));
 app.get('/api/v1/admin/courses/:id/image-focals', (c) => adminController.getCourseImageFocals(c));
 app.put('/api/v1/admin/courses/:id/image-focals', (c) => adminController.updateCourseImageFocals(c));
+app.get('/api/v1/admin/courses/:id/registration-form', (c) => registrationFormController.getFormForCourse(c));
 
 app.get('/api/v1/admin/categories', (c) => adminController.getCategories(c));
 app.post('/api/v1/admin/categories', (c) => adminController.createCategory(c));
@@ -728,6 +732,13 @@ app.get('/api/v1/admin/reports/monthly-sales',  (c) => reportController.getMonth
 app.get('/api/v1/admin/reports/best-sellers',   (c) => reportController.getBestSellers(c));
 app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusiestDays(c));
 app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
+app.get('/api/v1/admin/reports/tag-attribution', (c) => reportController.getTagAttribution(c));
+
+app.get('/api/v1/admin/registration-forms',      (c) => registrationFormController.listForms(c));
+app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));
+app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.getForm(c));
+app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
+app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
 app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));

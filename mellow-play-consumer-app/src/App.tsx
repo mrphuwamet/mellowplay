@@ -26,6 +26,7 @@ import { useChildStore } from './store/useChildStore';
 import { LanguageProvider } from './LanguageContext';
 import AppShell from './components/AppShell';
 import { pingVisit } from './utils/visitTracker';
+import { captureTagFromUrl } from './utils/tagAttribution';
 import { retryPendingLineShare } from './utils/lineShare';
 
 // /course/:id was the original path; already shared/bookmarked links must
@@ -87,6 +88,10 @@ const AppContent = () => {
   React.useEffect(() => {
     pingVisit(location.pathname);
   }, [location.pathname]);
+
+  React.useEffect(() => {
+    captureTagFromUrl(location.search);
+  }, [location.search]);
 
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');

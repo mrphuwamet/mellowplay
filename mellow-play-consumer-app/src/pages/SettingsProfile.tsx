@@ -10,6 +10,7 @@ import { ChildAvatar } from '../components/ChildAvatar';
 import PhoneChangeModal from '../components/PhoneChangeModal';
 import ChangePinModal from '../components/ChangePinModal';
 import { resolveImageUrl } from '../utils/courseImage';
+import { getFamilyRoleLabel, normalizeFamilyRole } from '../utils/familyRoles';
 
 const SettingsProfile = () => {
   const navigate = useNavigate();
@@ -506,7 +507,12 @@ const SettingsProfile = () => {
                     <ChildAvatar avatarType={child.avatar} className="w-12 h-12 rounded-full ring-2 ring-white shadow-sm" />
                     <div>
                       <h3 className="font-black text-slate-800 text-[15px] leading-tight">{child.name}</h3>
-                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{child.relation || (lang === 'en' ? 'Child' : 'เด็ก')}</p>
+                      <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">
+                        {child.relation ? (() => {
+                          const { role, customText } = normalizeFamilyRole(child.relation);
+                          return customText || getFamilyRoleLabel(role, lang);
+                        })() : (lang === 'en' ? 'Child' : 'เด็ก')}
+                      </p>
                     </div>
                   </div>
                   <button 

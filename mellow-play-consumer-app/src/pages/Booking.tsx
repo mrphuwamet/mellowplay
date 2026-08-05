@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight } from 'lucide-react';
+import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
@@ -16,13 +16,16 @@ import shopeepayIcon from '../assets/payment-icon/shopeepay.png';
 import truewalletIcon from '../assets/payment-icon/truewallet.webp';
 import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
+import { getAttributedTag } from '../utils/tagAttribution';
+import logo from '../assets/ui/logo.svg';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
 import ResponsiveModal from '../components/ResponsiveModal';
 import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
+import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; }
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -93,6 +96,8 @@ const Booking = () => {
   const [successBooking, setSuccessBooking] = useState<any>(null);
   const [courseCoupons, setCourseCoupons] = useState<any[]>([]);
   const [selectedCoupon, setSelectedCoupon] = useState<any>(null);
+  const [registrationForm, setRegistrationForm] = useState<any>(null);
+  const [formAnswers, setFormAnswers] = useState<Record<string, any>>({});
   const [courseSearch, setCourseSearch] = useState('');
   const [courseAgeFilter, setCourseAgeFilter] = useState<'all' | '3-6' | '7-9' | 'custom'>('all');
   const [customAgeMin, setCustomAgeMin] = useState<number | ''>('');
@@ -214,7 +219,10 @@ const Booking = () => {
             const found = fetchedCourses.find((c: Course) => c.id === parseInt(preSelectedCourseId));
             if (found) {
               setSelectedCourse(found);
-              setCurrentStepIndex(1);
+              // A guest stays on step 0 (course browsing) with the gate
+              // modal already shown by the mount-time effect above — only a
+              // real session actually advances to the child step.
+              if (!isGuest) setCurrentStepIndex(1);
             }
           }
         }
@@ -230,26 +238,48 @@ const Booking = () => {
   // Step Logic
   const hasBranch = !(selectedCourse?.is_extraclass || selectedCourse?.is_event || branches.length <= 1);
   const flowSteps = ['course', 'child'];
+  if (registrationForm) flowSteps.push('registrationForm');
   if (hasBranch) flowSteps.push('branch');
   flowSteps.push('date', 'payment');
-  
-  // Lazy-init straight to the child step when arriving with a pre-selected
-  // course (e.g. "Book Now" from a course card) — otherwise the course-list
-  // step renders for one frame before the async fetch below jumps forward.
-  const [currentStepIndex, setCurrentStepIndex] = useState(() => preSelectedCourseId ? 1 : 0);
-  const currentStep = flowSteps[currentStepIndex];
 
   // Guests could browse straight through the whole flow and only hit a wall
   // at final submit (or not even then) — gate as soon as they try to move
   // past course browsing, whether by picking a course card or arriving via
   // a preSelectedCourseId deep link (which skips straight to the child step).
+  // Checked up front (before the step-index state below) so the gate can
+  // apply to the very first render — a guest should never see the tab
+  // indicator flash forward to "child" before the modal appears.
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const [showGuestModal, setShowGuestModal] = useState(false);
+
+  // Lazy-init straight to the child step when arriving with a pre-selected
+  // course (e.g. "Book Now" from a course card) — otherwise the course-list
+  // step renders for one frame before the async fetch below jumps forward.
+  // A guest instead stays on step 0 with the gate modal shown on top of it.
+  const [currentStepIndex, setCurrentStepIndex] = useState(() => (preSelectedCourseId && !isGuest) ? 1 : 0);
+  const currentStep = flowSteps[currentStepIndex];
+
   useEffect(() => {
-    if (isGuest && currentStepIndex > 0) {
+    if (preSelectedCourseId && isGuest) {
       setShowGuestModal(true);
     }
-  }, [isGuest, currentStepIndex]);
+    // Only needs to run once on mount for the deep-link case — course
+    // selection elsewhere is gated directly at the click handler instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Every "advance past course browsing" action funnels through here so the
+  // guest gate is checked synchronously, before currentStepIndex ever
+  // changes — this is what keeps the tab indicator from flashing forward.
+  const goToChildStep = (course: Course | null) => {
+    if (!course) return;
+    setSelectedCourse(course);
+    if (isGuest) {
+      setShowGuestModal(true);
+      return;
+    }
+    setCurrentStepIndex(flowSteps.indexOf('child'));
+  };
 
   // Auto skip branch
   useEffect(() => {
@@ -317,6 +347,22 @@ const Booking = () => {
     };
     fetchCourseCoupons();
   }, [selectedCourse]);
+
+  // Whatever custom registration form the CRM assigned to this course (or
+  // null — most courses have none). Answers reset alongside it since a
+  // different course means a different form (or no form at all).
+  useEffect(() => {
+    setFormAnswers({});
+    if (!selectedCourse?.registration_form_id) {
+      setRegistrationForm(null);
+      return;
+    }
+    let cancelled = false;
+    apiClient.get(`/admin/courses/${selectedCourse.id}/registration-form`)
+      .then(res => { if (!cancelled) setRegistrationForm(res.data.success ? res.data.form : null); })
+      .catch(() => { if (!cancelled) setRegistrationForm(null); });
+    return () => { cancelled = true; };
+  }, [selectedCourse?.id, selectedCourse?.registration_form_id]);
 
   // Informational schedule for the course-preview modal — unlike the
   // booking-flow's own upcomingDates effect below, this isn't gated on a
@@ -456,7 +502,10 @@ const Booking = () => {
         couponTypeId: paymentMethod === 'coupon' ? selectedCoupon : null,
         promoCode: promoCode || null,
         status: isFreeBooking ? 'confirmed' : (paymentMethod === 'coupon' ? 'confirmed' : 'pending_payment'),
-        notes
+        notes,
+        sponsorTag: getAttributedTag(),
+        formId: registrationForm?.id,
+        formAnswers: registrationForm ? formAnswers : undefined,
       });
 
       if (response.data.success) {
@@ -486,7 +535,7 @@ const Booking = () => {
       }
     } catch (err: any) {
       const errorCode = err.response?.data?.error_code;
-      if (errorCode === 'DUPLICATE_BOOKING' || errorCode === 'EXTRA_CLASS_LIMIT' || errorCode === 'DUPLICATE_FAMILY_BOOKING') {
+      if (errorCode === 'DUPLICATE_BOOKING' || errorCode === 'EXTRA_CLASS_LIMIT' || errorCode === 'DUPLICATE_FAMILY_BOOKING' || errorCode === 'DUPLICATE_FORM_SUBMISSION') {
         setDuplicateError({
           message: err.response.data.message,
           error_code: errorCode
@@ -653,6 +702,7 @@ const Booking = () => {
                 <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-black text-sm transition-all ${currentStepIndex === idx ? 'bg-mellow-purple text-white ring-4 ring-mellow-purple/10' : currentStepIndex > idx ? 'bg-mellow-purple/20 text-mellow-purple' : 'bg-white text-slate-300 border border-slate-100'}`}>
                   {stepStr === 'course' ? <BookOpen size={16} /> :
                    stepStr === 'child' ? <User size={16} /> :
+                   stepStr === 'registrationForm' ? <ClipboardList size={16} /> :
                    stepStr === 'branch' ? <MapPin size={16} /> :
                    stepStr === 'date' ? <Calendar size={16} /> :
                    stepStr === 'payment' ? <CreditCard size={16} /> : idx + 1}
@@ -909,8 +959,8 @@ const Booking = () => {
                         <div
                           role="button"
                           tabIndex={0}
-                          onClick={() => { setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); } }}
+                          onClick={() => goToChildStep(course)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') goToChildStep(course); }}
                           className="w-full text-left flex gap-0 active:scale-[0.99] transition-transform items-stretch cursor-pointer"
                         >
                           {/* Thumbnail Container */}
@@ -965,7 +1015,7 @@ const Booking = () => {
                                   {lang === 'en' ? 'Detail' : 'รายละเอียด'}
                                 </button>
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setCurrentStepIndex(currentStepIndex + 1); }}
+                                  onClick={(e) => { e.stopPropagation(); goToChildStep(course); }}
                                   className="px-3 py-1 bg-mellow-purple text-white text-[11px] font-bold rounded-full hover:bg-mellow-purple/90 active:scale-95 transition-all"
                                 >
                                   {lang === 'en' ? 'Book' : 'จองคลาส'}
@@ -1064,6 +1114,18 @@ const Booking = () => {
                 {t.booking?.nextStep || 'ขั้นตอนถัดไป'}
               </button>
             </div>
+          )}
+
+          {currentStep === 'registrationForm' && registrationForm && (
+            <DynamicRegistrationForm
+              form={registrationForm}
+              answers={formAnswers}
+              onChange={(key, value) => setFormAnswers(prev => ({ ...prev, [key]: value }))}
+              roster={children}
+              onBack={() => setCurrentStepIndex(currentStepIndex - 1)}
+              onNext={() => setCurrentStepIndex(currentStepIndex + 1)}
+              lang={lang}
+            />
           )}
 
           {currentStep === 'branch' && (
@@ -1465,7 +1527,7 @@ const Booking = () => {
                 button; same action as the course card's own "Book" button. */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100">
               <button
-                onClick={() => { setIsCourseModalOpen(false); setSelectedCourse(selectedCourse); setCurrentStepIndex(currentStepIndex + 1); }}
+                onClick={() => { setIsCourseModalOpen(false); goToChildStep(selectedCourse); }}
                 className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[15px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
                 {lang === 'en' ? 'Book Now' : 'จองเลย'}
@@ -1504,28 +1566,29 @@ const Booking = () => {
 
       <AddChildModal isOpen={isAddChildOpen} onClose={() => setIsAddChildOpen(false)} />
 
-      {/* Guest Gate — same "Please Register First" pattern as CourseDetail.tsx,
+      {/* Guest Gate — same question-style pattern as CourseDetail.tsx,
           triggered here instead by the step advancing (covers both picking a
-          course card and arriving via a preSelectedCourseId deep link). */}
-      <ResponsiveModal isOpen={showGuestModal} onClose={() => setShowGuestModal(false)} variant="dialog" size="sm" className="text-center">
-            <div className="w-16 h-16 bg-mellow-yellow-soft rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users size={32} className="text-mellow-yellow-dark" />
-            </div>
+          course card and arriving via a preSelectedCourseId deep link).
+          Framed as "have you signed up before?" with two equal paths rather
+          than a single "go register" CTA, so booking reads as one continuous
+          errand regardless of which path the parent is on. */}
+      <ResponsiveModal
+        isOpen={showGuestModal}
+        onClose={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
+        variant="dialog"
+        size="sm"
+        className="text-center"
+      >
+            <img src={logo} alt="Mellow Play" className="h-9 mx-auto mb-4" />
             <h3 className="text-[20px] font-black text-slate-800 mb-2">
-              {lang === 'en' ? 'Please Register First' : 'กรุณาสมัครสมาชิกก่อน'}
+              {lang === 'en' ? 'Have you signed up with Mellow Play before?' : 'เคยเป็นสมาชิก Mellow Play ไหม?'}
             </h3>
             <p className="text-[14px] text-slate-500 font-medium mb-6">
               {lang === 'en'
-                ? 'Register now to book this class and track your child\'s journey!'
-                : 'สมัครสมาชิกเพื่อทำการจองคลาสเรียนและติดตามพัฒนาการของน้องๆ'}
+                ? `Just one more step to book ${selectedCourse ? `"${selectedCourse.name}"` : 'this class'} — pick whichever applies to you.`
+                : `อีกนิดเดียวก็จะจอง${selectedCourse ? `"${selectedCourse.name}"` : 'คลาสนี้'}ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
-                className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
-              >
-                {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
-              </button>
+            <div className="flex flex-col gap-3">
               <button
                 onClick={() => {
                   setShowGuestModal(false);
@@ -1534,18 +1597,24 @@ const Booking = () => {
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
-                {t.common?.register || 'สมัครสมาชิก'}
+                {lang === 'en' ? 'Not yet — Sign up' : 'ยังไม่มี — สมัครเลย'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowGuestModal(false);
+                  const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
+                  navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`);
+                }}
+                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+              >
+                {lang === 'en' ? 'Yes — Login' : 'มีแล้ว — เข้าสู่ระบบ'}
               </button>
             </div>
             <button
-              onClick={() => {
-                setShowGuestModal(false);
-                const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
-                navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`);
-              }}
+              onClick={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
               className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
             >
-              {lang === 'en' ? 'Already have an account? Login' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ'}
+              {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>
       </ResponsiveModal>
 

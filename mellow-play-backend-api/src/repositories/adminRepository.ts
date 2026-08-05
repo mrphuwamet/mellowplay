@@ -219,6 +219,7 @@ export class AdminRepository {
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
+        b.sponsor_tag,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,
@@ -286,17 +287,18 @@ export class AdminRepository {
     paymentMethod?: string;
     notes?: string;
     price?: number;
+    sponsorTag?: string;
   }): Promise<number> {
     const result = await this.db.prepare(`
       INSERT INTO Bookings
         (child_id, course_id, branch_id, scheduled_at, status, age_group,
-         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes, price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes, price, sponsor_tag)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup,
       data.calendarId ?? null, data.slotDate ?? null, data.slotStartTime ?? null,
       data.paymentStatus ?? 'prepaid', data.paymentMethod ?? 'coupon', data.notes ?? null,
-      data.price ?? null
+      data.price ?? null, data.sponsorTag ?? null
     ).run();
     return result.meta.last_row_id;
   }
@@ -613,7 +615,7 @@ export class AdminRepository {
     isEvent?: boolean;
     isService?: boolean;
     allowRepeat?: boolean;
-    limitOnePerParent?: boolean;
+    registrationFormId?: number | null;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -643,7 +645,7 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, limit_one_per_parent,
+        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, registration_form_id,
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
         sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
       ) VALUES (
@@ -672,7 +674,7 @@ export class AdminRepository {
       data.isEvent ? 1 : 0,
       data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
-      data.limitOnePerParent ? 1 : 0,
+      data.registrationFormId || null,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
@@ -710,7 +712,7 @@ export class AdminRepository {
     isEvent?: boolean;
     isService?: boolean;
     allowRepeat?: boolean;
-    limitOnePerParent?: boolean;
+    registrationFormId?: number | null;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -741,7 +743,7 @@ export class AdminRepository {
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
         thumbnail_url = ?, detail_poster_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
-        is_recommended = ?, is_extraclass = ?, is_event = ?, is_service = ?, allow_repeat = ?, limit_one_per_parent = ?,
+        is_recommended = ?, is_extraclass = ?, is_event = ?, is_service = ?, allow_repeat = ?, registration_form_id = ?,
         short_description_en = ?, location = ?, location_link = ?,
         stamps_on_completion = ?, stamp_expiry_months = ?,
         sales_commission_type = ?, sales_commission_value = ?,
@@ -762,7 +764,7 @@ export class AdminRepository {
       data.isEvent ? 1 : 0,
       data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
-      data.limitOnePerParent ? 1 : 0,
+      data.registrationFormId || null,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,

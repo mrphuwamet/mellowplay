@@ -71,6 +71,7 @@ interface Booking {
   created_at?: string;
   slot_date?: string;
   slot_start_time?: string;
+  sponsor_tag?: string;
 }
 
 interface Course {
@@ -612,6 +613,12 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ประวัติ</Typography>
             <Typography variant="body2">วันที่จอง: {formatUtcDateTime(booking.created_at)}</Typography>
+            <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+              <Typography variant="body2">ที่มา (Tag):</Typography>
+              {booking.sponsor_tag
+                ? <Chip label={booking.sponsor_tag} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+                : <Typography variant="body2" color="text.secondary">ไม่มี tag</Typography>}
+            </Stack>
           </Box>
           {booking.notes && (
             <>
@@ -784,7 +791,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       'วันที่จอง',
       'วันที่รับชำระเงิน',
       'ยอดเงินที่ชำระ',
-      'ช่องทางชำระเงิน'
+      'ช่องทางชำระเงิน',
+      'Tag ที่มาของลิงก์'
     ];
     const csvRows = rows.map(b => {
       const dt = new Date(b.scheduled_at);
@@ -813,7 +821,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         `"${formatUtcDateTime(b.created_at)}"`,
         `"${formatUtcDateTime(b.paid_at)}"`,
         `"${b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}"`,
-        `"${b.payment_method || '-'}"`
+        `"${b.payment_method || '-'}"`,
+        `"${b.sponsor_tag || '-'}"`
       ].join(',');
     });
     const csv = '\uFEFF' + [headers.join(','), ...csvRows].join('\n');

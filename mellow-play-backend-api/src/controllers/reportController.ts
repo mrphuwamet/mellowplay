@@ -69,4 +69,18 @@ export class ReportController {
       return c.json({ success: true, kpis: await this.repo(c).getSummaryKPIs(startDate, endDate, branchId ? parseInt(branchId) : undefined) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
+
+  async getTagAttribution(c: C) {
+    try {
+      const d = defaultDates();
+      const { startDate = d.startDate, endDate = d.endDate, branchId } = c.req.query();
+      const bId = branchId ? parseInt(branchId) : undefined;
+      const [summary, trend, byCourse] = await Promise.all([
+        this.repo(c).getTagAttributionSummary(startDate, endDate, bId),
+        this.repo(c).getTagAttributionTrend(startDate, endDate, bId),
+        this.repo(c).getTagAttributionByCourse(startDate, endDate, bId),
+      ]);
+      return c.json({ success: true, summary, trend, byCourse });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
 }
