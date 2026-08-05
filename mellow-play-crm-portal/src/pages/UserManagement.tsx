@@ -8,7 +8,7 @@ import {
   TextField, MenuItem, Select, FormControl, InputLabel,
   Alert, Grid, Divider, Switch,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Radio, RadioGroup, FormControlLabel, FormLabel, Tooltip,
+  Radio, RadioGroup, FormControlLabel, FormLabel,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -35,7 +35,6 @@ import {
   LocalActivity as CouponIcon,
   CheckCircle as ActiveIcon,
   Search as SearchIcon,
-  Translate as TranslateIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import ChildCouponManagement from './ChildCouponManagement';
@@ -110,8 +109,6 @@ interface MembershipHistoryEntry {
 const emptyForm = {
   first_name: '',
   last_name: '',
-  first_name_en: '',
-  last_name_en: '',
   prefix: '',
   dob: '',
   address: '',
@@ -135,8 +132,6 @@ const emptyCreateForm = {
   prefix: '',
   first_name: '',
   last_name: '',
-  first_name_en: '',
-  last_name_en: '',
   dob: '',
   email: '',
   line_id: '',
@@ -227,26 +222,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [translatingField, setTranslatingField] = useState<'first_name' | 'last_name' | null>(null);
-
-  const translateNameField = async (field: 'first_name' | 'last_name') => {
-    const sourceText = form[field];
-    if (!sourceText?.trim()) return;
-    setTranslatingField(field);
-    try {
-      const res = await axios.post(`${API_BASE}/translate`, { text: sourceText, from: 'th', to: 'en' });
-      if (res.data.success) {
-        const enField = field === 'first_name' ? 'first_name_en' : 'last_name_en';
-        setForm((f: any) => ({ ...f, [enField]: res.data.translatedText }));
-      } else {
-        setError(res.data.message || 'แปลภาษาไม่สำเร็จ');
-      }
-    } catch (e: any) {
-      setError(e.response?.data?.message || 'แปลภาษาไม่สำเร็จ');
-    } finally {
-      setTranslatingField(null);
-    }
-  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
@@ -339,8 +314,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         prefix: createForm.prefix || undefined,
         firstName: createForm.first_name.trim(),
         lastName: createForm.last_name.trim(),
-        firstNameEn: createForm.first_name_en.trim() || undefined,
-        lastNameEn: createForm.last_name_en.trim() || undefined,
         dob: createForm.dob || undefined,
         email: createForm.email.trim() || undefined,
         lineId: createForm.line_id.trim() || undefined,
@@ -400,8 +373,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setForm({
         first_name: d.first_name ?? user.first_name ?? '',
         last_name: d.last_name ?? user.last_name ?? '',
-        first_name_en: d.first_name_en ?? user.first_name_en ?? '',
-        last_name_en: d.last_name_en ?? user.last_name_en ?? '',
         prefix: d.prefix ?? user.prefix ?? '',
         dob: d.dob ? d.dob.substring(0, 10) : '',
         address: d.address ?? user.address ?? '',
@@ -439,8 +410,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setForm({
         first_name: user.first_name ?? '',
         last_name: user.last_name ?? '',
-        first_name_en: user.first_name_en ?? '',
-        last_name_en: user.last_name_en ?? '',
         prefix: user.prefix ?? '',
         dob: user.dob ? user.dob.substring(0, 10) : '',
         address: user.address ?? '',
@@ -1020,48 +989,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     <TextField label="นามสกุล *" fullWidth value={form.last_name}
                       onChange={e => !readOnly && setForm({ ...form, last_name: e.target.value })}
                       InputProps={{ readOnly }} />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box sx={{ position: 'relative' }}>
-                      <TextField label="First Name (English)" fullWidth value={form.first_name_en}
-                        onChange={e => !readOnly && setForm({ ...form, first_name_en: e.target.value })}
-                        InputProps={{ readOnly }} />
-                      {!readOnly && (
-                        <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => translateNameField('first_name')}
-                              disabled={translatingField === 'first_name' || !form.first_name?.trim()}
-                              sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}
-                            >
-                              {translatingField === 'first_name' ? <CircularProgress size={16} /> : <TranslateIcon fontSize="small" />}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box sx={{ position: 'relative' }}>
-                      <TextField label="Last Name (English)" fullWidth value={form.last_name_en}
-                        onChange={e => !readOnly && setForm({ ...form, last_name_en: e.target.value })}
-                        InputProps={{ readOnly }} />
-                      {!readOnly && (
-                        <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => translateNameField('last_name')}
-                              disabled={translatingField === 'last_name' || !form.last_name?.trim()}
-                              sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}
-                            >
-                              {translatingField === 'last_name' ? <CircularProgress size={16} /> : <TranslateIcon fontSize="small" />}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
-                    </Box>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <FormControl fullWidth>
@@ -1746,12 +1673,6 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             </Grid>
             <Grid item xs={6}>
               <TextField label="นามสกุล *" fullWidth value={createForm.last_name} onChange={(e) => setCreateForm({ ...createForm, last_name: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="First Name (English)" fullWidth value={createForm.first_name_en} onChange={(e) => setCreateForm({ ...createForm, first_name_en: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Last Name (English)" fullWidth value={createForm.last_name_en} onChange={(e) => setCreateForm({ ...createForm, last_name_en: e.target.value })} />
             </Grid>
             <Grid item xs={6}>
               <TextField
