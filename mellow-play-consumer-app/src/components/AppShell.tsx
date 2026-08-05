@@ -228,7 +228,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                       {roleLabel}
                     </span>
                   )}
-                  {age != null && (
+                  {age != null && role === 'child' && (
                     <span className="inline-flex items-center gap-1 text-[12px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full">
                       <Cake size={11} strokeWidth={2.5} />
                       {age} {lang === 'en' ? 'yrs' : (Number(age) < 15 ? 'ขวบ' : 'ปี')}
@@ -246,7 +246,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
             <span className="text-2xl font-black">+</span>
           </div>
-          <span className="text-[19px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
+          <span className="text-[19px] font-bold">{lang === 'en' ? 'Add Member' : 'เพิ่มสมาชิก'}</span>
         </button>
       </div>
     </ResponsiveModal>
