@@ -15,8 +15,14 @@ import { stripHtml } from '../utils/stripHtml';
 
 const Roadmap = () => {
   const navigate = useNavigate();
+  const kids = useChildStore(state => state.children);
   const selectedChild = useChildStore(state => state.getSelectedChild());
-  
+  // Filter chip state: 'all' shows every family member's bookings combined
+  // (chronological, each item tagged with whose it is); a specific id narrows
+  // to just that person. Defaults to whoever's currently selected elsewhere
+  // in the app (Booking/etc.) so the page opens already relevant, not blank.
+  const [filterChildId, setFilterChildId] = useState<number | 'all'>(selectedChild?.id ?? 'all');
+
   const [allClasses, setAllClasses] = useState<any[]>([]);
   const [recommendedClasses, setRecommendedClasses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -26,38 +32,40 @@ const Roadmap = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!selectedChild) return;
+      if (kids.length === 0) return;
       setIsLoading(true);
       try {
         const user = JSON.parse(localStorage.getItem('mellow_user') || localStorage.getItem('mp_user') || '{}');
         const userId = user.id;
 
-        // Fetch History
+        // Both endpoints already join Children/HD_Profiles and scope to
+        // `WHERE ch.parent_id = ?` — i.e. every family member's bookings in
+        // one call, each row already carrying child_id/child_name/
+        // child_nickname/child_avatar. Filtering client-side (or not at all,
+        // for the combined view) is enough; no per-child endpoint needed.
         const historyRes = await apiClient.get(`/profiles/bookings/history?userId=${userId}`);
-        // Fetch Upcoming
         const upcomingRes = await apiClient.get(`/profiles/bookings/upcoming?userId=${userId}`);
-        // Fetch All Courses
         const allCoursesRes = await apiClient.get('/admin/courses');
 
-        let past = [];
-        let future = [];
-
-        if (historyRes.data.success) {
-          past = historyRes.data.bookings.filter((b: any) => b.child_id === selectedChild.id);
-        }
-        if (upcomingRes.data.success) {
-          future = upcomingRes.data.bookings.filter((b: any) => b.child_id === selectedChild.id);
-        }
+        const past = historyRes.data.success ? historyRes.data.bookings : [];
+        const future = upcomingRes.data.success ? upcomingRes.data.bookings : [];
 
         const combined = [...past, ...future].sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
         setAllClasses(combined);
+
+        // Recommendations follow whichever filter is active — "all" pools
+        // every family member's history so a course nobody's tried yet still
+        // surfaces; a specific person narrows to just their own courses,
+        // matching the original per-child behavior.
+        const relevantPast = filterChildId === 'all' ? past : past.filter((b: any) => b.child_id === filterChildId);
+        const relevantFuture = filterChildId === 'all' ? future : future.filter((b: any) => b.child_id === filterChildId);
 
         // A course with an upcoming session is never re-recommended (child is
         // already going). A course only in past history is still shown, but
         // flagged `alreadyCompleted` so one-time "extra" classes can be
         // marked as taken instead of silently disappearing or being re-bookable.
-        const upcomingCourseIds = new Set(future.map((b: any) => b.course_id));
-        const completedCourseIds = new Set(past.map((b: any) => b.course_id));
+        const upcomingCourseIds = new Set(relevantFuture.map((b: any) => b.course_id));
+        const completedCourseIds = new Set(relevantPast.map((b: any) => b.course_id));
 
         let availableCourses = [];
         if (allCoursesRes.data.success) {
@@ -77,9 +85,9 @@ const Roadmap = () => {
     };
 
     fetchData();
-  }, [selectedChild]);
+  }, [kids.length, filterChildId]);
 
-  if (!selectedChild) {
+  if (kids.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center pb-24">
         <div className="bg-white p-8 rounded-[32px] shadow-sm max-w-sm w-full">
@@ -87,10 +95,10 @@ const Roadmap = () => {
             <AlertCircle className="text-mellow-purple" size={32} />
           </div>
           <h2 className="text-xl font-black text-slate-800 mb-2">
-            {lang === 'en' ? 'Select a Child' : 'กรุณาเลือกข้อมูลเด็ก'}
+            {lang === 'en' ? 'Add a Family Member' : 'เพิ่มสมาชิกในครอบครัว'}
           </h2>
           <p className="text-slate-500 mb-6">
-            {lang === 'en' ? 'Please select a child profile first.' : 'โปรดเลือกข้อมูลเด็กก่อนเพื่อดูประวัติการเรียน'}
+            {lang === 'en' ? 'Add a family member first to see their learning journey.' : 'โปรดเพิ่มสมาชิกในครอบครัวก่อนเพื่อดูเส้นทางการเรียนรู้'}
           </p>
           <button
             onClick={() => navigate('/')}
@@ -103,26 +111,48 @@ const Roadmap = () => {
     );
   }
 
+  const displayedClasses = filterChildId === 'all' ? allClasses : allClasses.filter(b => b.child_id === filterChildId);
   const now = new Date();
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24 font-sans selection:bg-mellow-purple/20 max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
       
       {/* Header — pinned like Album/Explore/Rewards so it doesn't scroll away */}
-      <div className="bg-white rounded-b-[32px] shadow-sm mb-6 pt-6 pb-6 px-6 sticky top-0 z-30 overflow-hidden">
+      <div className="bg-white rounded-b-[32px] shadow-sm mb-6 pt-6 pb-5 px-6 sticky top-0 z-30 overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-mellow-purple/5 to-mellow-blue/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
-        
-        <div className="relative z-10 flex items-center gap-4 max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-mellow-purple/20 to-mellow-blue/20 p-1 shadow-sm">
-            <ChildAvatar avatarType={selectedChild.avatar} className="w-full h-full rounded-xl bg-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-              {lang === 'en' ? 'Learning Journey' : 'เส้นทางการเรียนรู้'}
-            </h1>
-            <p className="text-sm font-medium text-slate-500">
-              {lang === 'en' ? `For ${selectedChild.name}` : `สำหรับน้อง${selectedChild.name}`}
-            </p>
+
+        <div className="relative z-10 max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">
+            {lang === 'en' ? 'Learning Journey' : 'เส้นทางการเรียนรู้'}
+          </h1>
+          <p className="text-sm font-medium text-slate-500 mb-4">
+            {lang === 'en' ? 'History of classes attended by everyone in the family' : 'ประวัติการเข้าร่วมกิจกรรมของทุกคนในครอบครัว'}
+          </p>
+
+          {/* Who filter — "All" pools everyone's classes into one combined
+              timeline (each item tagged with whose it is); tapping a person
+              narrows it down to just them. */}
+          <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1">
+            <button
+              onClick={() => setFilterChildId('all')}
+              className={`shrink-0 px-3.5 py-2 rounded-full text-[13px] font-black transition-all ${
+                filterChildId === 'all' ? 'bg-mellow-purple text-white shadow-sm' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {lang === 'en' ? 'All' : 'ทั้งหมด'}
+            </button>
+            {kids.map(kid => (
+              <button
+                key={kid.id}
+                onClick={() => setFilterChildId(kid.id)}
+                className={`shrink-0 flex items-center gap-1.5 pl-1.5 pr-3 py-1.5 rounded-full transition-all ${
+                  filterChildId === kid.id ? 'bg-mellow-purple text-white shadow-sm' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                <ChildAvatar avatarType={kid.avatar} className="w-6 h-6 shrink-0 ring-2 ring-white" />
+                <span className="text-[13px] font-black truncate max-w-[80px]">{kid.nickname || kid.name}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -166,7 +196,7 @@ const Roadmap = () => {
                 </h2>
               </div>
 
-              {allClasses.length === 0 ? (
+              {displayedClasses.length === 0 ? (
                 <div className="ml-14 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 text-center relative z-10">
                   <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
                     <CheckCircle className="text-slate-300" size={24} />
@@ -177,10 +207,10 @@ const Roadmap = () => {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {allClasses.map((booking) => {
+                  {displayedClasses.map((booking) => {
                     const bookingDate = new Date(booking.scheduled_at);
                     const isPast = bookingDate < now;
-                    
+
                     const dateLocale = lang === 'en' ? 'en-US' : 'th-TH';
 
                     return (
@@ -221,6 +251,14 @@ const Roadmap = () => {
                             {BOOKING_STATUS_META[booking.status] && (
                               <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[booking.status].bg} ${BOOKING_STATUS_META[booking.status].fg}`}>
                                 {lang === 'en' ? BOOKING_STATUS_META[booking.status].en : BOOKING_STATUS_META[booking.status].th}
+                              </span>
+                            )}
+                            {/* Whose booking this is — only needed once the
+                                timeline mixes everyone together. */}
+                            {filterChildId === 'all' && (
+                              <span className="shrink-0 flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-full bg-slate-100">
+                                <ChildAvatar avatarType={booking.child_avatar} className="w-3.5 h-3.5" />
+                                <span className="text-[10px] font-black text-slate-500 truncate max-w-[60px]">{booking.child_nickname || booking.child_name}</span>
                               </span>
                             )}
                           </div>

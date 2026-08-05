@@ -165,10 +165,21 @@ const CHILD_RELATIONSHIPS = [
   { label: 'อื่นๆ', value: 'Other' },
 ];
 
+// Mirrors the consumer app's PARENT_ROLE_OPTIONS exactly (utils/familyRoles.ts
+// there — no shared package between the two apps, so this list is duplicated
+// intentionally) — value AND Thai label both have to match, since this is the
+// same free-text Users.relationship column either app can write to.
 const RELATIONSHIPS = [
-  { label: 'บิดา', value: 'father' },
-  { label: 'มารดา', value: 'mother' },
-  { label: 'ปู่/ย่า/ตา/ยาย', value: 'grandparent' },
+  { label: 'พ่อ', value: 'father' },
+  { label: 'แม่', value: 'mother' },
+  { label: 'ลุง', value: 'uncle' },
+  { label: 'ป้า', value: 'aunt' },
+  { label: 'น้า', value: 'na' },
+  { label: 'อา', value: 'aa' },
+  { label: 'ปู่', value: 'grandfather_paternal' },
+  { label: 'ย่า', value: 'grandmother_paternal' },
+  { label: 'ตา', value: 'grandfather_maternal' },
+  { label: 'ยาย', value: 'grandmother_maternal' },
   { label: 'อื่นๆ', value: 'other' },
 ];
 
@@ -777,7 +788,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   </Box>
                   {!readOnly && (
                     <Button size="small" startIcon={<AddIcon />} onClick={addChild} variant="outlined" sx={{ borderRadius: 2 }}>
-                      เพิ่มข้อมูลเด็ก
+                      เพิ่มสมาชิกครอบครัว
                     </Button>
                   )}
                 </Box>
@@ -786,7 +797,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Box sx={{ border: '2px dashed', borderColor: 'divider', borderRadius: 2, py: 5, textAlign: 'center' }}>
                     <ChildCareIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
                     <Typography variant="body2" color="text.disabled">
-                      {readOnly ? 'ไม่มีข้อมูลเด็ก' : 'กดปุ่ม "เพิ่มข้อมูลเด็ก" เพื่อเริ่มต้น'}
+                      {readOnly ? 'ไม่มีข้อมูลเด็ก' : 'กดปุ่ม "เพิ่มสมาชิกครอบครัว" เพื่อเริ่มต้น'}
                     </Typography>
                   </Box>
                 ) : (
@@ -1017,8 +1028,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <FormControl fullWidth>
-                      <InputLabel>ความสัมพันธ์กับเด็ก</InputLabel>
-                      <Select value={form.relationship} label="ความสัมพันธ์กับเด็ก"
+                      <InputLabel>คุณคือ...</InputLabel>
+                      <Select value={form.relationship} label="คุณคือ..."
                         onChange={e => !readOnly && setForm({ ...form, relationship: e.target.value })}
                         inputProps={{ readOnly }}>
                         {RELATIONSHIPS.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}

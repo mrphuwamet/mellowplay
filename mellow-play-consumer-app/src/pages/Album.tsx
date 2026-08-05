@@ -5,6 +5,7 @@ import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
+import ChildAvatar from '../components/ChildAvatar';
 
 const MAX_SELECTION = 30;
 const PAGE_SIZE = 30;
@@ -16,11 +17,19 @@ interface MediaItem {
   caption: string;
   dateKey: string; // ISO yyyy-mm-dd, for date filtering
   completedAt: string;
+  childId: number;
+  childName: string;
+  childNickname?: string;
+  childAvatar?: string;
 }
 
 const Album = () => {
   const navigate = useNavigate();
-  const selectedChild = useChildStore(state => state.getSelectedChild());
+  const kids = useChildStore(state => state.children);
+  // 'all' pools every family member's media into one combined gallery
+  // (each thumbnail tagged with whose it is); a specific id narrows to
+  // just that person — same filter pattern as the Journey page.
+  const [filterChildId, setFilterChildId] = useState<number | 'all'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [groupMode, setGroupMode] = useState<'timeline' | 'all'>('timeline');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: string } | null>(null);
@@ -42,16 +51,21 @@ const Album = () => {
 
   useEffect(() => {
     const fetchAlbum = async () => {
-      if (!selectedChild) {
+      if (kids.length === 0) {
         setRawMedia([]);
         setIsLoading(false);
         return;
       }
       setIsLoading(true);
       try {
-        const response = await apiClient.get(`/journey/album/${selectedChild.id}`);
-        if (response.data.success) {
-          const items: MediaItem[] = response.data.album.map((curr: any) => {
+        // No combined "whole family" album endpoint exists — fetch each
+        // family member's album in parallel and merge, tagging every item
+        // with whose it is so the combined view can filter/label per person.
+        const responses = await Promise.all(kids.map(kid => apiClient.get(`/journey/album/${kid.id}`)));
+        const items: MediaItem[] = responses.flatMap((response, i) => {
+          if (!response.data.success) return [];
+          const kid = kids[i];
+          return response.data.album.map((curr: any) => {
             // Group/display by the class's actual scheduled date, not
             // when the CRM staff happened to file the report.
             const classDate = curr.class_date || curr.completed_at;
@@ -64,12 +78,16 @@ const Album = () => {
               caption: label,
               dateKey: d.toISOString().slice(0, 10),
               completedAt: classDate,
+              childId: kid.id,
+              childName: kid.name,
+              childNickname: kid.nickname,
+              childAvatar: kid.avatar,
             };
           });
-          // Newest first, top-left to bottom-right.
-          items.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-          setRawMedia(items);
-        }
+        });
+        // Newest first, top-left to bottom-right.
+        items.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+        setRawMedia(items);
       } catch (err) {
         console.error('Failed to fetch album:', err);
       } finally {
@@ -78,12 +96,14 @@ const Album = () => {
     };
 
     fetchAlbum();
-  }, [selectedChild]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kids.length]);
 
-  const filteredMedia = useMemo(
-    () => dateRange ? rawMedia.filter(m => m.dateKey >= dateRange.start && m.dateKey <= dateRange.end) : rawMedia,
-    [rawMedia, dateRange]
-  );
+  const filteredMedia = useMemo(() => {
+    let items = filterChildId === 'all' ? rawMedia : rawMedia.filter(m => m.childId === filterChildId);
+    if (dateRange) items = items.filter(m => m.dateKey >= dateRange.start && m.dateKey <= dateRange.end);
+    return items;
+  }, [rawMedia, dateRange, filterChildId]);
   const totalMedia = filteredMedia.length;
 
   // Timeline grouping: by date + class attended.
@@ -102,7 +122,7 @@ const Album = () => {
   }, [filteredMedia, lang]);
 
   // Reset pagination whenever the underlying data view changes.
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [groupMode, dateRange, rawMedia]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [groupMode, dateRange, rawMedia, filterChildId]);
 
   const visibleFlatMedia = filteredMedia.slice(0, visibleCount);
   const visibleGroups = useMemo(() => {
@@ -233,10 +253,11 @@ const Album = () => {
     );
   }
 
-  // No child selected — guests never have one, and neither does a logged-in
-  // user who hasn't added a child yet. Mirrors Roadmap's guest/empty state
-  // so the two nav tabs feel consistent instead of this one looking broken.
-  if (!selectedChild) {
+  // No family members at all — guests never have one, and neither does a
+  // logged-in user who hasn't added anyone yet. Mirrors Roadmap's empty
+  // state so the two nav tabs feel consistent instead of this one looking
+  // broken.
+  if (kids.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center pb-24">
         <div className="bg-white p-8 rounded-[32px] shadow-sm max-w-sm w-full">
@@ -244,10 +265,10 @@ const Album = () => {
             <AlertCircle className="text-mellow-purple" size={32} />
           </div>
           <h2 className="text-xl font-black text-slate-800 mb-2">
-            {lang === 'en' ? 'Select a Child' : 'กรุณาเลือกข้อมูลเด็ก'}
+            {lang === 'en' ? 'Add a Family Member' : 'เพิ่มสมาชิกในครอบครัว'}
           </h2>
           <p className="text-slate-500 mb-6">
-            {lang === 'en' ? 'Please select a child profile first.' : 'โปรดเลือกข้อมูลเด็กก่อนเพื่อดูอัลบั้มภาพ'}
+            {lang === 'en' ? 'Add a family member first to see their album.' : 'โปรดเพิ่มสมาชิกในครอบครัวก่อนเพื่อดูอัลบั้มภาพ'}
           </p>
           <button
             onClick={() => navigate('/')}
@@ -299,6 +320,14 @@ const Album = () => {
               <div className="w-12 h-12 bg-white/85 rounded-full flex items-center justify-center shadow-sm">
                 <Play size={20} className="text-mellow-blue fill-mellow-blue ml-0.5" />
               </div>
+            </div>
+          )}
+
+          {/* Whose photo this is — only needed once the gallery mixes
+              everyone together. */}
+          {filterChildId === 'all' && kids.length > 1 && (
+            <div className="absolute bottom-2 left-2 z-10">
+              <ChildAvatar avatarType={img.childAvatar} className="w-6 h-6 ring-2 ring-white shadow-sm" />
             </div>
           )}
 
@@ -388,7 +417,11 @@ const Album = () => {
           </button>
           <div className="min-w-0">
             <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5 truncate">{t.album.title}</h1>
-            <span className="text-[15px] font-bold text-mellow-blue uppercase tracking-[0.2em] truncate block">{t.album.memoriesPrefix}{selectedChild?.nickname}{t.album.memoriesSuffix}</span>
+            <span className="text-[15px] font-bold text-mellow-blue uppercase tracking-[0.2em] truncate block">
+              {filterChildId === 'all'
+                ? (t.album.memoriesPrefix + (lang === 'en' ? 'the family' : 'ครอบครัว') + t.album.memoriesSuffix)
+                : (t.album.memoriesPrefix + (kids.find(k => k.id === filterChildId)?.nickname || '') + t.album.memoriesSuffix)}
+            </span>
           </div>
         </div>
         <div className="relative shrink-0">
@@ -438,6 +471,35 @@ const Album = () => {
           )}
         </div>
       </header>
+
+      {/* Who filter — "All" pools everyone's media into one combined
+          gallery (each thumbnail tagged with whose it is); tapping a
+          person narrows it down to just them. Hidden entirely for an
+          only-child family — there's nobody else to filter between. */}
+      {kids.length > 1 && (
+        <div className="px-5 pt-3 flex items-center gap-2 overflow-x-auto -mx-1">
+          <button
+            onClick={() => setFilterChildId('all')}
+            className={`shrink-0 px-3.5 py-2 rounded-full text-[13px] font-black transition-all ${
+              filterChildId === 'all' ? 'bg-mellow-blue text-white shadow-sm' : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            {lang === 'en' ? 'All' : 'ทั้งหมด'}
+          </button>
+          {kids.map(kid => (
+            <button
+              key={kid.id}
+              onClick={() => setFilterChildId(kid.id)}
+              className={`shrink-0 flex items-center gap-1.5 pl-1.5 pr-3 py-1.5 rounded-full transition-all ${
+                filterChildId === kid.id ? 'bg-mellow-blue text-white shadow-sm' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              <ChildAvatar avatarType={kid.avatar} className="w-6 h-6 shrink-0 ring-2 ring-white" />
+              <span className="text-[13px] font-black truncate max-w-[80px]">{kid.nickname || kid.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {dateRange && (
         <div className="px-5 pt-3">

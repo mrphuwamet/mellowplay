@@ -1,17 +1,34 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Map, Star, Camera, Compass, Newspaper as HomeIcon, Lock, User, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, Crown, Medal, MessageCircle, ChevronDown, LayoutGrid, X, LogOut, Globe, Pencil } from 'lucide-react';
+import { Map, Star, Camera, Compass, Newspaper as HomeIcon, Lock, User, Users, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, MessageCircle, ChevronDown, ChevronRight, LayoutGrid, X, LogOut, Globe, Pencil } from 'lucide-react';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { useChildStore } from '../store/useChildStore';
 import GuestUnlockModal from './GuestUnlockModal';
 import ChildAvatar from './ChildAvatar';
 import ResponsiveModal from './ResponsiveModal';
 import AddChildModal from './AddChildModal';
-import AvatarPickerModal from './AvatarPickerModal';
+import EditChildModal from './EditChildModal';
 import BirthdayModal from './BirthdayModal';
-import { isPremiumChild } from '../utils/membership';
 import { resolveImageUrl } from '../utils/courseImage';
+import { FAMILY_ROLE_OPTIONS, normalizeFamilyRole } from '../utils/familyRoles';
 import logo from '../assets/ui/logo.svg';
+
+// A soft pastel per family role so the sidebar's "who is this" badge reads
+// at a glance instead of every role blurring into one same-color pill.
+const ROLE_BADGE_COLORS: Record<string, string> = {
+  father: 'bg-sky-100 text-sky-600',
+  mother: 'bg-rose-100 text-rose-600',
+  child: 'bg-mellow-purple/10 text-mellow-purple',
+  uncle: 'bg-amber-100 text-amber-600',
+  aunt: 'bg-amber-100 text-amber-600',
+  na: 'bg-teal-100 text-teal-600',
+  aa: 'bg-teal-100 text-teal-600',
+  grandfather_paternal: 'bg-indigo-100 text-indigo-600',
+  grandfather_maternal: 'bg-indigo-100 text-indigo-600',
+  grandmother_paternal: 'bg-orange-100 text-orange-600',
+  grandmother_maternal: 'bg-orange-100 text-orange-600',
+  other: 'bg-slate-100 text-slate-500',
+};
 
 const NAV_PATHS = ['/', '/journey', '/album', '/explore', '/rewards'];
 // Pages that render their own fixed-bottom action bar (e.g. CourseDetail's
@@ -50,13 +67,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [isBookingMenuOpen, setIsBookingMenuOpen] = React.useState(false);
   const [isProfileSwitcherOpen, setIsProfileSwitcherOpen] = React.useState(false);
   const [isAddChildOpen, setIsAddChildOpen] = React.useState(false);
-  const [isAvatarPickerOpen, setIsAvatarPickerOpen] = React.useState(false);
+  const [isEditChildOpen, setIsEditChildOpen] = React.useState(false);
+  const [editingChild, setEditingChild] = React.useState<any>(null);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
 
   const selectedChild = kids.find(c => c.id === selectedChildId);
-  const isPremium = isPremiumChild(selectedChild);
 
   const calculateAge = (dobStr?: string) => {
     if (!dobStr) return '';
@@ -146,32 +163,90 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   };
 
   const renderProfileSwitcherModal = () => (
-    <ResponsiveModal isOpen={isProfileSwitcherOpen} onClose={() => setIsProfileSwitcherOpen(false)} variant="dialog" size="xs">
-      <h3 className="text-lg font-black text-slate-800 text-center mb-4 uppercase tracking-wider">{lang === 'en' ? 'Switch Profile' : 'สลับโปรไฟล์'}</h3>
+    <ResponsiveModal isOpen={isProfileSwitcherOpen} onClose={() => setIsProfileSwitcherOpen(false)} variant="dialog" size="lg">
+      <h3 className="text-xl font-black text-slate-800 text-center mb-5 uppercase tracking-wider">{lang === 'en' ? 'Family Members' : 'สมาชิกในครอบครัว'}</h3>
       <div className="flex flex-col gap-3">
-        {kids.map(child => (
-          <button
-            key={child.id}
-            onClick={() => { selectChild(child.id); setIsProfileSwitcherOpen(false); }}
-            className={`flex items-center gap-4 p-3 rounded-2xl transition-all ${selectedChildId === child.id ? 'bg-mellow-purple/10 border border-mellow-purple/30' : 'hover:bg-slate-50 border border-transparent'}`}
-          >
-            <ChildAvatar avatarType={child.avatar} className="w-12 h-12 flex-shrink-0" />
-            <div className="flex flex-col items-start text-left">
-              <span className="text-[17px] font-bold text-slate-700 leading-tight">{child.nickname || child.name}</span>
-              {child.nickname && (
-                <span className="text-[14px] font-medium text-slate-500">{child.name}</span>
-              )}
-            </div>
-          </button>
-        ))}
+        {/* The account holder themselves — display-only, just here so the
+            modal really shows everyone the family-member count promises.
+            Their own info is edited from Settings, not from here. */}
+        <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50">
+          <div className="w-14 h-14 rounded-2xl overflow-hidden ring-2 ring-white shadow-sm bg-slate-200 flex items-center justify-center shrink-0">
+            {user?.avatarUrl ? (
+              <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <User size={24} className="text-slate-400" />
+            )}
+          </div>
+          <div className="flex flex-col items-start text-left min-w-0">
+            <span className="text-[19px] font-bold text-slate-700 leading-tight truncate">
+              {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+            </span>
+            <span className="text-[13px] font-black text-mellow-purple uppercase tracking-wide">
+              {lang === 'en' ? 'Main Account' : 'บัญชีหลัก'}
+            </span>
+          </div>
+        </div>
+
+        {/* Every field (name, nickname, dob, gender, role) is editable here —
+            tapping a member opens their full edit form, not just the avatar
+            picker; the pencil next to it is only a shortcut straight to the
+            photo. Tapping no longer changes which profile is "active"
+            elsewhere in the app (Booking/Journey pick their own person via
+            their own filters now) — this is purely a family directory. */}
+        {kids.map(child => {
+          const { role, customText } = normalizeFamilyRole(child.relation);
+          const roleOption = FAMILY_ROLE_OPTIONS.find(o => o.value === role);
+          const roleLabel = customText || (roleOption ? (lang === 'en' ? roleOption.labelEn : roleOption.labelTh) : '');
+          const age = child.dob ? calculateAge(child.dob) : null;
+          return (
+            <button
+              key={child.id}
+              onClick={() => {
+                setEditingChild({
+                  id: child.id,
+                  name: child.name,
+                  nameEn: child.nameEn || '',
+                  nickname: child.nickname || '',
+                  dob: child.dob || '',
+                  relation: child.relation || 'Child',
+                  gender: child.gender || '',
+                  avatar: child.avatar,
+                  customPhotoUrl: child.customPhotoUrl,
+                });
+                setIsEditChildOpen(true);
+                setIsProfileSwitcherOpen(false);
+              }}
+              className="flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 border border-transparent transition-all text-left w-full"
+            >
+              <ChildAvatar avatarType={child.avatar} className="w-14 h-14 flex-shrink-0" />
+              <div className="flex flex-col items-start text-left min-w-0 flex-1">
+                <span className="text-[19px] font-bold text-slate-700 leading-tight truncate">{child.nickname || child.name}</span>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  {child.relation && (
+                    <span className={`inline-flex items-center gap-1 text-[12px] font-black px-2.5 py-1 rounded-full ${ROLE_BADGE_COLORS[role] || ROLE_BADGE_COLORS.other}`}>
+                      {roleOption && <roleOption.icon size={11} strokeWidth={2.5} />}
+                      {roleLabel}
+                    </span>
+                  )}
+                  {age != null && (
+                    <span className="inline-flex items-center gap-1 text-[12px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full">
+                      <Cake size={11} strokeWidth={2.5} />
+                      {age} {lang === 'en' ? 'yrs' : (Number(age) < 15 ? 'ขวบ' : 'ปี')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          );
+        })}
         <button
           onClick={() => { setIsProfileSwitcherOpen(false); setIsAddChildOpen(true); }}
-          className="flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 border border-dashed border-slate-300 transition-all text-slate-500 hover:text-slate-700"
+          className="flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 border border-dashed border-slate-300 transition-all text-slate-500 hover:text-slate-700"
         >
-          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
             <span className="text-2xl font-black">+</span>
           </div>
-          <span className="text-[17px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
+          <span className="text-[19px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
         </button>
       </div>
     </ResponsiveModal>
@@ -340,72 +415,35 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 </div>
               )}
             </button>
-            <p className="text-[11px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
             {isGuest ? (
-              <button
-                onClick={() => navigate('/login')}
-                className="text-left block w-full text-[16px] font-black leading-tight truncate text-mellow-purple underline decoration-2 underline-offset-2"
-              >
-                {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
-              </button>
+              <>
+                <p className="text-[11px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
+                <button
+                  onClick={() => navigate('/login')}
+                  className="text-left block w-full text-[16px] font-black leading-tight truncate text-mellow-purple underline decoration-2 underline-offset-2"
+                >
+                  {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
+                </button>
+              </>
             ) : (
               <>
-                <span className="text-[16px] font-black text-slate-800 leading-tight truncate block mb-1.5">
-                  {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+                <p className="text-[11px] font-black uppercase text-slate-400 mb-0.5">{lang === 'en' ? 'Family' : 'ครอบครัว'}</p>
+                <span className="text-[16px] font-black text-slate-800 leading-tight truncate block mb-2.5">
+                  {user?.lastName
+                    ? (lang === 'en' ? `The ${user.lastName} Family` : `ครอบครัว ${user.lastName}`)
+                    : (lang === 'en' ? 'My Family' : 'ครอบครัวของฉัน')}
                 </span>
-                <div className="flex items-center gap-2 mt-1">
-                  <button
-                    onClick={() => selectedChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true)}
-                    className="flex items-center gap-2 min-w-0 flex-1 active:opacity-70 transition-opacity"
-                  >
-                    {selectedChild ? (
-                      <>
-                        <ChildAvatar avatarType={selectedChild.avatar} className="w-9 h-9 shrink-0 ring-2 ring-white shadow-sm" />
-                        <span className="text-[14px] font-black text-slate-700 truncate">{selectedChild.nickname || selectedChild.name}</span>
-                      </>
-                    ) : (
-                      <span className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
-                        {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
-                      </span>
-                    )}
-                  </button>
-                  {selectedChild && (
-                    <button
-                      onClick={() => setIsAvatarPickerOpen(true)}
-                      className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform shrink-0"
-                    >
-                      <Pencil size={10} strokeWidth={2.5} />
-                    </button>
-                  )}
-                  {kids.length > 1 && (
-                    <button
-                      onClick={() => setIsProfileSwitcherOpen(true)}
-                      className="w-6 h-6 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 active:scale-95 transition-all shrink-0"
-                    >
-                      <ArrowRightLeft size={11} />
-                    </button>
-                  )}
-                </div>
+                <button
+                  onClick={() => setIsProfileSwitcherOpen(true)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all"
+                >
+                  <Users size={15} className="text-mellow-purple shrink-0" />
+                  <span className="text-[13px] font-black text-slate-700 flex-1 text-left">
+                    {lang === 'en' ? `${kids.length + 1} family members` : `สมาชิกครอบครัว ${kids.length + 1} คน`}
+                  </span>
+                  <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                </button>
               </>
-            )}
-            {!isGuest && selectedChild && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                {selectedChild.dob && (
-                  <button
-                    onClick={() => setIsBirthdayModalOpen(true)}
-                    className="inline-flex items-center gap-1 text-[11px] font-black bg-sky-100 text-sky-600 px-2 py-1 rounded-full active:scale-95 transition-transform"
-                  >
-                    <Cake size={10} strokeWidth={2.5} />
-                    {calculateAge(selectedChild.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(selectedChild.dob)) < 15 ? 'ขวบ' : 'ปี')}
-                  </button>
-                )}
-                <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full ${
-                  isPremium ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white' : 'bg-emerald-100 text-emerald-600'
-                }`}>
-                  {isPremium ? <Crown size={10} strokeWidth={2.5} /> : <Medal size={10} strokeWidth={2.5} />}
-                  {isPremium ? 'Premium' : 'Regular'}
-                </span>
-              </div>
             )}
           </div>
         </div>
@@ -600,25 +638,16 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
       <AddChildModal isOpen={isAddChildOpen} onClose={() => setIsAddChildOpen(false)} />
 
-      <AvatarPickerModal
-        isOpen={isAvatarPickerOpen}
-        onClose={() => setIsAvatarPickerOpen(false)}
-        currentAvatar={selectedChild?.avatar || ''}
-        childId={selectedChild?.id}
-        customPhotoUrl={selectedChild?.customPhotoUrl}
-        onSelect={async (avatarId: string) => {
-          if (!selectedChild) return;
-          await useChildStore.getState().updateAvatar(selectedChild.id, avatarId);
-        }}
-        onPhotoUploaded={(url) => {
-          if (!selectedChild) return;
-          useChildStore.getState().setCustomPhotoUrl(selectedChild.id, url);
-        }}
-        onDeletePhoto={async () => {
-          if (!selectedChild) return;
-          await useChildStore.getState().deletePhoto(selectedChild.id);
-        }}
+      <EditChildModal
+        isOpen={isEditChildOpen}
+        onClose={() => setIsEditChildOpen(false)}
+        childInfo={editingChild}
       />
+
+      {/* Family members' avatar editing now lives inside EditChildModal
+          itself (opened above) — this component no longer needs its own
+          picker trigger for them. Home.tsx keeps its own separate instance
+          for the currently-selected child's quick-access avatar. */}
 
       {selectedChild?.dob && (
         <BirthdayModal

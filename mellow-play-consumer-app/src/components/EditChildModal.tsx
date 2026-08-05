@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, Pencil } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import { Toast } from './Toast';
 import { cleanNamePrefix } from '../utils/nameUtils';
 import { FAMILY_ROLE_OPTIONS, normalizeFamilyRole } from '../utils/familyRoles';
+import ChildAvatar from './ChildAvatar';
+import AvatarPickerModal from './AvatarPickerModal';
 
 interface EditChildModalProps {
   isOpen: boolean;
@@ -18,6 +20,8 @@ interface EditChildModalProps {
     dob?: string;
     relation?: string;
     gender?: string;
+    avatar?: string;
+    customPhotoUrl?: string;
   };
 }
 
@@ -30,26 +34,26 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    firstNameEn: '',
-    lastNameEn: '',
     nickname: '',
     gender: 'Boy',
     dob: '',
     relation: 'mother',
     customRelation: ''
   });
+  const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
+  // Read live rather than mirroring into local state — AvatarPickerModal
+  // writes straight to the store (onSelect/onPhotoUploaded/onDeletePhoto),
+  // so this stays in sync automatically without a manual re-fetch.
+  const liveChild = useChildStore(state => state.children.find(c => c.id === childInfo?.id));
 
   React.useEffect(() => {
     if (childInfo && isOpen) {
       const cleanedFullName = cleanNamePrefix(childInfo.name);
       const parts = cleanedFullName.split(' ');
-      const enParts = (childInfo.nameEn || '').split(' ');
       const { role, customText } = normalizeFamilyRole(childInfo.relation);
       setFormData({
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
-        firstNameEn: enParts[0] || '',
-        lastNameEn: enParts.slice(1).join(' ') || '',
         nickname: childInfo.nickname || '',
         gender: childInfo.gender || 'Boy',
         dob: childInfo.dob || '',
@@ -73,12 +77,12 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
     setIsSubmitting(true);
     try {
       const fullName = `${cleanNamePrefix(formData.firstName)} ${cleanNamePrefix(formData.lastName)}`.trim();
-      const nameEn = (formData.firstNameEn || formData.lastNameEn)
-        ? `${cleanNamePrefix(formData.firstNameEn)} ${formData.lastNameEn ? cleanNamePrefix(formData.lastNameEn) : ''}`.trim()
-        : undefined;
       const payload = {
         name: fullName,
-        nameEn,
+        // Not editable here — deliberately no English name input, matching
+        // FamilyMemberFields' convention; resend the original untouched so
+        // a CRM-set value (if any) survives this save instead of being wiped.
+        nameEn: childInfo?.nameEn,
         nickname: formData.nickname,
         dob: formData.dob,
         relation: formData.relation === 'other' && formData.customRelation
@@ -111,7 +115,7 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
       <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-xl font-black text-mellow-ink">
-            {lang === 'th' ? 'แก้ไขข้อมูลเด็ก' : 'Edit Child Information'}
+            {lang === 'th' ? 'แก้ไข' : 'Edit'}
           </h2>
           <button 
             onClick={onClose}
@@ -123,7 +127,18 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
 
         <div className="p-5 overflow-y-auto">
           {error && <Toast message={error} type="error" onClose={() => setError('')} />}
-          
+
+          {/* Photo — editable right here, not tucked behind a separate flow,
+              so updating a family member's info and their photo is one trip. */}
+          <div className="flex justify-center mb-5">
+            <button type="button" onClick={() => setIsAvatarPickerOpen(true)} className="relative active:scale-95 transition-transform">
+              <ChildAvatar avatarType={liveChild?.avatar} className="w-20 h-20 ring-2 ring-white shadow-sm" />
+              <div className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-mellow-purple text-white flex items-center justify-center shadow-lg border-2 border-white">
+                <Pencil size={12} strokeWidth={2.5} />
+              </div>
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -154,31 +169,6 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
             <p className="text-[11px] text-mellow-purple/70 font-bold px-1 -mt-2">
               * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
             </p>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.firstNameEnLabel || 'First Name (English)'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstNameEn}
-                  onChange={e => setFormData({ ...formData, firstNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {t.register?.lastNameEnLabel || 'Last Name (English)'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastNameEn}
-                  onChange={e => setFormData({ ...formData, lastNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-                />
-              </div>
-            </div>
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
@@ -259,6 +249,25 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
           </form>
         </div>
       </div>
+
+      {childInfo && (
+        <AvatarPickerModal
+          isOpen={isAvatarPickerOpen}
+          onClose={() => setIsAvatarPickerOpen(false)}
+          currentAvatar={liveChild?.avatar || ''}
+          childId={childInfo.id}
+          customPhotoUrl={liveChild?.customPhotoUrl}
+          onSelect={async (avatarId: string) => {
+            await useChildStore.getState().updateAvatar(childInfo.id, avatarId);
+          }}
+          onPhotoUploaded={(url) => {
+            useChildStore.getState().setCustomPhotoUrl(childInfo.id, url);
+          }}
+          onDeletePhoto={async () => {
+            await useChildStore.getState().deletePhoto(childInfo.id);
+          }}
+        />
+      )}
     </div>
   );
 };

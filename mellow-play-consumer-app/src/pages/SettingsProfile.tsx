@@ -441,7 +441,9 @@ const SettingsProfile = () => {
                         nickname: child.nickname || '',
                         dob: child.dob || '',
                         relation: child.relation || 'Child',
-                        gender: child.gender || ''
+                        gender: child.gender || '',
+                        avatar: child.avatar,
+                        customPhotoUrl: child.customPhotoUrl,
                       });
                       setIsEditChildOpen(true);
                     }}
