@@ -293,19 +293,20 @@ export class AdminRepository {
     notes?: string;
     price?: number;
     sponsorTag?: string;
-  }): Promise<number> {
+  }): Promise<{ id: number; qrToken: string }> {
+    const qrToken = crypto.randomUUID();
     const result = await this.db.prepare(`
       INSERT INTO Bookings
         (child_id, course_id, branch_id, scheduled_at, status, age_group,
-         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes, price, sponsor_tag)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         calendar_id, slot_date, slot_start_time, payment_status, payment_method, notes, price, sponsor_tag, qr_token)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.childId, data.courseId, data.branchId, data.scheduledAt, data.status, data.ageGroup,
       data.calendarId ?? null, data.slotDate ?? null, data.slotStartTime ?? null,
       data.paymentStatus ?? 'prepaid', data.paymentMethod ?? 'coupon', data.notes ?? null,
-      data.price ?? null, data.sponsorTag ?? null
+      data.price ?? null, data.sponsorTag ?? null, qrToken
     ).run();
-    return result.meta.last_row_id;
+    return { id: result.meta.last_row_id, qrToken };
   }
 
   async getAllCrmUsers(): Promise<any[]> {

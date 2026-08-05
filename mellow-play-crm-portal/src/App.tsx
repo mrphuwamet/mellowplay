@@ -33,6 +33,7 @@ import {
   CalendarMonth as ScheduleIcon,
   Dashboard as DashboardIcon,
   EventNote as BookingIcon,
+  QrCodeScanner as CheckinScannerMenuIcon,
   ExpandLess,
   ExpandMore,
   Menu as MenuIcon,
@@ -78,6 +79,7 @@ import ResetPassword from './pages/ResetPassword';
 import UserManagement from './pages/UserManagement';
 import ChildrenDirectory from './pages/ChildrenDirectory';
 import BookingManagement from './pages/BookingManagement';
+import CheckinScanner from './pages/CheckinScanner';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
@@ -428,6 +430,7 @@ const AppContent = () => {
       { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
     ]);
 
     pushGroup('marketing', 'การตลาดและสิทธิประโยชน์', <CampaignMenuIcon />, [
@@ -877,6 +880,7 @@ const AppContent = () => {
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />
             <Route path="/crm/rewards" element={protect('bookings', <RewardsManagement />)} />
             <Route path="/crm/bookings" element={protect('bookings', <BookingManagement />)} />
+            <Route path="/crm/checkin-scanner" element={protect('bookings', <CheckinScanner />)} />
             <Route path="/crm/my-schedule" element={protect('my_schedule', <MySchedule />)} />
             <Route path="/crm/class-booking" element={<Navigate to="/pos/class-booking" replace />} />
             <Route path="/crm/service-queue" element={<Navigate to="/pos/service-queue" replace />} />

@@ -23,6 +23,7 @@ import logo from '../assets/ui/logo.svg';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
 import ResponsiveModal from '../components/ResponsiveModal';
+import { QRCodeSVG } from 'qrcode.react';
 import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponTypes';
 import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
 
@@ -553,7 +554,8 @@ const Booking = () => {
           courseName: selectedCourse.name,
           branchName: selectedBranch?.name || 'นอกสถานที่',
           date: selectedDateObj.date,
-          time: selectedSlot.startTime
+          time: selectedSlot.startTime,
+          qrToken: response.data.qrTokens?.[response.data.id],
         });
         
         const userJson = localStorage.getItem('mellow_user');
@@ -708,6 +710,23 @@ const Booking = () => {
               </div>
             </div>
           </div>
+
+          {successBooking.qrToken && (
+            <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 flex flex-col items-center">
+              <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-3">
+                {lang === 'en' ? 'Check-in QR Code' : 'QR Code สำหรับเช็คอิน'}
+              </p>
+              <div className="p-3 bg-white rounded-2xl border border-slate-100">
+                <QRCodeSVG value={successBooking.qrToken} size={180} level="M" />
+              </div>
+              <p className="text-[12px] font-bold text-slate-400 text-center mt-3 px-2 leading-relaxed">
+                {lang === 'en'
+                  ? 'Show this to staff at the registration desk on the event day.'
+                  : 'แสดง QR Code นี้กับแอดมินที่จุดลงทะเบียนในวันงาน'}
+              </p>
+            </div>
+          )}
+
           <p className="text-[12px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
             📸 {lang === 'en' ? 'Please screenshot this screen for easy reference.' : 'โปรดแคปหน้าจอนี้ไว้เพื่อดูข้อมูลอย่างง่าย'}
           </p>

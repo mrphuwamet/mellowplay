@@ -6,6 +6,7 @@ import apiClient from '../utils/apiClient';
 import CourseRatingPrompt from './CourseRatingPrompt';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import ResponsiveModal from './ResponsiveModal';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface BookingDetailModalProps {
   isOpen: boolean;
@@ -106,6 +107,22 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
               </div>
             </div>
           </div>
+
+          {booking.qr_token && (
+            <div className="flex flex-col items-center py-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <p className="text-slate-400 text-[11px] font-black uppercase tracking-wider mb-3">
+                {lang === 'en' ? 'Check-in QR Code' : 'QR Code สำหรับเช็คอิน'}
+              </p>
+              <div className="p-3 bg-white rounded-2xl border border-slate-100">
+                <QRCodeSVG value={booking.qr_token} size={160} level="M" />
+              </div>
+              <p className="text-[11px] font-bold text-slate-400 text-center mt-3 px-4 leading-relaxed">
+                {lang === 'en'
+                  ? 'Show this to staff at the registration desk on the event day.'
+                  : 'แสดง QR Code นี้กับแอดมินที่จุดลงทะเบียนในวันงาน'}
+              </p>
+            </div>
+          )}
 
           {booking.course_short_description && (
             <div>

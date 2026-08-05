@@ -13,6 +13,7 @@ import { CalendarController } from './controllers/calendarController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
+import { CheckinController } from './controllers/checkinController';
 import { RedemptionController } from './controllers/redemptionController';
 import { QueueController } from './controllers/queueController';
 import { OrderController } from './controllers/orderController';
@@ -45,6 +46,7 @@ const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
+const checkinController = new CheckinController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
@@ -739,6 +741,11 @@ app.post('/api/v1/admin/registration-forms',     (c) => registrationFormControll
 app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.getForm(c));
 app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
 app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
+
+app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.getActions(c));
+app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));
+app.get('/api/v1/admin/checkin/lookup/:token',        (c) => checkinController.lookup(c));
+app.post('/api/v1/admin/checkin/:bookingId/actions/:actionId/toggle', (c) => checkinController.toggleAction(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
 app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));

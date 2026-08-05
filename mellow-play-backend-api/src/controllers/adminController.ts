@@ -574,8 +574,9 @@ export class AdminController {
       }
 
       const bookingIds = [];
+      const qrTokens: Record<number, string> = {};
       for (const parsedChildId of parsedChildIds) {
-        const id = await adminRepo.createBooking({
+        const { id, qrToken } = await adminRepo.createBooking({
           childId: parsedChildId,
           courseId: parseInt(courseId),
           branchId: branchId ? parseInt(branchId) : null,
@@ -592,6 +593,7 @@ export class AdminController {
           sponsorTag: sponsorTag || undefined,
         });
         bookingIds.push(id);
+        qrTokens[id] = qrToken;
       }
 
       // One Form_Submissions row per checkout (not per child) — a checkout
@@ -724,7 +726,7 @@ export class AdminController {
         } catch { /* notification must never block a successful booking */ }
       }
 
-      return c.json({ success: true, id: firstId, bookingIds, paymentUrl: beamPaymentUrl });
+      return c.json({ success: true, id: firstId, bookingIds, qrTokens, paymentUrl: beamPaymentUrl });
     } catch (error: any) {
       const db = c.env.DB ? c.env.DB : (new ConfigService(c.env)).db;
       const logger = new SystemLogger(db);

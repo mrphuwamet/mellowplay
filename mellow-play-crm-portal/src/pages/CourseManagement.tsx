@@ -344,6 +344,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     registrationCloseAt: '',
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
+    checkinActions: [] as string[],
   });
 
   const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
@@ -679,6 +680,14 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       let metrics = [];
       try { metrics = course.metrics_json ? JSON.parse(course.metrics_json) : []; } catch (e) { }
 
+      let checkinActions: string[] = [];
+      try {
+        const actionsRes = await axios.get(`${API_BASE}/courses/${course.id}/checkin-actions`);
+        if (actionsRes.data.success) checkinActions = actionsRes.data.actions.map((a: any) => a.label);
+      } catch (e) {
+        console.error('Failed to fetch checkin actions', e);
+      }
+
       setEditCourse(course);
       setFormData({
         id: course.id,
@@ -720,6 +729,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         registrationCloseAt: toDatetimeLocalValue(course.registration_close_at || undefined),
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
+        checkinActions,
       });
     } else {
       setEditCourse(null);
@@ -743,10 +753,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         registrationCloseAt: '',
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
+        checkinActions: [],
       });
     }
     setIsEditing(true);
   };
+
+  // Staff-defined check-in actions (เช็คอิน, รับของที่ระลึก, ...) shown to
+  // whoever scans an attendee's QR at the event — scoped per course, same
+  // as the registration form, so different events can ask for different
+  // things. Saved as a whole array on course save (see handleSubmit), not
+  // incrementally, matching how coupon requirements/skills already work.
+  const addCheckinAction = () => setFormData(f => ({ ...f, checkinActions: [...f.checkinActions, ''] }));
+  const updateCheckinAction = (index: number, label: string) =>
+    setFormData(f => ({ ...f, checkinActions: f.checkinActions.map((a, i) => i === index ? label : a) }));
+  const removeCheckinAction = (index: number) =>
+    setFormData(f => ({ ...f, checkinActions: f.checkinActions.filter((_, i) => i !== index) }));
 
   const addCouponRequirement = () => {
     if (couponTypes.length === 0) return;
@@ -835,6 +857,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           }))
         });
         await saveImageViewsAndFocals(courseId);
+        await axios.put(`${API_BASE}/courses/${courseId}/checkin-actions`, {
+          actions: formData.checkinActions.filter(label => label.trim()).map(label => ({ label: label.trim() })),
+        });
       }
 
       setIsEditing(false);
@@ -1066,6 +1091,37 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     helperText="เมื่อถึงวันเวลานี้ ปุ่มจองจะถูกซ่อน แต่ยังแสดงในรายการตามปกติ"
                   />
                 </Grid>
+
+                {/* Custom check-in actions — a simple staff-defined text list
+                    (เช็คอิน, รับของที่ระลึก, ...) shown to whoever scans this
+                    course's attendees at /crm/checkin-scanner. No types/
+                    options needed, unlike the registration form builder —
+                    each one is just a thing to tick off. */}
+                <Grid item xs={12}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                    รายการเช็คอิน (สำหรับหน้าสแกน QR)
+                  </Typography>
+                  <Stack spacing={1}>
+                    {formData.checkinActions.map((action, index) => (
+                      <Box key={index} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          placeholder="เช่น เช็คอิน, รับของที่ระลึก"
+                          value={action}
+                          onChange={e => updateCheckinAction(index, e.target.value)}
+                        />
+                        <IconButton size="small" onClick={() => removeCheckinAction(index)} sx={{ color: 'error.main' }}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                    <Button size="small" startIcon={<AddIcon />} onClick={addCheckinAction} sx={{ alignSelf: 'flex-start', borderRadius: 2 }}>
+                      เพิ่มรายการเช็คอิน
+                    </Button>
+                  </Stack>
+                </Grid>
+
                 <Grid item xs={12} sm={6}>
                   <TextField
                     label="แสตมป์ที่ได้รับ (หลังเรียนจบ)"
