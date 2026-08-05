@@ -119,6 +119,9 @@ export class AdminRepository {
     lastName?: string;
     firstNameEn?: string;
     lastNameEn?: string;
+    prefix?: string;
+    dob?: string;
+    address?: string;
     phone?: string;
     email?: string;
     relationship?: string;
@@ -133,7 +136,8 @@ export class AdminRepository {
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Users SET
-        first_name = ?, last_name = ?, first_name_en = ?, last_name_en = ?, phone = ?, email = ?,
+        first_name = ?, last_name = ?, first_name_en = ?, last_name_en = ?, prefix = ?, dob = ?, address = ?,
+        phone = ?, email = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
         application_date = ?, profile_image_url = ?, display_name = ?,
@@ -142,6 +146,7 @@ export class AdminRepository {
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
       data.firstNameEn ?? null, data.lastNameEn ?? null,
+      data.prefix ?? null, data.dob ?? null, data.address ?? null,
       data.phone ?? null, data.email ?? null,
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,

@@ -69,6 +69,9 @@ interface User {
   last_name: string;
   first_name_en?: string;
   last_name_en?: string;
+  prefix?: string;
+  dob?: string;
+  address?: string;
   children_count: number;
   has_premium_child?: boolean;
   profile_image_url?: string;
@@ -109,6 +112,9 @@ const emptyForm = {
   last_name: '',
   first_name_en: '',
   last_name_en: '',
+  prefix: '',
+  dob: '',
+  address: '',
   phone: '',
   email: '',
   relationship: '',
@@ -396,6 +402,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         last_name: d.last_name ?? user.last_name ?? '',
         first_name_en: d.first_name_en ?? user.first_name_en ?? '',
         last_name_en: d.last_name_en ?? user.last_name_en ?? '',
+        prefix: d.prefix ?? user.prefix ?? '',
+        dob: d.dob ? d.dob.substring(0, 10) : '',
+        address: d.address ?? user.address ?? '',
         phone: d.phone ?? user.phone ?? '',
         email: d.email ?? user.email ?? '',
         relationship: d.relationship ?? '',
@@ -432,6 +441,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         last_name: user.last_name ?? '',
         first_name_en: user.first_name_en ?? '',
         last_name_en: user.last_name_en ?? '',
+        prefix: user.prefix ?? '',
+        dob: user.dob ? user.dob.substring(0, 10) : '',
+        address: user.address ?? '',
         phone: user.phone ?? '',
         email: user.email ?? '',
         relationship: '',
@@ -986,12 +998,25 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
               <Paper sx={{ p: 3, borderRadius: 3 }}>
                 <SectionHeader icon={<PersonIcon />} title="ข้อมูลผู้ปกครอง" />
                 <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>คำนำหน้า</InputLabel>
+                      <Select value={form.prefix} label="คำนำหน้า"
+                        onChange={e => !readOnly && setForm({ ...form, prefix: e.target.value })}
+                        inputProps={{ readOnly }}>
+                        <MenuItem value="">-</MenuItem>
+                        <MenuItem value="นาย">นาย</MenuItem>
+                        <MenuItem value="นาง">นาง</MenuItem>
+                        <MenuItem value="นางสาว">นางสาว</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
                     <TextField label="ชื่อ *" fullWidth value={form.first_name}
                       onChange={e => !readOnly && setForm({ ...form, first_name: e.target.value })}
                       InputProps={{ readOnly }} />
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={4}>
                     <TextField label="นามสกุล *" fullWidth value={form.last_name}
                       onChange={e => !readOnly && setForm({ ...form, last_name: e.target.value })}
                       InputProps={{ readOnly }} />
@@ -1049,6 +1074,13 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="วันเกิด (ไม่บังคับ)" fullWidth type="date" InputLabelProps={{ shrink: true }}
+                      value={form.dob}
+                      onChange={e => !readOnly && setForm({ ...form, dob: e.target.value })}
+                      InputProps={{ readOnly }} />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
                     <TextField label="เบอร์โทรติดต่อ *" fullWidth value={form.phone}
                       onChange={e => !readOnly && setForm({ ...form, phone: e.target.value })}
                       InputProps={{ readOnly }} />
@@ -1061,6 +1093,11 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Grid item xs={12} sm={6}>
                     <TextField label="Line ID (ไม่บังคับ)" fullWidth value={form.line_id}
                       onChange={e => !readOnly && setForm({ ...form, line_id: e.target.value })}
+                      InputProps={{ readOnly }} />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField label="ที่อยู่ (ไม่บังคับ)" fullWidth multiline rows={2} value={form.address}
+                      onChange={e => !readOnly && setForm({ ...form, address: e.target.value })}
                       InputProps={{ readOnly }} />
                   </Grid>
                 </Grid>
@@ -1571,7 +1608,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
               <TableCell sx={{ fontWeight: 800 }}>ชื่อผู้ใช้งาน</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ข้อมูลติดต่อ</TableCell>
               <TableCell sx={{ fontWeight: 800 }}>ประเภทสมาชิก</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 800 }}>จำนวนบุตร</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 800 }}>จำนวนสมาชิกครอบครัว</TableCell>
               <TableCell align="center" sx={{ fontWeight: 800 }}>จัดการ</TableCell>
             </TableRow>
           </TableHead>
@@ -1682,7 +1719,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         <DialogContent dividers>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
             สร้างบัญชีลูกค้าโดยตรงจากหลังบ้าน (ไม่ต้องยืนยัน OTP) — ใช้เมื่อลูกค้าสมัครเองผ่านแอปไม่ได้ เช่น SMS ส่งไม่สำเร็จ
-            หลังสร้างแล้วสามารถเพิ่มข้อมูลบุตรได้จากหน้าแก้ไขผู้ใช้งาน และลูกค้าสามารถใช้เบอร์โทร + PIN ที่ตั้งไว้ล็อกอินได้ทันที
+            หลังสร้างแล้วสามารถเพิ่มข้อมูลสมาชิกครอบครัวได้จากหน้าแก้ไขผู้ใช้งาน และลูกค้าสามารถใช้เบอร์โทร + PIN ที่ตั้งไว้ล็อกอินได้ทันที
           </Typography>
           {createError && <Alert severity="error" onClose={() => setCreateError(null)} sx={{ mb: 2 }}>{createError}</Alert>}
           <Grid container spacing={2}>
