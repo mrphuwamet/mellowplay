@@ -56,7 +56,7 @@ const ContactUs = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none">{lang === 'en' ? 'Contact Us' : 'ติดต่อเรา'}</h1>
+        <h1 className="text-[17px] font-black tracking-tight leading-none">{lang === 'en' ? 'Contact Us' : 'ติดต่อเรา'}</h1>
         <div className="w-10" />
       </header>
 
@@ -73,7 +73,7 @@ const ContactUs = () => {
                 <path d="M12 2C6.48 2 2 6.05 2 11.05C2 15.55 5.74 19.3 10.82 20.01L11.5 20.11V17.63C8.35 17.33 6 15.4 6 13.05C6 10.46 8.69 8.36 12 8.36C15.31 8.36 18 10.46 18 13.05C18 14.47 17.19 15.78 15.88 16.69L15 17.28V14.05H13V20.1L13.67 19.99C18.4 19.12 22 15.42 22 11.05C22 6.05 17.52 2 12 2Z" fill="#06C755" />
               </svg>
             </div>
-            <span className="font-black text-slate-800 text-[14px]">LINE OA</span>
+            <span className="font-black text-slate-800 text-[15px]">LINE OA</span>
           </a>
           <a
             href="https://www.facebook.com/mellowplayxmilk"
@@ -86,7 +86,7 @@ const ContactUs = () => {
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2" />
               </svg>
             </div>
-            <span className="font-black text-slate-800 text-[14px]">Facebook</span>
+            <span className="font-black text-slate-800 text-[15px]">Facebook</span>
           </a>
         </div>
 
@@ -95,7 +95,7 @@ const ContactUs = () => {
             <div className="w-9 h-9 rounded-full bg-mellow-purple/10 flex items-center justify-center text-mellow-purple">
               <MessageCircle size={18} />
             </div>
-            <h2 className="text-[16px] font-black text-slate-800">
+            <h2 className="text-[17px] font-black text-slate-800">
               {lang === 'en' ? 'Send us a message' : 'ส่งข้อความถึงเรา'}
             </h2>
           </div>
@@ -109,7 +109,7 @@ const ContactUs = () => {
               </p>
               <button
                 onClick={() => setSuccess(false)}
-                className="px-5 py-2.5 rounded-full bg-slate-100 text-slate-600 text-[13px] font-black active:scale-95 transition-transform"
+                className="px-5 py-2.5 rounded-full bg-slate-100 text-slate-600 text-[14px] font-black active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Send another' : 'ส่งข้อความอีกครั้ง'}
               </button>
@@ -121,7 +121,7 @@ const ContactUs = () => {
                   <button
                     key={cat.key}
                     onClick={() => setCategory(cat.key)}
-                    className={`px-3.5 py-1.5 rounded-full text-[12px] font-black transition-all ${
+                    className={`px-3.5 py-1.5 rounded-full text-[13px] font-black transition-all ${
                       category === cat.key ? 'bg-mellow-purple text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                     }`}
                   >
@@ -154,9 +154,9 @@ const ContactUs = () => {
                 onChange={(e) => setMessage(e.target.value.slice(0, MAX_LENGTH))}
                 placeholder={lang === 'en' ? 'Tell us what\'s on your mind...' : 'พิมพ์ข้อความถึงเราได้เลย...'}
                 rows={5}
-                className="w-full resize-none bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-[14px] font-medium focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+                className="w-full resize-none bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-[15px] font-medium focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
               />
-              <p className={`text-right text-[11px] font-bold mt-1 mb-3 ${message.length >= MAX_LENGTH ? 'text-red-500' : 'text-slate-300'}`}>
+              <p className={`text-right text-[12px] font-bold mt-1 mb-3 ${message.length >= MAX_LENGTH ? 'text-red-500' : 'text-slate-300'}`}>
                 {message.length}/{MAX_LENGTH}
               </p>
 

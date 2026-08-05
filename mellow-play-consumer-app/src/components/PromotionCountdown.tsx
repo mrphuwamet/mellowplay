@@ -39,7 +39,7 @@ const PromotionCountdown: React.FC<PromotionCountdownProps> = ({ validUntil, lan
   }
 
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-mellow-red">
+    <span className="inline-flex items-center gap-1 text-[12px] font-bold text-mellow-red">
       <Clock size={11} />
       {label}
     </span>

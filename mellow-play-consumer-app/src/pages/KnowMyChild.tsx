@@ -98,7 +98,7 @@ const KnowMyChild = () => {
              <Star size={80} strokeWidth={3} />
           </div>
           <div className="relative z-10">
-            <span className="px-3 py-1 bg-mellow-yellow text-white rounded-full text-[14px] font-black uppercase mb-3 inline-block">
+            <span className="px-3 py-1 bg-mellow-yellow text-white rounded-full text-[15px] font-black uppercase mb-3 inline-block">
               {t.knowMyChild.typeAnalysis}
             </span>
             <h2 className="text-3xl font-black text-[#111] mb-1">{displayType}</h2>
@@ -122,15 +122,15 @@ const KnowMyChild = () => {
           <div className="grid grid-cols-3 gap-3">
              <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center flex flex-col items-center gap-2">
                 <Puzzle className="text-mellow-purple" size={24} />
-                <b className="text-[14px] font-black leading-tight">{t.knowMyChild.trait1}</b>
+                <b className="text-[15px] font-black leading-tight">{t.knowMyChild.trait1}</b>
              </div>
              <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center flex flex-col items-center gap-2">
                 <MessageSquare className="text-mellow-blue" size={24} />
-                <b className="text-[14px] font-black leading-tight">{t.knowMyChild.trait2}</b>
+                <b className="text-[15px] font-black leading-tight">{t.knowMyChild.trait2}</b>
              </div>
              <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center flex flex-col items-center gap-2">
                 <Heart className="text-mellow-red" size={24} />
-                <b className="text-[14px] font-black leading-tight">{t.knowMyChild.trait3}</b>
+                <b className="text-[15px] font-black leading-tight">{t.knowMyChild.trait3}</b>
              </div>
           </div>
         </div>
@@ -139,7 +139,7 @@ const KnowMyChild = () => {
         <div className="mb-8">
            <div className="flex justify-between items-center mb-4">
               <h3 className="font-black text-lg">{t.knowMyChild.nineTraits}</h3>
-              <div className="flex gap-4 text-[14px] font-bold text-slate-400 uppercase tracking-widest">
+              <div className="flex gap-4 text-[15px] font-bold text-slate-400 uppercase tracking-widest">
                  <div className="flex items-center gap-1">
                     <div className="w-2 h-2 bg-mellow-green rounded-full" /> {t.knowMyChild.defined}
                  </div>
@@ -159,7 +159,7 @@ const KnowMyChild = () => {
                       </div>
                       <b className="text-sm font-black">{center.label}</b>
                    </div>
-                   <p className="text-[14px] text-slate-400 font-bold leading-tight">{center.sub}</p>
+                   <p className="text-[15px] text-slate-400 font-bold leading-tight">{center.sub}</p>
                 </div>
               ))}
            </div>
@@ -223,7 +223,7 @@ const KnowMyChild = () => {
            <p className="text-xs text-mellow-purple font-black italic">
               “{t.knowMyChild.parentalPrompt}”
            </p>
-           <span className="text-[14px] text-slate-400 font-bold block mt-2 uppercase tracking-widest">{t.knowMyChild.parentalPromptLabel}</span>
+           <span className="text-[15px] text-slate-400 font-bold block mt-2 uppercase tracking-widest">{t.knowMyChild.parentalPromptLabel}</span>
         </div>
 
       </main>

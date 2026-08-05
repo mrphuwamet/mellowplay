@@ -83,14 +83,14 @@ const CommunityGuidelines: React.FC = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none">
+        <h1 className="text-[17px] font-black tracking-tight leading-none">
           {lang === 'en' ? 'Community Guidelines' : 'แนวทางการใช้งานชุมชน'}
         </h1>
         <div className="w-10" />
       </header>
 
       <main className="p-5 pb-12">
-        <p className="text-[13px] text-slate-500 font-medium mb-6 leading-relaxed">
+        <p className="text-[14px] text-slate-500 font-medium mb-6 leading-relaxed">
           {lang === 'en'
             ? 'These guidelines keep the Mellow Play community a safe, welcoming space for every family. By posting here, you agree to follow them.'
             : 'แนวทางนี้มีไว้เพื่อให้ชุมชน Mellow Play เป็นพื้นที่ที่ปลอดภัยและเป็นมิตรสำหรับทุกครอบครัว การโพสต์ในชุมชนนี้ถือว่าคุณยอมรับที่จะปฏิบัติตามแนวทางนี้'}
@@ -105,8 +105,8 @@ const CommunityGuidelines: React.FC = () => {
                   <Icon size={20} className="text-mellow-purple" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-[14px] font-black text-slate-800 mb-1">{s.title}</h2>
-                  <p className="text-[13px] text-slate-500 leading-relaxed">{s.body}</p>
+                  <h2 className="text-[15px] font-black text-slate-800 mb-1">{s.title}</h2>
+                  <p className="text-[14px] text-slate-500 leading-relaxed">{s.body}</p>
                 </div>
               </div>
             );

@@ -261,7 +261,7 @@ const Login = () => {
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10" />
                   <div className="relative z-10 flex flex-col justify-center p-10 text-white w-full h-full">
-                    <span className="text-[12px] font-black uppercase tracking-widest text-mellow-yellow mb-3">
+                    <span className="text-[13px] font-black uppercase tracking-widest text-mellow-yellow mb-3">
                       {lang === 'en' ? 'Recommended for you' : 'แนะนำสำหรับคุณ'}
                     </span>
                     <h2 className="text-[26px] font-black mb-2 leading-tight">
@@ -378,7 +378,7 @@ const Login = () => {
         ) : (
           <>
             <div className="relative">
-              <label className="text-[13px] font-bold text-slate-500 mb-3 block text-center">
+              <label className="text-[14px] font-bold text-slate-500 mb-3 block text-center">
                 {t.login.pinLabel}
               </label>
               <PinPad

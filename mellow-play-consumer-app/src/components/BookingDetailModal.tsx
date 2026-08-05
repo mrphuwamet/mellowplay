@@ -85,9 +85,9 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
             )}
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <h3 className="font-bold text-slate-800 text-[15px] leading-tight">{booking.course_name}</h3>
+                <h3 className="font-bold text-slate-800 text-[16px] leading-tight">{booking.course_name}</h3>
                 {BOOKING_STATUS_META[booking.status] && (
-                  <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[booking.status].bg} ${BOOKING_STATUS_META[booking.status].fg}`}>
+                  <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[booking.status].bg} ${BOOKING_STATUS_META[booking.status].fg}`}>
                     {lang === 'en' ? BOOKING_STATUS_META[booking.status].en : BOOKING_STATUS_META[booking.status].th}
                   </span>
                 )}
@@ -121,7 +121,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           {booking.course_id && (
             <button
               onClick={() => navigate(`/class/${booking.course_id}`)}
-              className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+              className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-[14px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
             >
               <BookOpen size={16} />
               {lang === 'en' ? 'View More Details' : 'ดูรายละเอียดเพิ่มเติม'}
@@ -165,7 +165,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                         <Award size={16} />
                       </div>
                       <div>
-                        <p className="text-[10px] font-black text-mellow-blue uppercase tracking-widest">
+                        <p className="text-[11px] font-black text-mellow-blue uppercase tracking-widest">
                           {lang === 'en' ? 'Achievement' : 'ความสำเร็จ'}
                         </p>
                         <p className="text-sm font-bold text-slate-800">{progress.node_title}</p>
@@ -175,13 +175,13 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
                   {skillItems.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-black text-mellow-purple uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                      <p className="text-[11px] font-black text-mellow-purple uppercase tracking-widest mb-1.5 flex items-center gap-1">
                         <Award size={11} />
                         {lang === 'en' ? 'Skills' : 'ทักษะที่ได้รับ'}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {skillItems.map((s, i) => (
-                          <span key={i} className="px-2.5 py-1 bg-mellow-purple/10 text-mellow-purple text-[11px] font-black rounded-full">
+                          <span key={i} className="px-2.5 py-1 bg-mellow-purple/10 text-mellow-purple text-[12px] font-black rounded-full">
                             {skillLabel(s)}
                           </span>
                         ))}
@@ -191,13 +191,13 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
                   {indicatorItems.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                      <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
                         <Sparkles size={11} />
                         {lang === 'en' ? "Today's Highlight" : 'สิ่งที่โดดเด่นในวันนี้'}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {indicatorItems.map((s, i) => (
-                          <span key={i} className="px-2.5 py-1 bg-amber-50 text-amber-600 text-[11px] font-black rounded-full">
+                          <span key={i} className="px-2.5 py-1 bg-amber-50 text-amber-600 text-[12px] font-black rounded-full">
                             {skillLabel(s)}
                           </span>
                         ))}
@@ -206,7 +206,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                   )}
 
                   <div className="bg-mellow-purple/5 border border-mellow-purple/10 rounded-2xl p-3.5">
-                    <p className="text-[10px] font-black text-mellow-purple uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                    <p className="text-[11px] font-black text-mellow-purple uppercase tracking-widest mb-1 flex items-center gap-1.5">
                       <MessageCircleHeart size={12} />
                       {lang === 'en' ? "Facilitator's Note" : 'บันทึกจากคุณครู'}
                     </p>
@@ -221,7 +221,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
                   <button
                     onClick={() => navigate(`/report/${booking.id}`, { state: { booking } })}
-                    className="w-full py-3 bg-mellow-purple/10 text-mellow-purple rounded-xl font-black text-[13px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                    className="w-full py-3 bg-mellow-purple/10 text-mellow-purple rounded-xl font-black text-[14px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
                   >
                     <Award size={16} />
                     {lang === 'en' ? 'View Full Report' : 'ดูรายงานฉบับเต็ม'}
@@ -284,7 +284,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
         <button
           onClick={onClose}
-          className="mt-6 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[15px] active:scale-[0.98] transition-all"
+          className="mt-6 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[16px] active:scale-[0.98] transition-all"
         >
           {lang === 'en' ? 'Close' : 'ปิดหน้านี้'}
         </button>

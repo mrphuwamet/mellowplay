@@ -7,6 +7,8 @@ import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { getCourseView } from '../utils/courseImage';
+import { getCourseDetailPath } from '../utils/courseLinks';
+import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { trackCourseView } from '../utils/analytics';
 import PosterCarousel from '../components/PosterCarousel';
 import PromotionCountdown from '../components/PromotionCountdown';
@@ -104,7 +106,7 @@ const CourseDetail = () => {
         </header>
         <div className="p-10 text-center text-slate-500 font-bold space-y-2">
           <p>{fetchError ? (lang === 'en' ? 'Failed to load class data.' : 'โหลดข้อมูลคลาสไม่สำเร็จ') : (lang === 'en' ? 'Class not found.' : 'ไม่พบคลาสเรียน')}</p>
-          <p className="text-[11px] text-slate-400 font-mono break-all">
+          <p className="text-[12px] text-slate-400 font-mono break-all">
             id={id || '(none)'}{fetchError ? ` · ${fetchError}` : ''}
           </p>
         </div>
@@ -148,16 +150,23 @@ const CourseDetail = () => {
   // courses actually block re-registration.
   const courseBookingStatus = courseBookingStatusMap[course.id];
   const isOneTimeBooked = !!courseBookingStatus && !course.allow_repeat;
+  const ended = isCourseEnded(course);
+  const registrationClosed = isRegistrationClosed(course);
+  const isRegisterDisabled = isOneTimeBooked || ended || registrationClosed;
   const registerLabel = isOneTimeBooked
     ? (courseBookingStatus === 'upcoming'
         ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
         : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว'))
-    : (lang === 'en' ? 'Register' : 'ลงทะเบียน');
+    : ended
+      ? (lang === 'en' ? 'Ended' : 'จบแล้ว')
+      : registrationClosed
+        ? (lang === 'en' ? 'Registration Closed' : 'ปิดรับลงทะเบียน')
+        : (lang === 'en' ? 'Register' : 'ลงทะเบียน');
 
   // Shared by the mobile fixed-bottom bar and the lg:+ inline sidebar
   // button below — same action, two different placements per breakpoint.
   const handleRegisterClick = () => {
-    if (isOneTimeBooked) return;
+    if (isRegisterDisabled) return;
     const isGuest = localStorage.getItem('mellow_guest') === 'true';
     if (isGuest) {
       setShowGuestModal(true);
@@ -197,7 +206,7 @@ const CourseDetail = () => {
 
           <div className="relative flex items-center gap-2">
             <ShareToLineButton
-              text={`${lang === 'en' && course.name_en ? course.name_en : course.name}\n${window.location.origin}/class/${course.id}`}
+              text={`${lang === 'en' && course.name_en ? course.name_en : course.name}\n${window.location.origin}${getCourseDetailPath(course)}`}
               label={<Share2 size={18} />}
               className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-90 transition-transform"
             />
@@ -208,7 +217,7 @@ const CourseDetail = () => {
         
         {/* Category Tag */}
         <div className="absolute bottom-5 left-5 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-xl shadow-lg">
-          <span className={`text-[12px] font-black uppercase tracking-wide ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+          <span className={`text-[13px] font-black uppercase tracking-wide ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
             {course.category_name}
           </span>
         </div>
@@ -231,7 +240,7 @@ const CourseDetail = () => {
           )}
           {shortDescription && (
             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-4">
-              <p className="text-slate-600 text-[15px] leading-relaxed whitespace-pre-wrap">
+              <p className="text-slate-600 text-[16px] leading-relaxed whitespace-pre-wrap">
                 {shortDescription}
               </p>
             </div>
@@ -257,11 +266,11 @@ const CourseDetail = () => {
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[11px] font-black uppercase tracking-wide text-mellow-red truncate">
+                  <span className="text-[12px] font-black uppercase tracking-wide text-mellow-red truncate">
                     {course.active_campaign_label || (lang === 'en' ? 'Special Price' : 'ราคาพิเศษ')}
                   </span>
                   {discountPercent > 0 && (
-                    <span className="text-[11px] font-black text-mellow-red shrink-0">
+                    <span className="text-[12px] font-black text-mellow-red shrink-0">
                       -{discountPercent}%
                     </span>
                   )}
@@ -299,15 +308,15 @@ const CourseDetail = () => {
             })()}
             <button
               onClick={handleRegisterClick}
-              disabled={isOneTimeBooked}
-              className={`hidden lg:flex w-full h-[52px] mt-2 rounded-2xl font-black text-[15px] items-center justify-center gap-2 transition-transform ${
-                isOneTimeBooked
+              disabled={isRegisterDisabled}
+              className={`hidden lg:flex w-full h-[52px] mt-2 rounded-2xl font-black text-[16px] items-center justify-center gap-2 transition-transform ${
+                isRegisterDisabled
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-mellow-ink text-white shadow-lg shadow-black/20 active:scale-[0.98]'
               }`}
             >
               {registerLabel}
-              {!isOneTimeBooked && <ArrowRight size={18} />}
+              {!isRegisterDisabled && <ArrowRight size={18} />}
             </button>
           </div>
 
@@ -318,8 +327,8 @@ const CourseDetail = () => {
                 <Users size={20} />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Age Range' : 'ช่วงอายุ'}</p>
-                <p className="text-[14px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
+                <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Age Range' : 'ช่วงอายุ'}</p>
+                <p className="text-[15px] font-black text-slate-700">{course.age_min}-{course.age_max} {lang === 'en' ? 'Years' : 'ปี'}</p>
               </div>
             </div>
             <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
@@ -327,8 +336,8 @@ const CourseDetail = () => {
                 <Clock size={20} />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Duration' : 'ระยะเวลา'}</p>
-                <p className="text-[14px] font-black text-slate-700">{formatDuration(course.duration)}</p>
+                <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Duration' : 'ระยะเวลา'}</p>
+                <p className="text-[15px] font-black text-slate-700">{formatDuration(course.duration)}</p>
               </div>
             </div>
           </div>
@@ -340,8 +349,8 @@ const CourseDetail = () => {
                 <MapPin size={20} />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
-                <p className="text-[14px] font-black text-slate-700">{(course.is_extraclass || course.is_event) ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
+                <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
+                <p className="text-[15px] font-black text-slate-700">{(course.is_extraclass || course.is_event) ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
               </div>
             </div>
             {((!course.is_extraclass && !course.is_event) || course.location_link) && (
@@ -374,9 +383,9 @@ const CourseDetail = () => {
             with no HTML tags) still readable with their line breaks. */}
         {course.description && (
           <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-2 lg:mt-4">
-            <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+            <h3 className="text-[17px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
             <div
-              className="prose-news whitespace-pre-wrap text-[14px] text-slate-600 leading-relaxed font-medium"
+              className="prose-news whitespace-pre-wrap text-[15px] text-slate-600 leading-relaxed font-medium"
               dangerouslySetInnerHTML={{ __html: (lang === 'en' && course.description_en ? course.description_en : course.description) || '' }}
             />
           </div>
@@ -387,12 +396,12 @@ const CourseDetail = () => {
             internal "indicator" (ตัวชี้วัด) entries from the same library. */}
         {achievementSkills.length > 0 && (
           <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-3 lg:mt-4">
-            <h3 className="text-[16px] font-black text-slate-800 mb-3">
+            <h3 className="text-[17px] font-black text-slate-800 mb-3">
               {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
             </h3>
             <div className="flex flex-wrap gap-2">
               {achievementSkills.map((skill, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[13px] font-bold">
+                <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[14px] font-bold">
                   <SkillIcon iconKey={skill.icon} size={13} />
                   {lang === 'en' && skill.en ? skill.en : skill.th}
                 </span>
@@ -407,7 +416,7 @@ const CourseDetail = () => {
             <div className="w-8 h-8 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
               <CalendarIcon size={16} />
             </div>
-            <h3 className="text-[16px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
+            <h3 className="text-[17px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
           </div>
 
           {course.calendar_id ? (
@@ -417,7 +426,7 @@ const CourseDetail = () => {
                    const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', lang === 'en' ? enDateOptions : thDateOptions);
                    return (
                      <div key={i} className="py-3 border-b border-slate-100 last:border-0 last:pb-0">
-                       <h4 className="text-[15px] font-bold text-slate-800 mb-3">{displayDate}</h4>
+                       <h4 className="text-[16px] font-bold text-slate-800 mb-3">{displayDate}</h4>
                        <div className="grid grid-cols-1 gap-2">
                          {day.slots.map((slot: any, j: number) => {
                            const isFull = slot.available <= 0;
@@ -425,11 +434,11 @@ const CourseDetail = () => {
                              <div key={j} className={`flex items-center justify-between p-3 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'} `}>
                                <div className="flex items-center gap-2">
                                  <Clock size={16} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
-                                 <span className={`text-[14px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                 <span className={`text-[15px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
                                    {slot.startTime} - {slot.endTime}
                                  </span>
                                </div>
-                               <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[15px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                               <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[16px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
                                  {isFull ? (
                                    (lang === 'en' ? 'Full' : 'เต็มแล้ว')
                                  ) : (
@@ -450,7 +459,7 @@ const CourseDetail = () => {
                  {upcomingSlots.length > 5 && !showAllSlots && (
                    <button
                      onClick={() => setShowAllSlots(true)}
-                     className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-[14px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
+                     className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-[15px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
                    >
                      {lang === 'en' ? 'View more dates' : 'ดูรอบกิจกรรมเพิ่มเติม'}
                      <ArrowRight size={16} />
@@ -458,10 +467,10 @@ const CourseDetail = () => {
                  )}
                </div>
              ) : (
-               <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
+               <p className="text-[15px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
              )
           ) : (
-            <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
+            <p className="text-[15px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
           )}
         </div>
       </main>
@@ -471,15 +480,15 @@ const CourseDetail = () => {
       <div className="lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] p-5 bg-white/90 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-20">
         <button
           onClick={handleRegisterClick}
-          disabled={isOneTimeBooked}
-          className={`w-full h-[56px] rounded-2xl font-black text-[16px] flex items-center justify-center gap-2 transition-transform ${
-            isOneTimeBooked
+          disabled={isRegisterDisabled}
+          className={`w-full h-[56px] rounded-2xl font-black text-[17px] flex items-center justify-center gap-2 transition-transform ${
+            isRegisterDisabled
               ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
               : 'bg-mellow-ink text-white shadow-lg shadow-black/20 active:scale-[0.98]'
           }`}
         >
           {registerLabel}
-          {!isOneTimeBooked && <ArrowRight size={20} />}
+          {!isRegisterDisabled && <ArrowRight size={20} />}
         </button>
       </div>
 
@@ -491,7 +500,7 @@ const CourseDetail = () => {
             <h3 className="text-[20px] font-black text-slate-800 mb-2">
               {lang === 'en' ? 'Have you signed up with Mellow Play before?' : 'เคยเป็นสมาชิก Mellow Play ไหม?'}
             </h3>
-            <p className="text-[14px] text-slate-500 font-medium mb-6">
+            <p className="text-[15px] text-slate-500 font-medium mb-6">
               {lang === 'en'
                 ? `Just one more step to book "${lang === 'en' && course.name_en ? course.name_en : course.name}" — pick whichever applies to you.`
                 : `อีกนิดเดียวก็จะจอง "${course.name}" ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
@@ -500,25 +509,25 @@ const CourseDetail = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/register?redirect=/class/${course.id}`);
+                  navigate(`/register?redirect=${getCourseDetailPath(course)}`);
                 }}
-                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
+                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Not yet — Sign up' : 'ยังไม่มี — สมัครเลย'}
               </button>
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/login?redirect=/class/${course.id}`);
+                  navigate(`/login?redirect=${getCourseDetailPath(course)}`);
                 }}
-                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Yes — Login' : 'มีแล้ว — เข้าสู่ระบบ'}
               </button>
             </div>
             <button
               onClick={() => setShowGuestModal(false)}
-              className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+              className="w-full mt-3 text-[14px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
             >
               {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>

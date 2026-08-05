@@ -37,7 +37,7 @@ export const LanguageToggle = () => {
   return (
     <button
       onClick={() => setLang(lang === 'th' ? 'en' : 'th')}
-      className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-[14px] text-mellow-purple shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)] border border-slate-200 active:scale-95 transition-all"
+      className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-[15px] text-mellow-purple shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)] border border-slate-200 active:scale-95 transition-all"
     >
       {lang === 'th' ? 'EN' : 'ไทย'}
     </button>

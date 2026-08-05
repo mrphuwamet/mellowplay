@@ -17,6 +17,7 @@ import truewalletIcon from '../assets/payment-icon/truewallet.webp';
 import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
+import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import logo from '../assets/ui/logo.svg';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
@@ -25,7 +26,7 @@ import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponT
 import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; registration_close_at?: string | null; }
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -636,7 +637,7 @@ const Booking = () => {
         >
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight text-mellow-ink">{bookingTypeTitle}</h1>
+        <h1 className="text-[17px] font-black tracking-tight text-mellow-ink">{bookingTypeTitle}</h1>
         <div className="w-10" />
       </header>
 
@@ -675,7 +676,7 @@ const Booking = () => {
                       href={selectedCourse?.location_link || "https://www.google.com/maps/search/?api=1&query=Mellow+Play+Pattaya"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 px-3 py-1 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg text-[11px] font-black transition-colors"
+                      className="shrink-0 px-3 py-1 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg text-[12px] font-black transition-colors"
                     >
                       {lang === 'en' ? 'Map' : 'เส้นทาง'}
                     </a>
@@ -694,7 +695,7 @@ const Booking = () => {
               </div>
             </div>
           </div>
-          <p className="text-[11px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
+          <p className="text-[12px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
             📸 {lang === 'en' ? 'Please screenshot this screen for easy reference.' : 'โปรดแคปหน้าจอนี้ไว้เพื่อดูข้อมูลอย่างง่าย'}
           </p>
           <ShareToLineButton
@@ -741,7 +742,7 @@ const Booking = () => {
                      <BookOpen size={14} />
                    </div>
                    <div className="flex-1">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CLASS</p>
+                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">CLASS</p>
                      <div className="flex items-start justify-between gap-2">
                        <div>
                          <p className="text-sm font-black text-slate-800">{selectedCourse.name}</p>
@@ -765,14 +766,14 @@ const Booking = () => {
                       <User size={14} />
                     </div>
                     <div className="flex-1">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{lang === 'en' ? 'Class Attendees' : 'เด็กผู้เข้าคลาส'}</p>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{lang === 'en' ? 'Class Attendees' : 'เด็กผู้เข้าคลาส'}</p>
                       <div className="flex flex-wrap gap-2">
                         {selectedChildren.map(c => (
                           <div key={c.id} className="flex flex-col items-center gap-1">
                             <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-sm ring-2 ring-mellow-purple/20">
                               <ChildAvatar avatarType={c.avatar} className="w-10 h-10" />
                             </div>
-                            <span className="text-[10px] font-black text-slate-700 max-w-[44px] truncate text-center">{c.nickname || c.name.split(' ')[0]}</span>
+                            <span className="text-[11px] font-black text-slate-700 max-w-[44px] truncate text-center">{c.nickname || c.name.split(' ')[0]}</span>
                           </div>
                         ))}
                       </div>
@@ -877,10 +878,10 @@ const Booking = () => {
                     scrolling row instead of two stacked blocks, with small
                     inline labels and a divider marking where each group starts. */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Category' : 'หมวดหมู่'}</span>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Category' : 'หมวดหมู่'}</span>
                   <button
                     onClick={() => setSelectedCategory('all')}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                    className={`px-3 py-1.5 rounded-xl text-[12px] font-black whitespace-nowrap transition-all shrink-0 ${
                       selectedCategory === 'all'
                         ? 'bg-mellow-purple text-white shadow-sm'
                         : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -892,7 +893,7 @@ const Booking = () => {
                     <button
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                      className={`px-3 py-1.5 rounded-xl text-[12px] font-black whitespace-nowrap transition-all shrink-0 ${
                         selectedCategory === cat
                           ? 'bg-mellow-purple text-white shadow-sm'
                           : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -904,7 +905,7 @@ const Booking = () => {
 
                   <span className="w-px h-4 bg-slate-200 shrink-0 mx-1" />
 
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Age' : 'อายุ'}</span>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{lang === 'en' ? 'Age' : 'อายุ'}</span>
                   {[
                     { key: 'all', label_th: 'ทั้งหมด', label_en: 'All' },
                     { key: '3-6', label_th: '3 - 6 ปี', label_en: '3 - 6 yrs' },
@@ -916,7 +917,7 @@ const Booking = () => {
                       <button
                         key={filter.key}
                         onClick={() => setCourseAgeFilter(filter.key as any)}
-                        className={`px-3.5 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all shrink-0 ${
+                        className={`px-3.5 py-1.5 rounded-xl text-[12px] font-black whitespace-nowrap transition-all shrink-0 ${
                           active
                             ? 'bg-mellow-purple text-white shadow-sm'
                             : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -932,7 +933,7 @@ const Booking = () => {
                 {courseAgeFilter === 'custom' && (
                   <div className="flex items-center justify-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl animate-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Min</span>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0">Min</span>
                       <input
                         type="number"
                         min="0"
@@ -945,7 +946,7 @@ const Booking = () => {
                     </div>
                     <span className="text-slate-300 font-black">–</span>
                     <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Max</span>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0">Max</span>
                       <input
                         type="number"
                         min="0"
@@ -962,11 +963,11 @@ const Booking = () => {
               </div>
 
               {isLoading ? (
-                <div className="grid grid-cols-1 gap-3 animate-pulse">
-                  {[0, 1, 2].map(i => (
-                    <div key={i} className="rounded-2xl border border-slate-100 bg-white overflow-hidden flex items-stretch">
-                      <div className="w-[95px] shrink-0 bg-slate-200" />
-                      <div className="flex-1 p-3 space-y-2">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} className="rounded-3xl border border-slate-100 bg-white overflow-hidden">
+                      <div className="aspect-[4/3] bg-slate-200" />
+                      <div className="p-3 space-y-2">
                         <div className="h-3.5 w-3/4 bg-slate-200 rounded-full" />
                         <div className="h-2.5 w-full bg-slate-100 rounded-full" />
                         <div className="h-2.5 w-1/2 bg-slate-100 rounded-full" />
@@ -975,85 +976,90 @@ const Booking = () => {
                   ))}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {filteredCourses.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                    <div className="col-span-full text-center py-12 text-slate-400 font-bold text-xs">
                       {lang === 'en' ? 'No classes found matching search criteria' : 'ไม่พบคลาสเรียนที่ตรงกับเงื่อนไขการค้นหา'}
                     </div>
                   ) : (
                     filteredCourses.map(course => {
-                      const view = getCourseView(course, 'square');
+                      const view = getCourseView(course, 'card');
+                      const ended = isCourseEnded(course);
+                      const closed = isRegistrationClosed(course);
+                      const disabled = ended || closed;
                       return (
                       <div
                         key={course.id}
-                        className={`rounded-2xl border transition-all overflow-hidden ${selectedCourse?.id === course.id ? 'border-mellow-purple ring-2 ring-mellow-purple/10 bg-white' : 'bg-white border-slate-100'}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => !disabled && goToChildStep(course)}
+                        onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) goToChildStep(course); }}
+                        className={`rounded-3xl border transition-all overflow-hidden flex flex-col active:scale-[0.98] ${disabled ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'} ${selectedCourse?.id === course.id ? 'border-mellow-purple ring-2 ring-mellow-purple/10 bg-white' : 'bg-white border-slate-100'}`}
                       >
-                        {/* Main clickable area */}
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => goToChildStep(course)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') goToChildStep(course); }}
-                          className="w-full text-left flex gap-0 active:scale-[0.99] transition-transform items-stretch cursor-pointer"
-                        >
-                          {/* Thumbnail Container */}
-                          <div className="w-[95px] shrink-0 bg-slate-100 relative self-stretch overflow-hidden">
-                            {view.url
-                              ? <img src={view.url} style={view.style} className="absolute inset-0 w-full h-full object-cover" alt={course.name} />
-                              : <div className="absolute inset-0 w-full h-full flex items-center justify-center text-slate-300 bg-gradient-to-br from-slate-100 to-slate-200"><BookOpen size={28}/></div>
-                            }
-                            {/* Category Tag overlaying the top-left */}
-                            {course.category_name && (
-                              <div className="absolute top-1 left-1 bg-black/60 backdrop-blur-[2px] text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider scale-90 origin-top-left shadow-sm">
-                                {course.category_name}
+                        {/* Cover image */}
+                        <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
+                          {view.url
+                            ? <img src={view.url} style={view.style} className={`w-full h-full object-cover ${disabled ? 'grayscale-[40%]' : ''}`} alt={course.name} />
+                            : <div className="w-full h-full flex items-center justify-center text-slate-300 bg-gradient-to-br from-slate-100 to-slate-200"><BookOpen size={28}/></div>
+                          }
+                          {course.category_name && (
+                            <div className="absolute top-2 left-2 bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm text-mellow-purple">
+                              {course.category_name}
+                            </div>
+                          )}
+                          {disabled && (
+                            <div className="absolute top-2 right-2 bg-slate-400 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-sm">
+                              {ended ? (lang === 'en' ? 'Ended' : 'จบแล้ว') : (lang === 'en' ? 'Registration Closed' : 'ปิดรับลงทะเบียน')}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 p-3 flex flex-col gap-1.5 min-w-0">
+                          <p className="text-[14px] font-black text-slate-800 leading-tight line-clamp-1">{course.name}</p>
+                          <p className="text-[12px] text-slate-500 font-medium line-clamp-2 leading-snug">{stripHtml(course.description || '')}</p>
+
+                          <div className="mt-auto pt-1">
+                            {(course as any).active_campaign_discount_amount > 0 ? (
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-[16px] font-black text-mellow-purple leading-none">
+                                  {((course.original_price || 0) - (course as any).active_campaign_discount_amount).toLocaleString()} ฿
+                                </span>
+                                <span className="text-[11px] text-slate-400 line-through font-medium">
+                                  {course.original_price?.toLocaleString()} ฿
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[16px] font-black text-mellow-purple">
+                                {course.original_price ? `${course.original_price.toLocaleString()} ฿` : <span className="text-slate-400 text-[13px]">ฟรี</span>}
+                              </span>
+                            )}
+                            {(course as any).active_campaign_label && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <Tag size={10} className="text-mellow-purple shrink-0" />
+                                <span className="text-[11px] font-bold text-mellow-purple truncate">{(course as any).active_campaign_label}</span>
                               </div>
                             )}
-                          </div>
 
-                          {/* Content */}
-                          <div className="flex-1 p-3 flex flex-col gap-1.5 min-w-0">
-                            <p className="text-[13px] font-black text-slate-800 leading-tight line-clamp-1">{course.name}</p>
-                            <p className="text-[11px] text-slate-500 font-medium line-clamp-2 leading-snug">{stripHtml(course.description || '')}</p>
-                            {/* Price row + Detail button */}
-                            <div className="mt-auto pt-1 flex items-end justify-between gap-2">
-                              <div>
-                                {(course as any).active_campaign_discount_amount > 0 ? (
-                                  <div className="flex items-baseline gap-1.5">
-                                    <span className="text-[15px] font-black text-mellow-purple leading-none">
-                                      {((course.original_price || 0) - (course as any).active_campaign_discount_amount).toLocaleString()} ฿
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 line-through font-medium">
-                                      {course.original_price?.toLocaleString()} ฿
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="text-[15px] font-black text-mellow-purple">
-                                    {course.original_price ? `${course.original_price.toLocaleString()} ฿` : <span className="text-slate-400 text-[12px]">ฟรี</span>}
-                                  </span>
-                                )}
-                                {(course as any).active_campaign_label && (
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <Tag size={10} className="text-mellow-purple shrink-0" />
-                                    <span className="text-[10px] font-bold text-mellow-purple truncate">{(course as any).active_campaign_label}</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Detail + Book pill buttons — bottom right */}
-                              <div className="shrink-0 flex items-center gap-1.5">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setIsCourseModalOpen(true); }}
-                                  className="px-3 py-1 bg-mellow-purple/10 text-mellow-purple text-[11px] font-bold rounded-full hover:bg-mellow-purple/20 active:scale-95 transition-all"
-                                >
-                                  {lang === 'en' ? 'Detail' : 'รายละเอียด'}
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); goToChildStep(course); }}
-                                  className="px-3 py-1 bg-mellow-purple text-white text-[11px] font-bold rounded-full hover:bg-mellow-purple/90 active:scale-95 transition-all"
-                                >
-                                  {bookActionLabel}
-                                </button>
-                              </div>
+                            {/* Detail + Book pill buttons */}
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setIsCourseModalOpen(true); }}
+                                className="flex-1 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple text-[12px] font-bold rounded-full hover:bg-mellow-purple/20 active:scale-95 transition-all text-center"
+                              >
+                                {lang === 'en' ? 'Detail' : 'รายละเอียด'}
+                              </button>
+                              <button
+                                disabled={disabled}
+                                onClick={(e) => { e.stopPropagation(); if (!disabled) goToChildStep(course); }}
+                                className={`flex-1 px-3 py-1.5 text-[12px] font-bold rounded-full transition-all text-center ${
+                                  disabled
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    : 'bg-mellow-purple text-white hover:bg-mellow-purple/90 active:scale-95'
+                                }`}
+                              >
+                                {disabled ? (ended ? (lang === 'en' ? 'Ended' : 'จบแล้ว') : (lang === 'en' ? 'Closed' : 'ปิดรับ')) : bookActionLabel}
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1104,7 +1110,7 @@ const Booking = () => {
                       isDisabled ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : isSelected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 opacity-70'
                     }`}>
                       {statusLabel && (
-                        <span className={`absolute -top-2 left-3 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide shadow-sm ${
+                        <span className={`absolute -top-2 left-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow-sm ${
                           status === 'upcoming' ? 'bg-emerald-500 text-white' : 'bg-slate-400 text-white'
                         }`}>
                           {statusLabel}
@@ -1119,9 +1125,9 @@ const Booking = () => {
                         )}
                       </div>
                       <div>
-                        <b className="text-[15px] font-black text-slate-800 block leading-tight">{child.nickname || child.name.split(' ')[0]}</b>
-                        <p className="text-[11px] text-slate-500 font-medium truncate">{child.name}</p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-0.5">{calculateAge(child.dob, t)}</p>
+                        <b className="text-[16px] font-black text-slate-800 block leading-tight">{child.nickname || child.name.split(' ')[0]}</b>
+                        <p className="text-[12px] text-slate-500 font-medium truncate">{child.name}</p>
+                        <p className="text-[11px] font-bold text-slate-400 mt-0.5">{calculateAge(child.dob, t)}</p>
                       </div>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {child.coupons && child.coupons.filter((c: any) => c.balance > 0).map((coupon: any) => (
@@ -1182,7 +1188,7 @@ const Booking = () => {
                       <div className={`p-2 rounded-xl mt-0.5 ${selectedBranch?.id === branch.id ? 'bg-mellow-purple/10 text-mellow-purple' : 'bg-slate-100 text-slate-400'}`}><MapPin size={18} /></div>
                       <div>
                         <b className="text-sm font-black text-slate-700 block">{branch.name}</b>
-                        <p className="text-[12px] text-slate-400 font-bold leading-snug mt-0.5">{branch.location}</p>
+                        <p className="text-[13px] text-slate-400 font-bold leading-snug mt-0.5">{branch.location}</p>
                       </div>
                     </button>
                   ))
@@ -1219,10 +1225,10 @@ const Booking = () => {
                         >
                           {ud.isFull && (
                              <div className="absolute inset-0 bg-black/5 flex items-center justify-center z-10">
-                               <div className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-sm transform -rotate-12 border border-white shadow-sm uppercase tracking-widest">{t.booking?.full || 'เต็ม'}</div>
+                               <div className="bg-red-500 text-white text-[11px] font-black px-2 py-0.5 rounded-sm transform -rotate-12 border border-white shadow-sm uppercase tracking-widest">{t.booking?.full || 'เต็ม'}</div>
                              </div>
                           )}
-                          <span className="text-[11px] font-bold uppercase tracking-wider mb-1 relative z-0">{dayName}</span>
+                          <span className="text-[12px] font-bold uppercase tracking-wider mb-1 relative z-0">{dayName}</span>
                           <b className={`text-2xl font-black relative z-0 ${selectedDateObj?.date === ud.date ? 'text-white' : 'text-slate-700'}`}>{dayNum}</b>
                         </button>
                       );
@@ -1306,7 +1312,7 @@ const Booking = () => {
                         </div>
                         <div className="flex-1">
                           <b className="text-sm font-black text-slate-800 block mb-0.5">{t.booking?.useCoupon || 'ใช้คูปอง'} {cc.name}</b>
-                          <p className="text-[12px] text-slate-500 font-bold">{t.booking?.deduct || 'หัก'} {cc.quantity_required} {t.booking?.couponUnit || 'ใบ'}</p>
+                          <p className="text-[13px] text-slate-500 font-bold">{t.booking?.deduct || 'หัก'} {cc.quantity_required} {t.booking?.couponUnit || 'ใบ'}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <span className={`text-xs font-black px-2 py-1 rounded-lg ${hasEnough ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
@@ -1325,7 +1331,7 @@ const Booking = () => {
                       <QrCode size={24} />
                     </div>
                     <div className="flex-1">
-                      <b className="text-[15px] font-black text-slate-800 block mb-1">QR PromptPay</b>
+                      <b className="text-[16px] font-black text-slate-800 block mb-1">QR PromptPay</b>
                       <img src={promptpayIcon} alt="PromptPay" className="h-4 object-contain" />
                     </div>
                   </button>
@@ -1338,7 +1344,7 @@ const Booking = () => {
                       <CreditCard size={24} />
                     </div>
                     <div className="flex-1">
-                      <b className="text-[15px] font-black text-slate-800 block mb-1">Credit/Debit Card</b>
+                      <b className="text-[16px] font-black text-slate-800 block mb-1">Credit/Debit Card</b>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <img src={visaIcon} alt="VISA" className="h-4 object-contain" />
                         <img src={mastercardIcon} alt="Mastercard" className="h-4 object-contain" />
@@ -1354,7 +1360,7 @@ const Booking = () => {
                       <Wallet size={24} />
                     </div>
                     <div className="flex-1">
-                      <b className="text-[15px] font-black text-slate-800 block mb-1">Wallet</b>
+                      <b className="text-[16px] font-black text-slate-800 block mb-1">Wallet</b>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <img src={truewalletIcon} alt="TrueMoney Wallet" className="h-4 object-contain" />
                         <img src={shopeepayIcon} alt="ShopeePay" className="h-4 object-contain" />
@@ -1403,7 +1409,7 @@ const Booking = () => {
 
                 <div className="flex-1 min-w-0">
                   {selectedCourse.category_name && (
-                    <span className={`inline-block text-[11px] font-black uppercase tracking-wide mb-1.5 ${selectedCourse.is_event ? 'text-mellow-purple' : selectedCourse.is_service ? 'text-mellow-blue' : selectedCourse.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                    <span className={`inline-block text-[12px] font-black uppercase tracking-wide mb-1.5 ${selectedCourse.is_event ? 'text-mellow-purple' : selectedCourse.is_service ? 'text-mellow-blue' : selectedCourse.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
                       {selectedCourse.category_name}
                     </span>
                   )}
@@ -1422,7 +1428,7 @@ const Booking = () => {
                           <span className="text-xs text-slate-400 font-bold line-through">฿{selectedCourse.original_price?.toLocaleString()}</span>
                         )}
                         {couponReq && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                          <span className="inline-flex items-center gap-1 text-[12px] font-bold text-slate-500">
                             {lang === 'en' ? 'or' : 'หรือ'}
                             <span className="font-black text-slate-700">{couponReq.count}</span>
                             <Ticket size={12} style={{ color: couponReq.color }} />
@@ -1435,14 +1441,14 @@ const Booking = () => {
                   {(() => {
                     const short = stripHtml((selectedCourse as any).short_description || selectedCourse.description || '');
                     return short && (
-                      <p className="text-[12px] text-slate-500 font-medium leading-snug line-clamp-2 mb-2.5">{short}</p>
+                      <p className="text-[13px] text-slate-500 font-medium leading-snug line-clamp-2 mb-2.5">{short}</p>
                     );
                   })()}
 
                   {/* Quick facts — duration, location, age */}
                   <div className="flex flex-wrap gap-2">
                     {(selectedCourse as any).duration && (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[14px] font-bold text-slate-600">
                         <Clock size={14} className="text-mellow-purple-dark shrink-0" />
                         {formatDuration((selectedCourse as any).duration, lang)}
                       </span>
@@ -1452,12 +1458,12 @@ const Booking = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[14px] font-bold text-slate-600"
                     >
                       <MapPin size={14} className="text-orange-500 shrink-0" />
                       {(selectedCourse.is_extraclass || selectedCourse.is_event) ? (selectedCourse.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}
                     </a>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[13px] font-bold text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[14px] font-bold text-slate-600">
                       <Users size={14} className="text-mellow-blue-dark shrink-0" />
                       {selectedCourse.age_min}-{selectedCourse.age_max} {lang === 'en' ? 'yrs' : 'ปี'}
                     </span>
@@ -1473,12 +1479,12 @@ const Booking = () => {
                   try { achievementSkills = (selectedCourse as any).achievement_skills_json ? JSON.parse((selectedCourse as any).achievement_skills_json) : []; } catch { /* ignore malformed json */ }
                   return achievementSkills.length > 0 && (
                     <div>
-                      <h3 className="text-[13px] font-black text-slate-800 mb-2">
+                      <h3 className="text-[14px] font-black text-slate-800 mb-2">
                         {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
                       </h3>
                       <div className="flex flex-wrap gap-2">
                         {achievementSkills.map((skill, i) => (
-                          <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[12px] font-bold">
+                          <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple rounded-full text-[13px] font-bold">
                             <SkillIcon iconKey={skill.icon} size={12} />
                             {lang === 'en' && skill.en ? skill.en : skill.th}
                           </span>
@@ -1490,7 +1496,7 @@ const Booking = () => {
 
                 {selectedCourse.description && (
                   <div>
-                    <h3 className="text-[15px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+                    <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
                     <div
                       className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
                       dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
@@ -1505,7 +1511,7 @@ const Booking = () => {
                     <div className="w-7 h-7 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
                       <Calendar size={14} />
                     </div>
-                    <h3 className="text-[15px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
+                    <h3 className="text-[16px] font-black text-slate-800">{lang === 'en' ? 'Upcoming Schedule' : 'รอบกิจกรรมที่กำลังจะมาถึง'}</h3>
                   </div>
                   {selectedCourse.calendar_id ? (
                     modalUpcomingSlots.length > 0 ? (
@@ -1514,7 +1520,7 @@ const Booking = () => {
                           const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
                           return (
                             <div key={i} className="py-2.5 border-b border-slate-100 last:border-0 last:pb-0">
-                              <h4 className="text-[13px] font-bold text-slate-800 mb-2">{displayDate}</h4>
+                              <h4 className="text-[14px] font-bold text-slate-800 mb-2">{displayDate}</h4>
                               <div className="grid grid-cols-1 gap-2">
                                 {day.slots.map((slot, j) => {
                                   const isFull = slot.available <= 0;
@@ -1522,11 +1528,11 @@ const Booking = () => {
                                     <div key={j} className={`flex items-center justify-between p-2.5 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'}`}>
                                       <div className="flex items-center gap-2">
                                         <Clock size={14} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
-                                        <span className={`text-[13px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                        <span className={`text-[14px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
                                           {slot.startTime} - {slot.endTime}
                                         </span>
                                       </div>
-                                      <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
+                                      <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[14px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
                                         {isFull ? (lang === 'en' ? 'Full' : 'เต็มแล้ว') : (
                                           <>{lang === 'en' ? `${slot.available} left` : `ว่าง ${slot.available}`}<Users size={12} strokeWidth={2.5} /></>
                                         )}
@@ -1541,7 +1547,7 @@ const Booking = () => {
                         {modalUpcomingSlots.length > 5 && !modalShowAllSlots && (
                           <button
                             onClick={() => setModalShowAllSlots(true)}
-                            className="w-full py-2.5 mt-1 flex items-center justify-center gap-2 text-[13px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
+                            className="w-full py-2.5 mt-1 flex items-center justify-center gap-2 text-[14px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
                           >
                             {lang === 'en' ? 'View more dates' : 'ดูรอบกิจกรรมเพิ่มเติม'}
                             <ArrowRight size={14} />
@@ -1549,10 +1555,10 @@ const Booking = () => {
                         )}
                       </div>
                     ) : (
-                      <p className="text-[13px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
+                      <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Pending schedule announcement' : 'รอประกาศตารางกิจกรรม'}</p>
                     )
                   ) : (
-                    <p className="text-[13px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
+                    <p className="text-[14px] text-slate-400 font-bold">{lang === 'en' ? 'Please contact us for available times' : 'กรุณาติดต่อเจ้าหน้าที่เพื่อสอบถามรอบเวลา'}</p>
                   )}
                 </div>
               </div>
@@ -1564,7 +1570,7 @@ const Booking = () => {
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100">
               <button
                 onClick={() => { setIsCourseModalOpen(false); goToChildStep(selectedCourse); }}
-                className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[15px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
                 {lang === 'en' ? 'Book Now' : 'จองเลย'}
                 <ArrowRight size={18} />
@@ -1577,7 +1583,7 @@ const Booking = () => {
       {/* Fixed Bottom Action */}
       {!successBooking && currentStep === 'payment' && (
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
-          <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[15px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
+          <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[16px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
              {isFreeBooking
                ? bookActionLabel
                : (paymentMethod === 'coupon'
@@ -1619,7 +1625,7 @@ const Booking = () => {
             <h3 className="text-[20px] font-black text-slate-800 mb-2">
               {lang === 'en' ? 'Have you signed up with Mellow Play before?' : 'เคยเป็นสมาชิก Mellow Play ไหม?'}
             </h3>
-            <p className="text-[14px] text-slate-500 font-medium mb-6">
+            <p className="text-[15px] text-slate-500 font-medium mb-6">
               {lang === 'en'
                 ? `Just one more step to book ${selectedCourse ? `"${selectedCourse.name}"` : 'this class'} — pick whichever applies to you.`
                 : `อีกนิดเดียวก็จะจอง${selectedCourse ? `"${selectedCourse.name}"` : 'คลาสนี้'}ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
@@ -1631,7 +1637,7 @@ const Booking = () => {
                   const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
                   navigate(`/register?redirect=${encodeURIComponent(redirectTo)}`);
                 }}
-                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[15px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
+                className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Not yet — Sign up' : 'ยังไม่มี — สมัครเลย'}
               </button>
@@ -1641,14 +1647,14 @@ const Booking = () => {
                   const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
                   navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`);
                 }}
-                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
+                className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
               >
                 {lang === 'en' ? 'Yes — Login' : 'มีแล้ว — เข้าสู่ระบบ'}
               </button>
             </div>
             <button
               onClick={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
-              className="w-full mt-3 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+              className="w-full mt-3 text-[14px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
             >
               {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>
@@ -1684,7 +1690,7 @@ const Booking = () => {
                   ? (lang === 'en' ? 'Already Registered (Family)' : 'ครอบครัวนี้ลงทะเบียนไปแล้ว')
                   : (lang === 'en' ? 'Already Registered' : 'จองคลาสนี้ไปแล้ว')}
             </h3>
-            <p className="text-[15px] font-medium text-slate-500 text-center mb-6 leading-relaxed">
+            <p className="text-[16px] font-medium text-slate-500 text-center mb-6 leading-relaxed">
               {duplicateError?.message}
             </p>
             <div className="flex gap-3">

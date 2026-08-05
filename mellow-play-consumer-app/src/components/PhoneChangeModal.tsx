@@ -211,7 +211,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
                 </>
               )}
             </p>
-            <p className="text-center text-slate-300 text-[11px] font-bold">
+            <p className="text-center text-slate-300 text-[12px] font-bold">
               {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
             </p>
           </form>
@@ -269,7 +269,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
                 </>
               )}
             </p>
-            <p className="text-center text-slate-300 text-[11px] font-bold">
+            <p className="text-center text-slate-300 text-[12px] font-bold">
               {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
             </p>
           </form>

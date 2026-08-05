@@ -108,13 +108,13 @@ const CommunityPostComposer: React.FC<CommunityPostComposerProps> = ({ onPostCre
       <div className="flex items-center gap-2 mb-3">
         <button
           onClick={() => switchType('text')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-black transition-colors ${postType === 'text' ? 'bg-mellow-purple text-white' : 'bg-slate-50 text-slate-400'}`}
+          className={`px-3 py-1.5 rounded-full text-[13px] font-black transition-colors ${postType === 'text' ? 'bg-mellow-purple text-white' : 'bg-slate-50 text-slate-400'}`}
         >
           {lang === 'en' ? 'Text' : 'ข้อความ'}
         </button>
         <button
           onClick={() => switchType('poll')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-black flex items-center gap-1 transition-colors ${postType === 'poll' ? 'bg-mellow-purple text-white' : 'bg-slate-50 text-slate-400'}`}
+          className={`px-3 py-1.5 rounded-full text-[13px] font-black flex items-center gap-1 transition-colors ${postType === 'poll' ? 'bg-mellow-purple text-white' : 'bg-slate-50 text-slate-400'}`}
         >
           <BarChart2 size={12} />
           {lang === 'en' ? 'Poll' : 'โพลสำรวจ'}
@@ -131,7 +131,7 @@ const CommunityPostComposer: React.FC<CommunityPostComposerProps> = ({ onPostCre
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex justify-end mb-1">
-            <span className={`text-[11px] font-bold ${content.length >= MAX_LENGTH ? 'text-red-500' : 'text-slate-300'}`}>
+            <span className={`text-[12px] font-bold ${content.length >= MAX_LENGTH ? 'text-red-500' : 'text-slate-300'}`}>
               {content.length}/{MAX_LENGTH}
             </span>
           </div>
@@ -145,7 +145,7 @@ const CommunityPostComposer: React.FC<CommunityPostComposerProps> = ({ onPostCre
                   : (lang === 'en' ? "Share your story..." : 'แชร์เรื่องราวของคุณ...')
               }
               rows={3}
-              className="w-full resize-none bg-slate-50 border border-slate-100 rounded-2xl pl-4 pr-12 py-2.5 text-[14px] font-medium focus:outline-none"
+              className="w-full resize-none bg-slate-50 border border-slate-100 rounded-2xl pl-4 pr-12 py-2.5 text-[15px] font-medium focus:outline-none"
             />
             <button
               onClick={handleSubmit}
@@ -168,7 +168,7 @@ const CommunityPostComposer: React.FC<CommunityPostComposerProps> = ({ onPostCre
                 onChange={(e) => updatePollOption(index, e.target.value)}
                 placeholder={lang === 'en' ? `Option ${index + 1}` : `ตัวเลือกที่ ${index + 1}`}
                 maxLength={80}
-                className="flex-1 min-w-0 bg-slate-50 border border-slate-100 rounded-full px-4 py-2 text-[13px] font-medium focus:outline-none"
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-100 rounded-full px-4 py-2 text-[14px] font-medium focus:outline-none"
               />
               {pollOptions.length > MIN_POLL_OPTIONS && (
                 <button onClick={() => removePollOption(index)} className="w-7 h-7 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center shrink-0 active:scale-90 transition-transform">
@@ -180,7 +180,7 @@ const CommunityPostComposer: React.FC<CommunityPostComposerProps> = ({ onPostCre
           {pollOptions.length < MAX_POLL_OPTIONS && (
             <button
               onClick={addPollOption}
-              className="w-full flex items-center justify-center gap-1.5 bg-slate-50 border border-dashed border-slate-200 rounded-full px-4 py-2 text-[13px] font-bold text-mellow-purple active:scale-[0.98] transition-transform"
+              className="w-full flex items-center justify-center gap-1.5 bg-slate-50 border border-dashed border-slate-200 rounded-full px-4 py-2 text-[14px] font-bold text-mellow-purple active:scale-[0.98] transition-transform"
             >
               <Plus size={13} />
               {lang === 'en' ? 'Add option' : 'เพิ่มตัวเลือก'}

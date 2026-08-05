@@ -233,7 +233,7 @@ const ForgotPassword = () => {
         {step === 'otp' && (
           <>
             <div className="relative">
-              <label className="text-[13px] font-bold text-slate-500 mb-3 block text-center">
+              <label className="text-[14px] font-bold text-slate-500 mb-3 block text-center">
                 {t.login.pinLabel || 'Enter OTP'}
               </label>
               <PinInput
@@ -273,7 +273,7 @@ const ForgotPassword = () => {
                 </>
               )}
             </p>
-            <p className="text-center text-slate-300 text-[11px] font-bold">
+            <p className="text-center text-slate-300 text-[12px] font-bold">
               {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
             </p>
           </>

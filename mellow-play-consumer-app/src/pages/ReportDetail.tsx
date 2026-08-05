@@ -81,7 +81,7 @@ const ReportDetail = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight">{lang === 'en' ? 'Full Report' : 'รายงานฉบับเต็ม'}</h1>
+        <h1 className="text-[17px] font-black tracking-tight">{lang === 'en' ? 'Full Report' : 'รายงานฉบับเต็ม'}</h1>
       </header>
 
       <div className="p-5 space-y-5">
@@ -95,7 +95,7 @@ const ReportDetail = () => {
               </div>
             )}
             <div>
-              <h3 className="font-bold text-slate-800 text-[15px] leading-tight mb-2">{bookingFromState.course_name}</h3>
+              <h3 className="font-bold text-slate-800 text-[16px] leading-tight mb-2">{bookingFromState.course_name}</h3>
               <div className="flex items-center gap-2 text-slate-500 mb-1">
                 <Calendar size={14} />
                 <span className="text-xs font-medium">{formatCustomDate(bookingFromState.scheduled_at, lang, 'full')}</span>
@@ -122,7 +122,7 @@ const ReportDetail = () => {
                   <Award size={18} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-mellow-blue uppercase tracking-widest">{lang === 'en' ? 'Achievement' : 'ความสำเร็จ'}</p>
+                  <p className="text-[11px] font-black text-mellow-blue uppercase tracking-widest">{lang === 'en' ? 'Achievement' : 'ความสำเร็จ'}</p>
                   <p className="text-sm font-bold text-slate-800">{progress.node_title}</p>
                 </div>
               </div>
@@ -130,13 +130,13 @@ const ReportDetail = () => {
 
             {skillItems.length > 0 && (
               <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
-                <p className="text-[11px] font-black text-mellow-purple uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-[12px] font-black text-mellow-purple uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Award size={13} />
                   {lang === 'en' ? 'Skills' : 'ทักษะที่ได้รับ'}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {skillItems.map((s, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple text-[12px] font-black rounded-full">
+                    <span key={i} className="px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple text-[13px] font-black rounded-full">
                       {skillLabel(s)}
                     </span>
                   ))}
@@ -146,13 +146,13 @@ const ReportDetail = () => {
 
             {indicatorItems.length > 0 && (
               <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
-                <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-[12px] font-black text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Sparkles size={13} />
                   {lang === 'en' ? "Today's Highlight" : 'สิ่งที่โดดเด่นในวันนี้'}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {indicatorItems.map((s, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-amber-50 text-amber-600 text-[12px] font-black rounded-full">
+                    <span key={i} className="px-3 py-1.5 bg-amber-50 text-amber-600 text-[13px] font-black rounded-full">
                       {skillLabel(s)}
                     </span>
                   ))}
@@ -161,7 +161,7 @@ const ReportDetail = () => {
             )}
 
             <div className="bg-mellow-purple/5 border border-mellow-purple/10 rounded-3xl p-4">
-              <p className="text-[11px] font-black text-mellow-purple uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <p className="text-[12px] font-black text-mellow-purple uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <MessageCircleHeart size={14} />
                 {lang === 'en' ? "Facilitator's Note" : 'บันทึกจากคุณครู'}
               </p>
@@ -172,7 +172,7 @@ const ReportDetail = () => {
 
             {progress.media && progress.media.length > 0 && (
               <div>
-                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
+                <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
                   {lang === 'en' ? 'Photos & Videos' : 'รูปภาพและวีดีโอ'}
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">

@@ -151,7 +151,7 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
                 />
               </div>
             </div>
-            <p className="text-[10px] text-mellow-purple/70 font-bold px-1 -mt-2">
+            <p className="text-[11px] text-mellow-purple/70 font-bold px-1 -mt-2">
               * {lang === 'th' ? 'ไม่ต้องระบุคำนำหน้าชื่อ (เช่น ด.ช., ด.ญ.)' : 'No title prefix needed (e.g. Master, Miss)'}
             </p>
 

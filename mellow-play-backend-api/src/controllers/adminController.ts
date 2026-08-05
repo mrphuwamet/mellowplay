@@ -292,9 +292,20 @@ export class AdminController {
       // Extra classes and Events both have a one-off `location` field instead
       // of a branch, so branchId is legitimately absent for them — only
       // regular courses must have one.
-      const courseForBranchCheck = await db.prepare('SELECT is_extraclass, is_event FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+      const courseForBranchCheck = await db.prepare('SELECT is_extraclass, is_event, registration_close_at FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
       if (!courseForBranchCheck?.is_extraclass && !courseForBranchCheck?.is_event && !branchId)
         return c.json({ success: false, message: 'branchId required' }, 400);
+
+      // Server-side mirror of the consumer app hiding the booking button
+      // past this date — the button being hidden is UI-only, a direct API
+      // call could still slip through without this.
+      if (courseForBranchCheck?.registration_close_at && new Date(courseForBranchCheck.registration_close_at) < new Date()) {
+        return c.json({
+          success: false,
+          error_code: 'REGISTRATION_CLOSED',
+          message: 'ปิดรับลงทะเบียนสำหรับคลาส/กิจกรรมนี้แล้ว',
+        }, 400);
+      }
 
       let ids = childIds ? childIds : (childId ? [childId] : []);
       if (isGuest) ids = [0];

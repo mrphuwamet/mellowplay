@@ -390,22 +390,22 @@ const Home = () => {
             {isBookingCard ? <Calendar size={18} className="text-mellow-purple" /> : <img src={logo} alt="" className="w-5 h-5 object-contain" />}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[14px] font-black text-slate-800 leading-tight truncate">Mellow Play</p>
-            <p className="text-[11px] text-mellow-purple font-black uppercase tracking-widest">{eyebrow}</p>
+            <p className="text-[15px] font-black text-slate-800 leading-tight truncate">Mellow Play</p>
+            <p className="text-[12px] text-mellow-purple font-black uppercase tracking-widest">{eyebrow}</p>
           </div>
           {statusMeta && (
-            <span className={`shrink-0 px-2 py-1 rounded-full text-[10px] font-black ${statusMeta.bg} ${statusMeta.fg}`}>
+            <span className={`shrink-0 px-2 py-1 rounded-full text-[11px] font-black ${statusMeta.bg} ${statusMeta.fg}`}>
               {lang === 'en' ? statusMeta.en : statusMeta.th}
             </span>
           )}
         </div>
 
-        <h4 className="text-[15px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
+        <h4 className="text-[16px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
         {shortDescription && (
-          <p className="text-[13px] text-slate-500 leading-snug mt-1 line-clamp-2">{shortDescription}</p>
+          <p className="text-[14px] text-slate-500 leading-snug mt-1 line-clamp-2">{shortDescription}</p>
         )}
         {isBookingCard && item.booking?.scheduled_at && (
-          <p className="text-[12px] text-slate-400 font-bold mt-0.5">
+          <p className="text-[13px] text-slate-400 font-bold mt-0.5">
             {new Date(item.booking.scheduled_at).toLocaleDateString()}
             {item.kind === 'upcoming' && children.length > 1 && item.booking?.child_nickname && ` · ${item.booking.child_nickname}`}
           </p>
@@ -430,7 +430,7 @@ const Home = () => {
             <button
               onClick={handleBook}
               disabled={isOneTimeBooked}
-              className={`ml-auto px-4 py-2 rounded-xl text-[13px] font-black active:scale-95 transition-transform ${
+              className={`ml-auto px-4 py-2 rounded-xl text-[14px] font-black active:scale-95 transition-transform ${
                 isOneTimeBooked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-mellow-purple text-white'
               }`}
             >
@@ -472,12 +472,12 @@ const Home = () => {
                         {c.avatar_url ? (
                           <img src={resolveImageUrl(c.avatar_url)} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <span className="text-[11px] font-black text-slate-400">{c.display_name?.[0] || '?'}</span>
+                          <span className="text-[12px] font-black text-slate-400">{c.display_name?.[0] || '?'}</span>
                         )}
                       </div>
                       <div className="flex-1 min-w-0 bg-slate-50 rounded-2xl px-3 py-2">
-                        <p className="text-[12px] font-black text-slate-700">{c.display_name}</p>
-                        <p className="text-[13px] text-slate-600 leading-snug whitespace-pre-wrap">{c.comment_text}</p>
+                        <p className="text-[13px] font-black text-slate-700">{c.display_name}</p>
+                        <p className="text-[14px] text-slate-600 leading-snug whitespace-pre-wrap">{c.comment_text}</p>
                       </div>
                     </div>
                   ))}
@@ -490,7 +490,7 @@ const Home = () => {
                         onChange={e => setCommentDraft(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter' && !commentSubmitting) handleSubmitCourseComment(course.id); }}
                         placeholder={lang === 'en' ? 'Write a comment...' : 'แสดงความคิดเห็น...'}
-                        className="flex-1 min-w-0 px-3.5 py-2 bg-slate-50 rounded-full text-[13px] font-medium focus:outline-none"
+                        className="flex-1 min-w-0 px-3.5 py-2 bg-slate-50 rounded-full text-[14px] font-medium focus:outline-none"
                       />
                       <button
                         onClick={() => handleSubmitCourseComment(course.id)}
@@ -591,10 +591,10 @@ const Home = () => {
       <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg mb-3">
         <Lock size={20} className="text-mellow-purple" />
       </div>
-      <p className="text-[14px] font-black text-mellow-ink uppercase tracking-tight mb-3 px-4">{message}</p>
+      <p className="text-[15px] font-black text-mellow-ink uppercase tracking-tight mb-3 px-4">{message}</p>
       <button
         onClick={action}
-        className="px-4 py-2 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+        className="px-4 py-2 bg-mellow-purple text-white text-[15px] font-black rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all"
       >
         {actionLabel}
       </button>
@@ -602,7 +602,7 @@ const Home = () => {
           needs a way back in too — not everyone hitting this wall is new. */}
       <button
         onClick={() => navigate('/login')}
-        className="mt-2 text-[12px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
+        className="mt-2 text-[13px] font-bold text-slate-500 hover:text-slate-700 transition-colors"
       >
         {lang === 'en' ? 'Already have an account? Login' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ'}
       </button>
@@ -627,11 +627,11 @@ const Home = () => {
             >
               <ChildAvatar avatarType={child.avatar} className="w-12 h-12 flex-shrink-0" />
               <div className="flex flex-col items-start text-left">
-                <span className="text-[16px] font-bold text-slate-700 leading-tight">
+                <span className="text-[17px] font-bold text-slate-700 leading-tight">
                   {child.nickname || child.name}
                 </span>
                 {child.nickname && (
-                  <span className="text-[13px] font-medium text-slate-500">
+                  <span className="text-[14px] font-medium text-slate-500">
                     {child.name}
                   </span>
                 )}
@@ -645,7 +645,7 @@ const Home = () => {
             <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
               <span className="text-2xl font-black">+</span>
             </div>
-            <span className="text-[16px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
+            <span className="text-[17px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
           </button>
         </div>
     </ResponsiveModal>
@@ -715,19 +715,19 @@ const Home = () => {
                 {children.length > 1 && booking.child_nickname && (
                   <div className="absolute top-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full pl-0.5 pr-2 py-0.5 shadow-sm">
                     <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5" />
-                    <span className="text-[10px] font-black text-slate-700">{booking.child_nickname}</span>
+                    <span className="text-[11px] font-black text-slate-700">{booking.child_nickname}</span>
                   </div>
                 )}
               </div>
-              <h4 className="font-bold text-slate-800 text-[13px] line-clamp-2">{booking.course_name}</h4>
-              <p className="text-[11px] font-medium text-slate-500 mt-1.5">
+              <h4 className="font-bold text-slate-800 text-[14px] line-clamp-2">{booking.course_name}</h4>
+              <p className="text-[12px] font-medium text-slate-500 mt-1.5">
                 {new Date(booking.scheduled_at).toLocaleDateString()}
                 <br />
                 {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
               <div className="flex items-center gap-1 mt-auto pt-2">
                 <MapPin size={11} className="text-mellow-purple shrink-0" />
-                <span className="text-[10px] font-medium text-slate-500 truncate">{booking.branch_name}</span>
+                <span className="text-[11px] font-medium text-slate-500 truncate">{booking.branch_name}</span>
               </div>
             </div>
           ))}
@@ -737,7 +737,7 @@ const Home = () => {
           <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-2">
             <Calendar size={18} className="text-blue-400" />
           </div>
-          <p className="text-[13px] font-bold text-slate-600">
+          <p className="text-[14px] font-bold text-slate-600">
             {lang === 'en' ? 'No upcoming classes' : 'ยังไม่มีคลาสที่จองไว้'}
           </p>
         </div>
@@ -777,19 +777,19 @@ const Home = () => {
                 <div className="h-1.5 bg-gradient-to-r from-mellow-purple to-mellow-blue" />
                 <div className="p-4">
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-mellow-purple text-white shrink-0">
+                    <span className="px-2.5 py-1 rounded-full text-[12px] font-black uppercase tracking-widest bg-mellow-purple text-white shrink-0">
                       {hasValidDate ? getCountdownLabel(booking.scheduled_at) : (lang === 'en' ? 'Upcoming' : 'กำลังจะถึง')}
                     </span>
                     {children.length > 1 && booking.child_nickname && (
                       <div className="flex items-center gap-1 bg-slate-50 rounded-full pl-0.5 pr-2 py-0.5 min-w-0">
                         <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5 shrink-0" />
-                        <span className="text-[10px] font-black text-slate-700 truncate">{booking.child_nickname}</span>
+                        <span className="text-[11px] font-black text-slate-700 truncate">{booking.child_nickname}</span>
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="shrink-0 w-14 h-14 rounded-2xl bg-mellow-purple/10 flex flex-col items-center justify-center">
-                      <span className="text-[10px] font-black text-mellow-purple uppercase leading-none">
+                      <span className="text-[11px] font-black text-mellow-purple uppercase leading-none">
                         {hasValidDate ? dt.toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { month: 'short' }) : '-'}
                       </span>
                       <span className="text-[20px] font-black text-mellow-purple leading-none mt-1">
@@ -797,8 +797,8 @@ const Home = () => {
                       </span>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="font-black text-slate-800 text-[14px] leading-tight line-clamp-2">{booking.course_name}</h4>
-                      <p className="text-[12px] font-bold text-slate-500 mt-1">
+                      <h4 className="font-black text-slate-800 text-[15px] leading-tight line-clamp-2">{booking.course_name}</h4>
+                      <p className="text-[13px] font-bold text-slate-500 mt-1">
                         {hasValidDate ? `${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} น.` : ''}
                       </p>
                     </div>
@@ -844,20 +844,20 @@ const Home = () => {
                     className="shrink-0 w-[240px] min-h-[260px] snap-start bg-white rounded-2xl border border-slate-100 p-4 relative hover:z-10 flex flex-col text-left active:scale-[0.98] transition-transform shadow-sm hover:shadow-md"
                   >
                     <div className="flex flex-col items-center justify-center w-12 h-12 rounded-2xl bg-mellow-blue/10 shrink-0">
-                      <span className="text-[8px] font-black uppercase leading-none text-mellow-blue">
+                      <span className="text-[9px] font-black uppercase leading-none text-mellow-blue">
                         {itemDate.toLocaleDateString(dateLocale, { month: 'short' })}
                       </span>
                       <span className="text-lg font-black leading-tight text-mellow-blue">
                         {itemDate.getDate()}
                       </span>
                     </div>
-                    <h4 className="font-black text-[13px] text-slate-800 leading-tight mt-3 line-clamp-2">{item.course_name || 'คลาสเรียน'}</h4>
+                    <h4 className="font-black text-[14px] text-slate-800 leading-tight mt-3 line-clamp-2">{item.course_name || 'คลาสเรียน'}</h4>
                     {BOOKING_STATUS_META[item.status] && (
-                      <span className={`self-start mt-2 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[item.status].bg} ${BOOKING_STATUS_META[item.status].fg}`}>
+                      <span className={`self-start mt-2 px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${BOOKING_STATUS_META[item.status].bg} ${BOOKING_STATUS_META[item.status].fg}`}>
                         {lang === 'en' ? BOOKING_STATUS_META[item.status].en : BOOKING_STATUS_META[item.status].th}
                       </span>
                     )}
-                    <p className="text-[10px] text-slate-500 font-bold mt-auto pt-2 truncate">{item.branch_name}</p>
+                    <p className="text-[11px] text-slate-500 font-bold mt-auto pt-2 truncate">{item.branch_name}</p>
                   </button>
                 );
               })}
@@ -867,7 +867,7 @@ const Home = () => {
               <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-2">
                 <Medal size={18} />
               </div>
-              <p className="text-[12px] font-bold text-slate-500">ยังไม่มีประวัติการเรียน</p>
+              <p className="text-[13px] font-bold text-slate-500">ยังไม่มีประวัติการเรียน</p>
             </div>
           )}
         </div>
@@ -921,7 +921,7 @@ const Home = () => {
                 </button>
               </div>
             )}
-            <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[12px] font-bold active:scale-95 transition-transform shrink-0">
+            <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
               {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
               <ChevronRight size={12} />
             </button>
@@ -975,7 +975,7 @@ const Home = () => {
           )}
           {(ad.caption || ad.targetTitle) && (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-              <p className="text-white text-[12px] font-bold line-clamp-2">{ad.caption || ad.targetTitle}</p>
+              <p className="text-white text-[13px] font-bold line-clamp-2">{ad.caption || ad.targetTitle}</p>
             </div>
           )}
         </div>
@@ -1013,10 +1013,14 @@ const Home = () => {
       <div className="lg:flex lg:flex-1 lg:min-h-0">
       <div className="lg:flex-1 lg:min-w-0 lg:flex lg:flex-col lg:min-h-0">
       <div className="max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px] lg:flex lg:flex-col lg:flex-1 lg:min-h-0 lg:mx-auto lg:w-full">
-      <header className="px-5 pt-5 pb-4 lg:pt-3 lg:pb-2 relative z-30">
+      {/* At lg:+ both the logo (below) and the pill (sign-up/booking/
+          language, also covered by the sidebar) are hidden, so the header
+          itself collapses to nothing there instead of reserving a visibly
+          empty strip of unused space above the feed. */}
+      <header className="px-5 pt-5 pb-4 lg:hidden relative z-30">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 px-4 py-3">
-            <img src={logo} alt="Mellow Play" className="h-8 lg:hidden" />
+            <img src={logo} alt="Mellow Play" className="h-8" />
           </div>
 
           {/* md:+ the left sidebar already covers sign-up/login (profile
@@ -1027,7 +1031,7 @@ const Home = () => {
               {isGuest && (
                 <button
                   onClick={() => navigate('/register')}
-                  className="px-3 py-2 bg-mellow-purple/10 rounded-full text-[14px] font-black text-mellow-purple uppercase tracking-wider"
+                  className="px-3 py-2 bg-mellow-purple/10 rounded-full text-[15px] font-black text-mellow-purple uppercase tracking-wider"
                 >
                   {t.common.signUp}
                 </button>
@@ -1038,7 +1042,7 @@ const Home = () => {
                 className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-slate-100 text-orange-500 shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)] border border-slate-200 active:scale-95 transition-all"
               >
                 <Calendar size={16} />
-                <span className="text-[13px] font-black whitespace-nowrap">{lang === 'en' ? 'Book Class' : 'จองคลาส'}</span>
+                <span className="text-[14px] font-black whitespace-nowrap">{lang === 'en' ? 'Book Class' : 'จองคลาส'}</span>
               </button>
               <LanguageToggle />
             </div>
@@ -1067,7 +1071,7 @@ const Home = () => {
           {/* Top Right Actions */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
             {isGuest ? (
-              <div className="bg-mellow-purple text-white px-3 py-1 text-[12px] font-black uppercase rounded-xl">
+              <div className="bg-mellow-purple text-white px-3 py-1 text-[13px] font-black uppercase rounded-xl">
                 {t.common.guestMode}
               </div>
             ) : (
@@ -1110,7 +1114,7 @@ const Home = () => {
             </div>
 
             <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-black uppercase text-slate-400 mb-1">
+              <p className="text-[13px] font-black uppercase text-slate-400 mb-1">
                 {t.home.greeting}
               </p>
               {isGuest ? (
@@ -1131,10 +1135,10 @@ const Home = () => {
                       {currentChild ? (
                         <>
                           <ChildAvatar avatarType={currentChild.avatar} className="w-6 h-6" />
-                          <span className="text-[13px] font-bold text-slate-500">{currentChild.nickname || currentChild.name}</span>
+                          <span className="text-[14px] font-bold text-slate-500">{currentChild.nickname || currentChild.name}</span>
                         </>
                       ) : (
-                        <span className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
+                        <span className="text-[14px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
                           {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
                         </span>
                       )}
@@ -1154,13 +1158,13 @@ const Home = () => {
                       {currentChild.dob && (
                         <button
                           onClick={() => setIsBirthdayModalOpen(true)}
-                          className="inline-flex items-center gap-1 text-[11px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full shadow-sm active:scale-95 transition-transform"
+                          className="inline-flex items-center gap-1 text-[12px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full shadow-sm active:scale-95 transition-transform"
                         >
                           <Cake size={12} strokeWidth={2.5} />
                           {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(currentChild.dob)) < 15 ? 'ขวบ' : 'ปี')}
                         </button>
                       )}
-                      <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full shadow-sm ${
+                      <span className={`inline-flex items-center gap-1 text-[12px] font-black px-2.5 py-1 rounded-full shadow-sm ${
                         isPremium
                           ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white'
                           : 'bg-emerald-100 text-emerald-600'
@@ -1211,19 +1215,19 @@ const Home = () => {
 
           {isGuest ? (
             <div className="mellow-card bg-white/85 border border-white p-6 text-center shadow-sm">
-              <p className="text-[14px] font-black text-slate-600 mb-3">
+              <p className="text-[15px] font-black text-slate-600 mb-3">
                 {lang === 'en' ? 'Log in to post and join the conversation' : 'เข้าสู่ระบบเพื่อโพสต์และร่วมพูดคุยในฟีดเรื่องราว'}
               </p>
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => navigate('/register')}
-                  className="px-4 py-2 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                  className="px-4 py-2 bg-mellow-purple text-white text-[15px] font-black rounded-xl uppercase tracking-widest shadow-lg active:scale-95 transition-all"
                 >
                   {t.home.registerBtn}
                 </button>
                 <button
                   onClick={() => navigate('/login')}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 text-[14px] font-black rounded-xl uppercase tracking-widest active:scale-95 transition-all"
+                  className="px-4 py-2 bg-slate-100 text-slate-600 text-[15px] font-black rounded-xl uppercase tracking-widest active:scale-95 transition-all"
                 >
                   {t.common.login}
                 </button>
@@ -1253,7 +1257,7 @@ const Home = () => {
                       <span className="text-xs font-black text-slate-400">{(user?.displayName || user?.firstName)?.[0] || '?'}</span>
                     )}
                   </div>
-                  <span className="text-[13px] font-medium text-slate-400 flex-1 truncate">
+                  <span className="text-[14px] font-medium text-slate-400 flex-1 truncate">
                     {lang === 'en' ? 'Share your story...' : 'แชร์เรื่องราวของคุณ...'}
                   </span>
                 </button>

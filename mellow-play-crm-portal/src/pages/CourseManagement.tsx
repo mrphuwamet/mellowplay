@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { getCourseDetailUrl } from '../utils/courseLinks';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import SkillsLibraryManagement from './SkillsLibraryManagement';
@@ -42,6 +43,7 @@ import {
   AspectRatio as CropIcon,
   CheckCircle as SavedIcon,
   Translate as TranslateIcon,
+  ContentCopy as CopyLinkIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
@@ -108,6 +110,7 @@ interface Course {
   is_service?: boolean;
   allow_repeat?: boolean;
   registration_form_id?: number | null;
+  registration_close_at?: string | null;
   stamps_on_completion?: number;
   stamp_expiry_months?: number;
   // Legacy fields — used for migration only
@@ -242,6 +245,11 @@ const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string })
 // booking/capacity/payment machinery keyed on Courses/Bookings stays
 // untouched. Named "course-services" (not "/crm/services") because that
 // route is already taken by the unrelated shop-services feature.
+// <input type="datetime-local"> requires "YYYY-MM-DDTHH:MM" — stored dates
+// use a space separator ("YYYY-MM-DD HH:MM:SS"), so convert both ways.
+const toDatetimeLocalValue = (raw?: string) => raw ? raw.replace(' ', 'T').slice(0, 16) : '';
+const fromDatetimeLocalValue = (val: string) => val ? val.replace('T', ' ') : '';
+
 const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'event' | 'service' }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -332,6 +340,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     isService: false,
     allowRepeat: true,
     registrationFormId: 0,
+    registrationCloseAt: '',
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
   });
@@ -349,6 +358,13 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number | string; name: string } | null>(null);
   const [deleteType, setDeleteType] = useState<'course' | 'category'>('course');
+  const [copiedLinkId, setCopiedLinkId] = useState<number | null>(null);
+  const copyCourseLink = (course: any) => {
+    navigator.clipboard.writeText(getCourseDetailUrl(course)).then(() => {
+      setCopiedLinkId(course.id);
+      setTimeout(() => setCopiedLinkId(prev => (prev === course.id ? null : prev)), 1500);
+    }).catch(() => {});
+  };
 
   type TagField = 'skills' | 'metrics';
   const [libraryItems, setLibraryItems] = useState<SkillItem[]>([]);
@@ -691,6 +707,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         isService: !!course.is_service,
         allowRepeat: course.allow_repeat === undefined || course.allow_repeat === null ? true : !!course.allow_repeat,
         registrationFormId: course.registration_form_id || 0,
+        registrationCloseAt: toDatetimeLocalValue(course.registration_close_at || undefined),
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
       });
@@ -713,6 +730,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         // manually afterward if a specific event genuinely needs it.
         allowRepeat: courseType !== 'event',
         registrationFormId: 0,
+        registrationCloseAt: '',
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
       });
@@ -787,6 +805,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         isService:              formData.isService,
         allowRepeat:            formData.allowRepeat,
         registrationFormId:     formData.registrationFormId || null,
+        registrationCloseAt:    fromDatetimeLocalValue(formData.registrationCloseAt) || null,
         stampsOnCompletion:     formData.stampsOnCompletion,
         stampExpiryMonths:      formData.stampExpiryMonths,
       };
@@ -1024,6 +1043,18 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       ))}
                     </Select>
                   </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="วันปิดรับลงทะเบียน (ถ้ามี)"
+                    type="datetime-local"
+                    fullWidth
+                    size="small"
+                    value={formData.registrationCloseAt}
+                    onChange={e => setFormData({ ...formData, registrationCloseAt: e.target.value })}
+                    InputLabelProps={{ shrink: true }}
+                    helperText="เมื่อถึงวันเวลานี้ ปุ่มจองจะถูกซ่อน แต่ยังแสดงในรายการตามปกติ"
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
@@ -2038,6 +2069,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     <Typography variant="body2" color="text.secondary">{formatDuration(course.duration)}</Typography>
                   </TableCell>
                   <TableCell align="center">
+                    <Tooltip title={copiedLinkId === course.id ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์'}>
+                      <IconButton size="small" onClick={() => copyCourseLink(course)} color={copiedLinkId === course.id ? 'success' : 'default'}><CopyLinkIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>

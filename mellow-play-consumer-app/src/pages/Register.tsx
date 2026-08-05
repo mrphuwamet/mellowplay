@@ -539,7 +539,7 @@ const Register = () => {
           </>
         )}
       </p>
-      <p className="text-center text-slate-300 text-[11px] font-bold">
+      <p className="text-center text-slate-300 text-[12px] font-bold">
         {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
       </p>
     </form>
@@ -722,7 +722,7 @@ const Register = () => {
               className="flex flex-col items-center justify-center gap-1.5 py-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-mellow-purple/30 hover:bg-mellow-purple/5 active:scale-95 transition-all"
             >
               <o.icon size={26} className="text-mellow-purple" />
-              <span className="text-[11px] font-bold text-slate-600 text-center">{lang === 'en' ? o.labelEn : o.labelTh}</span>
+              <span className="text-[12px] font-bold text-slate-600 text-center">{lang === 'en' ? o.labelEn : o.labelTh}</span>
             </button>
           ))}
         </div>

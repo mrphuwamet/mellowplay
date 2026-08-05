@@ -47,7 +47,7 @@ const QuickAccess = () => {
               className={`flex flex-col items-center gap-2.5 group transition-all relative ${item.isComingSoon ? 'opacity-60 cursor-default' : 'active:scale-95'}`}
             >
               {item.isComingSoon && (
-                <div className="absolute -top-2 bg-mellow-red text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-20">Coming Soon</div>
+                <div className="absolute -top-2 bg-mellow-red text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap z-20">Coming Soon</div>
               )}
               <div className="relative">
                 <div className={`w-14 h-14 rounded-[22px] ${item.color} text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(0,0,0,0.2)] ${!item.isComingSoon ? 'group-hover:shadow-xl' : ''} transition-all relative overflow-hidden`}>
@@ -60,7 +60,7 @@ const QuickAccess = () => {
                   </div>
                 )}
               </div>
-              <span className="text-[12px] font-black text-slate-600 text-center leading-tight px-1">
+              <span className="text-[13px] font-black text-slate-600 text-center leading-tight px-1">
                 {item.label}
               </span>
             </button>

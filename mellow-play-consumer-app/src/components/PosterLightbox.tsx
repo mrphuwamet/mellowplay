@@ -51,7 +51,7 @@ const PosterLightbox: React.FC<PosterLightboxProps> = ({ images, startIndex, alt
   return createPortal(
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
       <div className="flex items-center justify-between px-4 h-14 shrink-0">
-        <span className="text-white text-[13px] font-bold">{index + 1} / {images.length}</span>
+        <span className="text-white text-[14px] font-bold">{index + 1} / {images.length}</span>
         <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 text-white flex items-center justify-center active:scale-90 transition-transform">
           <X size={20} />
         </button>

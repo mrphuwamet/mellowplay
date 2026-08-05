@@ -90,7 +90,7 @@ const DateField: React.FC<DateFieldProps> = ({ value, onChange, placeholder, cla
 
             <div className="grid grid-cols-7 gap-1 mb-1">
               {WEEKDAY_NAMES[lang].map((wd) => (
-                <div key={wd} className="text-center text-[11px] font-bold text-slate-400 py-1">{wd}</div>
+                <div key={wd} className="text-center text-[12px] font-bold text-slate-400 py-1">{wd}</div>
               ))}
             </div>
             <div className="grid grid-cols-7 gap-1">

@@ -214,7 +214,7 @@ const Rewards = () => {
           {isMasked && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <span
-                className="text-[9px] font-black text-white border-[1.5px] border-white px-1.5 py-0.5 rounded-sm uppercase tracking-wider bg-black/50"
+                className="text-[10px] font-black text-white border-[1.5px] border-white px-1.5 py-0.5 rounded-sm uppercase tracking-wider bg-black/50"
                 style={{ transform: 'rotate(-16deg)' }}
               >
                 {stamp.status === 'used' ? (lang === 'en' ? 'Used' : 'ใช้แล้ว') : (lang === 'en' ? 'Expired' : 'หมดอายุ')}
@@ -223,7 +223,7 @@ const Rewards = () => {
           )}
           {/* Sits on a non-clipped sibling so the round parent's
               overflow-hidden doesn't cut the corner off this badge. */}
-          <span className="absolute -bottom-1.5 -right-1.5 min-w-[26px] h-[26px] px-[5px] rounded-full bg-white text-mellow-ink text-[14px] font-black flex items-center justify-center shadow-md border border-slate-100 leading-none">
+          <span className="absolute -bottom-1.5 -right-1.5 min-w-[26px] h-[26px] px-[5px] rounded-full bg-white text-mellow-ink text-[15px] font-black flex items-center justify-center shadow-md border border-slate-100 leading-none">
             {stamp.position}
           </span>
         </div>
@@ -251,8 +251,8 @@ const Rewards = () => {
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
         <div className="text-center">
-          <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">Mellow Reward Store</h1>
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+          <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5">Mellow Reward Store</h1>
+          <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
             {lang === 'en' ? 'Redeem Rewards' : 'แลกรับของรางวัล'}
           </span>
         </div>
@@ -282,7 +282,7 @@ const Rewards = () => {
                  </span>
                </div>
                {!isPremium && nearestExpiryDate && expiringSoonCount > 0 && (
-                 <p className="mt-1 text-[11px] font-bold text-slate-400">
+                 <p className="mt-1 text-[12px] font-bold text-slate-400">
                    {lang === 'en'
                      ? `${expiringSoonCount} ${expiringSoonCount === 1 ? 'stamp' : 'stamps'} expiring on ${formatDate(nearestExpiryDate)}`
                      : `มีแสตมป์ ${expiringSoonCount} ดวง จะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
@@ -295,7 +295,7 @@ const Rewards = () => {
                className={`w-24 h-24 flex flex-col items-center justify-center shadow-lg shrink-0 ${isPremium ? 'bg-gradient-to-br from-amber-400 to-yellow-500' : 'bg-emerald-100'}`}
                style={{ clipPath: 'url(#stampScallop)' }}
              >
-               <span className={`text-[9px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
+               <span className={`text-[10px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
                  {lang === 'en' ? 'Available' : 'พร้อมแลก'}
                </span>
                <span
@@ -304,7 +304,7 @@ const Rewards = () => {
                >
                  {availableCount}
                </span>
-               <span className={`text-[9px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
+               <span className={`text-[10px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
                  {lang === 'en' ? 'stamps' : 'แสตมป์'}
                </span>
              </div>
@@ -329,7 +329,7 @@ const Rewards = () => {
                 >
                   <ArrowLeft size={16} />
                 </button>
-                <span className={`text-[11px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${pageBg ? 'bg-white/80 backdrop-blur-sm text-slate-500' : 'text-slate-400'}`}>
+                <span className={`text-[12px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${pageBg ? 'bg-white/80 backdrop-blur-sm text-slate-500' : 'text-slate-400'}`}>
                   {totalCount === 0 ? (lang === 'en' ? 'No stamps yet' : 'ยังไม่มีแสตมป์') : `${currentPageNumber} / ${pageCount}`}
                 </span>
                 <button
@@ -390,16 +390,16 @@ const Rewards = () => {
                    )}
                 </div>
                 <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{reward.name}</h4>
-                <p className="text-[10px] text-slate-500 line-clamp-2 mb-3">{reward.description}</p>
+                <p className="text-[11px] text-slate-500 line-clamp-2 mb-3">{reward.description}</p>
                 <div className="mt-auto pt-2 border-t border-slate-50 flex items-center justify-between">
                   <div className="flex items-center gap-1 text-mellow-purple font-black">
                     <span className="text-sm">{reward.stamp_cost}</span>
-                    <span className="text-[10px]">ดวง</span>
+                    <span className="text-[11px]">ดวง</span>
                   </div>
                   <button
                     onClick={() => promptRedeem(reward)}
                     disabled={submitting || availableCount < reward.stamp_cost}
-                    className="px-3 py-1.5 bg-mellow-ink text-white text-[10px] font-bold rounded-xl disabled:opacity-30 active:scale-95 transition-transform"
+                    className="px-3 py-1.5 bg-mellow-ink text-white text-[11px] font-bold rounded-xl disabled:opacity-30 active:scale-95 transition-transform"
                   >
                     {lang === 'en' ? 'Redeem' : 'แลกเลย'}
                   </button>
@@ -467,7 +467,7 @@ const Rewards = () => {
                   <div key={r.id} className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
                     <div>
                       <p className="font-bold text-sm text-slate-800">{r.reward_name}</p>
-                      <p className="text-[11px] text-slate-400 font-bold">{formatDate(r.created_at)} • {r.claim_code}</p>
+                      <p className="text-[12px] text-slate-400 font-bold">{formatDate(r.created_at)} • {r.claim_code}</p>
                     </div>
                     <span className="text-mellow-purple font-black text-sm">-{r.stamp_cost}</span>
                   </div>

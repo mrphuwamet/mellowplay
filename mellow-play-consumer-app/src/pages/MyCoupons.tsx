@@ -136,10 +136,10 @@ const MyCoupons = () => {
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
         <div className="text-center">
-          <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">
+          <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5">
             {lang === 'en' ? 'My Coupons' : 'คูปองของฉัน'}
           </h1>
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+          <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
             {lang === 'en' ? 'Tickets & Packages' : 'ตั๋วเรียนและแพ็คเกจ'}
           </span>
         </div>
@@ -193,7 +193,7 @@ const MyCoupons = () => {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-3xl font-black leading-none" style={{ color: balance > 0 ? t.color : '#cbd5e1' }}>{balance}</p>
-                        <p className="text-[12px] font-bold text-slate-500 truncate mt-1">{t.name}</p>
+                        <p className="text-[13px] font-bold text-slate-500 truncate mt-1">{t.name}</p>
                       </div>
                       {siblings.length > 0 && balance > 0 && (
                         <button

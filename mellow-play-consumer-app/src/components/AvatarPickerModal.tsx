@@ -122,7 +122,7 @@ const AvatarPickerModal: React.FC<AvatarPickerModalProps> = ({
               }`}
             >
               <ChildAvatar avatarType={customPhotoUrl} className="w-16 h-16 shadow-sm" />
-              <span className="text-[11px] font-bold text-slate-500">รูปของฉัน</span>
+              <span className="text-[12px] font-bold text-slate-500">รูปของฉัน</span>
               {pendingSelection === customPhotoUrl && (
                 <div className="absolute -top-2 -right-2 w-6 h-6 bg-mellow-purple rounded-full flex items-center justify-center text-white shadow-md border-2 border-white">
                   <Check size={14} strokeWidth={3} />

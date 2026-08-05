@@ -140,8 +140,8 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-black text-slate-800 leading-tight truncate">{post.author_name}</p>
-          <p className="text-[11px] text-slate-400 font-bold">{formatCustomDate(post.created_at, lang, 'short')}</p>
+          <p className="text-[15px] font-black text-slate-800 leading-tight truncate">{post.author_name}</p>
+          <p className="text-[12px] text-slate-400 font-bold">{formatCustomDate(post.created_at, lang, 'short')}</p>
         </div>
         {isAuthor ? (
           <button
@@ -163,7 +163,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
         )}
       </div>
 
-      <p className="text-[14px] text-slate-700 leading-relaxed whitespace-pre-wrap mt-3">{post.content}</p>
+      <p className="text-[15px] text-slate-700 leading-relaxed whitespace-pre-wrap mt-3">{post.content}</p>
 
       {post.image_url && (
         <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
@@ -191,7 +191,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
           }
           target="_blank"
           rel="noreferrer"
-          className="mt-3 flex items-center gap-1.5 w-fit px-3 py-1.5 rounded-full bg-slate-50 text-slate-500 text-[12px] font-bold active:scale-95 transition-transform"
+          className="mt-3 flex items-center gap-1.5 w-fit px-3 py-1.5 rounded-full bg-slate-50 text-slate-500 text-[13px] font-bold active:scale-95 transition-transform"
         >
           <MapPin size={12} />
           {post.location_name}
@@ -219,16 +219,16 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
                     />
                   )}
                   <div className="relative flex items-center justify-between gap-2 px-4 py-2.5">
-                    <span className="text-[14px] text-slate-700 flex items-center gap-1.5">
+                    <span className="text-[15px] text-slate-700 flex items-center gap-1.5">
                       {option.voted_by_me && <Check size={13} className="text-mellow-purple shrink-0" />}
                       {option.option_text}
                     </span>
-                    {hasVoted && <span className="text-[12px] font-black text-slate-500 shrink-0">{percent}%</span>}
+                    {hasVoted && <span className="text-[13px] font-black text-slate-500 shrink-0">{percent}%</span>}
                   </div>
                 </button>
               );
             })}
-            <p className="text-[11px] text-slate-400 font-bold">
+            <p className="text-[12px] text-slate-400 font-bold">
               {totalVotes} {lang === 'en' ? (totalVotes === 1 ? 'vote' : 'votes') : 'โหวต'}
             </p>
           </div>
@@ -262,12 +262,12 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
                 {c.avatar_url ? (
                   <img src={resolveImageUrl(c.avatar_url)} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-[10px] font-black text-slate-400">{c.display_name?.[0] || '?'}</span>
+                  <span className="text-[11px] font-black text-slate-400">{c.display_name?.[0] || '?'}</span>
                 )}
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-black text-slate-700">{c.display_name}</p>
-                <p className="text-[13px] text-slate-600 break-words">{c.comment_text}</p>
+                <p className="text-[12px] font-black text-slate-700">{c.display_name}</p>
+                <p className="text-[14px] text-slate-600 break-words">{c.comment_text}</p>
               </div>
             </div>
           ))}
@@ -280,7 +280,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
               placeholder={isLoggedIn ? (lang === 'en' ? 'Add a comment...' : 'แสดงความคิดเห็น...') : (lang === 'en' ? 'Log in to comment' : 'เข้าสู่ระบบเพื่อคอมเมนท์')}
               disabled={!isLoggedIn}
               maxLength={500}
-              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-100 rounded-full text-[13px] font-medium focus:outline-none disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-100 rounded-full text-[14px] font-medium focus:outline-none disabled:opacity-50"
               onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitComment(); }}
             />
             <button
@@ -301,20 +301,20 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
         <h3 className="text-[17px] font-black text-slate-800 mb-2">
           {lang === 'en' ? 'Delete this post?' : 'ลบโพสต์นี้หรือไม่?'}
         </h3>
-        <p className="text-[13px] text-slate-500 font-medium mb-6">
+        <p className="text-[14px] text-slate-500 font-medium mb-6">
           {lang === 'en' ? 'This cannot be undone.' : 'ไม่สามารถย้อนกลับได้เมื่อลบแล้ว'}
         </p>
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setShowDeleteConfirm(false)}
-            className="h-[46px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[14px] active:scale-95 transition-transform"
+            className="h-[46px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
           >
             {lang === 'en' ? 'Cancel' : 'ยกเลิก'}
           </button>
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[14px] active:scale-95 transition-transform disabled:opacity-60"
+            className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[15px] active:scale-95 transition-transform disabled:opacity-60"
           >
             {lang === 'en' ? 'Delete' : 'ลบโพสต์'}
           </button>
@@ -325,7 +325,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
         <h3 className="text-[17px] font-black text-slate-800 mb-1">
           {lang === 'en' ? 'Report this post' : 'รายงานโพสต์นี้'}
         </h3>
-        <p className="text-[13px] text-slate-500 font-medium mb-4">
+        <p className="text-[14px] text-slate-500 font-medium mb-4">
           {lang === 'en' ? "Our team will review it — the post isn't removed automatically." : 'ทีมงานจะตรวจสอบ — โพสต์จะยังไม่ถูกลบทันที'}
         </p>
         <div className="flex flex-col gap-2 mb-5">
@@ -333,7 +333,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
             <button
               key={r}
               onClick={() => setReportReason(r)}
-              className={`text-left px-4 py-2.5 rounded-2xl text-[13px] font-bold border transition-all ${
+              className={`text-left px-4 py-2.5 rounded-2xl text-[14px] font-bold border transition-all ${
                 reportReason === r ? 'border-mellow-purple bg-mellow-purple/10 text-mellow-purple' : 'border-slate-100 bg-slate-50 text-slate-600'
               }`}
             >
@@ -344,14 +344,14 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setShowReportModal(false)}
-            className="h-[46px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[14px] active:scale-95 transition-transform"
+            className="h-[46px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[15px] active:scale-95 transition-transform"
           >
             {lang === 'en' ? 'Cancel' : 'ยกเลิก'}
           </button>
           <button
             onClick={handleReport}
             disabled={reporting || !reportReason}
-            className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[14px] active:scale-95 transition-transform disabled:opacity-60"
+            className="h-[46px] bg-red-500 text-white rounded-2xl font-bold text-[15px] active:scale-95 transition-transform disabled:opacity-60"
           >
             {lang === 'en' ? 'Report' : 'รายงาน'}
           </button>

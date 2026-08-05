@@ -175,7 +175,7 @@ const NewsDetail = () => {
       )}
 
       <div className="px-5 pt-5">
-        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+        <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest mb-2">
           {item.type === 'news' ? (lang === 'en' ? 'News' : 'ข่าวสาร') : (lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้')}
           {' · '}
           {formatCustomDate(item.created_at, lang, 'full')}
@@ -186,7 +186,7 @@ const NewsDetail = () => {
             include inline images), so it's rendered as markup rather than
             plain text — this is admin-authored content, not user input. */}
         <div
-          className="prose-news whitespace-pre-wrap text-[15px] text-slate-700 leading-relaxed"
+          className="prose-news whitespace-pre-wrap text-[16px] text-slate-700 leading-relaxed"
           dangerouslySetInnerHTML={{ __html: content || (lang === 'en' ? 'No further details.' : 'ไม่มีรายละเอียดเพิ่มเติม') }}
         />
 
@@ -198,7 +198,7 @@ const NewsDetail = () => {
             href={item.link_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full mt-6 py-3.5 bg-slate-100 text-slate-700 rounded-xl font-black text-[14px] text-center active:scale-95 transition-transform"
+            className="block w-full mt-6 py-3.5 bg-slate-100 text-slate-700 rounded-xl font-black text-[15px] text-center active:scale-95 transition-transform"
           >
             {lang === 'en' ? 'Open Link' : 'เปิดลิงก์'}
           </a>
@@ -303,8 +303,8 @@ const NewsDetail = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0 p-3.5">
-                    <h4 className="font-black text-[14px] text-slate-800 leading-tight mb-1 line-clamp-2">{sTitle}</h4>
-                    {sContent && <p className="text-[11px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(sContent)}</p>}
+                    <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1 line-clamp-2">{sTitle}</h4>
+                    {sContent && <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(sContent)}</p>}
                   </div>
                 </div>
               );

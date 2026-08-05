@@ -217,7 +217,7 @@ const SettingsProfile = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none">{lang === 'en' ? 'Parent Profile Settings' : 'ตั้งค่าข้อมูลผู้ปกครอง'}</h1>
+        <h1 className="text-[17px] font-black tracking-tight leading-none">{lang === 'en' ? 'Parent Profile Settings' : 'ตั้งค่าข้อมูลผู้ปกครอง'}</h1>
         <div className="w-10" /> {/* Spacer */}
       </header>
 
@@ -414,7 +414,7 @@ const SettingsProfile = () => {
             onClick={() => setIsPinModalOpen(true)}
             className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl mb-3 active:scale-[0.98] transition-transform"
           >
-            <span className="font-black text-slate-800 text-[14px]">{lang === 'en' ? 'Change PIN' : 'เปลี่ยน PIN'}</span>
+            <span className="font-black text-slate-800 text-[15px]">{lang === 'en' ? 'Change PIN' : 'เปลี่ยน PIN'}</span>
             <span className="text-mellow-purple font-bold text-xs">{lang === 'en' ? 'Change' : 'เปลี่ยน'}</span>
           </button>
 
@@ -426,7 +426,7 @@ const SettingsProfile = () => {
                     <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-black text-slate-800 text-[14px]">Google</h3>
+                    <h3 className="font-black text-slate-800 text-[15px]">Google</h3>
                     <p className="text-xs font-bold text-emerald-600">{lang === 'en' ? 'Connected' : 'เชื่อมต่อแล้ว'}</p>
                   </div>
                 </div>
@@ -458,7 +458,7 @@ const SettingsProfile = () => {
             )}
           </div>
           {account?.hasGoogleLinked && !account.phoneVerified && (
-            <p className="text-[11px] font-bold text-slate-400 mt-2 px-1 flex items-center gap-1">
+            <p className="text-[12px] font-bold text-slate-400 mt-2 px-1 flex items-center gap-1">
               <Link2 size={11} />
               {lang === 'en'
                 ? 'A verified phone number is required before you can disconnect Google.'
@@ -470,7 +470,7 @@ const SettingsProfile = () => {
         <button
           type="button"
           onClick={() => navigate('/settings/community-guidelines')}
-          className="w-full flex items-center justify-between gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-4 text-slate-700 font-black text-[14px] active:scale-[0.98] transition-transform"
+          className="w-full flex items-center justify-between gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-4 text-slate-700 font-black text-[15px] active:scale-[0.98] transition-transform"
         >
           <span className="flex items-center gap-2">
             <BookOpen size={18} className="text-mellow-purple" />
@@ -490,7 +490,7 @@ const SettingsProfile = () => {
             localStorage.removeItem('mellow_guest');
             navigate('/login');
           }}
-          className="w-full flex items-center justify-center gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-6 text-red-500 font-black text-[14px] active:scale-[0.98] transition-transform"
+          className="w-full flex items-center justify-center gap-2 p-4 bg-white shadow-xl rounded-[24px] mb-6 text-red-500 font-black text-[15px] active:scale-[0.98] transition-transform"
         >
           <LogOut size={18} />
           {lang === 'en' ? 'Logout' : 'ออกจากระบบ'}
@@ -506,7 +506,7 @@ const SettingsProfile = () => {
                   <div className="flex items-center gap-4">
                     <ChildAvatar avatarType={child.avatar} className="w-12 h-12 rounded-full ring-2 ring-white shadow-sm" />
                     <div>
-                      <h3 className="font-black text-slate-800 text-[15px] leading-tight">{child.name}</h3>
+                      <h3 className="font-black text-slate-800 text-[16px] leading-tight">{child.name}</h3>
                       <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase tracking-widest">
                         {child.relation ? (() => {
                           const { role, customText } = normalizeFamilyRole(child.relation);

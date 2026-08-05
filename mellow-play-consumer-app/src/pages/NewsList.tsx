@@ -35,7 +35,7 @@ const NewsList = () => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none">{title}</h1>
+        <h1 className="text-[17px] font-black tracking-tight leading-none">{title}</h1>
       </header>
 
       <main className="p-5">
@@ -85,8 +85,8 @@ const NewsList = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0 p-4">
-                    <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1 line-clamp-2">{itemTitle}</h4>
-                    {content && <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
+                    <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">{itemTitle}</h4>
+                    {content && <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
                   </div>
                 </div>
               );

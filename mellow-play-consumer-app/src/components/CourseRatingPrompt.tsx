@@ -52,7 +52,7 @@ const CourseRatingPrompt: React.FC<CourseRatingPromptProps> = ({ courseId, child
       <div className="bg-emerald-50 rounded-2xl p-3.5">
         <div className="flex items-center gap-1.5 mb-1">
           <Check size={14} className="text-emerald-600" />
-          <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">
+          <p className="text-[12px] font-black text-emerald-600 uppercase tracking-widest">
             {lang === 'en' ? 'Thanks for your rating' : 'ขอบคุณสำหรับคะแนน'}
           </p>
         </div>
@@ -68,7 +68,7 @@ const CourseRatingPrompt: React.FC<CourseRatingPromptProps> = ({ courseId, child
 
   return (
     <div className="bg-amber-50/60 rounded-2xl p-3.5">
-      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+      <p className="text-[12px] font-black text-slate-500 uppercase tracking-widest mb-2">
         {lang === 'en' ? 'Rate this class' : 'ให้คะแนนคลาสนี้'}
       </p>
       <div className="flex gap-1 mb-2">

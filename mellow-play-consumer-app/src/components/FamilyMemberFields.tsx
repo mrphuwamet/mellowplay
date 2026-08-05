@@ -89,7 +89,7 @@ const FamilyMemberFields: React.FC<FamilyMemberFieldsProps> = ({ value, onChange
           {errors?.lastName && <p className="text-xs text-red-500 font-bold mt-1 px-1">{errors.lastName}</p>}
         </div>
       </div>
-      <p className="text-[10px] text-mellow-purple/70 font-bold px-1 -mt-2">
+      <p className="text-[11px] text-mellow-purple/70 font-bold px-1 -mt-2">
         * {t.register?.noTitlePrefix || 'No title prefix needed (e.g. Master, Miss)'}
       </p>
 

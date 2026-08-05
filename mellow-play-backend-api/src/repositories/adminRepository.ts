@@ -616,6 +616,7 @@ export class AdminRepository {
     isService?: boolean;
     allowRepeat?: boolean;
     registrationFormId?: number | null;
+    registrationCloseAt?: string | null;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -645,7 +646,7 @@ export class AdminRepository {
         original_price_junior, premium_price_junior,
         achievement_skills_little_junior_json, metrics_little_junior_json,
         achievement_skills_junior_json, metrics_junior_json,
-        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, registration_form_id,
+        thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, registration_form_id, registration_close_at,
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
         sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
       ) VALUES (
@@ -655,7 +656,7 @@ export class AdminRepository {
         1, ?, ?, ?, ?,
         1, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?
       )
@@ -675,6 +676,7 @@ export class AdminRepository {
       data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
       data.registrationFormId || null,
+      data.registrationCloseAt || null,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
@@ -713,6 +715,7 @@ export class AdminRepository {
     isService?: boolean;
     allowRepeat?: boolean;
     registrationFormId?: number | null;
+    registrationCloseAt?: string | null;
     shortDescriptionEn?: string;
     location?: string;
     location_link?: string;
@@ -743,7 +746,7 @@ export class AdminRepository {
         achievement_skills_little_junior_json = ?, metrics_little_junior_json = ?,
         achievement_skills_junior_json = ?, metrics_junior_json = ?,
         thumbnail_url = ?, detail_poster_url = ?, images_json = ?, video_url = ?, teacher_guide_url = ?,
-        is_recommended = ?, is_extraclass = ?, is_event = ?, is_service = ?, allow_repeat = ?, registration_form_id = ?,
+        is_recommended = ?, is_extraclass = ?, is_event = ?, is_service = ?, allow_repeat = ?, registration_form_id = ?, registration_close_at = ?,
         short_description_en = ?, location = ?, location_link = ?,
         stamps_on_completion = ?, stamp_expiry_months = ?,
         sales_commission_type = ?, sales_commission_value = ?,
@@ -765,6 +768,7 @@ export class AdminRepository {
       data.isService ? 1 : 0,
       data.allowRepeat === false ? 0 : 1,
       data.registrationFormId || null,
+      data.registrationCloseAt || null,
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,

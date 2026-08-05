@@ -140,7 +140,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             </div>
           )}
         </div>
-        <span className={`${forceLabel ? '' : 'hidden lg:inline'} text-[14px] font-black tracking-tight`}>{label}</span>
+        <span className={`${forceLabel ? '' : 'hidden lg:inline'} text-[15px] font-black tracking-tight`}>{label}</span>
       </Link>
     );
   };
@@ -157,9 +157,9 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           >
             <ChildAvatar avatarType={child.avatar} className="w-12 h-12 flex-shrink-0" />
             <div className="flex flex-col items-start text-left">
-              <span className="text-[16px] font-bold text-slate-700 leading-tight">{child.nickname || child.name}</span>
+              <span className="text-[17px] font-bold text-slate-700 leading-tight">{child.nickname || child.name}</span>
               {child.nickname && (
-                <span className="text-[13px] font-medium text-slate-500">{child.name}</span>
+                <span className="text-[14px] font-medium text-slate-500">{child.name}</span>
               )}
             </div>
           </button>
@@ -171,7 +171,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
             <span className="text-2xl font-black">+</span>
           </div>
-          <span className="text-[16px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
+          <span className="text-[17px] font-bold">{lang === 'en' ? 'Add New' : 'เพิ่มโปรไฟล์ใหม่'}</span>
         </button>
       </div>
     </ResponsiveModal>
@@ -216,7 +216,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             </div>
           )}
         </div>
-        <span className="text-[11px] font-black tracking-tight text-center leading-tight px-1">{label}</span>
+        <span className="text-[12px] font-black tracking-tight text-center leading-tight px-1">{label}</span>
       </Link>
     );
   };
@@ -250,19 +250,19 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           )}
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
+          <p className="text-[11px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
           {isGuest ? (
-            <button onClick={() => { closeMobileMenu(); navigate('/login'); }} className="text-[14px] font-black text-mellow-purple underline decoration-2 underline-offset-2 truncate">
+            <button onClick={() => { closeMobileMenu(); navigate('/login'); }} className="text-[15px] font-black text-mellow-purple underline decoration-2 underline-offset-2 truncate">
               {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
             </button>
           ) : (
             <>
-              <p className="text-[14px] font-black text-slate-800 truncate">
+              <p className="text-[15px] font-black text-slate-800 truncate">
                 {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
               </p>
               <button
                 onClick={() => { closeMobileMenu(); selectedChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true); }}
-                className="text-[11px] font-bold text-slate-400 truncate active:opacity-70 transition-opacity"
+                className="text-[12px] font-bold text-slate-400 truncate active:opacity-70 transition-opacity"
               >
                 {selectedChild ? (selectedChild.nickname || selectedChild.name) : (lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child')}
               </button>
@@ -290,7 +290,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 rounded-2xl text-slate-500 bg-slate-50 active:bg-black/[0.05] transition-colors"
         >
           <SettingsIcon size={18} className="shrink-0" />
-          <span className="text-[13px] font-black tracking-tight truncate">{t.common.settings}</span>
+          <span className="text-[14px] font-black tracking-tight truncate">{t.common.settings}</span>
         </Link>
         <LanguageToggle />
       </div>
@@ -340,17 +340,17 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 </div>
               )}
             </button>
-            <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
+            <p className="text-[11px] font-black uppercase text-slate-400 mb-0.5">{t.home.greeting}</p>
             {isGuest ? (
               <button
                 onClick={() => navigate('/login')}
-                className="text-left block w-full text-[15px] font-black leading-tight truncate text-mellow-purple underline decoration-2 underline-offset-2"
+                className="text-left block w-full text-[16px] font-black leading-tight truncate text-mellow-purple underline decoration-2 underline-offset-2"
               >
                 {lang === 'en' ? 'Login' : 'เข้าสู่ระบบ'}
               </button>
             ) : (
               <>
-                <span className="text-[15px] font-black text-slate-800 leading-tight truncate block mb-1.5">
+                <span className="text-[16px] font-black text-slate-800 leading-tight truncate block mb-1.5">
                   {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
                 </span>
                 <div className="flex items-center gap-1.5">
@@ -361,10 +361,10 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                     {selectedChild ? (
                       <>
                         <ChildAvatar avatarType={selectedChild.avatar} className="w-5 h-5 shrink-0" />
-                        <span className="text-[12px] font-bold text-slate-500 truncate">{selectedChild.nickname || selectedChild.name}</span>
+                        <span className="text-[13px] font-bold text-slate-500 truncate">{selectedChild.nickname || selectedChild.name}</span>
                       </>
                     ) : (
-                      <span className="text-[12px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
+                      <span className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
                         {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
                       </span>
                     )}
@@ -393,13 +393,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 {selectedChild.dob && (
                   <button
                     onClick={() => setIsBirthdayModalOpen(true)}
-                    className="inline-flex items-center gap-1 text-[10px] font-black bg-sky-100 text-sky-600 px-2 py-1 rounded-full active:scale-95 transition-transform"
+                    className="inline-flex items-center gap-1 text-[11px] font-black bg-sky-100 text-sky-600 px-2 py-1 rounded-full active:scale-95 transition-transform"
                   >
                     <Cake size={10} strokeWidth={2.5} />
                     {calculateAge(selectedChild.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(selectedChild.dob)) < 15 ? 'ขวบ' : 'ปี')}
                   </button>
                 )}
-                <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${
+                <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full ${
                   isPremium ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white' : 'bg-emerald-100 text-emerald-600'
                 }`}>
                   {isPremium ? <Crown size={10} strokeWidth={2.5} /> : <Medal size={10} strokeWidth={2.5} />}
@@ -451,7 +451,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             }`}
           >
             <Calendar size={22} className="shrink-0" />
-            <span className="text-[14px] font-black tracking-tight flex-1 text-left">{t.home.quickAccess.booking}</span>
+            <span className="text-[15px] font-black tracking-tight flex-1 text-left">{t.home.quickAccess.booking}</span>
             <ChevronDown size={14} className={`shrink-0 transition-transform ${isBookingMenuOpen ? 'rotate-180' : ''}`} />
           </button>
           {isBookingMenuOpen && (
@@ -462,21 +462,21 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
               <Link
                 to="/booking"
                 onClick={() => setIsBookingMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-[13px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
+                className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
                 {lang === 'en' ? 'Book Class' : 'จองคลาส'}
               </Link>
               <Link
                 to="/booking?type=service"
                 onClick={() => setIsBookingMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-[13px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
+                className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
                 {lang === 'en' ? 'Book Service' : 'จองบริการ'}
               </Link>
               <Link
                 to="/booking?type=event"
                 onClick={() => setIsBookingMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-[13px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
+                className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
                 {lang === 'en' ? 'Book Event' : 'จองกิจกรรม'}
               </Link>
@@ -499,7 +499,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             className="flex items-center gap-3 px-3 py-2.5 rounded-2xl text-slate-400 hover:bg-black/[0.03] transition-colors"
           >
             <SettingsIcon size={22} className="shrink-0" />
-            <span className="hidden lg:inline text-[14px] font-black tracking-tight">{t.common.settings}</span>
+            <span className="hidden lg:inline text-[15px] font-black tracking-tight">{t.common.settings}</span>
           </Link>
 
           <button
@@ -507,7 +507,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-slate-400 hover:bg-black/[0.03] transition-colors"
           >
             <Globe size={22} className="shrink-0" />
-            <span className="hidden lg:inline text-[14px] font-black tracking-tight">{lang === 'th' ? 'English' : 'ภาษาไทย'}</span>
+            <span className="hidden lg:inline text-[15px] font-black tracking-tight">{lang === 'th' ? 'English' : 'ภาษาไทย'}</span>
           </button>
 
           {!isGuest && (
@@ -521,7 +521,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-red-400 hover:bg-red-50 transition-colors"
             >
               <LogOut size={22} className="shrink-0" />
-              <span className="hidden lg:inline text-[14px] font-black tracking-tight">{lang === 'en' ? 'Logout' : 'ออกจากระบบ'}</span>
+              <span className="hidden lg:inline text-[15px] font-black tracking-tight">{lang === 'en' ? 'Logout' : 'ออกจากระบบ'}</span>
             </button>
           )}
         </div>
@@ -543,7 +543,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] h-24 bg-white/90 backdrop-blur-xl rounded-t-[40px] shadow-[0_-15px_40px_-20px_rgba(0,0,0,0.15)] border-t border-white/40 flex justify-around items-center px-3 z-20 md:hidden">
             <Link to="/" className={`flex flex-col items-center gap-1.5 transition-all active:scale-90 ${location.pathname === '/' ? 'text-mellow-red' : 'text-slate-400'}`}>
               <HomeIcon size={24} />
-              <span className="text-[14px] font-black tracking-tighter">{t.nav.home}</span>
+              <span className="text-[15px] font-black tracking-tighter">{t.nav.home}</span>
             </Link>
             <Link to="/journey" onClick={e => guardedNav(e, t.nav.journey)} className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/journey' ? 'text-mellow-purple' : 'text-slate-400'}`}>
               <div className="relative">
@@ -554,18 +554,18 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                   </div>
                 )}
               </div>
-              <span className="text-[14px] font-black tracking-tighter">{t.nav.journey}</span>
+              <span className="text-[15px] font-black tracking-tighter">{t.nav.journey}</span>
             </Link>
             {/* Album moved into the "all menu" grid below — this slot is now
                 the entry point to everything else the sidebar carries on
                 desktop (Booking, Know My Child, Album, Contact Us, Settings...). */}
             <button onClick={() => setIsMobileMenuOpen(true)} className="flex flex-col items-center gap-1 transition-all active:scale-90 text-mellow-blue">
               <LayoutGrid size={24} />
-              <span className="text-[14px] font-black tracking-tighter">{lang === 'en' ? 'Menu' : 'เมนู'}</span>
+              <span className="text-[15px] font-black tracking-tighter">{lang === 'en' ? 'Menu' : 'เมนู'}</span>
             </button>
             <Link to="/explore" className={`flex flex-col items-center gap-1 transition-colors ${location.pathname === '/explore' ? 'text-mellow-yellow' : 'text-slate-400'}`}>
               <Compass size={24} />
-              <span className="text-[14px] font-black tracking-tighter">{t.nav.explore}</span>
+              <span className="text-[15px] font-black tracking-tighter">{t.nav.explore}</span>
             </Link>
             <Link to="/rewards" onClick={e => guardedNav(e, t.nav.rewards)} className={`flex flex-col items-center gap-1 transition-all active:scale-90 ${location.pathname === '/rewards' ? 'text-mellow-green' : 'text-slate-400'}`}>
               <div className="relative">
@@ -576,7 +576,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                   </div>
                 )}
               </div>
-              <span className="text-[14px] font-black tracking-tighter">{t.nav.rewards}</span>
+              <span className="text-[15px] font-black tracking-tighter">{t.nav.rewards}</span>
             </Link>
           </nav>
         )}

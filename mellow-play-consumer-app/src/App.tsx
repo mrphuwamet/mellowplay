@@ -132,6 +132,8 @@ const AppContent = () => {
         <Route path="/courses/:type" element={<CourseList />} />
         <Route path="/event" element={<CourseList type="event" />} />
         <Route path="/class/:id" element={<CourseDetail />} />
+        <Route path="/activities/:id" element={<CourseDetail />} />
+        <Route path="/services/:id" element={<CourseDetail />} />
         <Route path="/course/:id" element={<CourseToClassRedirect />} />
       </Routes>
     </AppShell>

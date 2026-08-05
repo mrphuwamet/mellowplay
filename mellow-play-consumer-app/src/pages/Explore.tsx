@@ -131,8 +131,8 @@ const Explore = () => {
           )}
         </div>
         <div className="p-4">
-          <h4 className="font-black text-[15px] text-slate-800 leading-tight mb-1 line-clamp-2">{title}</h4>
-          {content && <p className="text-[12px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
+          <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">{title}</h4>
+          {content && <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
         </div>
       </div>
     );
@@ -152,8 +152,8 @@ const Explore = () => {
             <ChevronLeft size={24} className="mr-0.5" />
           </button>
           <div className="min-w-0">
-            <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5 truncate">{t.explore.title}</h1>
-            <span className="text-[14px] font-bold text-mellow-yellow uppercase tracking-[0.2em]">{t.explore.subtitle}</span>
+            <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5 truncate">{t.explore.title}</h1>
+            <span className="text-[15px] font-bold text-mellow-yellow uppercase tracking-[0.2em]">{t.explore.subtitle}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -188,7 +188,7 @@ const Explore = () => {
                  }`}
                >
                   <cat.Icon size={18} className={isActive ? 'text-white' : cat.iconColor} />
-                  <b className={`text-[12px] font-black text-center leading-tight ${isActive ? 'text-white' : 'text-slate-700'}`}>{cat.label}</b>
+                  <b className={`text-[13px] font-black text-center leading-tight ${isActive ? 'text-white' : 'text-slate-700'}`}>{cat.label}</b>
                </button>
              );
            })}
@@ -216,7 +216,7 @@ const Explore = () => {
                 <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Classes' : 'คลาส'}</h3>
                 <div className="flex items-center gap-3">
                   <CarouselNudgeButtons onScrollLeft={() => classesCarousel.scrollBy('left')} onScrollRight={() => classesCarousel.scrollBy('right')} />
-                  <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                  <button onClick={() => navigate('/booking')} className="flex items-center gap-1 text-mellow-purple text-[14px] font-bold active:scale-95 transition-transform shrink-0">
                     {lang === 'en' ? 'View All' : 'ดูคลาสทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
@@ -247,7 +247,7 @@ const Explore = () => {
                 <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Events' : 'กิจกรรม'}</h3>
                 <div className="flex items-center gap-3">
                   <CarouselNudgeButtons onScrollLeft={() => eventsCarousel.scrollBy('left')} onScrollRight={() => eventsCarousel.scrollBy('right')} />
-                  <button onClick={() => navigate('/event')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform shrink-0">
+                  <button onClick={() => navigate('/event')} className="flex items-center gap-1 text-mellow-purple text-[14px] font-bold active:scale-95 transition-transform shrink-0">
                     {lang === 'en' ? 'View All' : 'ดูกิจกรรมทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
@@ -275,11 +275,11 @@ const Explore = () => {
              <div className="flex justify-between items-end mb-4 px-1 gap-2">
                 <div>
                    <h3 className="font-black text-lg leading-tight uppercase tracking-tight">{lang === 'en' ? 'News' : 'ข่าวสาร'}</h3>
-                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'Latest updates' : 'ข่าวสารล่าสุด'}</p>
+                   <p className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'Latest updates' : 'ข่าวสารล่าสุด'}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <CarouselNudgeButtons onScrollLeft={() => newsCarousel.scrollBy('left')} onScrollRight={() => newsCarousel.scrollBy('right')} />
-                  <button onClick={() => navigate('/news-feed/news')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
+                  <button onClick={() => navigate('/news-feed/news')} className="flex items-center gap-1 text-mellow-purple text-[14px] font-bold active:scale-95 transition-transform">
                     {lang === 'en' ? 'View All' : 'ดูข่าวทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>
@@ -297,11 +297,11 @@ const Explore = () => {
              <div className="flex justify-between items-end mb-4 px-1 gap-2">
                 <div>
                    <h3 className="font-black text-lg leading-tight uppercase tracking-tight">{lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้'}</h3>
-                   <p className="text-[14px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'For kids & families' : 'เรื่องน่ารู้สำหรับเด็ก และครอบครัว'}</p>
+                   <p className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">{lang === 'en' ? 'For kids & families' : 'เรื่องน่ารู้สำหรับเด็ก และครอบครัว'}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <CarouselNudgeButtons onScrollLeft={() => mediaCarousel.scrollBy('left')} onScrollRight={() => mediaCarousel.scrollBy('right')} />
-                  <button onClick={() => navigate('/news-feed/media')} className="flex items-center gap-1 text-mellow-purple text-[13px] font-bold active:scale-95 transition-transform">
+                  <button onClick={() => navigate('/news-feed/media')} className="flex items-center gap-1 text-mellow-purple text-[14px] font-bold active:scale-95 transition-transform">
                     {lang === 'en' ? 'View All' : 'ดูทั้งหมด'}
                     <ArrowRight size={14} />
                   </button>

@@ -304,7 +304,7 @@ const Album = () => {
 
           {!selectMode && (
             <div className="absolute inset-0 rounded-[24px] bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 pointer-events-none">
-               <p className="text-white text-[14px] font-bold leading-tight">{datetimeLabel}</p>
+               <p className="text-white text-[15px] font-bold leading-tight">{datetimeLabel}</p>
             </div>
           )}
 
@@ -387,8 +387,8 @@ const Album = () => {
             <ChevronLeft size={24} className="mr-0.5" />
           </button>
           <div className="min-w-0">
-            <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5 truncate">{t.album.title}</h1>
-            <span className="text-[14px] font-bold text-mellow-blue uppercase tracking-[0.2em] truncate block">{t.album.memoriesPrefix}{selectedChild?.nickname}{t.album.memoriesSuffix}</span>
+            <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5 truncate">{t.album.title}</h1>
+            <span className="text-[15px] font-bold text-mellow-blue uppercase tracking-[0.2em] truncate block">{t.album.memoriesPrefix}{selectedChild?.nickname}{t.album.memoriesSuffix}</span>
           </div>
         </div>
         <div className="relative shrink-0">
@@ -406,29 +406,29 @@ const Album = () => {
             <>
               <div className="fixed inset-0 z-30" onClick={() => setPickerOpen(false)} />
               <div className="absolute right-0 top-12 z-40 w-[260px] bg-white rounded-2xl shadow-xl border border-slate-100 p-4">
-                <label className="block text-[12px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.fromDate}</label>
+                <label className="block text-[13px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.fromDate}</label>
                 <input
                   type="date" value={draftStart} max={draftEnd || undefined}
                   onChange={e => setDraftStart(e.target.value)}
-                  className="w-full mb-3 px-3 py-2 rounded-xl border border-slate-200 text-[14px] font-bold"
+                  className="w-full mb-3 px-3 py-2 rounded-xl border border-slate-200 text-[15px] font-bold"
                 />
-                <label className="block text-[12px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.toDate}</label>
+                <label className="block text-[13px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.album.toDate}</label>
                 <input
                   type="date" value={draftEnd} min={draftStart || undefined}
                   onChange={e => setDraftEnd(e.target.value)}
-                  className="w-full mb-4 px-3 py-2 rounded-xl border border-slate-200 text-[14px] font-bold"
+                  className="w-full mb-4 px-3 py-2 rounded-xl border border-slate-200 text-[15px] font-bold"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setDateRange(null); setPickerOpen(false); }}
-                    className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 text-[13px] font-black uppercase tracking-widest"
+                    className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-500 text-[14px] font-black uppercase tracking-widest"
                   >
                     {t.album.clearDates}
                   </button>
                   <button
                     onClick={() => { if (draftStart && draftEnd) { setDateRange({ start: draftStart, end: draftEnd }); setPickerOpen(false); } }}
                     disabled={!draftStart || !draftEnd}
-                    className="flex-1 py-2 rounded-xl bg-mellow-purple text-white text-[13px] font-black uppercase tracking-widest disabled:opacity-40"
+                    className="flex-1 py-2 rounded-xl bg-mellow-purple text-white text-[14px] font-black uppercase tracking-widest disabled:opacity-40"
                   >
                     {t.album.apply}
                   </button>
@@ -441,7 +441,7 @@ const Album = () => {
 
       {dateRange && (
         <div className="px-5 pt-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-mellow-blue/10 text-mellow-blue rounded-full text-[13px] font-bold">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-mellow-blue/10 text-mellow-blue rounded-full text-[14px] font-bold">
             {formatCustomDate(dateRange.start, lang, 'short')} - {formatCustomDate(dateRange.end, lang, 'short')}
             <button onClick={() => setDateRange(null)}><X size={14} /></button>
           </div>
@@ -461,7 +461,7 @@ const Album = () => {
             {!dateRange && <p className="text-sm text-slate-400 font-bold mb-5">{t.album.noPhotosDesc}</p>}
             <button
               onClick={() => dateRange ? setDateRange(null) : navigate('/explore')}
-              className="px-6 py-3 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest shadow-md active:scale-95 transition-all"
+              className="px-6 py-3 bg-mellow-purple text-white text-[15px] font-black rounded-xl uppercase tracking-widest shadow-md active:scale-95 transition-all"
             >
               {dateRange ? t.album.allDates : t.album.bookNow}
             </button>
@@ -474,7 +474,7 @@ const Album = () => {
               </div>
               <button
                 onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
-                className="px-4 py-2 rounded-xl bg-white/20 backdrop-blur-md text-[13px] font-black uppercase tracking-widest"
+                className="px-4 py-2 rounded-xl bg-white/20 backdrop-blur-md text-[14px] font-black uppercase tracking-widest"
               >
                 {selectMode ? t.album.cancel : t.album.select}
               </button>
@@ -485,13 +485,13 @@ const Album = () => {
                <div className="bg-slate-100 p-1 rounded-xl flex gap-1">
                   <button
                     onClick={() => setGroupMode('timeline')}
-                    className={`px-3 py-1.5 rounded-lg text-[13px] font-black transition-all ${groupMode === 'timeline' ? 'bg-white shadow-sm text-mellow-blue' : 'text-slate-400'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[14px] font-black transition-all ${groupMode === 'timeline' ? 'bg-white shadow-sm text-mellow-blue' : 'text-slate-400'}`}
                   >
                     {t.album.groupTimeline}
                   </button>
                   <button
                     onClick={() => setGroupMode('all')}
-                    className={`px-3 py-1.5 rounded-lg text-[13px] font-black transition-all ${groupMode === 'all' ? 'bg-white shadow-sm text-mellow-blue' : 'text-slate-400'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[14px] font-black transition-all ${groupMode === 'all' ? 'bg-white shadow-sm text-mellow-blue' : 'text-slate-400'}`}
                   >
                     {t.album.groupAll}
                   </button>
@@ -513,7 +513,7 @@ const Album = () => {
             </div>
 
             {selectMode && (
-              <p className="text-[12px] text-slate-400 font-bold mb-6">{t.album.maxSelection}</p>
+              <p className="text-[13px] text-slate-400 font-bold mb-6">{t.album.maxSelection}</p>
             )}
 
             {/* Album Content */}
@@ -524,8 +524,8 @@ const Album = () => {
                     <div className="flex items-center gap-3 mb-4">
                        <div className="w-1.5 h-6 bg-mellow-blue rounded-full" />
                        <div>
-                          <b className="text-[14px] text-mellow-ink block leading-none mb-1">{group.date}</b>
-                          <span className="text-[14px] font-bold text-slate-400 uppercase tracking-widest">{group.activity}</span>
+                          <b className="text-[15px] text-mellow-ink block leading-none mb-1">{group.date}</b>
+                          <span className="text-[15px] font-bold text-slate-400 uppercase tracking-widest">{group.activity}</span>
                        </div>
                     </div>
                     <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}`}>
@@ -546,7 +546,7 @@ const Album = () => {
               </div>
             ) : (
               <div className="mt-10 text-center pb-4">
-                 <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-full text-[14px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                 <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-full text-[15px] font-black text-slate-400 uppercase tracking-[0.2em]">
                     {t.album.endOfGallery}
                  </div>
               </div>
@@ -558,16 +558,16 @@ const Album = () => {
       {/* Select-mode action bar */}
       {selectMode && totalMedia > 0 && (
         <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px] p-4 bg-white/95 backdrop-blur-xl border-t border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] z-40 flex items-center gap-3">
-          <button onClick={selectAllVisible} className="text-[13px] font-black text-mellow-blue uppercase tracking-widest shrink-0">
+          <button onClick={selectAllVisible} className="text-[14px] font-black text-mellow-blue uppercase tracking-widest shrink-0">
             {t.album.selectAll}
           </button>
-          <div className="flex-1 text-center text-[13px] font-bold text-slate-500">
+          <div className="flex-1 text-center text-[14px] font-bold text-slate-500">
             {selectedIds.size} / {MAX_SELECTION}
           </div>
           <button
             onClick={downloadSelected}
             disabled={selectedIds.size === 0}
-            className="px-4 py-2.5 bg-mellow-purple text-white text-[13px] font-black rounded-xl uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+            className="px-4 py-2.5 bg-mellow-purple text-white text-[14px] font-black rounded-xl uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
           >
             <Download size={14} /> {t.album.downloadSelected}
           </button>

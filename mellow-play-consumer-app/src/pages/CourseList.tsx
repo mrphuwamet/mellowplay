@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
-import { formatCalendarSummary } from '../utils/calendarUtils';
+import { formatCalendarSummary, isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { getCourseView } from '../utils/courseImage';
+import { getCourseDetailPath } from '../utils/courseLinks';
 
 // Mounted two ways: /courses/:type (type comes from the URL, e.g. "extra"/
 // "regular") and /event (a dedicated top-level route — events aren't a class
@@ -42,7 +43,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
         </button>
-        <h1 className="text-[16px] font-black tracking-tight leading-none mb-0.5">{title}</h1>
+        <h1 className="text-[17px] font-black tracking-tight leading-none mb-0.5">{title}</h1>
         <div className="w-10 h-10" />
       </header>
 
@@ -51,7 +52,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
           <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {[0, 1, 2, 3].map(i => (
               <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full md:flex-col">
-                <div className="w-28 h-28 md:w-full md:h-40 bg-slate-200 shrink-0" />
+                <div className="w-40 h-40 md:w-full md:h-40 bg-slate-200 shrink-0" />
                 <div className="flex-1 min-w-0 p-4 space-y-2">
                   <div className="h-4 w-3/4 bg-slate-200 rounded-full" />
                   <div className="h-3 w-1/2 bg-slate-100 rounded-full" />
@@ -64,38 +65,45 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
           <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {courses.map(course => {
               const view = getCourseView(course, 'card');
+              const ended = isCourseEnded(course);
+              const closed = isRegistrationClosed(course);
               return (
-              <div key={course.id} onClick={() => navigate(`/class/${course.id}`)} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full md:flex-col">
-                 <div className="w-32 sm:w-40 md:w-full shrink-0 aspect-square md:aspect-[4/3] bg-slate-100 relative overflow-hidden">
+              <div key={course.id} onClick={() => navigate(getCourseDetailPath(course))} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full md:flex-col">
+                 <div className="w-40 sm:w-48 md:w-full shrink-0 aspect-square md:aspect-[4/3] bg-slate-100 relative overflow-hidden">
                     {view.url ? (
-                      <img src={view.url} alt={course.name} style={view.style} className="w-full h-full object-cover" />
+                      <img src={view.url} alt={course.name} style={view.style} className={`w-full h-full object-cover ${(ended || closed) ? 'grayscale-[40%]' : ''}`} />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center p-6 opacity-30">
                          <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
                       </div>
                     )}
-                    <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black uppercase shadow-sm ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                    <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[11px] font-black uppercase shadow-sm ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
                       {course.category_name}
                     </div>
+                    {(ended || closed) && (
+                      <div className="absolute top-2 right-2 bg-slate-400 text-white text-[11px] font-black px-2 py-1 rounded-full shadow-sm">
+                        {ended ? 'จบแล้ว' : 'ปิดรับลงทะเบียน'}
+                      </div>
+                    )}
                  </div>
                  <div className="flex-1 min-w-0 p-4 flex flex-col">
-                    <h4 className="font-black text-[16px] text-slate-800 leading-tight">{course.name}</h4>
-                    {course.name_en && <p className="text-[12px] text-slate-400 font-bold truncate">{course.name_en}</p>}
+                    <h4 className="font-black text-[17px] text-slate-800 leading-tight">{course.name}</h4>
+                    {course.name_en && <p className="text-[13px] text-slate-400 font-bold truncate">{course.name_en}</p>}
 
                     <div className="flex flex-wrap gap-2 mt-2">
                        {course.age_min && course.age_max && (
-                         <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[11px] font-bold">
+                         <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[12px] font-bold">
                            {course.age_min}-{course.age_max} ปี
                          </span>
                        )}
-                       <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[11px] font-bold">
+                       <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[12px] font-bold">
                          ฿{course.original_price?.toLocaleString() || 0}
                        </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[12px] font-bold text-slate-500 border-t border-slate-100 mt-auto pt-2">
+                    <div className="flex items-center gap-1.5 text-[13px] font-bold text-slate-500 border-t border-slate-100 mt-auto pt-2">
                        <Calendar size={14} className="text-slate-400 shrink-0" />
-                       <span className="truncate">{course.calendar_id ? formatCalendarSummary(course.calendar_summary_json) : 'รอประกาศวัน'}</span>
+                       <span className="truncate">{ended ? 'จบแล้ว' : formatCalendarSummary(course.calendar_summary_json)}</span>
                     </div>
                  </div>
               </div>
