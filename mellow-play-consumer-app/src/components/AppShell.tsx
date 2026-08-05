@@ -353,15 +353,15 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 <span className="text-[16px] font-black text-slate-800 leading-tight truncate block mb-1.5">
                   {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
                 </span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2 mt-1">
                   <button
                     onClick={() => selectedChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true)}
-                    className="flex items-center gap-1 min-w-0 active:opacity-70 transition-opacity"
+                    className="flex items-center gap-2 min-w-0 flex-1 active:opacity-70 transition-opacity"
                   >
                     {selectedChild ? (
                       <>
-                        <ChildAvatar avatarType={selectedChild.avatar} className="w-5 h-5 shrink-0" />
-                        <span className="text-[13px] font-bold text-slate-500 truncate">{selectedChild.nickname || selectedChild.name}</span>
+                        <ChildAvatar avatarType={selectedChild.avatar} className="w-9 h-9 shrink-0 ring-2 ring-white shadow-sm" />
+                        <span className="text-[14px] font-black text-slate-700 truncate">{selectedChild.nickname || selectedChild.name}</span>
                       </>
                     ) : (
                       <span className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
@@ -372,17 +372,17 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                   {selectedChild && (
                     <button
                       onClick={() => setIsAvatarPickerOpen(true)}
-                      className="w-4 h-4 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform shrink-0"
+                      className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform shrink-0"
                     >
-                      <Pencil size={9} strokeWidth={2.5} />
+                      <Pencil size={10} strokeWidth={2.5} />
                     </button>
                   )}
                   {kids.length > 1 && (
                     <button
                       onClick={() => setIsProfileSwitcherOpen(true)}
-                      className="w-5 h-5 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 active:scale-95 transition-all shrink-0 ml-auto"
+                      className="w-6 h-6 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 active:scale-95 transition-all shrink-0"
                     >
-                      <ArrowRightLeft size={10} />
+                      <ArrowRightLeft size={11} />
                     </button>
                   )}
                 </div>
