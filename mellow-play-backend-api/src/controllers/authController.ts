@@ -228,6 +228,7 @@ export class AuthController {
           lastName: user.last_name,
           firstNameEn: user.first_name_en,
           lastNameEn: user.last_name_en,
+          relationship: user.relationship,
           avatarUrl: user.profile_image_url,
           displayName: user.display_name,
           isCommunityAdmin: !!user.is_community_admin
@@ -573,6 +574,7 @@ export class AuthController {
           lastName: user.last_name,
           firstNameEn: user.first_name_en,
           lastNameEn: user.last_name_en,
+          relationship: user.relationship,
           phone: user.phone,
           phoneVerified: !!user.phone_verified,
           email: user.email,

@@ -10,7 +10,7 @@ import { ChildAvatar } from '../components/ChildAvatar';
 import PhoneChangeModal from '../components/PhoneChangeModal';
 import ChangePinModal from '../components/ChangePinModal';
 import { resolveImageUrl } from '../utils/courseImage';
-import { getFamilyRoleLabel, normalizeFamilyRole } from '../utils/familyRoles';
+import { getFamilyRoleLabel, normalizeFamilyRole, PARENT_ROLE_OPTIONS, OTHER_FAMILY_ROLE } from '../utils/familyRoles';
 
 const SettingsProfile = () => {
   const navigate = useNavigate();
@@ -27,11 +27,11 @@ const SettingsProfile = () => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    firstNameEn: '',
-    lastNameEn: '',
     phone: '',
     email: '',
     displayName: '',
+    relationship: '',
+    customRelationship: '',
   });
 
   const [account, setAccount] = useState<{ phoneVerified: boolean; hasGoogleLinked: boolean } | null>(null);
@@ -48,7 +48,8 @@ const SettingsProfile = () => {
       const res = await apiClient.get('/auth/me');
       if (res.data.success) {
         const u = res.data.user;
-        setFormData(f => ({ ...f, phone: u.phone || '', email: u.email || '', firstNameEn: u.firstNameEn || '', lastNameEn: u.lastNameEn || '' }));
+        const { role, customText } = u.relationship ? normalizeFamilyRole(u.relationship) : { role: '', customText: '' };
+        setFormData(f => ({ ...f, phone: u.phone || '', email: u.email || '', relationship: role, customRelationship: customText }));
         setAccount({ phoneVerified: u.phoneVerified, hasGoogleLinked: u.hasGoogleLinked });
         setAvatarUrl(u.avatarUrl || null);
       }
@@ -86,14 +87,15 @@ const SettingsProfile = () => {
     const userJson = localStorage.getItem('mellow_user');
     if (userJson) {
       const user = JSON.parse(userJson);
+      const { role, customText } = user.relationship ? normalizeFamilyRole(user.relationship) : { role: '', customText: '' };
       setFormData({
         firstName: user.firstName || '',
         lastName: user.lastName || '',
-        firstNameEn: user.firstNameEn || '',
-        lastNameEn: user.lastNameEn || '',
         phone: user.phone || '',
         email: user.email || '',
         displayName: user.displayName || '',
+        relationship: role,
+        customRelationship: customText,
       });
     }
     loadMe();
@@ -174,17 +176,21 @@ const SettingsProfile = () => {
     }
 
     const user = JSON.parse(userJson);
+    const relationship = formData.relationship === OTHER_FAMILY_ROLE && formData.customRelationship
+      ? formData.customRelationship
+      : formData.relationship;
 
     try {
       // Call PUT /admin/users/:id endpoint to update profile
       const response = await apiClient.put(`/admin/users/${user.id}`, {
         first_name: formData.firstName,
         last_name: formData.lastName,
-        first_name_en: formData.firstNameEn,
-        last_name_en: formData.lastNameEn,
         phone: formData.phone,
-        email: formData.email,
+        // '' would collide with every other user who also has no email,
+        // since the column is UNIQUE and doesn't treat '' as absent like NULL does.
+        email: formData.email || null,
         display_name: formData.displayName,
+        relationship,
       });
 
       if (response.data.success) {
@@ -193,11 +199,10 @@ const SettingsProfile = () => {
           ...user,
           firstName: formData.firstName,
           lastName: formData.lastName,
-          firstNameEn: formData.firstNameEn,
-          lastNameEn: formData.lastNameEn,
           phone: formData.phone,
           email: formData.email,
           displayName: formData.displayName,
+          relationship,
         };
         localStorage.setItem('mellow_user', JSON.stringify(updatedUser));
         setSuccess(lang === 'en' ? 'Profile updated successfully!' : 'บันทึกข้อมูลเรียบร้อยแล้ว');
@@ -292,30 +297,32 @@ const SettingsProfile = () => {
               </div>
             </div>
 
-            {/* English name — optional, filled in either here or by CRM staff; left blank for anyone registered before this field existed. */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {lang === 'en' ? 'First Name (English)' : 'ชื่อจริง (อังกฤษ)'}
-                </label>
+            {/* Family role — the account holder is themselves a family member
+                (just the one who registered), so this mirrors the "คุณคือ"
+                picker every other family member gets via FamilyMemberFields. */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
+                {lang === 'en' ? 'You are...' : 'คุณคือ...'}
+              </label>
+              <select
+                value={formData.relationship}
+                onChange={(e) => setFormData({ ...formData, relationship: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
+              >
+                <option value="">{lang === 'en' ? 'Select relationship' : 'เลือกความสัมพันธ์'}</option>
+                {PARENT_ROLE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{lang === 'en' ? o.labelEn : o.labelTh}</option>
+                ))}
+              </select>
+              {formData.relationship === OTHER_FAMILY_ROLE && (
                 <input
                   type="text"
-                  value={formData.firstNameEn}
-                  onChange={(e) => setFormData({ ...formData, firstNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
+                  placeholder={lang === 'en' ? 'Please specify relationship...' : 'ระบุความสัมพันธ์...'}
+                  value={formData.customRelationship}
+                  onChange={(e) => setFormData({ ...formData, customRelationship: e.target.value })}
+                  className="w-full mt-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
-                  {lang === 'en' ? 'Last Name (English)' : 'นามสกุล (อังกฤษ)'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastNameEn}
-                  onChange={(e) => setFormData({ ...formData, lastNameEn: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 transition-all"
-                />
-              </div>
+              )}
             </div>
 
             {/* Display Name — shown on comments in the media feed; falls back to First Name if left blank. */}
