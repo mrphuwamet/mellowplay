@@ -154,24 +154,20 @@ const emptyChild: Child = {
 const GENDERS = [
   { label: 'ชาย', value: 'Boy' },
   { label: 'หญิง', value: 'Girl' },
-  { label: 'ไม่ระบุ', value: 'Other' },
+  { label: 'ไม่ระบุ', value: 'Not Specified' },
 ];
 
-const CHILD_RELATIONSHIPS = [
-  { label: 'ไม่ระบุ', value: '' },
-  { label: 'บิดา', value: 'Father' },
-  { label: 'มารดา', value: 'Mother' },
-  { label: 'ญาติ', value: 'Relative' },
-  { label: 'อื่นๆ', value: 'Other' },
-];
-
-// Mirrors the consumer app's PARENT_ROLE_OPTIONS exactly (utils/familyRoles.ts
+// Mirrors the consumer app's FAMILY_ROLE_OPTIONS exactly (utils/familyRoles.ts
 // there — no shared package between the two apps, so this list is duplicated
 // intentionally) — value AND Thai label both have to match, since this is the
-// same free-text Users.relationship column either app can write to.
-const RELATIONSHIPS = [
+// same free-text relation column either app can write to. Used for every
+// family member (children included); RELATIONSHIPS below is the same list
+// minus 'child', for the parent/account-holder's own "คุณคือ" field, exactly
+// like the consumer app's PARENT_ROLE_OPTIONS.
+const FAMILY_ROLE_OPTIONS = [
   { label: 'พ่อ', value: 'father' },
   { label: 'แม่', value: 'mother' },
+  { label: 'ลูก', value: 'child' },
   { label: 'ลุง', value: 'uncle' },
   { label: 'ป้า', value: 'aunt' },
   { label: 'น้า', value: 'na' },
@@ -182,6 +178,8 @@ const RELATIONSHIPS = [
   { label: 'ยาย', value: 'grandmother_maternal' },
   { label: 'อื่นๆ', value: 'other' },
 ];
+
+const RELATIONSHIPS = FAMILY_ROLE_OPTIONS.filter(o => o.value !== 'child');
 
 // Children.membership_type's DB default is 'standard' (see migration
 // 0050_child_membership.sql) — membership moved here from Users, since
@@ -501,11 +499,11 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       return;
     }
     if (children.some(c => !c.full_name.trim())) {
-      setError('กรุณากรอกชื่อ-นามสกุลของเด็กทุกคนให้ครบถ้วน');
+      setError('กรุณากรอกชื่อ-นามสกุลของสมาชิกในครอบครัวทุกคนให้ครบถ้วน');
       return;
     }
     if (children.some(c => c.is_hd && c.membership_type === 'premium' && !c.membership_expires_at)) {
-      setError('กรุณาระบุวันหมดอายุสมาชิก Premium ของเด็กทุกคนที่เป็น Premium');
+      setError('กรุณาระบุวันหมดอายุสมาชิก Premium ของสมาชิกทุกคนที่เป็น Premium');
       return;
     }
 
@@ -783,7 +781,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box sx={{ color: 'primary.main', display: 'flex' }}><ChildCareIcon /></Box>
                     <Typography variant="subtitle2" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      ข้อมูลเด็ก{children.length > 0 ? ` (${children.length} คน)` : ''}
+                      ข้อมูลสมาชิกครอบครัว{children.length > 0 ? ` (${children.length} คน)` : ''}
                     </Typography>
                   </Box>
                   {!readOnly && (
@@ -797,7 +795,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Box sx={{ border: '2px dashed', borderColor: 'divider', borderRadius: 2, py: 5, textAlign: 'center' }}>
                     <ChildCareIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
                     <Typography variant="body2" color="text.disabled">
-                      {readOnly ? 'ไม่มีข้อมูลเด็ก' : 'กดปุ่ม "เพิ่มสมาชิกครอบครัว" เพื่อเริ่มต้น'}
+                      {readOnly ? 'ไม่มีข้อมูลสมาชิกครอบครัว' : 'กดปุ่ม "เพิ่มสมาชิกครอบครัว" เพื่อเริ่มต้น'}
                     </Typography>
                   </Box>
                 ) : (
@@ -815,7 +813,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                                 <IconButton
                                   size="small"
                                   onClick={() => triggerChildPhotoUpload(index)}
-                                  title="เปลี่ยนรูปเด็ก"
+                                  title="เปลี่ยนรูป"
                                   disabled={childPhotoUploading}
                                   sx={{ position: 'absolute', bottom: -6, right: -6, bgcolor: 'white', boxShadow: 1, width: 18, height: 18, '&:hover': { bgcolor: 'grey.100' } }}
                                 >
@@ -824,7 +822,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                               )}
                             </Box>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                              เด็กคนที่ {index + 1}
+                              สมาชิกคนที่ {index + 1}
                               {child.full_name && (
                                 <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>
                                   {' '}— {child.full_name}{child.nickname ? ` (${child.nickname})` : ''}
@@ -869,21 +867,35 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                           </Box>
                         </Box>
                         <Grid container spacing={1.5}>
+                          {/* Split into first/last for entry, same as every other name
+                              field in this app — still stored as one joined `full_name`
+                              column underneath (User_CRM_Children/HD_Profiles have no
+                              separate columns), so each field's onChange re-joins with
+                              whatever's currently in the other half. */}
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label={`ชื่อ-นามสกุล ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
-                              value={child.full_name}
-                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'full_name', e.target.value)}
+                              label={`ชื่อ ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
+                              value={(child.full_name || '').split(' ')[0] || ''}
+                              onChange={e => {
+                                if (readOnly || child.is_hd) return;
+                                const lastName = (child.full_name || '').split(' ').slice(1).join(' ');
+                                updateChild(index, 'full_name', `${e.target.value} ${lastName}`.trim());
+                              }}
                               InputProps={{ readOnly: readOnly || child.is_hd }}
                               disabled={child.is_hd}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label="ชื่อ-นามสกุล (English)" fullWidth size="small"
-                              value={child.full_name_en || ''}
-                              onChange={e => !readOnly && updateChild(index, 'full_name_en', e.target.value)}
-                              InputProps={{ readOnly }}
+                              label={`นามสกุล ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
+                              value={(child.full_name || '').split(' ').slice(1).join(' ')}
+                              onChange={e => {
+                                if (readOnly || child.is_hd) return;
+                                const firstName = (child.full_name || '').split(' ')[0] || '';
+                                updateChild(index, 'full_name', `${firstName} ${e.target.value}`.trim());
+                              }}
+                              InputProps={{ readOnly: readOnly || child.is_hd }}
+                              disabled={child.is_hd}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
@@ -918,13 +930,13 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <FormControl fullWidth size="small">
-                              <InputLabel>ความสัมพันธ์เด็ก</InputLabel>
+                              <InputLabel>คุณคือ...</InputLabel>
                               <Select
-                                value={child.relation || ''} label="ความสัมพันธ์เด็ก"
+                                value={child.relation || ''} label="คุณคือ..."
                                 onChange={e => !readOnly && updateChild(index, 'relation', e.target.value)}
                                 inputProps={{ readOnly }}
                               >
-                                {CHILD_RELATIONSHIPS.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+                                {FAMILY_ROLE_OPTIONS.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
                               </Select>
                             </FormControl>
                           </Grid>
