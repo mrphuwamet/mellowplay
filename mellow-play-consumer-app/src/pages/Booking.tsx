@@ -237,7 +237,16 @@ const Booking = () => {
 
   // Step Logic
   const hasBranch = !(selectedCourse?.is_extraclass || selectedCourse?.is_event || branches.length <= 1);
-  const flowSteps = ['course', 'child'];
+  // A family_member_picker (role 'child') on the assigned form takes over
+  // child selection entirely — the separate 'child' step would just be
+  // asking the same question twice through two different UIs.
+  const formChildPickerField = registrationForm?.fields?.find((f: any) => {
+    if (f.type !== 'family_member_picker') return false;
+    try { return JSON.parse(f.config_json || '{}').role === 'child'; } catch { return false; }
+  });
+  const formHasChildPicker = !!formChildPickerField;
+  const flowSteps = ['course'];
+  if (!formHasChildPicker) flowSteps.push('child');
   if (registrationForm) flowSteps.push('registrationForm');
   if (hasBranch) flowSteps.push('branch');
   flowSteps.push('date', 'payment');
@@ -278,7 +287,10 @@ const Booking = () => {
       setShowGuestModal(true);
       return;
     }
-    setCurrentStepIndex(flowSteps.indexOf('child'));
+    // Index 1 is always the step right after course browsing — 'child' or
+    // 'registrationForm', whichever applies — so this stays correct even if
+    // the form fetch (which decides formHasChildPicker) hasn't resolved yet.
+    setCurrentStepIndex(1);
   };
 
   // Auto skip branch
@@ -1125,6 +1137,9 @@ const Booking = () => {
               onBack={() => setCurrentStepIndex(currentStepIndex - 1)}
               onNext={() => setCurrentStepIndex(currentStepIndex + 1)}
               lang={lang}
+              childPickerMode={bookingType === 'event' ? 'single' : 'multi'}
+              selectedChildIds={formHasChildPicker ? selectedChildren.map(c => c.id) : undefined}
+              onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
             />
           )}
 

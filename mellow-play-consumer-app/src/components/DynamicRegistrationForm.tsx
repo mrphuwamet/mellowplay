@@ -36,13 +36,24 @@ interface Props {
   onBack: () => void;
   onNext: () => void;
   lang: 'th' | 'en';
+  // When the form has a family_member_picker (role 'child'), that field
+  // takes over child selection entirely — the wizard's separate 'child'
+  // step is skipped, so this component drives selectedChildren directly
+  // instead of just recording a name into answers. Single mode (events)
+  // replaces the selection on tap; multi mode (class/service) toggles.
+  childPickerMode?: 'single' | 'multi';
+  selectedChildIds?: number[];
+  onChildSelectionChange?: (ids: number[]) => void;
 }
 
 // Renders whatever pages/fields a CRM-built Registration_Form has, one page
 // per internal step — kept as its own component (rather than spliced
 // straight into Booking.tsx) since it manages its own page index, separate
 // from the outer wizard's currentStepIndex.
-const DynamicRegistrationForm: React.FC<Props> = ({ form, answers, onChange, roster, onBack, onNext, lang }) => {
+const DynamicRegistrationForm: React.FC<Props> = ({
+  form, answers, onChange, roster, onBack, onNext, lang,
+  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange,
+}) => {
   const pages = useMemo(() => {
     const grouped: RegFormField[][] = [];
     for (const f of form.fields) {
@@ -58,12 +69,41 @@ const DynamicRegistrationForm: React.FC<Props> = ({ form, answers, onChange, ros
 
   const currentFields = pages[pageIndex] || [];
 
+  const isChildPickerField = (f: RegFormField) => {
+    if (f.type !== 'family_member_picker' || !onChildSelectionChange) return false;
+    try { return (JSON.parse(f.config_json || '{}').role) === 'child'; } catch { return false; }
+  };
+
+  // Keeps the child-picker field's recorded answer in sync with
+  // selectedChildIds even when nothing was actually clicked here — e.g. the
+  // single-child auto-select in Booking.tsx runs before this step is ever
+  // reached, so without this the submission's answers_json would stay empty.
+  useEffect(() => {
+    if (!onChildSelectionChange) return;
+    const currentIds = selectedChildIds || [];
+    const namesText = currentIds.map(id => {
+      const m = roster.find(r => r.id === id);
+      return m ? (m.nickname || m.name) : '';
+    }).filter(Boolean).join(', ');
+    for (const f of form.fields) {
+      if (isChildPickerField(f) && answers[f.field_key] !== namesText) {
+        onChange(f.field_key, namesText);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChildIds, roster, form.id]);
+
   const isFieldFilled = (f: RegFormField) => {
+    // A child-picker field replaces the wizard's own mandatory child step —
+    // it must always have at least one selection to proceed, regardless of
+    // whatever the CRM builder's "required" toggle says for this field.
+    if (isChildPickerField(f)) return (selectedChildIds || []).length > 0;
     const v = answers[f.field_key];
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
     return v != null && String(v).trim() !== '';
   };
-  const canProceed = currentFields.every(f => f.type === 'heading' || !f.required || isFieldFilled(f));
+  const canProceed = currentFields.every(f => f.type === 'heading' || isChildPickerField(f) || !f.required || isFieldFilled(f))
+    && currentFields.filter(isChildPickerField).every(isFieldFilled);
 
   const handleNext = () => {
     if (pageIndex < pages.length - 1) setPageIndex(pageIndex + 1);
@@ -190,6 +230,22 @@ const DynamicRegistrationForm: React.FC<Props> = ({ form, answers, onChange, ros
           }
           if (field.type === 'family_member_picker') {
             const list = rosterFor(config.role);
+            const isChildPicker = isChildPickerField(field);
+            const currentIds = selectedChildIds || [];
+
+            const handlePick = (member: RosterMember) => {
+              if (!isChildPicker || !onChildSelectionChange) {
+                onChange(field.field_key, member.nickname || member.name);
+                return;
+              }
+              // The effect above syncs this field's answer from
+              // selectedChildIds, so just updating the selection is enough.
+              const nextIds = childPickerMode === 'single'
+                ? [member.id]
+                : currentIds.includes(member.id) ? currentIds.filter(id => id !== member.id) : [...currentIds, member.id];
+              onChildSelectionChange(nextIds);
+            };
+
             return (
               <div key={field.field_key}>
                 {labelEl}
@@ -199,9 +255,9 @@ const DynamicRegistrationForm: React.FC<Props> = ({ form, answers, onChange, ros
                   <div className="grid grid-cols-2 gap-2">
                     {list.map(member => {
                       const display = member.nickname || member.name;
-                      const selected = value === display;
+                      const selected = isChildPicker ? currentIds.includes(member.id) : value === display;
                       return (
-                        <button key={member.id} type="button" onClick={() => onChange(field.field_key, display)}
+                        <button key={member.id} type="button" onClick={() => handlePick(member)}
                           className={`p-3 rounded-2xl border text-left flex items-center gap-2 transition-all ${selected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
                           <ChildAvatar avatarType={member.avatar} className="w-8 h-8 shrink-0" />
                           <span className="text-xs font-black text-slate-700 truncate">{display}</span>
