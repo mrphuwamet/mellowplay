@@ -132,6 +132,14 @@ const Booking = () => {
     : bookingType === 'service'
       ? (lang === 'en' ? 'Choose a Service' : 'เลือกบริการ')
       : (t.booking?.stepCourse || 'เลือกคลาส');
+  // The submit button and its surrounding copy previously said "จองคลาสเรียน"
+  // unconditionally even while booking an Event/Service — this keeps every
+  // mention of the action itself in sync with bookingTypeTitle above.
+  const bookActionLabel = bookingType === 'event'
+    ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
+    : bookingType === 'service'
+      ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
+      : (lang === 'en' ? 'Book Class' : 'จองคลาสเรียน');
 
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
@@ -693,7 +701,7 @@ const Booking = () => {
             text={
               lang === 'en'
                 ? `Booked ${successBooking.courseName} for ${successBooking.childName} on ${successBooking.date} ${successBooking.time}. Booking #BK-${successBooking.id}`
-                : `จองคลาส ${successBooking.courseName} ให้ ${successBooking.childName} วันที่ ${successBooking.date} เวลา ${successBooking.time} น. เรียบร้อยแล้ว รหัสการจอง #BK-${successBooking.id}`
+                : `${bookActionLabel} ${successBooking.courseName} ให้ ${successBooking.childName} วันที่ ${successBooking.date} เวลา ${successBooking.time} น. เรียบร้อยแล้ว รหัสการจอง #BK-${successBooking.id}`
             }
             label={
               <span className="flex items-center justify-center gap-2">
@@ -784,6 +792,19 @@ const Booking = () => {
                          </span>
                        </div>
                      )}
+                     {registrationForm && (registrationForm.fields || [])
+                       .filter((f: any) => f.type !== 'heading')
+                       .map((f: any) => {
+                         const raw = formAnswers[f.field_key];
+                         const display = Array.isArray(raw) ? raw.join(', ') : (raw != null ? String(raw).trim() : '');
+                         if (!display) return null;
+                         return (
+                           <div key={f.field_key} className="flex justify-between text-sm font-bold text-slate-600 gap-3">
+                             <span className="shrink-0">{f.label}</span>
+                             <span className="text-slate-800 text-right">{display}</span>
+                           </div>
+                         );
+                       })}
                      <div className="flex justify-between text-sm font-bold text-slate-600">
                        <span>{lang === 'en' ? 'Price' : 'ราคา'}</span>
                        <span>{selectedCourse?.original_price?.toLocaleString() || 0} ฿</span>
@@ -1030,7 +1051,7 @@ const Booking = () => {
                                   onClick={(e) => { e.stopPropagation(); goToChildStep(course); }}
                                   className="px-3 py-1 bg-mellow-purple text-white text-[11px] font-bold rounded-full hover:bg-mellow-purple/90 active:scale-95 transition-all"
                                 >
-                                  {lang === 'en' ? 'Book' : 'จองคลาส'}
+                                  {bookActionLabel}
                                 </button>
                               </div>
                             </div>
@@ -1251,12 +1272,12 @@ const Booking = () => {
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-green-900 mb-1">
-                      {lang === 'en' ? 'Free Booking' : 'จองคลาสโดยไม่มีค่าใช้จ่าย'}
+                      {lang === 'en' ? 'Free Booking' : `${bookActionLabel}โดยไม่มีค่าใช้จ่าย`}
                     </h4>
                     <p className="text-xs text-green-700 font-bold leading-relaxed">
-                      {lang === 'en' 
-                        ? 'The total amount after discounts is 0 ฿. You can confirm the booking immediately without selecting a payment method.' 
-                        : 'ยอดชำระเงินทั้งหมดหลังหักส่วนลดคือ 0 ฿ คุณสามารถกดปุ่มจองคลาสเรียนด้านล่างเพื่อยืนยันการจองได้ทันทีโดยไม่ต้องระบุวิธีชำระเงิน'}
+                      {lang === 'en'
+                        ? 'The total amount after discounts is 0 ฿. You can confirm the booking immediately without selecting a payment method.'
+                        : `ยอดชำระเงินทั้งหมดหลังหักส่วนลดคือ 0 ฿ คุณสามารถกดปุ่ม${bookActionLabel}ด้านล่างเพื่อยืนยันการจองได้ทันทีโดยไม่ต้องระบุวิธีชำระเงิน`}
                     </p>
                   </div>
                 </div>
@@ -1558,7 +1579,7 @@ const Booking = () => {
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
           <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[15px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
              {isFreeBooking
-               ? (lang === 'en' ? 'Confirm Booking' : 'จองคลาสเรียน')
+               ? bookActionLabel
                : (paymentMethod === 'coupon'
                  ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
                  : (lang === 'en' ? `Pay ${totalPrice.toLocaleString()} ฿` : `ชำระ ${totalPrice.toLocaleString()} บาท`))}
