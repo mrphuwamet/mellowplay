@@ -18,6 +18,7 @@ import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
+import { getCourseDetailPath } from '../utils/courseLinks';
 import logo from '../assets/ui/logo.svg';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
@@ -133,14 +134,9 @@ const Booking = () => {
     : bookingType === 'service'
       ? (lang === 'en' ? 'Choose a Service' : 'เลือกบริการ')
       : (t.booking?.stepCourse || 'เลือกคลาส');
-  // The submit button and its surrounding copy previously said "จองคลาสเรียน"
-  // unconditionally even while booking an Event/Service — this keeps every
-  // mention of the action itself in sync with bookingTypeTitle above.
-  const bookActionLabel = bookingType === 'event'
-    ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
-    : bookingType === 'service'
-      ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
-      : (lang === 'en' ? 'Book Class' : 'จองคลาสเรียน');
+  // Kept as one shared constant (not per-bookingType wording) so every
+  // mention of the book action stays in sync if this ever changes again.
+  const bookActionLabel = lang === 'en' ? 'Register' : 'ลงทะเบียน';
 
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
@@ -612,8 +608,13 @@ const Booking = () => {
     }
   };
 
+  // mellow-page (not a hand-rolled max-width) so AppShell's
+  // .mellow-shell-frame:has(> .mellow-page) rule actually widens to match —
+  // without a recognized page-width class there, the frame silently falls
+  // back to its 520px default no matter how wide this div's own classes
+  // claim to grow, leaving visible empty gutters on desktop.
   return (
-    <div className="min-h-screen bg-[#fbfaf7] pb-32 relative max-w-[430px] mx-auto md:max-w-[640px] lg:max-w-[820px] xl:max-w-[900px]">
+    <div className="mellow-page pb-32">
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button 
           onClick={() => {
@@ -992,9 +993,14 @@ const Booking = () => {
                         key={course.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => !disabled && goToChildStep(course)}
-                        onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) goToChildStep(course); }}
-                        className={`rounded-3xl border transition-all overflow-hidden flex flex-col active:scale-[0.98] ${disabled ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'} ${selectedCourse?.id === course.id ? 'border-mellow-purple ring-2 ring-mellow-purple/10 bg-white' : 'bg-white border-slate-100'}`}
+                        // Tapping the card itself always goes to the course's
+                        // real detail page first (same as everywhere else in
+                        // the app) — only the dedicated Register pill below
+                        // jumps straight into the booking wizard, and that
+                        // one alone respects disabled (ended/closed).
+                        onClick={() => navigate(getCourseDetailPath(course))}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(getCourseDetailPath(course)); }}
+                        className={`rounded-3xl border transition-all overflow-hidden flex flex-col active:scale-[0.98] cursor-pointer ${disabled ? 'opacity-80' : ''} ${selectedCourse?.id === course.id ? 'border-mellow-purple ring-2 ring-mellow-purple/10 bg-white' : 'bg-white border-slate-100'}`}
                       >
                         {/* Cover image */}
                         <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
@@ -1041,18 +1047,15 @@ const Booking = () => {
                               </div>
                             )}
 
-                            {/* Detail + Book pill buttons */}
-                            <div className="flex items-center gap-1.5 mt-2">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedCourse(course); setIsCourseModalOpen(true); }}
-                                className="flex-1 px-3 py-1.5 bg-mellow-purple/10 text-mellow-purple text-[12px] font-bold rounded-full hover:bg-mellow-purple/20 active:scale-95 transition-all text-center"
-                              >
-                                {lang === 'en' ? 'Detail' : 'รายละเอียด'}
-                              </button>
+                            {/* Register pill — the card itself already goes
+                                to the detail page on tap (see the card's own
+                                onClick above), so there's no separate Detail
+                                button here to duplicate that. */}
+                            <div className="mt-2">
                               <button
                                 disabled={disabled}
                                 onClick={(e) => { e.stopPropagation(); if (!disabled) goToChildStep(course); }}
-                                className={`flex-1 px-3 py-1.5 text-[12px] font-bold rounded-full transition-all text-center ${
+                                className={`w-full px-3 py-1.5 text-[12px] font-bold rounded-full transition-all text-center ${
                                   disabled
                                     ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                     : 'bg-mellow-purple text-white hover:bg-mellow-purple/90 active:scale-95'

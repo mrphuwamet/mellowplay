@@ -308,11 +308,7 @@ const Roadmap = () => {
                         >
                           {isOneTimeDone
                             ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
-                            : course.is_event
-                              ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
-                              : course.is_service
-                                ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
-                                : (lang === 'en' ? 'Book Class' : 'จองคลาส')}
+                            : (lang === 'en' ? 'Register' : 'ลงทะเบียน')}
                         </button>
                       </div>
                     </div>
