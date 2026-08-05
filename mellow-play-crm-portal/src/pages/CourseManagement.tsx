@@ -44,6 +44,7 @@ import {
   CheckCircle as SavedIcon,
   Translate as TranslateIcon,
   ContentCopy as CopyLinkIcon,
+  Star as CoverIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
@@ -431,6 +432,15 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     reordered.splice(toIndex, 0, moved);
     const [newThumb, ...rest] = reordered;
     setFormData(f => ({ ...f, thumbnailUrl: newThumb || '', images: rest }));
+  };
+
+  // Drag-to-reorder is the only way to change the cover today, and it's
+  // easy to miss — this is the same move (to index 0) as a one-click action,
+  // for staff who just want a specific uploaded photo to be the cover
+  // without dragging it across the whole gallery.
+  const setAsCoverImage = (url: string) => {
+    const index = mergedImages.indexOf(url);
+    if (index > 0) reorderGalleryImages(index, 0);
   };
 
   useEffect(() => {
@@ -1583,7 +1593,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     {mediaModalTab === 'media' && (
                       <>
                         <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                          รูปภาพ <span style={{ color: '#94a3b8', marginLeft: 4, fontWeight: 400 }}>* ลากรูปเพื่อจัดลำดับ — รูปแรกจะถูกใช้เป็นรูปปกของคลาสโดยอัตโนมัติ</span>
+                          รูปภาพ <span style={{ color: '#94a3b8', marginLeft: 4, fontWeight: 400 }}>* ลากรูปเพื่อจัดลำดับ หรือกดไอคอนดาวเพื่อตั้งเป็นรูปปกได้ทันที — รูปแรกจะถูกใช้เป็นรูปปกของคลาสโดยอัตโนมัติ</span>
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                           {mergedImages.map((img, idx) => (
@@ -1605,10 +1615,19 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                               }}
                             >
                               <img src={getImageUrl(img)} style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} alt="" />
-                              {idx === 0 && (
+                              {idx === 0 ? (
                                 <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.55)', color: 'white', fontSize: 9, fontWeight: 700, textAlign: 'center', py: 0.25 }}>
                                   ปก
                                 </Box>
+                              ) : (
+                                <Tooltip title="ตั้งเป็นรูปปก">
+                                  <IconButton
+                                    onClick={() => setAsCoverImage(img)}
+                                    sx={{ position: 'absolute', bottom: 1, left: 1, bgcolor: 'rgba(255,255,255,0.85)', p: 0.15, '&:hover': { bgcolor: 'white' } }}
+                                  >
+                                    <CoverIcon sx={{ fontSize: 13 }} />
+                                  </IconButton>
+                                </Tooltip>
                               )}
                               <IconButton onClick={() => removeGalleryImage(img)} sx={{ position: 'absolute', top: 1, right: 1, bgcolor: 'rgba(255,255,255,0.85)', p: 0.15 }}>
                                 <ClearIcon sx={{ fontSize: 12 }} />

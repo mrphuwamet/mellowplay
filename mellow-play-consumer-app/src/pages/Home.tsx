@@ -20,7 +20,7 @@ import defaultAvatar from '../assets/ui/default-avatar.svg';
 import apiClient from '../utils/apiClient';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
-import { resolveImageUrl } from '../utils/courseImage';
+import { resolveImageUrl, getCourseView } from '../utils/courseImage';
 import { isPremiumChild } from '../utils/membership';
 import { stripHtml } from '../utils/stripHtml';
 import { trackCourseView } from '../utils/analytics';
@@ -360,6 +360,10 @@ const Home = () => {
     // "already taken and non-repeatable" gate they do instead of always
     // linking to a booking flow that would just reject it.
     const course = item.course;
+    // The 'card' view is the same curated focal point/zoom every other card
+    // placement (CourseCard, Explore) uses — without this the feed showed
+    // the raw thumbnail's center crop instead of whatever staff configured.
+    const courseView = item.kind === 'course' && course ? getCourseView(course, 'card') : null;
     const shortDescription = item.kind === 'course' && course
       ? (course.short_description || stripHtml(course.description || ''))
       : undefined;
@@ -413,7 +417,13 @@ const Home = () => {
 
         {item.image ? (
           <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
-            <img src={resolveImageUrl(item.image)} alt={item.title} loading="lazy" className="w-full max-h-[260px] object-cover" />
+            <img
+              src={courseView ? courseView.url : resolveImageUrl(item.image)}
+              alt={item.title}
+              loading="lazy"
+              style={courseView?.style}
+              className="w-full max-h-[260px] object-cover"
+            />
           </div>
         ) : !isBookingCard && (
           <div className="mt-3 rounded-2xl bg-slate-50 aspect-[16/9] flex items-center justify-center">
