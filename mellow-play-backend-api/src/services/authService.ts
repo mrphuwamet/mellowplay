@@ -41,6 +41,13 @@ export class AuthService {
     return await sign(payload, secret, 'HS256')
   }
 
+  // Generic token issuer for payloads that don't fit the userId-centric shape
+  // above (e.g. a checkin access-link session keyed by linkId) with a caller-
+  // chosen expiry instead of the fixed 30 days.
+  static async generateTokenWithExpiry(payload: Record<string, any>, secret: string, expirySeconds: number): Promise<string> {
+    return await sign({ ...payload, exp: Math.floor(Date.now() / 1000) + expirySeconds }, secret, 'HS256')
+  }
+
   static async verifyToken(token: string, secret: string): Promise<any> {
     try {
       return await verify(token, secret, 'HS256')

@@ -53,6 +53,30 @@ export class CheckinRepository {
     };
   }
 
+  // Manual fallback for when scanning isn't practical (no signal, camera
+  // trouble, attendee lost their QR) — exact match against Users.phone,
+  // same no-normalization convention the rest of the system already uses
+  // for phone lookups (matching whatever the parent actually typed at
+  // registration). Returns every one of that family's bookings (soonest
+  // first) with each row's own qr_token, so picking one just re-runs
+  // lookupByToken() — the same single code path either way finds a match.
+  async searchByPhone(phone: string): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT b.id as booking_id, b.qr_token, b.scheduled_at, b.status,
+        c.name as course_name,
+        hp.name as child_name, hp.nickname as child_nickname, ch.avatar as child_avatar
+      FROM Users u
+      JOIN Children ch ON ch.parent_id = u.id
+      JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
+      JOIN Bookings b ON b.child_id = ch.id
+      JOIN Courses c ON b.course_id = c.id
+      WHERE u.phone = ? AND b.qr_token IS NOT NULL
+      ORDER BY b.scheduled_at ASC
+      LIMIT 20
+    `).bind(phone.trim()).all();
+    return results;
+  }
+
   async toggleAction(bookingId: number, actionId: number, checkedByCrmUserId: number | null): Promise<boolean> {
     const existing = await this.db.prepare(
       'SELECT id FROM Booking_Checkin_Log WHERE booking_id = ? AND action_id = ?'

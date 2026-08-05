@@ -37,6 +37,14 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  async searchByPhone(c: C) {
+    try {
+      const phone = c.req.param('phone');
+      const bookings = await this.repo(c).searchByPhone(phone);
+      return c.json({ success: true, bookings });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async toggleAction(c: C) {
     try {
       const bookingId = parseInt(c.req.param('bookingId'));

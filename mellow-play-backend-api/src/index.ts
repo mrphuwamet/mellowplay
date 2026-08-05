@@ -14,6 +14,8 @@ import { CourseMaterialController } from './controllers/courseMaterialController
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
 import { CheckinController } from './controllers/checkinController';
+import { CheckinAccessController } from './controllers/checkinAccessController';
+import { CheckinAccessLinkRepository, isCheckinLinkUsable } from './repositories/checkinAccessLinkRepository';
 import { RedemptionController } from './controllers/redemptionController';
 import { QueueController } from './controllers/queueController';
 import { OrderController } from './controllers/orderController';
@@ -47,6 +49,7 @@ const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
 const checkinController = new CheckinController();
+const checkinAccessController = new CheckinAccessController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
@@ -393,6 +396,16 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/coupon-types$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/journey\/progress-by-booking\/[^/]+$/ },
+  { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin-access\/[^/]+\/verify-pin$/ },
+];
+
+// The scanner endpoints a checkin-access session (PIN link, not a real CRM
+// login) is allowed to call — nothing else, so a distributed link can never
+// reach course/user management even with a forged path.
+const CHECKIN_ACCESS_ROUTES: { method: string; pattern: RegExp }[] = [
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/search-by-phone\/[^/]+$/ },
+  { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin\/\d+\/actions\/\d+\/toggle$/ },
 ];
 
 async function requireCrmAuth(c: any, next: any) {
@@ -419,6 +432,17 @@ async function requireCrmAuth(c: any, next: any) {
   const selfEditMatch = c.req.method === 'PUT' && c.req.path.match(/^\/api\/v1\/admin\/users\/(\d+)$/);
   if (selfEditMatch && payload.userId === parseInt(selfEditMatch[1])) {
     return next();
+  }
+
+  if (payload.type === 'checkin_access') {
+    const isCheckinRoute = CHECKIN_ACCESS_ROUTES.some(
+      (r) => r.method === c.req.method && r.pattern.test(c.req.path)
+    );
+    if (!isCheckinRoute) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+    const link = await new CheckinAccessLinkRepository(config.db).findById(payload.linkId);
+    if (isCheckinLinkUsable(link)) return next();
+    return c.json({ success: false, message: 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว' }, 403);
   }
 
   return c.json({ success: false, message: 'Unauthorized' }, 401);
@@ -745,7 +769,16 @@ app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormContro
 app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.getActions(c));
 app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));
 app.get('/api/v1/admin/checkin/lookup/:token',        (c) => checkinController.lookup(c));
+app.get('/api/v1/admin/checkin/search-by-phone/:phone', (c) => checkinController.searchByPhone(c));
 app.post('/api/v1/admin/checkin/:bookingId/actions/:actionId/toggle', (c) => checkinController.toggleAction(c));
+
+// Distributable check-in links — a CRM admin creates a PIN-protected link
+// (see CHECKIN_ACCESS_ROUTES/verifyPin below) to hand to volunteers who
+// shouldn't get a real CRM login, scoped to just the scanner endpoints above.
+app.post('/api/v1/admin/checkin-access-links', (c) => checkinAccessController.create(c));
+app.get('/api/v1/admin/checkin-access-links', (c) => checkinAccessController.list(c));
+app.post('/api/v1/admin/checkin-access-links/:id/revoke', (c) => checkinAccessController.revoke(c));
+app.post('/api/v1/admin/checkin-access/:token/verify-pin', (c) => checkinAccessController.verifyPin(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
 app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));

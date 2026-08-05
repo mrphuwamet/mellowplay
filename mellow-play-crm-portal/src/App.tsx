@@ -80,6 +80,7 @@ import UserManagement from './pages/UserManagement';
 import ChildrenDirectory from './pages/ChildrenDirectory';
 import BookingManagement from './pages/BookingManagement';
 import CheckinScanner from './pages/CheckinScanner';
+import CheckinAccessScanner from './pages/CheckinAccessScanner';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
@@ -745,8 +746,10 @@ const AppContent = () => {
     navigate('/pos');
   };
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
-  if (!currentUser && location.pathname !== '/login' && location.pathname !== '/reset-password') return null;
+  const isCheckinAccessRoute = location.pathname.startsWith('/checkin-access/');
+
+  if (loading && !isCheckinAccessRoute) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
+  if (!currentUser && location.pathname !== '/login' && location.pathname !== '/reset-password' && !isCheckinAccessRoute) return null;
 
   if (location.pathname === '/login') {
     return <Routes><Route path="/login" element={<Login />} /></Routes>;
@@ -754,6 +757,13 @@ const AppContent = () => {
 
   if (location.pathname === '/reset-password') {
     return <Routes><Route path="/reset-password" element={<ResetPassword />} /></Routes>;
+  }
+
+  // Fully public — a volunteer opening this link has no CRM account at
+  // all, so it must render before (and regardless of) the `currentUser`
+  // gate above. PIN-gated inside CheckinAccessScanner itself.
+  if (isCheckinAccessRoute) {
+    return <Routes><Route path="/checkin-access/:token" element={<CheckinAccessScanner />} /></Routes>;
   }
 
   const needsPin = !isPosMode && !crmUnlocked;
