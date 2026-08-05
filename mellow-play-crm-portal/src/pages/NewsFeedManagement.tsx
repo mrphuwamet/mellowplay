@@ -451,8 +451,13 @@ const NewsFeedManagement = () => {
               <RichTextEditor value={form.contentEn} onChange={(html) => setForm(f => ({ ...f, contentEn: html }))} placeholder="Write the article content..." />
             </Box>
 
-            <Box display="flex" gap={2}>
-              <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                ลิงก์ภายนอก (ถ้ามี) — ถ้าบทความมีรูปภาพ การกดที่รูปจะเปิดลิงก์นี้ทันที (ไม่มีปุ่มแยกแสดง เหมือนใช้รูปเป็นปุ่ม) ถ้าไม่มีรูปจะแสดงเป็นปุ่ม "เปิดลิงก์" แทน
+              </Typography>
+              <Box display="flex" gap={2}>
+                <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
+              </Box>
             </Box>
 
             <Box>

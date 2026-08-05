@@ -151,7 +151,10 @@ const NewsDetail = () => {
           )}
         </div>
       ) : images.length > 0 ? (
-        <div className="relative w-full aspect-[16/9] bg-slate-100">
+        <div
+          className={`relative w-full aspect-[16/9] bg-slate-100 ${item.link_url ? 'cursor-pointer' : ''}`}
+          onClick={() => { if (item.link_url) window.open(item.link_url, '_blank', 'noopener,noreferrer'); }}
+        >
           <div ref={carouselRef} onScroll={handleCarouselScroll} className="w-full h-full overflow-x-scroll snap-x snap-mandatory flex scrollbar-hide">
             {images.map((url, i) => (
               <img key={i} src={resolveImageUrl(url)} alt={title} className="w-full h-full object-cover shrink-0 snap-center" />
@@ -187,7 +190,10 @@ const NewsDetail = () => {
           dangerouslySetInnerHTML={{ __html: content || (lang === 'en' ? 'No further details.' : 'ไม่มีรายละเอียดเพิ่มเติม') }}
         />
 
-        {item.link_url && (
+        {/* The image carousel above already opens link_url on tap when there
+            IS an image (see its onClick) — this button is only the fallback
+            for link-only articles with no image to tap. */}
+        {item.link_url && images.length === 0 && (
           <a
             href={item.link_url}
             target="_blank"
