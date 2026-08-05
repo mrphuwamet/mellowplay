@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
@@ -265,6 +265,18 @@ const Booking = () => {
   // indicator flash forward to "child" before the modal appears.
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const [showGuestModal, setShowGuestModal] = useState(false);
+
+  // The account holder themselves, for the registration form's adult-role
+  // family_member_picker — they're a family member too, just never a row in
+  // the Children-backed roster (see DynamicRegistrationForm's mainAccount prop).
+  const mainAccount = useMemo(() => {
+    const userJson = localStorage.getItem('mellow_user');
+    if (!userJson) return undefined;
+    const user = JSON.parse(userJson);
+    const name = user.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ');
+    if (!name) return undefined;
+    return { name, nickname: user.firstName, avatar: user.avatarUrl };
+  }, []);
 
   // Lazy-init straight to the child step when arriving with a pre-selected
   // course (e.g. "Book Now" from a course card) — otherwise the course-list
@@ -1174,6 +1186,7 @@ const Booking = () => {
               selectedChildIds={formHasChildPicker ? selectedChildren.map(c => c.id) : undefined}
               onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
               onAddFamilyMember={() => setIsAddChildOpen(true)}
+              mainAccount={mainAccount}
             />
           )}
 

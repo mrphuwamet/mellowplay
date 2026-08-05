@@ -50,6 +50,11 @@ interface Props {
   // wired by the caller to whatever "add family member" modal it already
   // has, so the roster refresh stays centralized there.
   onAddFamilyMember?: () => void;
+  // The account holder themselves — they're a family member too (an adult),
+  // but they're never a row in `roster` (that's the Children table; the
+  // account holder lives in Users, a different table entirely). Injected
+  // into the adult-role picker only, never the child one.
+  mainAccount?: { name: string; nickname?: string; avatar?: string };
 }
 
 // Renders whatever pages/fields a CRM-built Registration_Form has, one page
@@ -58,7 +63,7 @@ interface Props {
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
   form, answers, onChange, roster, onBack, onNext, lang,
-  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember,
+  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount,
 }) => {
   const pages = useMemo(() => {
     const grouped: RegFormField[][] = [];
@@ -122,10 +127,18 @@ const DynamicRegistrationForm: React.FC<Props> = ({
 
   // 'child' picks from the roster's children (no relation, or relation
   // explicitly 'child'); 'adult' picks from every other family member —
-  // matches the CRM builder's own description of the two roles.
-  const rosterFor = (role: string | undefined) => roster.filter(m =>
-    role === 'adult' ? !!(m.relation && m.relation !== 'child') : (!m.relation || m.relation === 'child')
-  );
+  // matches the CRM builder's own description of the two roles. The account
+  // holder themselves is an adult family member too, just never a `roster`
+  // row (that's the Children table) — listed first when picking an adult.
+  const rosterFor = (role: string | undefined) => {
+    const members = roster.filter(m =>
+      role === 'adult' ? !!(m.relation && m.relation !== 'child') : (!m.relation || m.relation === 'child')
+    );
+    if (role === 'adult' && mainAccount) {
+      return [{ id: -1, name: mainAccount.name, nickname: mainAccount.nickname, avatar: mainAccount.avatar }, ...members];
+    }
+    return members;
+  };
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
