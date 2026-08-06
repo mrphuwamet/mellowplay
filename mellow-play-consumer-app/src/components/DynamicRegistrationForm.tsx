@@ -49,8 +49,10 @@ interface Props {
   // Lets a family_member_picker with nobody to pick from (or missing the
   // one they need) add a new family member without leaving this step —
   // wired by the caller to whatever "add family member" modal it already
-  // has, so the roster refresh stays centralized there.
-  onAddFamilyMember?: () => void;
+  // has, so the roster refresh stays centralized there. Passed the
+  // triggering field's own role so the modal can lock to just that role
+  // (a child-role picker should only ever be able to add a child).
+  onAddFamilyMember?: (role?: 'adult' | 'child') => void;
   // The account holder themselves — they're a family member too (an adult),
   // but they're never a row in `roster` (that's the Children table; the
   // account holder lives in Users, a different table entirely). Injected
@@ -364,14 +366,19 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                         <button key={member.id} type="button" onClick={() => handlePick(member)}
                           className={`p-3 rounded-2xl border text-left flex items-center gap-2 transition-all ${selected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
                           <ChildAvatar avatarType={member.avatar} className="w-8 h-8 shrink-0" />
-                          <span className="text-xs font-black text-slate-700 truncate">{display}</span>
+                          <div className="min-w-0">
+                            <span className="text-xs font-black text-slate-700 truncate block">{display}</span>
+                            {member.nickname && member.name && member.nickname !== member.name && (
+                              <span className="text-[10px] font-bold text-slate-400 truncate block">{member.name}</span>
+                            )}
+                          </div>
                         </button>
                       );
                     })}
                   </div>
                 )}
                 {onAddFamilyMember && (
-                  <button type="button" onClick={onAddFamilyMember}
+                  <button type="button" onClick={() => onAddFamilyMember(config.role === 'adult' ? 'adult' : 'child')}
                     className="flex items-center gap-1.5 text-mellow-purple text-xs font-bold active:scale-95 transition-transform">
                     <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Plus size={12} /></div>
                     {lang === 'en' ? 'Add family member' : 'เพิ่มสมาชิกในครอบครัว'}

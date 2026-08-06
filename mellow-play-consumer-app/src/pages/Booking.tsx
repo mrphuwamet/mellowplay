@@ -92,6 +92,11 @@ const Booking = () => {
   const [upcomingDates, setUpcomingDates] = useState<UpcomingDate[]>([]);
   const [isLoadingDates, setIsLoadingDates] = useState(false);
   const [isAddChildOpen, setIsAddChildOpen] = useState(false);
+  // Whichever role the "add family member" trigger that's currently open
+  // should be locked to — always 'child' from the plain child-selection
+  // step or a child-role form picker; left free (undefined) from an
+  // adult-role picker, same as before.
+  const [addFamilyMemberForceRole, setAddFamilyMemberForceRole] = useState<string | undefined>('child');
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [modalUpcomingSlots, setModalUpcomingSlots] = useState<{ date: string; slots: TimeSlot[] }[]>([]);
   const [modalShowAllSlots, setModalShowAllSlots] = useState(false);
@@ -1163,7 +1168,7 @@ const Booking = () => {
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-black text-slate-800">{bookingType === 'event' ? (lang === 'en' ? 'Choose the child attending' : 'เลือกเด็กที่เข้าร่วม (เลือกได้ 1 คน)') : (t.booking?.stepChild || 'เลือกผู้เรียน')}</h3>
-                <button onClick={() => setIsAddChildOpen(true)} className="text-mellow-purple text-sm font-bold flex items-center gap-1 active:scale-95 transition-transform">
+                <button onClick={() => { setAddFamilyMemberForceRole('child'); setIsAddChildOpen(true); }} className="text-mellow-purple text-sm font-bold flex items-center gap-1 active:scale-95 transition-transform">
                   <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Sparkles size={12} /></div>{t.booking?.addChild || 'เพิ่มผู้เรียน'}
                 </button>
               </div>
@@ -1254,7 +1259,7 @@ const Booking = () => {
               childPickerMode={bookingType === 'event' ? 'single' : 'multi'}
               selectedChildIds={formHasChildPicker ? selectedChildren.map(c => c.id) : undefined}
               onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
-              onAddFamilyMember={() => setIsAddChildOpen(true)}
+              onAddFamilyMember={(role) => { setAddFamilyMemberForceRole(role === 'adult' ? undefined : 'child'); setIsAddChildOpen(true); }}
               mainAccount={mainAccount}
               courseId={selectedCourse?.id}
               scheduledAt={selectedDateObj && selectedSlot ? `${selectedDateObj.date} ${selectedSlot.startTime}` : undefined}
@@ -1697,7 +1702,7 @@ const Booking = () => {
         </div>
       )}
 
-      <AddChildModal isOpen={isAddChildOpen} onClose={() => setIsAddChildOpen(false)} />
+      <AddChildModal isOpen={isAddChildOpen} onClose={() => setIsAddChildOpen(false)} forceRole={addFamilyMemberForceRole} />
 
       {/* Guest Gate — same question-style pattern as CourseDetail.tsx,
           triggered here instead by the step advancing (covers both picking a

@@ -100,7 +100,7 @@ export class AdminRepository {
              c.membership_type, c.membership_expires_at
       FROM Children c
       JOIN HD_Profiles hp ON c.hd_profile_id = hp.id
-      WHERE hp.user_id = ?
+      WHERE hp.user_id = ? AND COALESCE(hp.is_deleted, 0) = 0
     `).bind(id).all();
 
     const children = [...(crmChildren || []), ...(hdChildren || [])];
@@ -119,6 +119,7 @@ export class AdminRepository {
     lastName?: string;
     firstNameEn?: string;
     lastNameEn?: string;
+    nickname?: string;
     prefix?: string;
     dob?: string;
     address?: string;
@@ -136,7 +137,7 @@ export class AdminRepository {
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Users SET
-        first_name = ?, last_name = ?, first_name_en = ?, last_name_en = ?, prefix = ?, dob = ?, address = ?,
+        first_name = ?, last_name = ?, first_name_en = ?, last_name_en = ?, nickname = ?, prefix = ?, dob = ?, address = ?,
         phone = ?, email = ?,
         relationship = ?, line_id = ?,
         pdpa_consent = ?, marketing_consent = ?,
@@ -145,7 +146,7 @@ export class AdminRepository {
       WHERE id = ?
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
-      data.firstNameEn ?? null, data.lastNameEn ?? null,
+      data.firstNameEn ?? null, data.lastNameEn ?? null, data.nickname ?? null,
       data.prefix ?? null, data.dob ?? null, data.address ?? null,
       data.phone ?? null, data.email ?? null,
       data.relationship ?? null, data.lineId ?? null,

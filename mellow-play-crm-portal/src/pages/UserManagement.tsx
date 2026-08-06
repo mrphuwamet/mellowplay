@@ -68,6 +68,7 @@ interface User {
   last_name: string;
   first_name_en?: string;
   last_name_en?: string;
+  nickname?: string;
   prefix?: string;
   dob?: string;
   address?: string;
@@ -109,6 +110,7 @@ interface MembershipHistoryEntry {
 const emptyForm = {
   first_name: '',
   last_name: '',
+  nickname: '',
   prefix: '',
   dob: '',
   address: '',
@@ -373,6 +375,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setForm({
         first_name: d.first_name ?? user.first_name ?? '',
         last_name: d.last_name ?? user.last_name ?? '',
+        nickname: d.nickname ?? user.nickname ?? '',
         prefix: d.prefix ?? user.prefix ?? '',
         dob: d.dob ? d.dob.substring(0, 10) : '',
         address: d.address ?? user.address ?? '',
@@ -410,6 +413,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setForm({
         first_name: user.first_name ?? '',
         last_name: user.last_name ?? '',
+        nickname: user.nickname ?? '',
         prefix: user.prefix ?? '',
         dob: user.dob ? user.dob.substring(0, 10) : '',
         address: user.address ?? '',
@@ -439,7 +443,25 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   };
 
   const addChild = () => setChildren(prev => [...prev, { ...emptyChild }]);
-  const removeChild = (index: number) => setChildren(prev => prev.filter((_, i) => i !== index));
+  // A CRM-created ("walk-in") child is fully replaced on save (see handleSave's
+  // DELETE+reinsert of User_CRM_Children), so just dropping it from local
+  // state is enough. An HD-registered child (a real customer's own kid) isn't
+  // part of that replace — it previously only vanished from this list, then
+  // silently reappeared on next load since nothing ever told the backend to
+  // remove it. Soft-deletes it immediately instead of waiting for save.
+  const removeChild = async (index: number) => {
+    const child = children[index];
+    if (child.is_hd && child.id) {
+      if (!window.confirm(`ต้องการลบ "${child.nickname || child.full_name}" ออกจากครอบครัวนี้ใช่หรือไม่? การลบนี้ย้อนกลับไม่ได้`)) return;
+      try {
+        await axios.delete(`${API_BASE}/family-members/${child.id}`);
+      } catch (e: any) {
+        setError(e?.response?.data?.message || 'ลบสมาชิกไม่สำเร็จ');
+        return;
+      }
+    }
+    setChildren(prev => prev.filter((_, i) => i !== index));
+  };
   const updateChild = (index: number, field: keyof Child, value: string) =>
     setChildren(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c));
 
@@ -988,6 +1010,11 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Grid item xs={12} sm={4}>
                     <TextField label="นามสกุล *" fullWidth value={form.last_name}
                       onChange={e => !readOnly && setForm({ ...form, last_name: e.target.value })}
+                      InputProps={{ readOnly }} />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField label="ชื่อเล่นผู้ปกครอง (ไม่บังคับ)" fullWidth value={form.nickname}
+                      onChange={e => !readOnly && setForm({ ...form, nickname: e.target.value })}
                       InputProps={{ readOnly }} />
                   </Grid>
                   <Grid item xs={12} sm={6}>
