@@ -157,7 +157,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           {formFields.length > 0 && (
             <div>
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                {lang === 'en' ? 'Registration Details' : 'ข้อมูลที่กรอกไว้ตอนลงทะเบียน'}
+                {lang === 'en' ? 'Registration Details' : 'ข้อมูลการลงทะเบียน'}
               </h4>
               <div className="bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100">
                 {formFields.map((f, i) => (
