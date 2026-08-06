@@ -251,11 +251,18 @@ const Booking = () => {
     try { return JSON.parse(f.config_json || '{}').role === 'child'; } catch { return false; }
   });
   const formHasChildPicker = !!formChildPickerField;
+  // A team_select field's capacity resets per round, so whichever round the
+  // family is joining has to be picked before the form asks which team —
+  // otherwise there's no round yet to check team availability against.
+  // Every other form shape keeps the form step before branch/date, as before.
+  const formHasTeamSelect = !!registrationForm?.fields?.some((f: any) => f.type === 'team_select');
   const flowSteps = ['course'];
   if (!formHasChildPicker) flowSteps.push('child');
-  if (registrationForm) flowSteps.push('registrationForm');
+  if (!formHasTeamSelect && registrationForm) flowSteps.push('registrationForm');
   if (hasBranch) flowSteps.push('branch');
-  flowSteps.push('date', 'payment');
+  flowSteps.push('date');
+  if (formHasTeamSelect && registrationForm) flowSteps.push('registrationForm');
+  flowSteps.push('payment');
 
   // Guests could browse straight through the whole flow and only hit a wall
   // at final submit (or not even then) — gate as soon as they try to move
@@ -1222,6 +1229,7 @@ const Booking = () => {
               onAddFamilyMember={() => setIsAddChildOpen(true)}
               mainAccount={mainAccount}
               courseId={selectedCourse?.id}
+              scheduledAt={selectedDateObj && selectedSlot ? `${selectedDateObj.date} ${selectedSlot.startTime}` : undefined}
             />
           )}
 

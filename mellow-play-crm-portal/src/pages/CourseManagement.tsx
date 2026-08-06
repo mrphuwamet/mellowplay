@@ -366,19 +366,21 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // "ดูความจุคงเหลือ" — staff couldn't otherwise see remaining seats/team
   // spots without going through the Add Booking flow's slot picker; pulls
   // the same two endpoints the consumer app's booking wizard reads from.
+  // Team capacity resets per round (see registrationFormRepository), so it's
+  // fetched once per upcoming round, keyed by "date time" (the scheduledAt
+  // shape the backend expects), not once for the whole course.
   const [capacityDialogCourse, setCapacityDialogCourse] = useState<Course | null>(null);
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [capacitySlots, setCapacitySlots] = useState<{ date: string; slots: any[] }[] | null>(null);
-  const [capacityTeamInfo, setCapacityTeamInfo] = useState<{
-    formName: string;
-    fields: { label: string; teams: { label: string; capacity: number; remaining: number }[] }[];
-  } | null>(null);
+  const [capacityFormName, setCapacityFormName] = useState<string | null>(null);
+  const [capacityTeamByRound, setCapacityTeamByRound] = useState<Record<string, { label: string; teams: { label: string; capacity: number; remaining: number }[] }[]>>({});
 
   const openCapacityDialog = async (course: Course) => {
     setCapacityDialogCourse(course);
     setCapacityLoading(true);
     setCapacitySlots(null);
-    setCapacityTeamInfo(null);
+    setCapacityFormName(null);
+    setCapacityTeamByRound({});
     try {
       const [slotsRes, formRes] = await Promise.all([
         course.calendar_id
@@ -389,27 +391,35 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           : Promise.resolve(null),
       ]);
 
-      if (slotsRes?.data?.success) setCapacitySlots(slotsRes.data.upcoming);
+      const upcoming: { date: string; slots: any[] }[] = slotsRes?.data?.success ? slotsRes.data.upcoming : [];
+      setCapacitySlots(upcoming);
 
       const form = formRes?.data?.success ? formRes.data.form : null;
       const teamFields = (form?.fields || []).filter((f: any) => f.type === 'team_select');
       if (form && teamFields.length > 0) {
-        const availRes = await axios.get(`${API_BASE}/registration-forms/${course.registration_form_id}/team-availability?courseId=${course.id}`).catch(() => null);
-        const counts = availRes?.data?.success ? availRes.data.counts : {};
-        setCapacityTeamInfo({
-          formName: form.name,
-          fields: teamFields.map((f: any) => {
-            let teamOptions: { label: string; capacity: number }[] = [];
-            try { teamOptions = f.options_json ? JSON.parse(f.options_json) : []; } catch { /* malformed shouldn't block the rest */ }
-            return {
-              label: f.label,
-              teams: teamOptions.map(t => ({
-                label: t.label, capacity: t.capacity,
-                remaining: Math.max(0, t.capacity - (counts[f.field_key]?.[t.label] || 0)),
-              })),
-            };
-          }),
+        setCapacityFormName(form.name);
+        const teamOptionsByField = teamFields.map((f: any) => {
+          let teamOptions: { label: string; capacity: number }[] = [];
+          try { teamOptions = f.options_json ? JSON.parse(f.options_json) : []; } catch { /* malformed shouldn't block the rest */ }
+          return { fieldKey: f.field_key, label: f.label, teamOptions };
         });
+
+        const byRound: Record<string, { label: string; teams: { label: string; capacity: number; remaining: number }[] }[]> = {};
+        await Promise.all(upcoming.flatMap(day => day.slots.map(async (s: any) => {
+          const roundKey = `${day.date} ${s.startTime}`;
+          const availRes = await axios.get(
+            `${API_BASE}/registration-forms/${course.registration_form_id}/team-availability?courseId=${course.id}&scheduledAt=${encodeURIComponent(roundKey)}`
+          ).catch(() => null);
+          const counts = availRes?.data?.success ? availRes.data.counts : {};
+          byRound[roundKey] = teamOptionsByField.map(f => ({
+            label: f.label,
+            teams: f.teamOptions.map(t => ({
+              label: t.label, capacity: t.capacity,
+              remaining: Math.max(0, t.capacity - (counts[f.fieldKey]?.[t.label] || 0)),
+            })),
+          }));
+        })));
+        setCapacityTeamByRound(byRound);
       }
     } finally {
       setCapacityLoading(false);
@@ -2316,52 +2326,30 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           {capacityLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
           ) : (
-            <Stack spacing={3}>
-              {capacityTeamInfo && (
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
-                    จำนวนคงเหลือต่อทีม ({capacityTeamInfo.formName})
-                  </Typography>
-                  <Stack spacing={1.5}>
-                    {capacityTeamInfo.fields.map((f, i) => (
-                      <Box key={i}>
-                        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>{f.label}</Typography>
-                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                          {f.teams.map(t => (
-                            <Chip
-                              key={t.label}
-                              label={`${t.label}: เหลือ ${t.remaining}/${t.capacity}`}
-                              size="small"
-                              color={t.remaining === 0 ? 'error' : 'success'}
-                              variant={t.remaining === 0 ? 'filled' : 'outlined'}
-                              sx={{ fontWeight: 700 }}
-                            />
-                          ))}
-                        </Stack>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
-              )}
-
-              <Box>
-                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>ที่นั่งคงเหลือแต่ละรอบ</Typography>
-                {!capacityDialogCourse?.calendar_id ? (
-                  <Typography variant="body2" color="text.secondary">คลาสนี้ยังไม่ได้ผูกปฏิทิน จึงไม่มีรอบเวลาให้แสดง</Typography>
-                ) : !capacitySlots || capacitySlots.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">ไม่มีรอบที่กำลังจะถึง</Typography>
-                ) : (
-                  <TableContainer sx={{ maxHeight: 340 }}>
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>เวลา</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }} align="center">คงเหลือ/สูงสุด</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {capacitySlots.flatMap(day => day.slots.map((s: any, i: number) => (
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" fontWeight={800}>
+                ที่นั่ง{capacityFormName ? ` และทีม (${capacityFormName})` : ''}คงเหลือแต่ละรอบ
+              </Typography>
+              {!capacityDialogCourse?.calendar_id ? (
+                <Typography variant="body2" color="text.secondary">คลาสนี้ยังไม่ได้ผูกปฏิทิน จึงไม่มีรอบเวลาให้แสดง</Typography>
+              ) : !capacitySlots || capacitySlots.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">ไม่มีรอบที่กำลังจะถึง</Typography>
+              ) : (
+                <TableContainer sx={{ maxHeight: 420 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>เวลา</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="center">ที่นั่งคงเหลือ</TableCell>
+                        {capacityFormName && <TableCell sx={{ fontWeight: 700 }}>ทีมคงเหลือ</TableCell>}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {capacitySlots.flatMap(day => day.slots.map((s: any, i: number) => {
+                        const roundKey = `${day.date} ${s.startTime}`;
+                        const roundTeamFields = capacityTeamByRound[roundKey];
+                        return (
                           <TableRow key={`${day.date}-${i}`} hover>
                             <TableCell>{new Date(day.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
                             <TableCell>{s.startTime}–{s.endTime}</TableCell>
@@ -2373,15 +2361,39 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                                 sx={{ fontWeight: 700 }}
                               />
                             </TableCell>
+                            {capacityFormName && (
+                              <TableCell>
+                                {roundTeamFields ? (
+                                  <Stack spacing={0.5}>
+                                    {roundTeamFields.map((f, fi) => (
+                                      <Stack key={fi} direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                                        {f.teams.map(t => (
+                                          <Chip
+                                            key={t.label}
+                                            label={`${t.label}: ${t.remaining}/${t.capacity}`}
+                                            size="small"
+                                            color={t.remaining === 0 ? 'error' : 'success'}
+                                            variant={t.remaining === 0 ? 'filled' : 'outlined'}
+                                            sx={{ fontWeight: 700, height: 20, fontSize: '11px' }}
+                                          />
+                                        ))}
+                                      </Stack>
+                                    ))}
+                                  </Stack>
+                                ) : (
+                                  <CircularProgress size={14} />
+                                )}
+                              </TableCell>
+                            )}
                           </TableRow>
-                        )))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-              </Box>
+                        );
+                      }))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
 
-              {!capacityDialogCourse?.calendar_id && !capacityTeamInfo && (
+              {!capacityDialogCourse?.calendar_id && !capacityFormName && (
                 <Typography variant="body2" color="text.secondary">
                   คลาสนี้ยังไม่ได้ผูกปฏิทินหรือฟอร์มที่มีทีม จึงไม่มีข้อมูลความจุให้แสดง
                 </Typography>

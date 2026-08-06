@@ -52,14 +52,17 @@ export class RegistrationFormController {
   }
 
   // Public: how many spots are left per team on a team_select field, for
-  // this specific course — read by the consumer booking wizard to disable
-  // full teams before submit (also re-checked server-side at createBooking).
+  // this specific course+round — read by the consumer booking wizard to
+  // disable full teams before submit (also re-checked server-side at
+  // createBooking). scheduledAt is required since capacity resets per round.
   async getTeamAvailability(c: C) {
     try {
       const formId = parseInt(c.req.param('id'));
       const courseId = parseInt(c.req.query('courseId') || '');
+      const scheduledAt = c.req.query('scheduledAt') || '';
       if (!courseId) return c.json({ success: false, message: 'courseId is required' }, 400);
-      const counts = await this.repo(c).getTeamAvailability(formId, courseId);
+      if (!scheduledAt) return c.json({ success: false, message: 'scheduledAt is required' }, 400);
+      const counts = await this.repo(c).getTeamAvailability(formId, courseId, scheduledAt);
       return c.json({ success: true, counts });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
