@@ -141,7 +141,17 @@ const Booking = () => {
   // คลาส"), but each browses its own course pool via a real is_event/
   // is_service flag (not a category-name guess) so they stay clearly
   // separate systems ("แยกระบบกันชัดเจน") rather than one blended list.
+  //
+  // The URL's ?type= only exists to pick which pool to browse BEFORE a
+  // course is chosen (the nav menu's three "Book ..." links each set it).
+  // Arriving with a specific courseId instead (every course card/detail
+  // page's own CTA does this, with no &type= at all) skipped that entirely
+  // — bookingType silently stayed 'class' for an event/service booked this
+  // way, wrong not just for the header text but for real behavior gated on
+  // it too (single- vs multi-child selection below). Once a course is
+  // loaded, its own is_event/is_service flags are ground truth and win.
   const bookingType: 'class' | 'service' | 'event' =
+    selectedCourse ? (selectedCourse.is_event ? 'event' : selectedCourse.is_service ? 'service' : 'class') :
     searchParams.get('type') === 'event' ? 'event' :
     searchParams.get('type') === 'service' ? 'service' :
     'class';
