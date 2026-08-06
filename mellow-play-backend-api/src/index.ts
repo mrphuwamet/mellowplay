@@ -365,6 +365,7 @@ app.post('/api/v1/profiles/avatar', (c) => profileController.uploadParentAvatar(
 app.get('/api/v1/profiles/bookings/pending', (c) => profileController.getPendingBookings(c));
 app.get('/api/v1/profiles/bookings/upcoming', (c) => profileController.getUpcomingBookings(c));
 app.get('/api/v1/profiles/bookings/history', (c) => profileController.getHistoryBookings(c));
+app.get('/api/v1/profiles/bookings/:id/form-answers', (c) => profileController.getBookingFormAnswers(c));
 app.post('/api/v1/profiles/bookings/:id/cancel', (c) => profileController.cancelMyBooking(c));
 app.get('/api/v1/journey/progress/:childId', (c) => journeyController.getChildProgress(c));
 app.get('/api/v1/journey/progress-by-booking/:bookingId', (c) => journeyController.getProgressByBooking(c));
@@ -391,6 +392,7 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/coupons$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/registration-form$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/registration-forms\/[^/]+\/team-availability$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
   { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },
@@ -748,6 +750,9 @@ app.post  ('/api/v1/admin/bookings/:bookingId/complete',  (c) => courseMaterialC
 app.post  ('/api/v1/admin/bookings/:bookingId/cancel',    (c) => courseMaterialController.cancelBooking(c));
 app.patch ('/api/v1/admin/bookings/:id/status',           (c) => adminController.updateBookingStatus(c));
 app.get   ('/api/v1/admin/bookings/:id/transactions',     (c) => adminController.getBookingTransactions(c));
+app.get   ('/api/v1/admin/bookings/:id/form-answers',     (c) => adminController.getBookingFormAnswers(c));
+app.put   ('/api/v1/admin/bookings/:id/form-answers',     (c) => adminController.updateBookingFormAnswers(c));
+app.get   ('/api/v1/admin/form-submissions',               (c) => adminController.getFormSubmissionsBulk(c));
 app.post  ('/api/v1/admin/bookings/:id/pay',              (c) => adminController.payBooking(c));
 app.post  ('/api/v1/admin/transactions/:id/void',         (c) => adminController.voidTransaction(c));
 
@@ -763,6 +768,7 @@ app.get('/api/v1/admin/reports/tag-attribution', (c) => reportController.getTagA
 app.get('/api/v1/admin/registration-forms',      (c) => registrationFormController.listForms(c));
 app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));
 app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.getForm(c));
+app.get('/api/v1/admin/registration-forms/:id/team-availability', (c) => registrationFormController.getTeamAvailability(c));
 app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
 app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
 

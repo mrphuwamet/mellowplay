@@ -224,7 +224,7 @@ export class AdminRepository {
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
-        b.sponsor_tag,
+        b.sponsor_tag, b.form_submission_id,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,
@@ -234,7 +234,7 @@ export class AdminRepository {
         TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
         u.phone as parent_phone,
         u.email as parent_email,
-        co.name as course_name, co.original_price,
+        co.name as course_name, co.original_price, co.is_event, co.is_service,
         br.name as branch_name,
         COALESCE(t.created_at, b.paid_at) as paid_at,
         t.payment_method as payment_method,

@@ -51,6 +51,19 @@ export class RegistrationFormController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  // Public: how many spots are left per team on a team_select field, for
+  // this specific course — read by the consumer booking wizard to disable
+  // full teams before submit (also re-checked server-side at createBooking).
+  async getTeamAvailability(c: C) {
+    try {
+      const formId = parseInt(c.req.param('id'));
+      const courseId = parseInt(c.req.query('courseId') || '');
+      if (!courseId) return c.json({ success: false, message: 'courseId is required' }, 400);
+      const counts = await this.repo(c).getTeamAvailability(formId, courseId);
+      return c.json({ success: true, counts });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async createForm(c: C) {
     try {
       const body = await c.req.json();

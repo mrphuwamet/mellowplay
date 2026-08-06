@@ -4,6 +4,7 @@ import { HDService } from '../services/hdService';
 import { ConfigService } from '../services/configService';
 import { HDProfileRepository } from '../repositories/hdProfileRepository';
 import { UserRepository } from '../repositories/userRepository';
+import { RegistrationFormRepository } from '../repositories/registrationFormRepository';
 
 export class ProfileController {
   async calculate(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
@@ -320,6 +321,44 @@ export class ProfileController {
       `).bind(parseInt(userId)).all();
 
       return c.json({ success: true, bookings: results });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // What the family filled in on the registration form for this booking —
+  // shown in the consumer app's booking detail view. answers_json is keyed
+  // by field_key, so pair each with its field's label for display; skip
+  // 'heading' fields (no answer) and anything left blank.
+  async getBookingFormAnswers(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const bookingId = c.req.param('id');
+      const userId = c.req.query('userId');
+      if (!userId) return c.json({ success: false, message: 'User ID required' }, 400);
+
+      const db = config.db;
+      const booking = await db.prepare(`
+        SELECT b.form_submission_id
+        FROM Bookings b
+        JOIN Children ch ON b.child_id = ch.id
+        WHERE b.id = ? AND ch.parent_id = ?
+      `).bind(bookingId, userId).first() as any;
+
+      if (!booking) return c.json({ success: false, message: 'Booking not found or access denied' }, 404);
+      if (!booking.form_submission_id) return c.json({ success: true, fields: [] });
+
+      const registrationFormRepo = new RegistrationFormRepository(db);
+      const submission = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
+      if (!submission) return c.json({ success: true, fields: [] });
+
+      const fields = submission.fields
+        .filter((f: any) => f.type !== 'heading')
+        .map((f: any) => ({ label: f.label, type: f.type, value: submission.answers[f.field_key] }))
+        .filter((f: any) => f.value !== undefined && f.value !== null && f.value !== '' &&
+          !(Array.isArray(f.value) && f.value.length === 0));
+
+      return c.json({ success: true, fields });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

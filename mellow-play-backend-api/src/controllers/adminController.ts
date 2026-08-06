@@ -279,6 +279,80 @@ export class AdminController {
     }
   }
 
+  // What a family filled in on the registration form for one booking —
+  // the CRM booking list's "ดูข้อมูลเพิ่มเติม" button. Unlike the consumer
+  // app's equivalent, no ownership check — staff can view any booking.
+  async getBookingFormAnswers(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const bookingId = c.req.param('id');
+      const db = config.db;
+
+      const booking = await db.prepare('SELECT form_submission_id FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
+      if (!booking) return c.json({ success: false, message: 'Booking not found' }, 404);
+      if (!booking.form_submission_id) return c.json({ success: true, fields: [] });
+
+      const registrationFormRepo = new RegistrationFormRepository(db);
+      const submission = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
+      if (!submission) return c.json({ success: true, fields: [] });
+
+      const fields = submission.fields
+        .filter((f: any) => f.type !== 'heading')
+        .map((f: any) => ({ fieldKey: f.field_key, label: f.label, type: f.type, optionsJson: f.options_json, value: submission.answers[f.field_key] }));
+
+      return c.json({ success: true, fields });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Staff correcting what a family filled in — e.g. a typo'd name or the
+  // wrong team picked. Only touches the Form_Submissions row (answers_json);
+  // the Bookings rows pointing at it are untouched.
+  async updateBookingFormAnswers(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const bookingId = c.req.param('id');
+      const { answers } = await c.req.json();
+      if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
+
+      const db = config.db;
+      const booking = await db.prepare('SELECT form_submission_id FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
+      if (!booking) return c.json({ success: false, message: 'Booking not found' }, 404);
+      if (!booking.form_submission_id) return c.json({ success: false, message: 'This booking has no registration form submission' }, 400);
+
+      // Merged, not replaced — the edit UI only sends the current form's
+      // fields, but answers_json could still hold a key from a field since
+      // removed from the form; overwriting wholesale would silently drop it.
+      const registrationFormRepo = new RegistrationFormRepository(db);
+      const current = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
+      const merged = { ...(current?.answers || {}), ...answers };
+      await registrationFormRepo.updateSubmissionAnswers(booking.form_submission_id, JSON.stringify(merged));
+
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Bulk form-submission lookup, keyed by Form_Submissions.id (not booking
+  // id) — the booking list already has form_submission_id on every row it
+  // fetched via getBookings, so the CSV export can request every distinct
+  // submission behind the currently filtered/exported rows in one call
+  // instead of one request per booking.
+  async getFormSubmissionsBulk(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const idsParam = c.req.query('ids') || '';
+      const ids = idsParam.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+      const registrationFormRepo = new RegistrationFormRepository(config.db);
+      const submissions = await registrationFormRepo.getSubmissionsWithFields(ids);
+      return c.json({ success: true, submissions });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async createBooking(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -365,6 +439,28 @@ export class AdminController {
                 success: false,
                 error_code: 'DUPLICATE_FORM_SUBMISSION',
                 message: 'ข้อมูลนี้เคยลงทะเบียนไว้แล้ว กรุณาตรวจสอบอีกครั้ง',
+              }, 400);
+            }
+          }
+
+          // team_select capacity — re-checked here (not just via the
+          // availability endpoint the form step reads) to close the race
+          // where two families submit for the last spot around the same
+          // time. Scoped to form+course, same as the availability endpoint.
+          for (const field of (form.fields || [])) {
+            if (field.type !== 'team_select') continue;
+            const chosenTeam = formAnswers[field.field_key];
+            if (!chosenTeam) continue;
+            let teamOptions: { label: string; capacity: number }[] = [];
+            try { teamOptions = JSON.parse(field.options_json || '[]'); } catch { /* malformed config shouldn't block booking */ }
+            const team = teamOptions.find(t => t.label === chosenTeam);
+            if (!team) continue;
+            const counts = await registrationFormRepo.getTeamCounts(parseInt(formId), parseInt(courseId), field.field_key);
+            if ((counts[chosenTeam] || 0) >= team.capacity) {
+              return c.json({
+                success: false,
+                error_code: 'TEAM_FULL',
+                message: `ทีม "${chosenTeam}" เต็มแล้ว กรุณาเลือกทีมอื่น`,
               }, 400);
             }
           }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
+import apiClient from '../utils/apiClient';
 
 interface RegFormField {
   id: number;
@@ -55,6 +56,10 @@ interface Props {
   // account holder lives in Users, a different table entirely). Injected
   // into the adult-role picker only, never the child one.
   mainAccount?: { name: string; nickname?: string; avatar?: string };
+  // Needed to look up team_select availability — capacity is scoped to
+  // form+course, not a specific round (this step happens before any
+  // round/date is picked).
+  courseId?: number;
 }
 
 // Renders whatever pages/fields a CRM-built Registration_Form has, one page
@@ -63,8 +68,21 @@ interface Props {
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
   form, answers, onChange, roster, onBack, onNext, lang,
-  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount,
+  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount, courseId,
 }) => {
+  // field_key -> { teamLabel -> current count } — only fetched when the
+  // form actually has a team_select field, refetched whenever the course
+  // changes (a family could in theory browse to a different course while
+  // this step is mid-fill, though the wizard doesn't normally allow that).
+  const [teamCounts, setTeamCounts] = useState<Record<string, Record<string, number>>>({});
+  const hasTeamSelect = form.fields.some(f => f.type === 'team_select');
+  useEffect(() => {
+    if (!hasTeamSelect || !courseId) { setTeamCounts({}); return; }
+    apiClient.get(`/admin/registration-forms/${form.id}/team-availability?courseId=${courseId}`)
+      .then(res => setTeamCounts(res.data.success ? res.data.counts : {}))
+      .catch(() => setTeamCounts({}));
+  }, [form.id, courseId, hasTeamSelect]);
+
   const pages = useMemo(() => {
     const grouped: RegFormField[][] = [];
     for (const f of form.fields) {
@@ -240,6 +258,32 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                         onClick={() => onChange(field.field_key, checked ? arr.filter(o => o !== opt) : [...arr, opt])}
                         className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
                         {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+          if (field.type === 'team_select') {
+            const teamOptions: { label: string; capacity: number }[] = field.options_json ? JSON.parse(field.options_json) : [];
+            const counts = teamCounts[field.field_key] || {};
+            return (
+              <div key={field.field_key}>
+                {labelEl}
+                <div className="flex flex-wrap gap-2">
+                  {teamOptions.map(team => {
+                    const isFull = (counts[team.label] || 0) >= team.capacity;
+                    const selected = value === team.label;
+                    return (
+                      <button key={team.label} type="button" disabled={isFull}
+                        onClick={() => onChange(field.field_key, team.label)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                          selected ? 'bg-mellow-purple text-white'
+                          : isFull ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                          : 'bg-slate-100 text-slate-500'
+                        }`}>
+                        {team.label}{isFull ? ` (${lang === 'en' ? 'Full' : 'เต็ม'})` : ''}
                       </button>
                     );
                   })}

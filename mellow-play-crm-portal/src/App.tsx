@@ -430,7 +430,7 @@ const AppContent = () => {
       { text: 'จัดการบริการ (Service)', icon: <CourseServiceMenuIcon />, path: '/crm/course-services', feature: 'courses' },
       { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
-      { text: 'รายการจองคลาสเรียน', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
       { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
     ]);
 

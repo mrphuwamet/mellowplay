@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Calendar, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award, Sparkles } from 'lucide-react';
+import { X, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award, Sparkles } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import CourseRatingPrompt from './CourseRatingPrompt';
@@ -19,6 +19,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
   const navigate = useNavigate();
   const [showPayment, setShowPayment] = useState(false);
   const [progress, setProgress] = useState<any | null | undefined>(undefined);
+  const [formFields, setFormFields] = useState<{ label: string; type: string; value: any }[]>([]);
 
   const hasReport = !!booking && ['awaiting_report', 'completed'].includes(booking.status);
 
@@ -30,6 +31,21 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
       .catch(() => setProgress(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, booking?.id]);
+
+  // Whatever the family answered on the registration form when booking —
+  // only fetched if this booking's checkout actually had a form attached
+  // (form_submission_id set), otherwise there's nothing to show.
+  useEffect(() => {
+    if (!isOpen || !booking?.form_submission_id) { setFormFields([]); return; }
+    const userJson = localStorage.getItem('mellow_user');
+    const userId = userJson ? JSON.parse(userJson).id : null;
+    if (!userId) { setFormFields([]); return; }
+    apiClient.get(`/profiles/bookings/${booking.id}/form-answers?userId=${userId}`)
+      .then(res => setFormFields(res.data.success ? res.data.fields : []))
+      .catch(() => setFormFields([]));
+  }, [isOpen, booking?.id, booking?.form_submission_id]);
+
+  const formatAnswerValue = (value: any) => Array.isArray(value) ? value.join(', ') : String(value);
 
   if (!isOpen || !booking) return null;
 
@@ -77,13 +93,6 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
         <div className="space-y-5">
           {/* Course Info */}
           <div className="flex gap-4 items-start">
-            {booking.course_thumbnail ? (
-              <img src={booking.course_thumbnail} alt={booking.course_name} className="w-20 h-20 rounded-2xl object-cover shadow-sm" />
-            ) : (
-              <div className="w-20 h-20 rounded-2xl bg-blue-50 flex items-center justify-center">
-                <Calendar size={32} className="text-blue-300" />
-              </div>
-            )}
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <h3 className="font-bold text-slate-800 text-[16px] leading-tight">{booking.course_name}</h3>
@@ -143,6 +152,22 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
               <BookOpen size={16} />
               {lang === 'en' ? 'View More Details' : 'ดูรายละเอียดเพิ่มเติม'}
             </button>
+          )}
+
+          {formFields.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                {lang === 'en' ? 'Registration Details' : 'ข้อมูลที่กรอกไว้ตอนลงทะเบียน'}
+              </h4>
+              <div className="bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100">
+                {formFields.map((f, i) => (
+                  <div key={i} className="flex justify-between gap-3 px-4 py-2.5">
+                    <span className="text-sm font-medium text-slate-500 shrink-0">{f.label}</span>
+                    <span className="text-sm font-bold text-slate-700 text-right">{formatAnswerValue(f.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="h-px bg-slate-100 my-2" />

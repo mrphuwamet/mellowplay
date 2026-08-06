@@ -345,7 +345,7 @@ const Home = () => {
       navigate(item.kind === 'course' ? `/class/${item.id}` : `/news/${item.id}`);
     };
     const eyebrow = item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
-      : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Class' : 'คลาสที่กำลังจะมาถึง')
+      : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Activity' : 'กิจกรรมที่กำลังจะมาถึง')
       : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
       : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
       : (lang === 'en' ? 'From Explore' : 'จากหน้าสำรวจ');
@@ -690,7 +690,7 @@ const Home = () => {
   const renderUpcomingClassesSidebar = () => (
     <div>
       <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
-        {lang === 'en' ? 'Upcoming Classes' : 'คลาสที่กำลังจะมาถึง'}
+        {lang === 'en' ? 'Upcoming Activities' : 'กิจกรรมที่กำลังจะมาถึง'}
       </h3>
 
       {isDataLoading ? (
@@ -748,7 +748,7 @@ const Home = () => {
             <Calendar size={18} className="text-blue-400" />
           </div>
           <p className="text-[14px] font-bold text-slate-600">
-            {lang === 'en' ? 'No upcoming classes' : 'ยังไม่มีคลาสที่จองไว้'}
+            {lang === 'en' ? 'No upcoming activities' : 'ยังไม่มีกิจกรรมที่จะถึง'}
           </p>
         </div>
       )}
