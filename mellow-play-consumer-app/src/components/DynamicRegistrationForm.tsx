@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
 import apiClient from '../utils/apiClient';
@@ -96,6 +96,13 @@ const DynamicRegistrationForm: React.FC<Props> = ({
   const [pageIndex, setPageIndex] = useState(0);
   useEffect(() => { setPageIndex(0); }, [form.id]);
 
+  // "Next" stays clickable even with required fields still blank — instead
+  // of graying it out with no explanation, a click on an incomplete page
+  // jumps straight to whichever required field is still empty.
+  const [invalidFieldKey, setInvalidFieldKey] = useState<string | null>(null);
+  const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  useEffect(() => { setInvalidFieldKey(null); }, [pageIndex]);
+
   const currentFields = pages[pageIndex] || [];
 
   const isChildPickerField = (f: RegFormField) => {
@@ -131,10 +138,26 @@ const DynamicRegistrationForm: React.FC<Props> = ({
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
     return v != null && String(v).trim() !== '';
   };
-  const canProceed = currentFields.every(f => f.type === 'heading' || isChildPickerField(f) || !f.required || isFieldFilled(f))
-    && currentFields.filter(isChildPickerField).every(isFieldFilled);
+  const needsAnswer = (f: RegFormField) => f.type !== 'heading' && (isChildPickerField(f) || f.required) && !isFieldFilled(f);
+
+  // Clears the error highlight as soon as whatever was missing gets filled
+  // in — no need to wait for another "Next" click to confirm it's fixed.
+  useEffect(() => {
+    const invalidField = currentFields.find(f => f.field_key === invalidFieldKey);
+    if (invalidField && !needsAnswer(invalidField)) setInvalidFieldKey(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, selectedChildIds]);
 
   const handleNext = () => {
+    const firstInvalid = currentFields.find(needsAnswer);
+    if (firstInvalid) {
+      setInvalidFieldKey(firstInvalid.field_key);
+      const el = fieldRefs.current[firstInvalid.field_key];
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.querySelector<HTMLElement>('input, textarea, select')?.focus();
+      return;
+    }
+    setInvalidFieldKey(null);
     if (pageIndex < pages.length - 1) setPageIndex(pageIndex + 1);
     else onNext();
   };
@@ -179,17 +202,27 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           const config = field.config_json ? JSON.parse(field.config_json) : {};
           const value = answers[field.field_key];
 
+          const isInvalid = field.field_key === invalidFieldKey;
+
           const labelEl = (
-            <label className="text-xs font-bold text-slate-600 block mb-1.5">
-              {field.label}{!!field.required && <span className="text-mellow-red ml-0.5">*</span>}
-            </label>
+            <>
+              <label className="text-xs font-bold text-slate-600 block mb-1.5">
+                {field.label}{!!field.required && <span className="text-mellow-red ml-0.5">*</span>}
+              </label>
+              {isInvalid && (
+                <p className="text-[11px] font-bold text-mellow-red mb-1.5">
+                  {lang === 'en' ? 'This field is required' : 'กรุณากรอกข้อมูลนี้'}
+                </p>
+              )}
+            </>
           );
 
           const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all";
 
           if (field.type === 'text') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <input type="text" value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass} />
               </div>
@@ -197,7 +230,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           }
           if (field.type === 'textarea') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <textarea rows={3} value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={`${inputClass} resize-none`} />
               </div>
@@ -205,7 +239,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           }
           if (field.type === 'number') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <input type="number" value={value ?? ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass} />
               </div>
@@ -213,7 +248,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           }
           if (field.type === 'date') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <input type="date" value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass} />
               </div>
@@ -221,7 +257,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           }
           if (field.type === 'select') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <select value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass}>
                   <option value="">{lang === 'en' ? 'Select...' : 'เลือก...'}</option>
@@ -232,7 +269,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           }
           if (field.type === 'radio') {
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <div className="flex flex-wrap gap-2">
                   {options.map(opt => (
@@ -248,7 +286,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           if (field.type === 'checkbox') {
             const arr: string[] = Array.isArray(value) ? value : [];
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <div className="flex flex-wrap gap-2">
                   {options.map(opt => {
@@ -269,7 +308,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             const teamOptions: { label: string; capacity: number }[] = field.options_json ? JSON.parse(field.options_json) : [];
             const counts = teamCounts[field.field_key] || {};
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <div className="flex flex-wrap gap-2">
                   {teamOptions.map(team => {
@@ -310,7 +350,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             };
 
             return (
-              <div key={field.field_key}>
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 {list.length === 0 ? (
                   <p className="text-xs font-bold text-slate-400 mb-2">{lang === 'en' ? 'No family members found' : 'ไม่พบสมาชิกในครอบครัว'}</p>
@@ -347,8 +388,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
         <button type="button" onClick={handleBack} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-black uppercase tracking-wider active:scale-95 transition-all">
           {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
         </button>
-        <button type="button" disabled={!canProceed} onClick={handleNext}
-          className="flex-[2] py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all">
+        <button type="button" onClick={handleNext}
+          className="flex-[2] py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all">
           {lang === 'en' ? 'Next' : 'ขั้นตอนถัดไป'}
         </button>
       </div>
