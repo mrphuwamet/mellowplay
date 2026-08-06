@@ -31,6 +31,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
   const children = useChildStore(state => state.children);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
 
   const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue(forceRole || 'mother'));
 
@@ -87,8 +88,16 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           await fetchChildren(user.id);
         }
         setFormValue(emptyFamilyMemberFormValue(forceRole || 'mother'));
-        onClose();
         await onSuccess?.();
+        // A system-wide (not just this account's) name match — surface it
+        // before closing instead of after, since the modal disappearing
+        // would take the warning with it.
+        if (response.data.duplicateWarning) {
+          setError('');
+          setWarning(response.data.duplicateWarning);
+        } else {
+          onClose();
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add child');
@@ -116,6 +125,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
 
         <div className="p-5 overflow-y-auto">
           {error && <Toast message={error} type="error" onClose={() => setError('')} />}
+          {warning && <Toast message={warning} type="warning" onClose={() => { setWarning(''); onClose(); }} />}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <FamilyMemberFields value={formValue} onChange={setFormValue} lockRole={forceRole} />

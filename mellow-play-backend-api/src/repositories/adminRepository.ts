@@ -69,6 +69,7 @@ export class AdminRepository {
     const { results } = await this.db.prepare(`
       SELECT
         u.id, u.phone, u.email, u.first_name, u.last_name,
+        u.is_banned, u.banned_at, u.ban_reason,
         (
           COALESCE((SELECT COUNT(*) FROM Children WHERE parent_id = u.id), 0) +
           COALESCE((SELECT COUNT(*) FROM User_CRM_Children WHERE user_id = u.id), 0)
@@ -191,6 +192,18 @@ export class AdminRepository {
         UPDATE Children SET membership_type = ?, membership_expires_at = ? WHERE id = ?
       `).bind(data.membershipType, data.membershipExpiresAt ?? null, childId).run();
     }
+  }
+
+  async banUser(id: number, reason?: string): Promise<void> {
+    await this.db.prepare(
+      `UPDATE Users SET is_banned = 1, banned_at = datetime('now'), ban_reason = ? WHERE id = ?`
+    ).bind(reason ?? null, id).run();
+  }
+
+  async unbanUser(id: number): Promise<void> {
+    await this.db.prepare(
+      `UPDATE Users SET is_banned = 0, banned_at = NULL, ban_reason = NULL WHERE id = ?`
+    ).bind(id).run();
   }
 
   // ── User Coupon CRUD ──────────────────────────────────────────────────────

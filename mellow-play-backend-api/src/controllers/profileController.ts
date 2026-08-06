@@ -64,9 +64,13 @@ export class ProfileController {
       }
 
       const userRepository = new UserRepository(config.db);
+      const duplicateMatches = childData.name ? await userRepository.checkDuplicateFullName(childData.name) : [];
+      const duplicateWarning = duplicateMatches.length > 0
+        ? `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`
+        : undefined;
       const childId = await userRepository.addSingleChild(userId, childData);
-      
-      return c.json({ success: true, childId });
+
+      return c.json({ success: true, childId, duplicateWarning });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

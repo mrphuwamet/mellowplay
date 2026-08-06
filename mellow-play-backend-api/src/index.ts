@@ -30,6 +30,7 @@ import { ContactController } from './controllers/contactController';
 import { AdsController } from './controllers/adsController';
 import { BirthdayWishController } from './controllers/birthdayWishController';
 import { AnalyticsController } from './controllers/analyticsController';
+import { UserRepository } from './repositories/userRepository';
 import { ConfigService } from './services/configService';
 import { AuthService } from './services/authService';
 import { sendAlert } from './services/alertService';
@@ -339,14 +340,31 @@ app.post('/api/v1/auth/link-google', (c) => authController.linkGoogle(c));
 app.post('/api/v1/auth/unlink-google', (c) => authController.unlinkGoogle(c));
 
 // --- Protected Routes (Require JWT) ---
+// A banned account can already never log in again (see authController.login/
+// googleLogin), but its existing 30-day token would otherwise stay valid —
+// this re-checks current DB state on every request so a ban takes effect
+// immediately for someone still signed in, not just on their next login.
+const requireActiveUser = (config: ConfigService) => async (c: any, next: any) => {
+  return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, async () => {
+    const payload = c.get('jwtPayload');
+    if (payload?.userId) {
+      const user = await new UserRepository(config.db).findById(payload.userId);
+      if (user?.is_banned) {
+        return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
+      }
+    }
+    return next();
+  });
+};
+
 app.use('/api/v1/profiles', async (c, next) => {
   const config = new ConfigService(c.env);
-  return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, next);
+  return requireActiveUser(config)(c, next);
 });
 
 app.use('/api/v1/profiles/*', async (c, next) => {
   const config = new ConfigService(c.env);
-  return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, next);
+  return requireActiveUser(config)(c, next);
 });
 
 app.use('/api/v1/journey/*', async (c, next) => {
@@ -356,7 +374,7 @@ app.use('/api/v1/journey/*', async (c, next) => {
   // every report submission 401 silently, leaving Child_Journey empty.
   if (c.req.path === '/api/v1/journey/record') return next();
   const config = new ConfigService(c.env);
-  return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, next);
+  return requireActiveUser(config)(c, next);
 });
 
 app.get('/api/v1/journey/nodes', (c) => journeyController.listNodes(c));
@@ -446,6 +464,10 @@ async function requireCrmAuth(c: any, next: any) {
   // but only to edit their own profile.
   const selfEditMatch = c.req.method === 'PUT' && c.req.path.match(/^\/api\/v1\/admin\/users\/(\d+)$/);
   if (selfEditMatch && payload.userId === parseInt(selfEditMatch[1])) {
+    const user = await new UserRepository(config.db).findById(payload.userId);
+    if (user?.is_banned) {
+      return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
+    }
     return next();
   }
 
@@ -476,6 +498,8 @@ app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadU
 app.put('/api/v1/admin/children/:id', (c) => adminController.updateChildProfile(c));
 app.delete('/api/v1/admin/family-members/:id', (c) => adminController.deleteFamilyMember(c));
 app.post('/api/v1/admin/users/:id/reset-password', (c) => adminController.resetUserPassword(c));
+app.post('/api/v1/admin/users/:id/ban', (c) => adminController.banUser(c));
+app.delete('/api/v1/admin/users/:id/ban', (c) => adminController.unbanUser(c));
 app.get('/api/v1/admin/users/:id/family-roster', (c) => adminController.getUserFamilyRoster(c));
 app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons(c));
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
