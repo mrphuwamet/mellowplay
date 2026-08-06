@@ -422,7 +422,7 @@ const CourseDetail = () => {
           {course.calendar_id ? (
              upcomingSlots.length > 0 ? (
                <div className="space-y-4">
-                 {(showAllSlots ? upcomingSlots : upcomingSlots.slice(0, 5)).map((day, i) => {
+                 {(showAllSlots ? upcomingSlots : upcomingSlots.slice(0, 10)).map((day, i) => {
                    const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', lang === 'en' ? enDateOptions : thDateOptions);
                    return (
                      <div key={i} className="py-3 border-b border-slate-100 last:border-0 last:pb-0">
@@ -456,7 +456,7 @@ const CourseDetail = () => {
                    );
                  })}
 
-                 {upcomingSlots.length > 5 && !showAllSlots && (
+                 {upcomingSlots.length > 10 && !showAllSlots && (
                    <button
                      onClick={() => setShowAllSlots(true)}
                      className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-[15px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"

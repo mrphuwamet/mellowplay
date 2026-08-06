@@ -1571,7 +1571,7 @@ const Booking = () => {
                   {selectedCourse.calendar_id ? (
                     modalUpcomingSlots.length > 0 ? (
                       <div className="space-y-3">
-                        {(modalShowAllSlots ? modalUpcomingSlots : modalUpcomingSlots.slice(0, 5)).map((day, i) => {
+                        {(modalShowAllSlots ? modalUpcomingSlots : modalUpcomingSlots.slice(0, 10)).map((day, i) => {
                           const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
                           return (
                             <div key={i} className="py-2.5 border-b border-slate-100 last:border-0 last:pb-0">
@@ -1599,7 +1599,7 @@ const Booking = () => {
                             </div>
                           );
                         })}
-                        {modalUpcomingSlots.length > 5 && !modalShowAllSlots && (
+                        {modalUpcomingSlots.length > 10 && !modalShowAllSlots && (
                           <button
                             onClick={() => setModalShowAllSlots(true)}
                             className="w-full py-2.5 mt-1 flex items-center justify-center gap-2 text-[14px] font-bold text-mellow-blue bg-mellow-blue-soft/30 hover:bg-mellow-blue-soft rounded-xl transition-colors"
