@@ -446,7 +446,8 @@ export class AdminController {
           // team_select capacity — re-checked here (not just via the
           // availability endpoint the form step reads) to close the race
           // where two families submit for the last spot around the same
-          // time. Scoped to form+course, same as the availability endpoint.
+          // time. Scoped to form+course+round — a team's capacity resets
+          // per round, not shared across every occurrence of the course.
           for (const field of (form.fields || [])) {
             if (field.type !== 'team_select') continue;
             const chosenTeam = formAnswers[field.field_key];
@@ -455,7 +456,7 @@ export class AdminController {
             try { teamOptions = JSON.parse(field.options_json || '[]'); } catch { /* malformed config shouldn't block booking */ }
             const team = teamOptions.find(t => t.label === chosenTeam);
             if (!team) continue;
-            const counts = await registrationFormRepo.getTeamCounts(parseInt(formId), parseInt(courseId), field.field_key);
+            const counts = await registrationFormRepo.getTeamCounts(parseInt(formId), parseInt(courseId), scheduledAt, field.field_key);
             if ((counts[chosenTeam] || 0) >= team.capacity) {
               return c.json({
                 success: false,

@@ -56,10 +56,11 @@ interface Props {
   // account holder lives in Users, a different table entirely). Injected
   // into the adult-role picker only, never the child one.
   mainAccount?: { name: string; nickname?: string; avatar?: string };
-  // Needed to look up team_select availability — capacity is scoped to
-  // form+course, not a specific round (this step happens before any
-  // round/date is picked).
+  // Needed to look up team_select availability — capacity resets per
+  // round, so the wizard puts the date step before this one whenever the
+  // form has a team_select field (see Booking.tsx's flowSteps).
   courseId?: number;
+  scheduledAt?: string;
 }
 
 // Renders whatever pages/fields a CRM-built Registration_Form has, one page
@@ -68,20 +69,19 @@ interface Props {
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
   form, answers, onChange, roster, onBack, onNext, lang,
-  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount, courseId,
+  childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount, courseId, scheduledAt,
 }) => {
   // field_key -> { teamLabel -> current count } — only fetched when the
-  // form actually has a team_select field, refetched whenever the course
-  // changes (a family could in theory browse to a different course while
-  // this step is mid-fill, though the wizard doesn't normally allow that).
+  // form actually has a team_select field. Capacity resets per round, so
+  // this refetches whenever the chosen round (scheduledAt) changes too.
   const [teamCounts, setTeamCounts] = useState<Record<string, Record<string, number>>>({});
   const hasTeamSelect = form.fields.some(f => f.type === 'team_select');
   useEffect(() => {
-    if (!hasTeamSelect || !courseId) { setTeamCounts({}); return; }
-    apiClient.get(`/admin/registration-forms/${form.id}/team-availability?courseId=${courseId}`)
+    if (!hasTeamSelect || !courseId || !scheduledAt) { setTeamCounts({}); return; }
+    apiClient.get(`/admin/registration-forms/${form.id}/team-availability?courseId=${courseId}&scheduledAt=${encodeURIComponent(scheduledAt)}`)
       .then(res => setTeamCounts(res.data.success ? res.data.counts : {}))
       .catch(() => setTeamCounts({}));
-  }, [form.id, courseId, hasTeamSelect]);
+  }, [form.id, courseId, scheduledAt, hasTeamSelect]);
 
   const pages = useMemo(() => {
     const grouped: RegFormField[][] = [];

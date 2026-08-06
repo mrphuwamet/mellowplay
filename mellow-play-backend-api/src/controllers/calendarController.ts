@@ -70,7 +70,11 @@ export class CalendarController {
       const branchId = c.req.query('branchId');
       if (!calendarId) return c.json({ success: false, message: 'calendarId required' }, 400);
       
-      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 30, branchId ? parseInt(branchId) : undefined);
+      // 90 days (not 30) so an infrequent course (e.g. weekly) still has
+      // enough runway to surface up to the ~10 upcoming rounds the consumer
+      // app displays, instead of coming up short just because they're spread
+      // out further than a month.
+      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 90, branchId ? parseInt(branchId) : undefined);
       return c.json({ success: true, upcoming });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

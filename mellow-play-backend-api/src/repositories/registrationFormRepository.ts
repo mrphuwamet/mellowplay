@@ -84,14 +84,15 @@ export class RegistrationFormRepository {
 
   // team_select fields cap how many registrants can pick each named team
   // (options_json holds [{label, capacity}, ...] instead of the plain
-  // string options other choice types use). Availability is scoped to the
-  // whole form+course, not a specific round/scheduledAt — the registration
-  // form step in the consumer booking wizard happens before a round is even
-  // picked, so there's no round to scope against yet.
-  async getTeamCounts(formId: number, courseId: number, fieldKey: string): Promise<Record<string, number>> {
+  // string options other choice types use). Availability resets per round
+  // (scheduled_at) — a team fills up for one specific date/time, not for
+  // every occurrence of the course — so the consumer booking wizard's date
+  // step now runs before the registration-form step whenever a form has a
+  // team_select field, and passes the chosen scheduledAt in here.
+  async getTeamCounts(formId: number, courseId: number, scheduledAt: string, fieldKey: string): Promise<Record<string, number>> {
     const { results } = await this.db.prepare(
-      'SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ?'
-    ).bind(formId, courseId).all();
+      'SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ? AND scheduled_at = ?'
+    ).bind(formId, courseId, scheduledAt).all();
     const counts: Record<string, number> = {};
     for (const row of results as any[]) {
       try {
@@ -106,13 +107,13 @@ export class RegistrationFormRepository {
   // Same counts as getTeamCounts, but for every team_select field on the
   // form at once — what the consumer app's form step reads to show
   // remaining capacity (and disable full teams) before submit.
-  async getTeamAvailability(formId: number, courseId: number): Promise<Record<string, Record<string, number>>> {
+  async getTeamAvailability(formId: number, courseId: number, scheduledAt: string): Promise<Record<string, Record<string, number>>> {
     const { results: fields } = await this.db.prepare(
       `SELECT field_key FROM Registration_Form_Fields WHERE form_id = ? AND type = 'team_select'`
     ).bind(formId).all();
     const result: Record<string, Record<string, number>> = {};
     for (const f of fields as any[]) {
-      result[f.field_key] = await this.getTeamCounts(formId, courseId, f.field_key);
+      result[f.field_key] = await this.getTeamCounts(formId, courseId, scheduledAt, f.field_key);
     }
     return result;
   }
