@@ -9,10 +9,11 @@ import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
   Feed as FeedIcon, Article as NewsIcon, PermMedia as MediaIcon,
   CloudUpload as UploadIcon, Close as ClearIcon, Translate as TranslateIcon,
+  ArrowBack as BackIcon, Save as SaveIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL } from '../config';
-import RichTextEditor from '../components/RichTextEditor';
+import NewsFeedEditor from '../components/NewsFeedEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -66,7 +67,7 @@ const NewsFeedManagement = () => {
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'news' | 'media'>('all');
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NewsItem | null>(null);
   const [editTarget, setEditTarget] = useState<NewsItem | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -91,7 +92,7 @@ const NewsFeedManagement = () => {
 
   const filteredItems = filterType === 'all' ? items : items.filter(i => i.type === filterType);
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setError(''); setDialogOpen(true); };
+  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setError(''); setIsEditing(true); };
   const openEdit = (item: NewsItem) => {
     setEditTarget(item);
     setForm({
@@ -108,7 +109,7 @@ const NewsFeedManagement = () => {
       displayOrder: item.display_order,
     });
     setError('');
-    setDialogOpen(true);
+    setIsEditing(true);
   };
 
   const uploadImage = async (file: File) => {
@@ -197,7 +198,7 @@ const NewsFeedManagement = () => {
       const payload = { ...form, imageUrl: form.imageUrl || form.imageUrls[0] || '' };
       if (editTarget) await axios.put(`${API_BASE}/news-feed/${editTarget.id}`, payload);
       else await axios.post(`${API_BASE}/news-feed`, payload);
-      setDialogOpen(false);
+      setIsEditing(false);
       fetchData();
     } catch (e: any) {
       setError(e.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
@@ -232,6 +233,243 @@ const NewsFeedManagement = () => {
       fetchData();
     } catch { /* ignore */ }
   };
+
+  if (isEditing) {
+    return (
+      <Box sx={{ pb: 12 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
+          <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <BackIcon />
+          </IconButton>
+          <Box>
+            <Typography variant="h5" fontWeight="bold">{editTarget ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหาใหม่'}</Typography>
+            <Typography variant="body2" color="text.secondary">เนื้อหาที่แสดงในหน้า Explore ของแอป Consumer</Typography>
+          </Box>
+        </Box>
+
+        {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>{error}</Alert>}
+
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+          <ToggleButtonGroup
+            value={form.type}
+            exclusive
+            onChange={(_, v) => v && setForm(f => ({ ...f, type: v }))}
+            size="small"
+          >
+            <ToggleButton value="news"><NewsIcon sx={{ fontSize: 16, mr: 0.5 }} /> ข่าวสาร</ToggleButton>
+            <ToggleButton value="media"><MediaIcon sx={{ fontSize: 16, mr: 0.5 }} /> สื่อความรู้</ToggleButton>
+          </ToggleButtonGroup>
+        </Paper>
+
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพปก (Thumbnail)</Typography>
+              <Box
+                onClick={() => imageInputRef.current?.click()}
+                sx={{
+                  position: 'relative', aspectRatio: '16/9', maxWidth: 320, borderRadius: 2, overflow: 'hidden',
+                  border: '2px dashed #e2e8f0', cursor: 'pointer', bgcolor: '#f9fafb',
+                  '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
+                }}
+              >
+                {form.imageUrl ? (
+                  <>
+                    <img src={getImageUrl(form.imageUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                    <IconButton
+                      onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, imageUrl: '' })); }}
+                      sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.5 }}
+                    >
+                      <ClearIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </>
+                ) : (
+                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    {uploading ? <CircularProgress size={24} /> : (
+                      <>
+                        <UploadIcon color="disabled" sx={{ mb: 0.5 }} />
+                        <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดรูป</Typography>
+                      </>
+                    )}
+                  </Box>
+                )}
+              </Box>
+              <input type="file" hidden accept="image/*" ref={imageInputRef} onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) uploadImage(file);
+                e.target.value = '';
+              }} />
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                รูปภาพหลายรูป (สไลด์ต่อกันแบบติ๊กตอก — ใช้กับ "สื่อความรู้")
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                {form.imageUrls.map((url, i) => (
+                  <Box key={i} sx={{ position: 'relative', width: 90, height: 90, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+                    <img src={getImageUrl(url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <Box sx={{ position: 'absolute', bottom: 3, left: 3, bgcolor: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, fontWeight: 800, px: 0.7, borderRadius: 0.75 }}>
+                      {i + 1}
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={() => setForm(f => ({ ...f, imageUrls: f.imageUrls.filter((_, idx) => idx !== i) }))}
+                      sx={{ position: 'absolute', top: 3, right: 3, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.4 }}
+                    >
+                      <ClearIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+                <Box
+                  onClick={() => multiImageInputRef.current?.click()}
+                  sx={{
+                    width: 90, height: 90, borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f9fafb',
+                    '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
+                  }}
+                >
+                  {uploadingMulti ? <CircularProgress size={18} /> : <AddIcon color="disabled" />}
+                </Box>
+              </Box>
+              <input type="file" hidden accept="image/*" ref={multiImageInputRef} onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) uploadMultiImage(file);
+                e.target.value = '';
+              }} />
+            </Box>
+          </Box>
+        </Paper>
+
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            <TextField label="หัวข้อ (ภาษาไทย) *" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} fullWidth />
+            <Box display="flex" gap={1} alignItems="flex-start">
+              <TextField label="หัวข้อ (English)" value={form.titleEn} onChange={(e) => setForm(f => ({ ...f, titleEn: e.target.value }))} fullWidth />
+              <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
+                <span>
+                  <IconButton onClick={() => translate('title')} disabled={translating === 'title' || !form.title.trim()} sx={{ mt: 0.5 }}>
+                    {translating === 'title' ? <CircularProgress size={18} /> : <TranslateIcon />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>เนื้อหา (ภาษาไทย)</Typography>
+              <NewsFeedEditor value={form.content} onChange={(html) => setForm(f => ({ ...f, content: html }))} placeholder="เขียนเนื้อหาข่าว..." />
+            </Box>
+            <Box>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>เนื้อหา (English)</Typography>
+                <Tooltip title="แปลจากภาษาไทยอัตโนมัติ (ฉบับร่าง)">
+                  <span>
+                    <Button
+                      size="small"
+                      startIcon={translating === 'content' ? <CircularProgress size={14} /> : <TranslateIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => translate('content')}
+                      disabled={translating === 'content' || !form.content.trim()}
+                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                    >
+                      แปลอัตโนมัติ
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+              <NewsFeedEditor value={form.contentEn} onChange={(html) => setForm(f => ({ ...f, contentEn: html }))} placeholder="Write the article content..." />
+            </Box>
+          </Box>
+        </Paper>
+
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                ลิงก์ภายนอก (ถ้ามี) — ถ้าบทความมีรูปภาพ การกดที่รูปจะเปิดลิงก์นี้ทันที (ไม่มีปุ่มแยกแสดง เหมือนใช้รูปเป็นปุ่ม) ถ้าไม่มีรูปจะแสดงเป็นปุ่ม "เปิดลิงก์" แทน
+              </Typography>
+              <Box display="flex" gap={2}>
+                <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
+              </Box>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                วิดีโอ (วางลิงก์ YouTube หรืออัปโหลดไฟล์วีดีโอ — เล่นฝังอยู่ในเนื้อหาเลย)
+              </Typography>
+              <Box display="flex" gap={1} alignItems="flex-start">
+                <TextField
+                  label="ลิงก์วิดีโอ (YouTube หรืออื่นๆ)"
+                  value={form.videoUrl}
+                  onChange={(e) => setForm(f => ({ ...f, videoUrl: e.target.value }))}
+                  fullWidth
+                  placeholder="https://youtube.com/watch?v=..."
+                />
+                <Tooltip title="อัปโหลดไฟล์วีดีโอ">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      sx={{ borderRadius: 2, whiteSpace: 'nowrap', height: 56 }}
+                      disabled={uploadingVideo}
+                      startIcon={uploadingVideo ? <CircularProgress size={16} /> : <UploadIcon />}
+                    >
+                      อัปโหลด
+                      <input
+                        type="file"
+                        hidden
+                        accept="video/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadVideo(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+              {form.videoUrl && (
+                <Button size="small" onClick={() => setForm(f => ({ ...f, videoUrl: '' }))} sx={{ mt: 0.5, textTransform: 'none', color: 'text.disabled' }}>
+                  ลบวิดีโอ
+                </Button>
+              )}
+            </Box>
+          </Box>
+        </Paper>
+
+        <Paper sx={{ p: 3, borderRadius: 3 }}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            <TextField
+              label="ลำดับการแสดงผล (น้อยไปมาก)"
+              type="number"
+              value={form.displayOrder}
+              onChange={(e) => setForm(f => ({ ...f, displayOrder: parseInt(e.target.value) || 0 }))}
+              sx={{ maxWidth: 220 }}
+            />
+
+            <FormControlLabel
+              control={<Switch checked={form.isPublished} onChange={(e) => setForm(f => ({ ...f, isPublished: e.target.checked }))} color="success" />}
+              label={<Typography fontWeight="bold">{form.isPublished ? 'เผยแพร่' : 'ซ่อนไว้ก่อน'}</Typography>}
+            />
+          </Box>
+        </Paper>
+
+        <Box sx={{ position: 'fixed', bottom: 32, right: 32, display: 'flex', gap: 2, zIndex: 1000 }}>
+          <Button
+            variant="contained" size="large"
+            startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+            onClick={handleSave} disabled={saving}
+            sx={{ borderRadius: 10, px: 4 }}
+          >
+            {saving ? 'บันทึก...' : (editTarget ? 'บันทึก' : 'สร้าง')}
+          </Button>
+          <Button variant="outlined" size="large" onClick={() => setIsEditing(false)} sx={{ borderRadius: 10, bgcolor: 'white' }}>
+            ยกเลิก
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box p={3}>
@@ -321,209 +559,6 @@ const NewsFeedManagement = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
-        <DialogTitle sx={{ fontWeight: 'bold', pb: 1 }}>{editTarget ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหาใหม่'}</DialogTitle>
-        <DialogContent dividers>
-          <Box display="flex" flexDirection="column" gap={2.5} pt={1}>
-            {error && <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>}
-
-            <ToggleButtonGroup
-              value={form.type}
-              exclusive
-              onChange={(_, v) => v && setForm(f => ({ ...f, type: v }))}
-              size="small"
-            >
-              <ToggleButton value="news"><NewsIcon sx={{ fontSize: 16, mr: 0.5 }} /> ข่าวสาร</ToggleButton>
-              <ToggleButton value="media"><MediaIcon sx={{ fontSize: 16, mr: 0.5 }} /> สื่อความรู้</ToggleButton>
-            </ToggleButtonGroup>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพปก (Thumbnail)</Typography>
-              <Box
-                onClick={() => imageInputRef.current?.click()}
-                sx={{
-                  position: 'relative', aspectRatio: '16/9', maxWidth: 320, borderRadius: 2, overflow: 'hidden',
-                  border: '2px dashed #e2e8f0', cursor: 'pointer', bgcolor: '#f9fafb',
-                  '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
-                }}
-              >
-                {form.imageUrl ? (
-                  <>
-                    <img src={getImageUrl(form.imageUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
-                    <IconButton
-                      onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, imageUrl: '' })); }}
-                      sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.5 }}
-                    >
-                      <ClearIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </>
-                ) : (
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    {uploading ? <CircularProgress size={24} /> : (
-                      <>
-                        <UploadIcon color="disabled" sx={{ mb: 0.5 }} />
-                        <Typography variant="caption" color="text.disabled">คลิกเพื่ออัปโหลดรูป</Typography>
-                      </>
-                    )}
-                  </Box>
-                )}
-              </Box>
-              <input type="file" hidden accept="image/*" ref={imageInputRef} onChange={e => {
-                const file = e.target.files?.[0];
-                if (file) uploadImage(file);
-                e.target.value = '';
-              }} />
-            </Box>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                รูปภาพหลายรูป (สไลด์ต่อกันแบบติ๊กตอก — ใช้กับ "สื่อความรู้")
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-                {form.imageUrls.map((url, i) => (
-                  <Box key={i} sx={{ position: 'relative', width: 90, height: 90, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-                    <img src={getImageUrl(url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <Box sx={{ position: 'absolute', bottom: 3, left: 3, bgcolor: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, fontWeight: 800, px: 0.7, borderRadius: 0.75 }}>
-                      {i + 1}
-                    </Box>
-                    <IconButton
-                      size="small"
-                      onClick={() => setForm(f => ({ ...f, imageUrls: f.imageUrls.filter((_, idx) => idx !== i) }))}
-                      sx={{ position: 'absolute', top: 3, right: 3, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.4 }}
-                    >
-                      <ClearIcon sx={{ fontSize: 12 }} />
-                    </IconButton>
-                  </Box>
-                ))}
-                <Box
-                  onClick={() => multiImageInputRef.current?.click()}
-                  sx={{
-                    width: 90, height: 90, borderRadius: 2, border: '2px dashed #e2e8f0', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f9fafb',
-                    '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
-                  }}
-                >
-                  {uploadingMulti ? <CircularProgress size={18} /> : <AddIcon color="disabled" />}
-                </Box>
-              </Box>
-              <input type="file" hidden accept="image/*" ref={multiImageInputRef} onChange={e => {
-                const file = e.target.files?.[0];
-                if (file) uploadMultiImage(file);
-                e.target.value = '';
-              }} />
-            </Box>
-
-            <TextField label="หัวข้อ (ภาษาไทย) *" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} fullWidth />
-            <Box display="flex" gap={1} alignItems="flex-start">
-              <TextField label="หัวข้อ (English)" value={form.titleEn} onChange={(e) => setForm(f => ({ ...f, titleEn: e.target.value }))} fullWidth />
-              <Tooltip title="แปลจากภาษาไทยอัตโนมัติ">
-                <span>
-                  <IconButton onClick={() => translate('title')} disabled={translating === 'title' || !form.title.trim()} sx={{ mt: 0.5 }}>
-                    {translating === 'title' ? <CircularProgress size={18} /> : <TranslateIcon />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>เนื้อหา (ภาษาไทย)</Typography>
-              <RichTextEditor value={form.content} onChange={(html) => setForm(f => ({ ...f, content: html }))} placeholder="เขียนเนื้อหาข่าว..." />
-            </Box>
-            <Box>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>เนื้อหา (English)</Typography>
-                <Tooltip title="แปลจากภาษาไทยอัตโนมัติ (ฉบับร่าง)">
-                  <span>
-                    <Button
-                      size="small"
-                      startIcon={translating === 'content' ? <CircularProgress size={14} /> : <TranslateIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => translate('content')}
-                      disabled={translating === 'content' || !form.content.trim()}
-                      sx={{ textTransform: 'none', fontWeight: 700 }}
-                    >
-                      แปลอัตโนมัติ
-                    </Button>
-                  </span>
-                </Tooltip>
-              </Box>
-              <RichTextEditor value={form.contentEn} onChange={(html) => setForm(f => ({ ...f, contentEn: html }))} placeholder="Write the article content..." />
-            </Box>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                ลิงก์ภายนอก (ถ้ามี) — ถ้าบทความมีรูปภาพ การกดที่รูปจะเปิดลิงก์นี้ทันที (ไม่มีปุ่มแยกแสดง เหมือนใช้รูปเป็นปุ่ม) ถ้าไม่มีรูปจะแสดงเป็นปุ่ม "เปิดลิงก์" แทน
-              </Typography>
-              <Box display="flex" gap={2}>
-                <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
-              </Box>
-            </Box>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                วิดีโอ (วางลิงก์ YouTube หรืออัปโหลดไฟล์วีดีโอ — เล่นฝังอยู่ในเนื้อหาเลย)
-              </Typography>
-              <Box display="flex" gap={1} alignItems="flex-start">
-                <TextField
-                  label="ลิงก์วิดีโอ (YouTube หรืออื่นๆ)"
-                  value={form.videoUrl}
-                  onChange={(e) => setForm(f => ({ ...f, videoUrl: e.target.value }))}
-                  fullWidth
-                  placeholder="https://youtube.com/watch?v=..."
-                />
-                <Tooltip title="อัปโหลดไฟล์วีดีโอ">
-                  <span>
-                    <Button
-                      variant="outlined"
-                      component="label"
-                      sx={{ borderRadius: 2, whiteSpace: 'nowrap', height: 56 }}
-                      disabled={uploadingVideo}
-                      startIcon={uploadingVideo ? <CircularProgress size={16} /> : <UploadIcon />}
-                    >
-                      อัปโหลด
-                      <input
-                        type="file"
-                        hidden
-                        accept="video/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) uploadVideo(file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </Button>
-                  </span>
-                </Tooltip>
-              </Box>
-              {form.videoUrl && (
-                <Button size="small" onClick={() => setForm(f => ({ ...f, videoUrl: '' }))} sx={{ mt: 0.5, textTransform: 'none', color: 'text.disabled' }}>
-                  ลบวิดีโอ
-                </Button>
-              )}
-            </Box>
-
-            <TextField
-              label="ลำดับการแสดงผล (น้อยไปมาก)"
-              type="number"
-              value={form.displayOrder}
-              onChange={(e) => setForm(f => ({ ...f, displayOrder: parseInt(e.target.value) || 0 }))}
-              sx={{ maxWidth: 220 }}
-            />
-
-            <FormControlLabel
-              control={<Switch checked={form.isPublished} onChange={(e) => setForm(f => ({ ...f, isPublished: e.target.checked }))} color="success" />}
-              label={<Typography fontWeight="bold">{form.isPublished ? 'เผยแพร่' : 'ซ่อนไว้ก่อน'}</Typography>}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5, gap: 1 }}>
-          <Button onClick={() => setDialogOpen(false)} variant="outlined" sx={{ borderRadius: 2 }}>ยกเลิก</Button>
-          <Button onClick={handleSave} variant="contained" disabled={saving} sx={{ borderRadius: 2, fontWeight: 'bold', minWidth: 120 }}>
-            {saving ? <CircularProgress size={20} color="inherit" /> : (editTarget ? 'บันทึก' : 'สร้าง')}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Delete Confirm Dialog */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} PaperProps={{ sx: { borderRadius: 3 } }}>
