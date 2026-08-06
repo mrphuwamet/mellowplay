@@ -60,6 +60,92 @@ export class RegistrationFormRepository {
     return false;
   }
 
+  // Used to show (and, via updateSubmissionAnswers, edit) what a family
+  // filled in for a specific booking — answers are keyed by field_key, so
+  // pair each up with its field's label/options for display; the caller
+  // filters out 'heading' fields and empty answers itself.
+  async getSubmissionWithFields(submissionId: number): Promise<{ answers: Record<string, any>; fields: any[] } | null> {
+    const submission = await this.db.prepare('SELECT form_id, answers_json FROM Form_Submissions WHERE id = ?').bind(submissionId).first() as any;
+    if (!submission) return null;
+    const { results: fields } = await this.db.prepare(`
+      SELECT field_key, type, label, options_json FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC
+    `).bind(submission.form_id).all();
+    let answers: Record<string, any> = {};
+    try { answers = JSON.parse(submission.answers_json || '{}'); } catch { /* malformed shouldn't block display */ }
+    return { answers, fields };
+  }
+
+  // CRM staff correcting a family's submitted answers (typos, wrong info) —
+  // replaces the whole answers_json wholesale, same "always write the full
+  // object" approach the consumer submit flow already uses.
+  async updateSubmissionAnswers(submissionId: number, answersJson: string): Promise<void> {
+    await this.db.prepare('UPDATE Form_Submissions SET answers_json = ? WHERE id = ?').bind(answersJson, submissionId).run();
+  }
+
+  // team_select fields cap how many registrants can pick each named team
+  // (options_json holds [{label, capacity}, ...] instead of the plain
+  // string options other choice types use). Availability is scoped to the
+  // whole form+course, not a specific round/scheduledAt — the registration
+  // form step in the consumer booking wizard happens before a round is even
+  // picked, so there's no round to scope against yet.
+  async getTeamCounts(formId: number, courseId: number, fieldKey: string): Promise<Record<string, number>> {
+    const { results } = await this.db.prepare(
+      'SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ?'
+    ).bind(formId, courseId).all();
+    const counts: Record<string, number> = {};
+    for (const row of results as any[]) {
+      try {
+        const answers = JSON.parse(row.answers_json || '{}');
+        const chosen = answers[fieldKey];
+        if (chosen) counts[chosen] = (counts[chosen] || 0) + 1;
+      } catch { /* malformed answers_json shouldn't block other rows */ }
+    }
+    return counts;
+  }
+
+  // Same counts as getTeamCounts, but for every team_select field on the
+  // form at once — what the consumer app's form step reads to show
+  // remaining capacity (and disable full teams) before submit.
+  async getTeamAvailability(formId: number, courseId: number): Promise<Record<string, Record<string, number>>> {
+    const { results: fields } = await this.db.prepare(
+      `SELECT field_key FROM Registration_Form_Fields WHERE form_id = ? AND type = 'team_select'`
+    ).bind(formId).all();
+    const result: Record<string, Record<string, number>> = {};
+    for (const f of fields as any[]) {
+      result[f.field_key] = await this.getTeamCounts(formId, courseId, f.field_key);
+    }
+    return result;
+  }
+
+  // Bulk version of getSubmissionWithFields — the CRM booking list's CSV
+  // export needs every submission behind a whole filtered page of bookings
+  // at once (those bookings can span several different courses/forms), not
+  // one request per row. Field defs are only fetched once per distinct
+  // form_id, not once per submission.
+  async getSubmissionsWithFields(submissionIds: number[]): Promise<Record<number, { formId: number; answers: Record<string, any>; fields: any[] }>> {
+    if (submissionIds.length === 0) return {};
+    const { results: submissions } = await this.db.prepare(
+      `SELECT id, form_id, answers_json FROM Form_Submissions WHERE id IN (${submissionIds.map(() => '?').join(',')})`
+    ).bind(...submissionIds).all();
+
+    const formIds = Array.from(new Set((submissions as any[]).map(s => s.form_id)));
+    const fieldsByForm = new Map<number, any[]>();
+    for (const formId of formIds) {
+      const { results: fields } = await this.db.prepare(
+        'SELECT field_key, type, label FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
+      ).bind(formId).all();
+      fieldsByForm.set(formId, fields);
+    }
+
+    const result: Record<number, { formId: number; answers: Record<string, any>; fields: any[] }> = {};
+    for (const s of submissions as any[]) {
+      let answers: Record<string, any> = {};
+      try { answers = JSON.parse(s.answers_json || '{}'); } catch { /* malformed shouldn't block the rest */ }
+      result[s.id] = { formId: s.form_id, answers, fields: fieldsByForm.get(s.form_id) || [] };
+    }
+    return result;
+  }
+
   async createSubmission(data: {
     formId: number; courseId: number; parentUserId: number | null;
     answersJson: string; scheduledAt?: string;

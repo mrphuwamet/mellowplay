@@ -669,10 +669,25 @@ const Booking = () => {
                 <span className="text-slate-400 text-xs font-black uppercase tracking-wider">{t.booking?.bookingId || 'รหัสการจอง'}</span>
                 <span className="text-mellow-purple font-black text-sm">#BK-{successBooking.id}</span>
               </div>
-              <div>
-                <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.childInClass || 'เด็กผู้เข้าคลาส'}</span>
-                <span className="text-slate-700 font-black text-sm">{successBooking.childName}</span>
-              </div>
+              {registrationForm ? (
+                registrationForm.fields
+                  .filter((f: any) => f.type !== 'heading')
+                  .map((f: any) => {
+                    const v = formAnswers[f.field_key];
+                    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) return null;
+                    return (
+                      <div key={f.field_key}>
+                        <span className="text-slate-400 text-xs font-bold block mb-0.5">{f.label}</span>
+                        <span className="text-slate-700 font-black text-sm">{Array.isArray(v) ? v.join(', ') : v}</span>
+                      </div>
+                    );
+                  })
+              ) : (
+                <div>
+                  <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.childInClass || 'เด็กผู้เข้าคลาส'}</span>
+                  <span className="text-slate-700 font-black text-sm">{successBooking.childName}</span>
+                </div>
+              )}
               <div>
                 <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.course || 'Class'}</span>
                 <span className="text-slate-700 font-black text-sm">{successBooking.courseName}</span>
@@ -792,7 +807,7 @@ const Booking = () => {
                    </div>
                  </div>
                )}
-                {selectedChildren.length > 0 && currentStepIndex > 1 && (
+                {selectedChildren.length > 0 && currentStepIndex > 1 && !registrationForm && (
                   <div className="flex items-start gap-3">
                     <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 shrink-0 mt-0.5">
                       <User size={14} />
@@ -1206,6 +1221,7 @@ const Booking = () => {
               onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
               onAddFamilyMember={() => setIsAddChildOpen(true)}
               mainAccount={mainAccount}
+              courseId={selectedCourse?.id}
             />
           )}
 

@@ -7,7 +7,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar, Switch, Menu, Avatar, OutlinedInput, Checkbox, Pagination,
+  Snackbar, Switch, Menu, OutlinedInput, Checkbox, Pagination,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -72,6 +72,9 @@ interface Booking {
   slot_date?: string;
   slot_start_time?: string;
   sponsor_tag?: string;
+  is_event?: number;
+  is_service?: number;
+  form_submission_id?: number;
 }
 
 interface Course {
@@ -233,7 +236,7 @@ const DayView = ({ bookings, date, onReport, onComplete, onCancel, isSuperAdmin,
   if (dayBookings.length === 0) {
     return (
       <Paper variant="outlined" sx={{ borderRadius: 3, p: 6, textAlign: 'center', borderColor: '#eef0f3' }}>
-        <Typography color="text.secondary">ไม่มีรายการจองในวันนี้</Typography>
+        <Typography color="text.secondary">ไม่มีรายการลงทะเบียนในวันนี้</Typography>
       </Paper>
     );
   }
@@ -442,6 +445,7 @@ const formatUtcDateTime = (raw: string | undefined): string => {
 };
 
 const GROUP_OPTIONS: { key: string; label: string }[] = [
+  { key: 'type',           label: 'ประเภท' },
   { key: 'date',           label: 'วันที่เรียน' },
   { key: 'round',          label: 'รอบเวลา' },
   { key: 'course',         label: 'คลาส' },
@@ -454,15 +458,19 @@ const GROUP_OPTIONS: { key: string; label: string }[] = [
 const SORT_OPTIONS: { key: string; label: string }[] = [
   { key: 'scheduled_asc',  label: 'วันเรียน (เก่า → ใหม่)' },
   { key: 'scheduled_desc', label: 'วันเรียน (ใหม่ → เก่า)' },
-  { key: 'created_desc',   label: 'วันที่จอง (ใหม่ → เก่า)' },
-  { key: 'created_asc',    label: 'วันที่จอง (เก่า → ใหม่)' },
+  { key: 'created_desc',   label: 'วันที่ลงทะเบียน (ใหม่ → เก่า)' },
+  { key: 'created_asc',    label: 'วันที่ลงทะเบียน (เก่า → ใหม่)' },
   { key: 'name_asc',       label: 'ชื่อเด็ก (ก → ฮ)' },
   { key: 'name_desc',      label: 'ชื่อเด็ก (ฮ → ก)' },
   { key: 'status',         label: 'สถานะ' },
 ];
 
+const getBookingTypeLabel = (b: Booking): string =>
+  b.is_event ? 'กิจกรรม (Event)' : b.is_service ? 'บริการ (Service)' : 'คลาสเรียน';
+
 const getGroupValue = (b: Booking, field: string): string => {
   switch (field) {
+    case 'type': return getBookingTypeLabel(b);
     case 'course': return b.course_name || 'ไม่ระบุคลาส';
     case 'branch': return b.branch_name || 'ไม่ระบุสาขา';
     case 'status': return getStatusInfo(b.status).label;
@@ -523,6 +531,74 @@ const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
   return arr;
 };
 
+interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; value: any; }
+
+// One input per registration-form field type, mirroring what the consumer
+// app's DynamicRegistrationForm renders at submit time — lets staff correct
+// a family's answer (typo, wrong pick) without needing the CRM form builder.
+// family_member_picker has no roster data available here, so it's edited as
+// plain text (it's already a resolved name string, not an id).
+const FormAnswerFieldEditor = ({ field, value, onChange }: { field: FormAnswerField; value: any; onChange: (v: any) => void }) => {
+  let options: string[] = [];
+  let teamOptions: { label: string; capacity: number }[] = [];
+  try {
+    if (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') options = field.optionsJson ? JSON.parse(field.optionsJson) : [];
+    if (field.type === 'team_select') teamOptions = field.optionsJson ? JSON.parse(field.optionsJson) : [];
+  } catch { /* malformed options shouldn't block editing the rest of the fields */ }
+
+  if (field.type === 'textarea') {
+    return <TextField fullWidth size="small" multiline minRows={2} label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
+  }
+  if (field.type === 'number') {
+    return <TextField fullWidth size="small" type="number" label={field.label} value={value ?? ''} onChange={e => onChange(e.target.value)} />;
+  }
+  if (field.type === 'date') {
+    return <TextField fullWidth size="small" type="date" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} InputLabelProps={{ shrink: true }} />;
+  }
+  if (field.type === 'select' || field.type === 'radio') {
+    return (
+      <FormControl fullWidth size="small">
+        <InputLabel>{field.label}</InputLabel>
+        <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
+          <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
+          {options.map(opt => <MenuItem key={opt} value={opt}>{opt}</MenuItem>)}
+        </Select>
+      </FormControl>
+    );
+  }
+  if (field.type === 'checkbox') {
+    const arr: string[] = Array.isArray(value) ? value : [];
+    return (
+      <Box>
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>{field.label}</Typography>
+        <Stack direction="row" flexWrap="wrap" gap={0.5}>
+          {options.map(opt => {
+            const checked = arr.includes(opt);
+            return (
+              <Chip key={opt} label={opt} size="small" clickable
+                color={checked ? 'primary' : 'default'}
+                onClick={() => onChange(checked ? arr.filter(o => o !== opt) : [...arr, opt])}
+              />
+            );
+          })}
+        </Stack>
+      </Box>
+    );
+  }
+  if (field.type === 'team_select') {
+    return (
+      <FormControl fullWidth size="small">
+        <InputLabel>{field.label}</InputLabel>
+        <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
+          <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
+          {teamOptions.map(t => <MenuItem key={t.label} value={t.label}>{t.label} (รับ {t.capacity})</MenuItem>)}
+        </Select>
+      </FormControl>
+    );
+  }
+  return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
+};
+
 // ─── Booking Detail Dialog ───────────────────────────────────────────────────
 
 const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
@@ -531,14 +607,65 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   onClose: () => void;
   onViewCourse: () => void;
 }) => {
+  const [formFields, setFormFields] = useState<FormAnswerField[] | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const [isEditingForm, setIsEditingForm] = useState(false);
+  const [editedAnswers, setEditedAnswers] = useState<Record<string, any>>({});
+  const [savingForm, setSavingForm] = useState(false);
+  const [saveFormError, setSaveFormError] = useState('');
+
+  // Once a registration form is attached, its answers replace the generic
+  // เด็กผู้เรียน/ผู้ปกครอง blocks entirely — fetched eagerly (not behind a
+  // toggle) since it's now the primary identity shown for this booking.
+  useEffect(() => {
+    setIsEditingForm(false);
+    setSaveFormError('');
+    if (!booking?.form_submission_id) { setFormFields(null); return; }
+    setFormLoading(true);
+    axios.get(`${API_BASE}/bookings/${booking.id}/form-answers`)
+      .then(res => setFormFields(res.data.success ? res.data.fields : []))
+      .catch(() => setFormFields([]))
+      .finally(() => setFormLoading(false));
+  }, [booking?.id, booking?.form_submission_id]);
+
+  const startEditForm = () => {
+    const initial: Record<string, any> = {};
+    (formFields || []).forEach(f => { initial[f.fieldKey] = f.value ?? (f.type === 'checkbox' ? [] : ''); });
+    setEditedAnswers(initial);
+    setSaveFormError('');
+    setIsEditingForm(true);
+  };
+
+  const saveEditForm = async () => {
+    if (!booking) return;
+    setSavingForm(true);
+    setSaveFormError('');
+    try {
+      const res = await axios.put(`${API_BASE}/bookings/${booking.id}/form-answers`, { answers: editedAnswers });
+      if (!res.data.success) { setSaveFormError(res.data.message || 'บันทึกไม่สำเร็จ'); return; }
+      setFormFields((formFields || []).map(f => ({ ...f, value: editedAnswers[f.fieldKey] })));
+      setIsEditingForm(false);
+    } catch (err: any) {
+      setSaveFormError(err.response?.data?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSavingForm(false);
+    }
+  };
+
   if (!booking) return null;
   const si = getStatusInfo(booking.status);
   const dt = new Date(booking.scheduled_at);
   const hasValidDate = !isNaN(dt.getTime());
+  // Person (family_member_picker) and team (team_select) answers lead the
+  // form-data block since they're what this booking is fundamentally
+  // "about" once a form is attached; every other field just lists below.
+  const personFields = (formFields || []).filter(f => f.type === 'family_member_picker');
+  const teamFields = (formFields || []).filter(f => f.type === 'team_select');
+  const otherFields = (formFields || []).filter(f => f.type !== 'family_member_picker' && f.type !== 'team_select');
   return (
     <Dialog open={!!booking} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        รายละเอียดการจอง #{booking.id}
+        ข้อมูลที่กรอกไว้ตอนลงทะเบียน #{booking.id}
         <Chip label={si.label} size="small" sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor }} />
       </DialogTitle>
       <DialogContent dividers>
@@ -565,42 +692,106 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
             </Typography>
           </Box>
           <Divider />
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เด็กผู้เรียน</Typography>
-            <Typography sx={{ fontWeight: 700 }}>
-              {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
-            </Typography>
-            {booking.child_name_en && (
-              <Typography variant="body2" color="text.secondary">{booking.child_name_en}</Typography>
-            )}
-            <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
-              <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
-              {booking.child_birth_date && (
-                <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+          {booking.form_submission_id ? (
+            <Box>
+              {formLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+              ) : isEditingForm ? (
+                <Stack spacing={1.5}>
+                  {saveFormError && <Alert severity="error" sx={{ py: 0.5 }}>{saveFormError}</Alert>}
+                  {(formFields || []).map(f => (
+                    <FormAnswerFieldEditor
+                      key={f.fieldKey}
+                      field={f}
+                      value={editedAnswers[f.fieldKey]}
+                      onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
+                    />
+                  ))}
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button size="small" onClick={() => setIsEditingForm(false)} disabled={savingForm}>ยกเลิก</Button>
+                    <Button size="small" variant="contained" onClick={saveEditForm} disabled={savingForm}>
+                      {savingForm ? <CircularProgress size={16} color="inherit" /> : 'บันทึก'}
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : formFields && formFields.length > 0 ? (
+                <Stack spacing={1.5}>
+                  {personFields.map(f => (
+                    <Box key={f.fieldKey}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{f.label}</Typography>
+                      <Typography sx={{ fontWeight: 800, fontSize: '16px' }}>{f.value || '-'}</Typography>
+                    </Box>
+                  ))}
+                  {teamFields.length > 0 && (
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap">
+                      {teamFields.map(f => (
+                        <Chip
+                          key={f.fieldKey}
+                          label={`${f.label}: ${f.value || '-'}`}
+                          size="small"
+                          sx={{ fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                  {otherFields.length > 0 && (
+                    <Stack spacing={1}>
+                      {otherFields.map(f => (
+                        <Stack key={f.fieldKey} direction="row" justifyContent="space-between" gap={1.5}>
+                          <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{f.label}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                            {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+                  <Button size="small" onClick={startEditForm} sx={{ fontWeight: 700, px: 0, alignSelf: 'flex-start' }}>แก้ไขข้อมูล</Button>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">ไม่มีข้อมูลที่กรอกไว้</Typography>
               )}
-              {booking.child_gender && (
-                <Chip label={getGenderLabel(booking.child_gender)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
-              )}
-            </Stack>
-          </Box>
-          <Divider />
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
-            <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
-            {booking.parent_name_en && (
-              <Typography variant="body2" color="text.secondary">{booking.parent_name_en}</Typography>
-            )}
-            <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
-              <PhoneIcon sx={{ fontSize: 13 }} color="action" />
-              <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
-            </Stack>
-            {booking.parent_email && (
-              <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
-                <EmailIcon sx={{ fontSize: 13 }} color="action" />
-                <Typography variant="body2">{booking.parent_email}</Typography>
-              </Stack>
-            )}
-          </Box>
+            </Box>
+          ) : (
+            <>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เด็กผู้เรียน</Typography>
+                <Typography sx={{ fontWeight: 700 }}>
+                  {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
+                </Typography>
+                {booking.child_name_en && (
+                  <Typography variant="body2" color="text.secondary">{booking.child_name_en}</Typography>
+                )}
+                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                  <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
+                  {booking.child_birth_date && (
+                    <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+                  )}
+                  {booking.child_gender && (
+                    <Chip label={getGenderLabel(booking.child_gender)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+                  )}
+                </Stack>
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
+                {booking.parent_name_en && (
+                  <Typography variant="body2" color="text.secondary">{booking.parent_name_en}</Typography>
+                )}
+                <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+                  <PhoneIcon sx={{ fontSize: 13 }} color="action" />
+                  <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
+                </Stack>
+                {booking.parent_email && (
+                  <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+                    <EmailIcon sx={{ fontSize: 13 }} color="action" />
+                    <Typography variant="body2">{booking.parent_email}</Typography>
+                  </Stack>
+                )}
+              </Box>
+            </>
+          )}
           <Divider />
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>การชำระเงิน</Typography>
@@ -612,7 +803,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
           <Divider />
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ประวัติ</Typography>
-            <Typography variant="body2">วันที่จอง: {formatUtcDateTime(booking.created_at)}</Typography>
+            <Typography variant="body2">วันที่ลงทะเบียน: {formatUtcDateTime(booking.created_at)}</Typography>
             <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
               <Typography variant="body2">ที่มา (Tag):</Typography>
               {booking.sponsor_tag
@@ -652,7 +843,7 @@ const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose
   </Dialog>
 );
 
-const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses }: {
+const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses, submissionsMap }: {
   bookings: Booking[];
   onReport: (bs: Booking[]) => void;
   onCancel: (id: number) => void;
@@ -660,6 +851,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   onMarkComplete: (ids: number[]) => void;
   onEdit: (b: Booking) => void;
   courses: Course[];
+  submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string }[] }>;
 }) => {
   const [search, setSearch] = useState('');
   const [groupByFields, setGroupByFields] = useState<string[]>([]);
@@ -770,9 +962,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Defaults to the full filtered set (the toolbar button), but also reused
   // by the selection bar's "Export CSV ที่เลือก" to dump just the checked rows.
-  const exportCSV = (rows: Booking[] = filtered) => {
+  const exportCSV = async (rows: Booking[] = filtered) => {
     const headers = [
-      'รหัสจอง',
+      'รหัสลงทะเบียน',
+      'ประเภท',
       'วันที่',
       'เวลา',
       'คลาส',
@@ -788,12 +981,39 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       'อีเมลผู้ปกครอง',
       'สาขา',
       'สถานะ',
-      'วันที่จอง',
+      'วันที่ลงทะเบียน',
       'วันที่รับชำระเงิน',
       'ยอดเงินที่ชำระ',
       'ช่องทางชำระเงิน',
       'Tag ที่มาของลิงก์'
     ];
+
+    // Extra columns — every distinct field on whichever registration form
+    // sits behind any of these bookings' submissions, in first-encountered
+    // order. Bookings on a different form (or with no form at all) just
+    // leave those cells blank; different forms' fields never collapse into
+    // the same column since field_key is unique per form.
+    const submissionIds = Array.from(new Set(rows.map(b => b.form_submission_id).filter((id): id is number => !!id)));
+    let submissions: Record<string, { formId: number; answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }> = {};
+    if (submissionIds.length > 0) {
+      try {
+        const res = await axios.get(`${API_BASE}/form-submissions?ids=${submissionIds.join(',')}`);
+        if (res.data.success) submissions = res.data.submissions;
+      } catch { /* export still works without the extra columns */ }
+    }
+    const dynamicFields: { fieldKey: string; label: string }[] = [];
+    const seenFieldKeys = new Set<string>();
+    for (const id of submissionIds) {
+      const sub = submissions[id];
+      if (!sub) continue;
+      for (const f of sub.fields) {
+        if (f.type === 'heading' || seenFieldKeys.has(f.field_key)) continue;
+        seenFieldKeys.add(f.field_key);
+        dynamicFields.push({ fieldKey: f.field_key, label: f.label });
+      }
+    }
+    const allHeaders = [...headers, ...dynamicFields.map(f => f.label)];
+
     const csvRows = rows.map(b => {
       const dt = new Date(b.scheduled_at);
       const date = isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH');
@@ -801,8 +1021,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       const status = getStatusInfo(b.status).label;
       const childBdate = formatBirthDate(b.child_birth_date);
       const actualAge = calculateAge(b.child_birth_date);
+      const sub = b.form_submission_id ? submissions[b.form_submission_id] : undefined;
+      const dynamicValues = dynamicFields.map(f => {
+        const v = sub?.answers?.[f.fieldKey];
+        return `"${Array.isArray(v) ? v.join(', ') : (v ?? '')}"`;
+      });
       return [
         b.id,
+        `"${getBookingTypeLabel(b)}"`,
         `"${date}"`,
         `"${time}"`,
         `"${b.course_name || ''}"`,
@@ -822,10 +1048,11 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         `"${formatUtcDateTime(b.paid_at)}"`,
         `"${b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}"`,
         `"${b.payment_method || '-'}"`,
-        `"${b.sponsor_tag || '-'}"`
+        `"${b.sponsor_tag || '-'}"`,
+        ...dynamicValues,
       ].join(',');
     });
-    const csv = '\uFEFF' + [headers.join(','), ...csvRows].join('\n');
+    const csv = '\uFEFF' + [allHeaders.join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -835,11 +1062,35 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     URL.revokeObjectURL(url);
   };
 
+  const getTeamLabel = (b: Booking): string | null => {
+    if (!b.form_submission_id) return null;
+    const sub = submissionsMap[b.form_submission_id];
+    if (!sub) return null;
+    const teamField = sub.fields.find(f => f.type === 'team_select');
+    if (!teamField) return null;
+    const value = sub.answers[teamField.field_key];
+    return value || null;
+  };
+
+  // Whoever the registration form's family_member_picker answer names —
+  // once a form is attached, this is the "person" leading the card instead
+  // of the generic child name.
+  const getPersonLabel = (b: Booking): string | null => {
+    if (!b.form_submission_id) return null;
+    const sub = submissionsMap[b.form_submission_id];
+    if (!sub) return null;
+    const personField = sub.fields.find(f => f.type === 'family_member_picker');
+    if (!personField) return null;
+    const value = sub.answers[personField.field_key];
+    return value || null;
+  };
+
   const renderBookingCard = (b: Booking) => {
     const si = getStatusInfo(b.status);
     const dt = new Date(b.scheduled_at);
     const hasValidDate = !isNaN(dt.getTime());
     const hasRealName = b.child_nickname && b.child_name && b.child_nickname !== b.child_name;
+    const teamLabel = getTeamLabel(b);
     return (
       <Paper
         key={b.id}
@@ -880,44 +1131,65 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Typography>
             </Box>
 
-            {/* Child + parent — nickname leads, but the real first+last name
-                (and the parent's full name) stay visible right here instead
-                of being hidden behind a click. */}
+            {/* Once a registration form is attached, its person/team
+                answers replace the generic child+parent display entirely —
+                same as the detail dialog. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
-              <Avatar sx={{ width: 38, height: 38, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)', fontWeight: 800, fontSize: '15px' }}>
-                {(b.child_nickname || b.child_name || '?').charAt(0)}
-              </Avatar>
               <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={0.75} alignItems="center">
-                  <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                    {b.child_nickname || b.child_name || '-'}
-                  </Typography>
-                  {b.child_birth_date && (
-                    <Chip
-                      icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                      label={calculateAge(b.child_birth_date)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                  {b.child_gender && (
-                    <Chip
-                      label={getGenderLabel(b.child_gender)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                </Stack>
-                {hasRealName && (
-                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
-                  </Typography>
-                )}
-                {b.parent_name && (
-                  <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600 }}>
-                    <PhoneIcon sx={{ fontSize: 11 }} />
-                    {b.parent_name}{b.parent_phone ? ` · ${b.parent_phone}` : ''}
-                  </Typography>
+                {b.form_submission_id ? (
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                      {getPersonLabel(b) || '-'}
+                    </Typography>
+                    {teamLabel && (
+                      <Chip
+                        label={teamLabel}
+                        size="small"
+                        sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
+                      />
+                    )}
+                  </Stack>
+                ) : (
+                  <>
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                        {b.child_nickname || b.child_name || '-'}
+                      </Typography>
+                      {b.child_birth_date && (
+                        <Chip
+                          icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                          label={calculateAge(b.child_birth_date)}
+                          size="small"
+                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                        />
+                      )}
+                      {b.child_gender && (
+                        <Chip
+                          label={getGenderLabel(b.child_gender)}
+                          size="small"
+                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                        />
+                      )}
+                    </Stack>
+                    {hasRealName && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                        {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
+                      </Typography>
+                    )}
+                    {/* Phone leads — it's the reliable way to actually reach
+                        this family; parent name trails as secondary context. */}
+                    {b.parent_phone && (
+                      <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
+                        <PhoneIcon sx={{ fontSize: 12 }} />
+                        {b.parent_phone}
+                      </Typography>
+                    )}
+                    {b.parent_name && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                        {b.parent_name}
+                      </Typography>
+                    )}
+                  </>
                 )}
               </Box>
             </Box>
@@ -990,7 +1262,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               {b.created_at && (
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary', fontWeight: 600 }}>
                   <BookedAtIcon sx={{ fontSize: 13 }} />
-                  วันที่จอง {formatUtcDateTime(b.created_at)}
+                  วันที่ลงทะเบียน {formatUtcDateTime(b.created_at)}
                 </Typography>
               )}
               {b.paid_at && (
@@ -1194,7 +1466,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         <Paper variant="outlined" sx={{ p: 6, textAlign: 'center', borderRadius: 3, borderColor: '#eef0f3' }}>
           <EventBusyIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
           <Typography sx={{ fontWeight: 700, color: 'text.secondary' }}>
-            {bookings.length === 0 ? 'ไม่มีรายการจองในช่วงเวลานี้' : 'ไม่พบรายการที่ตรงกับเงื่อนไขค้นหา'}
+            {bookings.length === 0 ? 'ไม่มีรายการลงทะเบียนในช่วงเวลานี้' : 'ไม่พบรายการที่ตรงกับเงื่อนไขค้นหา'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {bookings.length === 0
@@ -1513,7 +1785,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 800, pb: 0 }}>เพิ่มการจองคลาส</DialogTitle>
+      <DialogTitle sx={{ fontWeight: 800, pb: 0 }}>เพิ่มการลงทะเบียน</DialogTitle>
       <DialogContent>
         <Stack spacing={2.5} sx={{ mt: 2 }}>
           {/* Customer type */}
@@ -1657,7 +1929,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
               {slotsLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
               ) : upcomingDates.length === 0 ? (
-                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้จองในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
+                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้ลงทะเบียนในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
               ) : (
                 <>
                   <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
@@ -1734,7 +2006,7 @@ const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, cour
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={handleClose} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={submitting} sx={{ fontWeight: 800, borderRadius: 2 }}>
-          {submitting ? <CircularProgress size={20} color="inherit" /> : 'บันทึกการจอง'}
+          {submitting ? <CircularProgress size={20} color="inherit" /> : 'บันทึกการลงทะเบียน'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -1747,6 +2019,9 @@ const BookingManagement = () => {
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('list');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState<Booking[]>([]);
+  // Keyed by Form_Submissions.id — fetched once per bookings load so each
+  // card can show its team_select answer (if any) without a request per row.
+  const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string }[] }>>({});
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -1850,11 +2125,28 @@ const BookingManagement = () => {
     try {
       const params = new URLSearchParams({ branchId: selectedBranchId, startDate, endDate });
       const res = await axios.get(`${API_BASE}/bookings?${params}`);
-      if (res.data.success) setBookings(res.data.bookings ?? []);
-      else setFetchError(res.data.message || 'ไม่สามารถโหลดรายการจองได้');
+      if (res.data.success) {
+        const fetchedBookings: Booking[] = res.data.bookings ?? [];
+        setBookings(fetchedBookings);
+
+        // team_select answers for the card list — bulk-fetched once here
+        // instead of per-row, same submission endpoint the CSV export uses.
+        const submissionIds = Array.from(new Set(fetchedBookings.map(b => b.form_submission_id).filter((id): id is number => !!id)));
+        if (submissionIds.length > 0) {
+          try {
+            const subsRes = await axios.get(`${API_BASE}/form-submissions?ids=${submissionIds.join(',')}`);
+            setSubmissionsMap(subsRes.data.success ? subsRes.data.submissions : {});
+          } catch {
+            setSubmissionsMap({});
+          }
+        } else {
+          setSubmissionsMap({});
+        }
+      }
+      else setFetchError(res.data.message || 'ไม่สามารถโหลดรายการลงทะเบียนได้');
     } catch (e: any) {
       console.error('fetchBookings error', e);
-      setFetchError(e?.response?.data?.message || 'เกิดข้อผิดพลาดในการโหลดรายการจอง กรุณาลองใหม่อีกครั้ง');
+      setFetchError(e?.response?.data?.message || 'เกิดข้อผิดพลาดในการโหลดรายการลงทะเบียน กรุณาลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
     }
@@ -2110,7 +2402,7 @@ const BookingManagement = () => {
       {/* Page header */}
       <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={1.5} mb={3}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>รายการจองคลาสเรียน</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>รายการลงทะเบียนทั้งหมด</Typography>
           {isSuperAdmin ? (
             <FormControl size="small" variant="standard" sx={{ mt: 0.5, minWidth: 160 }}>
               <Select
@@ -2136,7 +2428,7 @@ const BookingManagement = () => {
           onClick={() => setAddOpen(true)}
           sx={{ borderRadius: 2.5, fontWeight: 700, px: 2.5 }}
         >
-          เพิ่มการจอง
+          เพิ่มการลงทะเบียน
         </Button>
       </Stack>
 
@@ -2263,7 +2555,7 @@ const BookingManagement = () => {
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={(b) => openReport([b])} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} />
+        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} submissionsMap={submissionsMap} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} />
       )}
@@ -2279,7 +2571,7 @@ const BookingManagement = () => {
 
       <ConfirmDialog
         open={!!confirmAction}
-        title={confirmAction?.type === 'bulk-cancel' ? `ยืนยันการยกเลิก ${confirmAction.bookingIds.length} รายการ?` : 'ยืนยันการยกเลิกการจอง?'}
+        title={confirmAction?.type === 'bulk-cancel' ? `ยืนยันการยกเลิก ${confirmAction.bookingIds.length} รายการ?` : 'ยืนยันการยกเลิกการลงทะเบียน?'}
         description={
           confirmAction?.type === 'bulk-cancel'
             ? `ระบบจะคืนสต็อกวัสดุที่จองไว้สำหรับ ${confirmAction.bookingIds.length} รายการนี้ — ดำเนินการนี้ย้อนกลับไม่ได้`
@@ -2311,7 +2603,7 @@ const BookingManagement = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert severity="success" onClose={() => setForceStatusSuccess(false)} sx={{ borderRadius: 2, fontWeight: 600 }}>
-          แก้ไขสถานะการจองเรียบร้อยแล้ว
+          แก้ไขสถานะการลงทะเบียนเรียบร้อยแล้ว
         </Alert>
       </Snackbar>
 
@@ -2320,12 +2612,12 @@ const BookingManagement = () => {
           happen, since "กรอกรายงาน" is now reachable at any point after
           booking, not just once the class is actually done. */}
       <Dialog open={!!reportConfirm} onClose={() => setReportConfirm(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>ยังไม่ถึงเวลาเรียนตามที่จองไว้</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยังไม่ถึงเวลาเรียนตามที่ลงทะเบียนไว้</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
             {reportConfirm && reportConfirm.length > 1
               ? `มี ${reportConfirm.filter(b => new Date(b.scheduled_at).getTime() > Date.now()).length} จาก ${reportConfirm.length} รายการที่ยังไม่ถึงเวลาเรียนจริง`
-              : `รอบเรียนของ ${reportConfirm?.[0]?.child_nickname || reportConfirm?.[0]?.child_name || 'รายการนี้'} ยังไม่ถึงเวลาที่จองไว้`}
+              : `รอบเรียนของ ${reportConfirm?.[0]?.child_nickname || reportConfirm?.[0]?.child_name || 'รายการนี้'} ยังไม่ถึงเวลาที่ลงทะเบียนไว้`}
           </Alert>
           <Typography variant="body2" color="text.secondary">
             ต้องการกรอกรายงานล่วงหน้าก่อนถึงเวลาเรียนจริงหรือไม่?
@@ -2349,7 +2641,7 @@ const BookingManagement = () => {
           class round/time) plus a simple "mark complete" toggle, replacing
           what used to be a separate one-click Complete button. */}
       <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth={usesReschedulePicker ? 'sm' : 'xs'} fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการจอง (Super Admin)' : 'แก้ไขการจอง'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการลงทะเบียน (Super Admin)' : 'แก้ไขการลงทะเบียน'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
@@ -2394,7 +2686,7 @@ const BookingManagement = () => {
               {rescheduleLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
               ) : rescheduleDates.length === 0 ? (
-                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้จองในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
+                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้ลงทะเบียนในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
               ) : (
                 <>
                   <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
@@ -2488,11 +2780,11 @@ const BookingManagement = () => {
           confirm word verbatim — this removes the row entirely (unlike
           Cancel, which keeps it as status='cancelled' for history/reporting). */}
       <Dialog open={!!deleteBookingTarget} onClose={() => { if (!deleteLoading) setDeleteBookingTarget(null); }} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>ลบการจองถาวร (Super Admin)</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>ลบการลงทะเบียนถาวร (Super Admin)</DialogTitle>
         <DialogContent>
           <Alert severity="error" sx={{ mb: 2 }}>
-            การลบนี้ถาวรและกู้คืนไม่ได้ — ข้อมูลการจอง #{deleteBookingTarget?.id} ({deleteBookingTarget?.course_name} • {deleteBookingTarget?.child_name}) จะหายไปทั้งหมด
-            ถ้าต้องการแค่ยกเลิกการจองแต่เก็บประวัติไว้ ให้ใช้ปุ่ม "ยกเลิก" แทน
+            การลบนี้ถาวรและกู้คืนไม่ได้ — ข้อมูลการลงทะเบียน #{deleteBookingTarget?.id} ({deleteBookingTarget?.course_name} • {deleteBookingTarget?.child_name}) จะหายไปทั้งหมด
+            ถ้าต้องการแค่ยกเลิกการลงทะเบียนแต่เก็บประวัติไว้ ให้ใช้ปุ่ม "ยกเลิก" แทน
           </Alert>
           {deleteError && <Alert severity="error" sx={{ mb: 2 }}>{deleteError}</Alert>}
           <TextField

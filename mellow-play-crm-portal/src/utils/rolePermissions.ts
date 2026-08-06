@@ -172,7 +172,7 @@ export const permissionFeatureLabels: Record<FeatureKey, string> = {
   leave_approval: 'อนุมัติวันลา / OT (Manager)',
   expense_advance: 'เบิกเงินสำรองจ่าย',
   payout: 'ระบบ Payout',
-  bookings: 'รายการจองคลาสเรียน',
+  bookings: 'รายการลงทะเบียนทั้งหมด',
   settings: 'ตั้งค่าระบบ',
   permissions: 'จัดการสิทธิ์ (Role Permissions)',
   profile: 'โปรไฟล์ของฉัน',

@@ -26,19 +26,23 @@ import {
   RadioButtonChecked as RadioIcon,
   CheckBox as CheckboxIcon,
   FamilyRestroom as FamilyPickerIcon,
+  Groups as TeamSelectIcon,
 } from '@mui/icons-material';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker';
+type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select';
+
+interface TeamOption { label: string; capacity: number; }
 
 interface FieldDraft {
   fieldKey: string;
   type: FieldType;
   label: string;
   required: boolean;
-  options?: string[];       // select/radio/checkbox
-  role?: 'adult' | 'child'; // family_member_picker
+  options?: string[];         // select/radio/checkbox
+  teamOptions?: TeamOption[]; // team_select — each team's name + how many it can take
+  role?: 'adult' | 'child';   // family_member_picker
   duplicateCheckScope?: 'none' | 'course' | 'round';
 }
 
@@ -52,6 +56,7 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   radio: { label: 'ตัวเลือก (Radio)', icon: <RadioIcon fontSize="small" /> },
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
   family_member_picker: { label: 'เลือกสมาชิกในครอบครัว', icon: <FamilyPickerIcon fontSize="small" /> },
+  team_select: { label: 'เลือกทีม (จำกัดจำนวนต่อทีม)', icon: <TeamSelectIcon fontSize="small" /> },
 };
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -62,6 +67,7 @@ const emptyField = (type: FieldType): FieldDraft => ({
   label: FIELD_TYPE_META[type].label,
   required: false,
   options: (type === 'select' || type === 'radio' || type === 'checkbox') ? ['ตัวเลือก 1'] : undefined,
+  teamOptions: type === 'team_select' ? [{ label: 'ทีม 1', capacity: 10 }] : undefined,
   role: type === 'family_member_picker' ? 'child' : undefined,
 });
 
@@ -127,7 +133,8 @@ const RegistrationFormManagement = () => {
             type: f.type,
             label: f.label,
             required: !!f.required,
-            options: f.options_json ? JSON.parse(f.options_json) : undefined,
+            options: (f.options_json && f.type !== 'team_select') ? JSON.parse(f.options_json) : undefined,
+            teamOptions: (f.options_json && f.type === 'team_select') ? JSON.parse(f.options_json) : undefined,
             role: f.config_json ? JSON.parse(f.config_json).role : undefined,
             duplicateCheckScope: f.duplicate_check_scope || 'none',
           };
@@ -152,7 +159,9 @@ const RegistrationFormManagement = () => {
         type: f.type,
         label: f.label,
         required: f.required,
-        optionsJson: f.options ? JSON.stringify(f.options) : undefined,
+        optionsJson: f.type === 'team_select'
+          ? (f.teamOptions ? JSON.stringify(f.teamOptions) : undefined)
+          : (f.options ? JSON.stringify(f.options) : undefined),
         configJson: f.role ? JSON.stringify({ role: f.role }) : undefined,
         duplicateCheckScope: f.duplicateCheckScope,
       })));
@@ -296,6 +305,45 @@ const RegistrationFormManagement = () => {
                             value={(field.options || []).join(', ')}
                             onChange={e => updateField(idx, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
                           />
+                        )}
+                        {field.type === 'team_select' && (
+                          <Stack spacing={1}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                              ทีมและจำนวนที่รับ — เมื่อทีมใดเต็มแล้ว ผู้ลงทะเบียนจะเลือกทีมนั้นไม่ได้
+                            </Typography>
+                            {(field.teamOptions || []).map((team, tIdx) => (
+                              <Stack key={tIdx} direction="row" spacing={1} alignItems="center">
+                                <TextField
+                                  size="small" label="ชื่อทีม" sx={{ flex: 1 }}
+                                  value={team.label}
+                                  onChange={e => updateField(idx, {
+                                    teamOptions: (field.teamOptions || []).map((t, i) => i === tIdx ? { ...t, label: e.target.value } : t),
+                                  })}
+                                />
+                                <TextField
+                                  size="small" type="number" label="จำนวนที่รับ" sx={{ width: 130 }}
+                                  value={team.capacity}
+                                  onChange={e => updateField(idx, {
+                                    teamOptions: (field.teamOptions || []).map((t, i) => i === tIdx ? { ...t, capacity: parseInt(e.target.value) || 0 } : t),
+                                  })}
+                                />
+                                <IconButton
+                                  size="small" color="error"
+                                  onClick={() => updateField(idx, { teamOptions: (field.teamOptions || []).filter((_, i) => i !== tIdx) })}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                            ))}
+                            <Button
+                              size="small" startIcon={<AddIcon />} sx={{ alignSelf: 'flex-start' }}
+                              onClick={() => updateField(idx, {
+                                teamOptions: [...(field.teamOptions || []), { label: `ทีม ${(field.teamOptions?.length || 0) + 1}`, capacity: 10 }],
+                              })}
+                            >
+                              เพิ่มทีม
+                            </Button>
+                          </Stack>
                         )}
                         {field.type === 'family_member_picker' && (
                           <FormControl size="small" sx={{ minWidth: 200 }}>
