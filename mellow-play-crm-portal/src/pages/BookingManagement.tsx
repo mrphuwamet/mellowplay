@@ -738,6 +738,15 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                       </Stack>
                     </Box>
                   )}
+                  {booking.parent_phone && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เบอร์โทรผู้ปกครอง (ตามระบบ)</Typography>
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <PhoneIcon sx={{ fontSize: 13 }} color="action" />
+                        <Typography sx={{ fontWeight: 800, fontSize: '15px' }}>{booking.parent_phone}</Typography>
+                      </Stack>
+                    </Box>
+                  )}
                   {personFields.map(f => (
                     <Box key={f.fieldKey}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{f.label}</Typography>
@@ -873,7 +882,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   onMarkComplete: (ids: number[]) => void;
   onEdit: (b: Booking) => void;
   courses: Course[];
-  submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string }[] }>;
+  submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>;
 }) => {
   const [search, setSearch] = useState('');
   const [groupByFields, setGroupByFields] = useState<string[]>([]);
@@ -1094,17 +1103,17 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     return value || null;
   };
 
-  // Whoever the registration form's family_member_picker answer names —
-  // once a form is attached, this is the "person" leading the card instead
-  // of the generic child name.
-  const getPersonLabel = (b: Booking): string | null => {
-    if (!b.form_submission_id) return null;
+  // Every family_member_picker answer on the form — not just the first —
+  // since a form can name more than one person (e.g. an adult field and a
+  // child field both), and staff need to see all of them, not only one.
+  const getPersonLabels = (b: Booking): { label: string; value: string }[] => {
+    if (!b.form_submission_id) return [];
     const sub = submissionsMap[b.form_submission_id];
-    if (!sub) return null;
-    const personField = sub.fields.find(f => f.type === 'family_member_picker');
-    if (!personField) return null;
-    const value = sub.answers[personField.field_key];
-    return value || null;
+    if (!sub) return [];
+    return sub.fields
+      .filter(f => f.type === 'family_member_picker')
+      .map(f => ({ label: f.label, value: sub.answers[f.field_key] }))
+      .filter(f => !!f.value);
   };
 
   const renderBookingCard = (b: Booking) => {
@@ -1113,6 +1122,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     const hasValidDate = !isNaN(dt.getTime());
     const hasRealName = b.child_nickname && b.child_name && b.child_nickname !== b.child_name;
     const teamLabel = getTeamLabel(b);
+    const personLabels = getPersonLabels(b);
     return (
       <Paper
         key={b.id}
@@ -1153,66 +1163,62 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Typography>
             </Box>
 
-            {/* Once a registration form is attached, its person/team
-                answers replace the generic child+parent display entirely —
-                same as the detail dialog. */}
+            {/* Nickname/name/phone (system truth) always shows — a
+                registration form's own answers (all family_member_picker
+                fields + team) are added on top when there's one, not a
+                replacement for it. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
               <Box sx={{ minWidth: 0 }}>
-                {b.form_submission_id ? (
-                  <Stack direction="row" spacing={0.75} alignItems="center">
-                    <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                      {getPersonLabel(b) || '-'}
-                    </Typography>
-                    {teamLabel && (
-                      <Chip
-                        label={teamLabel}
-                        size="small"
-                        sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
-                      />
-                    )}
-                  </Stack>
-                ) : (
-                  <>
-                    <Stack direction="row" spacing={0.75} alignItems="center">
-                      <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                        {b.child_nickname || b.child_name || '-'}
-                      </Typography>
-                      {b.child_birth_date && (
-                        <Chip
-                          icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                          label={calculateAge(b.child_birth_date)}
-                          size="small"
-                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                        />
-                      )}
-                      {b.child_gender && (
-                        <Chip
-                          label={getGenderLabel(b.child_gender)}
-                          size="small"
-                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                        />
-                      )}
-                    </Stack>
-                    {hasRealName && (
-                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                        {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
-                      </Typography>
-                    )}
-                    {/* Phone leads — it's the reliable way to actually reach
-                        this family; parent name trails as secondary context. */}
-                    {b.parent_phone && (
-                      <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
-                        <PhoneIcon sx={{ fontSize: 12 }} />
-                        {b.parent_phone}
-                      </Typography>
-                    )}
-                    {b.parent_name && (
-                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                        {b.parent_name}
-                      </Typography>
-                    )}
-                  </>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                    {b.child_nickname || b.child_name || '-'}
+                  </Typography>
+                  {b.child_birth_date && (
+                    <Chip
+                      icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                      label={calculateAge(b.child_birth_date)}
+                      size="small"
+                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                    />
+                  )}
+                  {b.child_gender && (
+                    <Chip
+                      label={getGenderLabel(b.child_gender)}
+                      size="small"
+                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                    />
+                  )}
+                  {teamLabel && (
+                    <Chip
+                      label={teamLabel}
+                      size="small"
+                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
+                    />
+                  )}
+                </Stack>
+                {hasRealName && (
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                    {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
+                  </Typography>
                 )}
+                {/* Phone leads — it's the reliable way to actually reach
+                    this family; parent name trails as secondary context. */}
+                {b.parent_phone && (
+                  <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
+                    <PhoneIcon sx={{ fontSize: 12 }} />
+                    {b.parent_phone}
+                  </Typography>
+                )}
+                {b.parent_name && (
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                    {b.parent_name}
+                  </Typography>
+                )}
+                {personLabels.map((f, i) => (
+                  <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                    {f.label}: {f.value}
+                  </Typography>
+                ))}
               </Box>
             </Box>
 
@@ -2046,7 +2052,7 @@ const BookingManagement = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   // Keyed by Form_Submissions.id — fetched once per bookings load so each
   // card can show its team_select answer (if any) without a request per row.
-  const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string }[] }>>({});
+  const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>>({});
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
