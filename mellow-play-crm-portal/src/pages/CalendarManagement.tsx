@@ -19,7 +19,7 @@ const DAY_NAMES = ['อาทิตย์','จันทร์','อังคา
 const COLORS = ['#7c3aed','#0284c7','#059669','#d97706','#dc2626','#db2777','#0d9488'];
 
 interface Calendar { id: number; name: string; description: string; color: string; type: string; is_active: number; }
-interface SlotRule { id: number; calendar_id: number; day_of_week: number | null; specific_date: string | null; start_time: string; end_time: string; max_capacity: number; valid_from: string; valid_until: string | null; is_active: number; }
+interface SlotRule { id: number; calendar_id: number; day_of_week: number | null; specific_date: string | null; start_time: string; end_time: string; max_capacity: number; invite_capacity: number; valid_from: string; valid_until: string | null; is_active: number; }
 
 const CalendarManagement: React.FC = () => {
   const [tab, setTab] = useState(0);
@@ -39,10 +39,10 @@ const CalendarManagement: React.FC = () => {
   const [ruleEditId, setRuleEditId] = useState<number | null>(null);
   const [ruleForm, setRuleForm] = useState<{
     dayOfWeek: number[]; specificDates: string[]; timeRanges: { start: string; end: string }[];
-    maxCapacity: number; validFrom: string; validUntil: string; autoSplit: boolean; splitInterval: number;
+    maxCapacity: number; inviteCapacity: number; validFrom: string; validUntil: string; autoSplit: boolean; splitInterval: number;
   }>({
     dayOfWeek: [], specificDates: [''], timeRanges: [{ start: '', end: '' }],
-    maxCapacity: 4, validFrom: '', validUntil: '', autoSplit: false, splitInterval: 30
+    maxCapacity: 4, inviteCapacity: 0, validFrom: '', validUntil: '', autoSplit: false, splitInterval: 30
   });
   const [ruleMode, setRuleMode] = useState<'recurring' | 'specific'>('recurring');
   
@@ -115,13 +115,13 @@ const CalendarManagement: React.FC = () => {
   const openCreateRule = () => {
     setRuleEditId(null);
     setRuleMode('recurring');
-    setRuleForm({ dayOfWeek: [1], specificDates: [new Date().toISOString().slice(0, 10)], timeRanges: [{ start: '09:00', end: '10:00' }], maxCapacity: 4, validFrom: new Date().toISOString().slice(0, 10), validUntil: '', autoSplit: false, splitInterval: 30 });
+    setRuleForm({ dayOfWeek: [1], specificDates: [new Date().toISOString().slice(0, 10)], timeRanges: [{ start: '09:00', end: '10:00' }], maxCapacity: 4, inviteCapacity: 0, validFrom: new Date().toISOString().slice(0, 10), validUntil: '', autoSplit: false, splitInterval: 30 });
     setRuleDialogOpen(true);
   };
   const openEditRule = (r: SlotRule) => {
     setRuleEditId(r.id);
     setRuleMode(r.day_of_week !== null ? 'recurring' : 'specific');
-    setRuleForm({ dayOfWeek: r.day_of_week !== null ? [r.day_of_week] : [], specificDates: [r.specific_date ?? ''], timeRanges: [{ start: r.start_time, end: r.end_time }], maxCapacity: r.max_capacity, validFrom: r.valid_from, validUntil: r.valid_until ?? '', autoSplit: false, splitInterval: 30 });
+    setRuleForm({ dayOfWeek: r.day_of_week !== null ? [r.day_of_week] : [], specificDates: [r.specific_date ?? ''], timeRanges: [{ start: r.start_time, end: r.end_time }], maxCapacity: r.max_capacity, inviteCapacity: r.invite_capacity || 0, validFrom: r.valid_from, validUntil: r.valid_until ?? '', autoSplit: false, splitInterval: 30 });
     setRuleDialogOpen(true);
   };
   const generateSplitSlots = (start: string, end: string, intervalMin: number) => {
@@ -176,6 +176,7 @@ const CalendarManagement: React.FC = () => {
             startTime: t.start,
             endTime: t.end,
             maxCapacity: ruleForm.maxCapacity,
+            inviteCapacity: ruleForm.inviteCapacity,
             validFrom: ruleMode === 'recurring' ? ruleForm.validFrom : d,
             validUntil: ruleMode === 'recurring' ? (ruleForm.validUntil || null) : d,
             isActive: true,
@@ -338,7 +339,12 @@ const CalendarManagement: React.FC = () => {
                               )}
                             </TableCell>
                             <TableCell>{r.start_time} – {r.end_time}</TableCell>
-                            <TableCell align="center">{r.max_capacity} คน</TableCell>
+                            <TableCell align="center">
+                              {r.max_capacity} คน
+                              {!!r.invite_capacity && (
+                                <Chip label={`+${r.invite_capacity} เชิญ`} size="small" sx={{ ml: 0.75, height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(124,58,237,0.12)', color: '#7c3aed' }} />
+                              )}
+                            </TableCell>
                             <TableCell>{r.valid_from}</TableCell>
                             <TableCell>{r.valid_until ?? '—'}</TableCell>
                             <TableCell>
@@ -529,6 +535,12 @@ const CalendarManagement: React.FC = () => {
             helperText="ใส่ 0 ได้ — รอบจะยังแสดงอยู่แต่ขึ้นว่าเต็มเสมอ"
             value={ruleForm.maxCapacity}
             onChange={(e) => setRuleForm(f => ({ ...f, maxCapacity: Math.max(0, parseInt(e.target.value) || 0) }))}
+          />
+          <TextField
+            label="ที่นั่งสำรองสำหรับลิงก์เชิญพิเศษ" type="number" fullWidth inputProps={{ min: 0 }}
+            helperText="ที่นั่งส่วนเกินนี้จะไม่โชว์ให้คนทั่วไปเห็นเลย จองได้เฉพาะผ่านลิงก์เชิญ (ตั้งค่าลิงก์ได้ที่หน้าจัดการคลาส)"
+            value={ruleForm.inviteCapacity}
+            onChange={(e) => setRuleForm(f => ({ ...f, inviteCapacity: Math.max(0, parseInt(e.target.value) || 0) }))}
           />
           {ruleMode === 'recurring' && (
             <Box sx={{ display: 'flex', gap: 1.5 }}>

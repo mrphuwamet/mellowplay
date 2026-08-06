@@ -44,10 +44,19 @@ export class RegistrationFormRepository {
     formId: number; courseId: number; fieldKey: string; scope: 'course' | 'round';
     normalizedValue: string; scheduledAt?: string;
   }): Promise<boolean> {
+    // A submission only counts as a real duplicate if it still has an
+    // active booking attached — otherwise someone who cancelled (booking
+    // row survives with status='cancelled') or was hard-deleted (no row
+    // left at all) would be permanently blocked from ever registering
+    // again with the same name/answer, even though nothing of theirs is
+    // actually still booked.
+    const activeBookingExists = `
+      EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
+    `;
     const query = params.scope === 'round'
-      ? this.db.prepare('SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ? AND scheduled_at = ?')
+      ? this.db.prepare(`SELECT answers_json FROM Form_Submissions fs WHERE fs.form_id = ? AND fs.course_id = ? AND fs.scheduled_at = ? AND ${activeBookingExists}`)
           .bind(params.formId, params.courseId, params.scheduledAt ?? null)
-      : this.db.prepare('SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ?')
+      : this.db.prepare(`SELECT answers_json FROM Form_Submissions fs WHERE fs.form_id = ? AND fs.course_id = ? AND ${activeBookingExists}`)
           .bind(params.formId, params.courseId);
     const { results } = await query.all();
     for (const row of results as any[]) {
@@ -90,9 +99,14 @@ export class RegistrationFormRepository {
   // step now runs before the registration-form step whenever a form has a
   // team_select field, and passes the chosen scheduledAt in here.
   async getTeamCounts(formId: number, courseId: number, scheduledAt: string, fieldKey: string): Promise<Record<string, number>> {
-    const { results } = await this.db.prepare(
-      'SELECT answers_json FROM Form_Submissions WHERE form_id = ? AND course_id = ? AND scheduled_at = ?'
-    ).bind(formId, courseId, scheduledAt).all();
+    // Same "only count it if still actively booked" guard as
+    // findDuplicateSubmission — a cancelled or hard-deleted booking must
+    // free its team spot back up, not hold it forever.
+    const { results } = await this.db.prepare(`
+      SELECT answers_json FROM Form_Submissions fs
+      WHERE fs.form_id = ? AND fs.course_id = ? AND fs.scheduled_at = ?
+        AND EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
+    `).bind(formId, courseId, scheduledAt).all();
     const counts: Record<string, number> = {};
     for (const row of results as any[]) {
       try {

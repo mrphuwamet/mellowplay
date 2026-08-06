@@ -22,6 +22,7 @@ import BookingSuccess from './pages/BookingSuccess';
 import MyCoupons from './pages/MyCoupons';
 import ContactUs from './pages/ContactUs';
 import PackagePurchaseSuccess from './pages/PackagePurchaseSuccess';
+import InviteAccess from './pages/InviteAccess';
 import { useChildStore } from './store/useChildStore';
 import { LanguageProvider } from './LanguageContext';
 import AppShell from './components/AppShell';
@@ -135,6 +136,7 @@ const AppContent = () => {
         <Route path="/activities/:id" element={<CourseDetail />} />
         <Route path="/services/:id" element={<CourseDetail />} />
         <Route path="/course/:id" element={<CourseToClassRedirect />} />
+        <Route path="/invite/:token" element={<InviteAccess />} />
       </Routes>
     </AppShell>
   );

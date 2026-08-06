@@ -663,7 +663,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   const teamFields = (formFields || []).filter(f => f.type === 'team_select');
   const otherFields = (formFields || []).filter(f => f.type !== 'family_member_picker' && f.type !== 'team_select');
   return (
-    <Dialog open={!!booking} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={!!booking} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         ข้อมูลที่กรอกไว้ตอนลงทะเบียน #{booking.id}
         <Chip label={si.label} size="small" sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor }} />
@@ -716,6 +716,28 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                 </Stack>
               ) : formFields && formFields.length > 0 ? (
                 <Stack spacing={1.5}>
+                  {/* Ground-truth identity from the child's own profile —
+                      kept alongside the form answers since a custom form's
+                      "person" field can just be a nickname or picked name,
+                      not necessarily the real name staff need for verification. */}
+                  {(booking.child_name || booking.child_birth_date) && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ชื่อจริง-นามสกุล (ตามระบบ)</Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography sx={{ fontWeight: 800, fontSize: '16px' }}>
+                          {booking.child_name || '-'}{booking.child_name_en ? ` (${booking.child_name_en})` : ''}
+                        </Typography>
+                        {booking.child_birth_date && (
+                          <Chip
+                            icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                            label={`${calculateAge(booking.child_birth_date)} ปี`}
+                            size="small"
+                            sx={{ height: 20, fontSize: '11px', fontWeight: 700 }}
+                          />
+                        )}
+                      </Stack>
+                    </Box>
+                  )}
                   {personFields.map(f => (
                     <Box key={f.fieldKey}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{f.label}</Typography>
@@ -1619,9 +1641,12 @@ const CourseDetailPanel = ({ course }: { course: Course }) => {
                 <ToggleButton value="en" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ENG</ToggleButton>
               </ToggleButtonGroup>
             </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.6 }}>
-              {desc}
-            </Typography>
+            <Typography
+              variant="caption" color="text.secondary"
+              component="div"
+              sx={{ display: 'block', lineHeight: 1.6, '& p': { m: 0, mb: 0.5 } }}
+              dangerouslySetInnerHTML={{ __html: desc }}
+            />
           </Box>
         </>
       )}

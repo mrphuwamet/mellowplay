@@ -32,6 +32,24 @@ interface Course { id: number; name: string; description: string; is_little_juni
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
+// Set by InviteAccess.tsx after a guest's link+PIN succeeds — keyed per
+// course since that's the granularity a link is scoped to. Read here so the
+// slot picker shows the round's real (boosted) availability instead of
+// "full", and so the actual booking submit can unlock the same capacity.
+const inviteSessionKey = (courseId: number) => `mellow_invite_session_${courseId}`;
+const loadInviteSessionToken = (courseId: number | undefined): string | null => {
+  if (!courseId) return null;
+  try {
+    const raw = localStorage.getItem(inviteSessionKey(courseId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.sessionToken || parsed.expiresAt < Date.now()) return null;
+    return parsed.sessionToken;
+  } catch {
+    return null;
+  }
+};
+
 const calculateAge = (birthDateString: string, t: any) => {
   if (!birthDateString) return '';
   const birthDate = new Date(birthDateString);
@@ -85,6 +103,11 @@ const Booking = () => {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [selectedDateObj, setSelectedDateObj] = useState<UpcomingDate | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+  // Recomputed whenever the course changes — a session is scoped to one
+  // course, so switching courses mid-flow (rare, but possible) shouldn't
+  // carry over a boost that no longer applies.
+  const [inviteSessionToken, setInviteSessionToken] = useState<string | null>(null);
+  useEffect(() => { setInviteSessionToken(loadInviteSessionToken(selectedCourse?.id)); }, [selectedCourse?.id]);
   const [paymentMethod, setPaymentMethod] = useState<'coupon'|'promptpay'|'credit_card'|'wallet'|null>(null);
   const [promoCode, setPromoCode] = useState('');
   const [promoDiscount, setPromoDiscount] = useState(0);
@@ -412,11 +435,13 @@ const Booking = () => {
       return;
     }
     let cancelled = false;
-    apiClient.get('/admin/calendar-slots/upcoming', { params: { calendarId: selectedCourse.calendar_id } })
+    apiClient.get('/admin/calendar-slots/upcoming', {
+      params: { calendarId: selectedCourse.calendar_id, courseId: selectedCourse.id, inviteSessionToken: inviteSessionToken || undefined }
+    })
       .then(res => { if (!cancelled && res.data.success) setModalUpcomingSlots(res.data.upcoming || []); })
       .catch(() => { if (!cancelled) setModalUpcomingSlots([]); });
     return () => { cancelled = true; };
-  }, [isCourseModalOpen, selectedCourse?.calendar_id]);
+  }, [isCourseModalOpen, selectedCourse?.calendar_id, selectedCourse?.id, inviteSessionToken]);
 
   useEffect(() => {
     const fetchUpcoming = async () => {
@@ -437,7 +462,9 @@ const Booking = () => {
         const response = await apiClient.get('/admin/calendar-slots/upcoming', {
           params: {
             calendarId: selectedCourse.calendar_id,
-            branchId: selectedBranch?.id
+            branchId: selectedBranch?.id,
+            courseId: selectedCourse.id,
+            inviteSessionToken: inviteSessionToken || undefined,
           }
         });
         if (response.data.success) {
@@ -462,7 +489,7 @@ const Booking = () => {
       }
     };
     fetchUpcoming();
-  }, [selectedCourse?.id, selectedBranch?.id, selectedCourse?.is_extraclass, selectedCourse?.is_event, selectedCourse?.calendar_id]);
+  }, [selectedCourse?.id, selectedBranch?.id, selectedCourse?.is_extraclass, selectedCourse?.is_event, selectedCourse?.calendar_id, inviteSessionToken]);
 
   const currentYear = new Date().getFullYear();
   const birthYear = selectedChildren[0]?.birth_date ? new Date(selectedChildren[0].birth_date).getFullYear() : 2020;
@@ -543,6 +570,7 @@ const Booking = () => {
         sponsorTag: getAttributedTag(),
         formId: registrationForm?.id,
         formAnswers: registrationForm ? formAnswers : undefined,
+        inviteSessionToken: inviteSessionToken || undefined,
       });
 
       if (response.data.success) {

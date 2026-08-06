@@ -1,4 +1,4 @@
-import { API_URL } from '../config';
+import { API_URL, CONSUMER_APP_URL } from '../config';
 import { getCourseDetailUrl } from '../utils/courseLinks';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -46,6 +46,7 @@ import {
   ContentCopy as CopyLinkIcon,
   Star as CoverIcon,
   EventSeat as CapacityIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
@@ -424,6 +425,67 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     } finally {
       setCapacityLoading(false);
     }
+  };
+
+  // Invite-link management for a single round (course + calendar_slot_rule)
+  // — the reserved invite_capacity itself is set per-rule in
+  // CalendarManagement; this is just where staff generate/revoke the
+  // PIN-protected links that unlock it, since this dialog already knows
+  // which round (ruleId) belongs to which course.
+  const [inviteLinksRound, setInviteLinksRound] = useState<{ courseId: number; ruleId: number; dateLabel: string } | null>(null);
+  const [inviteLinks, setInviteLinks] = useState<any[]>([]);
+  const [inviteLinksLoading, setInviteLinksLoading] = useState(false);
+  const [newInviteLabel, setNewInviteLabel] = useState('');
+  const [newInvitePin, setNewInvitePin] = useState('');
+  const [newInviteExpiresAt, setNewInviteExpiresAt] = useState('');
+  const [newInviteError, setNewInviteError] = useState('');
+  const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
+
+  const fetchInviteLinks = async (ruleId: number) => {
+    setInviteLinksLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/invite-access-links?calendarSlotRuleId=${ruleId}`);
+      setInviteLinks(res.data.success ? res.data.links : []);
+    } finally {
+      setInviteLinksLoading(false);
+    }
+  };
+
+  const openInviteLinksDialog = (courseId: number, ruleId: number, dateLabel: string) => {
+    setInviteLinksRound({ courseId, ruleId, dateLabel });
+    setNewInviteLabel(''); setNewInvitePin(''); setNewInviteExpiresAt(''); setNewInviteError('');
+    fetchInviteLinks(ruleId);
+  };
+
+  const createInviteLink = async () => {
+    if (!inviteLinksRound) return;
+    if (!/^\d{4,8}$/.test(newInvitePin)) { setNewInviteError('PIN ต้องเป็นตัวเลข 4-8 หลัก'); return; }
+    setNewInviteError('');
+    try {
+      await axios.post(`${API_BASE}/invite-access-links`, {
+        label: newInviteLabel.trim() || null,
+        pin: newInvitePin,
+        courseId: inviteLinksRound.courseId,
+        calendarSlotRuleId: inviteLinksRound.ruleId,
+        expiresAt: newInviteExpiresAt || null,
+      });
+      setNewInviteLabel(''); setNewInvitePin(''); setNewInviteExpiresAt('');
+      await fetchInviteLinks(inviteLinksRound.ruleId);
+    } catch (err: any) {
+      setNewInviteError(err.response?.data?.message || 'สร้างลิงก์ไม่สำเร็จ');
+    }
+  };
+
+  const revokeInviteLink = async (id: number) => {
+    if (!inviteLinksRound) return;
+    await axios.post(`${API_BASE}/invite-access-links/${id}/revoke`);
+    await fetchInviteLinks(inviteLinksRound.ruleId);
+  };
+
+  const copyInviteLink = (link: any) => {
+    navigator.clipboard.writeText(`${CONSUMER_APP_URL}/invite/${link.token}`).catch(() => {});
+    setCopiedInviteId(link.id);
+    setTimeout(() => setCopiedInviteId(prev => (prev === link.id ? null : prev)), 1500);
   };
 
   const copyCourseLink = (course: any) => {
@@ -2343,15 +2405,17 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                         <TableCell sx={{ fontWeight: 700 }}>เวลา</TableCell>
                         <TableCell sx={{ fontWeight: 700 }} align="center">ที่นั่งคงเหลือ</TableCell>
                         {capacityFormName && <TableCell sx={{ fontWeight: 700 }}>ทีมคงเหลือ</TableCell>}
+                        <TableCell />
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {capacitySlots.flatMap(day => day.slots.map((s: any, i: number) => {
                         const roundKey = `${day.date} ${s.startTime}`;
                         const roundTeamFields = capacityTeamByRound[roundKey];
+                        const dateLabel = new Date(day.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
                         return (
                           <TableRow key={`${day.date}-${i}`} hover>
-                            <TableCell>{new Date(day.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
+                            <TableCell>{dateLabel}</TableCell>
                             <TableCell>{s.startTime}–{s.endTime}</TableCell>
                             <TableCell align="center">
                               <Chip
@@ -2385,6 +2449,13 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                                 )}
                               </TableCell>
                             )}
+                            <TableCell align="right">
+                              <Tooltip title="ลิงก์เชิญพิเศษสำหรับรอบนี้">
+                                <IconButton size="small" onClick={() => openInviteLinksDialog(capacityDialogCourse!.id, s.ruleId, `${dateLabel} · ${s.startTime}–${s.endTime}`)}>
+                                  <LinkIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </TableCell>
                           </TableRow>
                         );
                       }))}
@@ -2403,6 +2474,72 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setCapacityDialogCourse(null)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Invite links for one round — a general link/PIN that unlocks that
+          round's reserved invite_capacity (set per-rule in CalendarManagement).
+          The round still shows as ordinarily full to everyone without it. */}
+      <Dialog open={!!inviteLinksRound} onClose={() => setInviteLinksRound(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>ลิงก์เชิญพิเศษ</DialogTitle>
+        <Typography variant="body2" color="text.secondary" sx={{ px: 3, pb: 1, mt: -1 }}>{inviteLinksRound?.dateLabel}</Typography>
+        <Divider />
+        <DialogContent sx={{ pt: 2 }}>
+          {inviteLinksLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+          ) : (
+            <Stack spacing={1.5} sx={{ mb: 2 }}>
+              {inviteLinks.length === 0 && (
+                <Typography variant="body2" color="text.secondary">ยังไม่มีลิงก์เชิญสำหรับรอบนี้</Typography>
+              )}
+              {inviteLinks.map(link => {
+                const isExpired = link.expires_at && new Date(link.expires_at).getTime() < Date.now();
+                const status = link.is_revoked ? 'ยกเลิกแล้ว' : isExpired ? 'หมดอายุ' : 'ใช้งานได้';
+                const statusColor = link.is_revoked || isExpired ? 'default' : 'success';
+                return (
+                  <Paper key={link.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700} noWrap>{link.label || `ลิงก์ #${link.id}`}</Typography>
+                        <Chip label={status} size="small" color={statusColor as any} sx={{ height: 18, fontSize: '10px', fontWeight: 700, mt: 0.5 }} />
+                      </Box>
+                      <Stack direction="row">
+                        {!link.is_revoked && !isExpired && (
+                          <Tooltip title={copiedInviteId === link.id ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์'}>
+                            <IconButton size="small" onClick={() => copyInviteLink(link)} color={copiedInviteId === link.id ? 'success' : 'default'}>
+                              <CopyLinkIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {!link.is_revoked && (
+                          <IconButton size="small" color="error" onClick={() => revokeInviteLink(link.id)}><DeleteIcon fontSize="small" /></IconButton>
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
+
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1.5 }}>สร้างลิงก์ใหม่</Typography>
+          {newInviteError && <Alert severity="error" sx={{ mb: 1.5 }}>{newInviteError}</Alert>}
+          <Stack spacing={1.5}>
+            <TextField label="ชื่อลิงก์ (ถ้ามี)" size="small" fullWidth value={newInviteLabel} onChange={e => setNewInviteLabel(e.target.value)} />
+            <TextField
+              label="PIN (ตัวเลข 4-8 หลัก)" size="small" fullWidth value={newInvitePin}
+              onChange={e => setNewInvitePin(e.target.value.replace(/\D/g, ''))}
+            />
+            <TextField
+              label="วันหมดอายุ (ไม่บังคับ)" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
+              value={newInviteExpiresAt} onChange={e => setNewInviteExpiresAt(e.target.value)}
+            />
+            <Button variant="contained" onClick={createInviteLink} sx={{ borderRadius: 2, fontWeight: 700 }}>สร้างลิงก์</Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setInviteLinksRound(null)}>ปิด</Button>
         </DialogActions>
       </Dialog>
 
