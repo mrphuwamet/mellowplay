@@ -115,7 +115,12 @@ app.use('*', async (c, next) => {
 
   try {
     const duration = Date.now() - start;
-    const status = caughtError ? 500 : c.res.status;
+    // A thrown HTTPException (e.g. hono/jwt rejecting a missing/invalid
+    // token with its own real 401) carries its own `.status` — flattening
+    // every caught error to a bare 500 buried every auth rejection as
+    // generic server errors here, making them indistinguishable from an
+    // actual crash when reading this log back.
+    const status = caughtError ? ((caughtError as any)?.status ?? 500) : c.res.status;
 
     let responseBodyText: string | null = null;
     if (!caughtError && (c.res.headers.get('content-type') || '').includes('application/json')) {
@@ -471,6 +476,7 @@ app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadU
 app.put('/api/v1/admin/children/:id', (c) => adminController.updateChildProfile(c));
 app.delete('/api/v1/admin/family-members/:id', (c) => adminController.deleteFamilyMember(c));
 app.post('/api/v1/admin/users/:id/reset-password', (c) => adminController.resetUserPassword(c));
+app.get('/api/v1/admin/users/:id/family-roster', (c) => adminController.getUserFamilyRoster(c));
 app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons(c));
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
 app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.updateUserCoupon(c));

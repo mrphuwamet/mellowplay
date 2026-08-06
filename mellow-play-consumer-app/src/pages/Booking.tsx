@@ -356,6 +356,19 @@ const Booking = () => {
     setCurrentStepIndex(1);
   };
 
+  // Both "add family member" triggers (the plain child-step button and the
+  // registration form's family_member_picker) skipped this guest check
+  // entirely — a guest who reached the child-selection step some other way
+  // than goToChildStep (e.g. no preSelectedCourseId, so nothing gated them
+  // going in) could open AddChildModal and submit with no session token at
+  // all, failing server-side with "no authorization included in request"
+  // instead of ever seeing the sign-up prompt.
+  const openAddFamilyMember = (role?: string) => {
+    if (isGuest) { setShowGuestModal(true); return; }
+    setAddFamilyMemberForceRole(role === 'adult' ? undefined : 'child');
+    setIsAddChildOpen(true);
+  };
+
   // Auto skip branch
   useEffect(() => {
     if (selectedCourse && branches.length > 0) {
@@ -1178,7 +1191,7 @@ const Booking = () => {
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-black text-slate-800">{bookingType === 'event' ? (lang === 'en' ? 'Choose the child attending' : 'เลือกเด็กที่เข้าร่วม (เลือกได้ 1 คน)') : (t.booking?.stepChild || 'เลือกผู้เรียน')}</h3>
-                <button onClick={() => { setAddFamilyMemberForceRole('child'); setIsAddChildOpen(true); }} className="text-mellow-purple text-sm font-bold flex items-center gap-1 active:scale-95 transition-transform">
+                <button onClick={() => openAddFamilyMember('child')} className="text-mellow-purple text-sm font-bold flex items-center gap-1 active:scale-95 transition-transform">
                   <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Sparkles size={12} /></div>{t.booking?.addChild || 'เพิ่มผู้เรียน'}
                 </button>
               </div>
@@ -1269,7 +1282,7 @@ const Booking = () => {
               childPickerMode={bookingType === 'event' ? 'single' : 'multi'}
               selectedChildIds={formHasChildPicker ? selectedChildren.map(c => c.id) : undefined}
               onChildSelectionChange={formHasChildPicker ? (ids) => setSelectedChildren(ids.map(id => children.find(c => c.id === id)).filter(Boolean)) : undefined}
-              onAddFamilyMember={(role) => { setAddFamilyMemberForceRole(role === 'adult' ? undefined : 'child'); setIsAddChildOpen(true); }}
+              onAddFamilyMember={openAddFamilyMember}
               mainAccount={mainAccount}
               courseId={selectedCourse?.id}
               scheduledAt={selectedDateObj && selectedSlot ? `${selectedDateObj.date} ${selectedSlot.startTime}` : undefined}

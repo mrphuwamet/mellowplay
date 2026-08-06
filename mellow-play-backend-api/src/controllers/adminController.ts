@@ -189,6 +189,31 @@ export class AdminController {
     }
   }
 
+  // The real people in this account's own family roster — used by the CRM
+  // booking-detail dialog's registration-form editor so a family_member_picker
+  // answer gets corrected by picking a real member, not retyping a name that
+  // might not match anyone (see FormAnswerFieldEditor in BookingManagement.tsx).
+  // Same source (HD_Profiles, is_deleted-filtered) and same "nickname || name"
+  // display convention the consumer app's own picker already uses, so a
+  // staff-picked value round-trips into answers_json identically.
+  async getUserFamilyRoster(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const userId = parseInt(c.req.param('id'));
+      const hdProfileRepo = new HDProfileRepository(config.db);
+      const profiles = await hdProfileRepo.findByUserId(userId);
+      const roster = profiles.map((p: any) => ({
+        id: p.child_id || p.id,
+        name: p.name,
+        nickname: p.nickname,
+        display: p.nickname || p.name,
+      }));
+      return c.json({ success: true, roster });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   // CRM-driven avatar upload for a user's own profile photo (distinct from
   // profileController.uploadAvatar, which is for a CHILD's HD profile photo
   // and relies on the consumer's own JWT). The CRM frontend already POSTs
