@@ -607,7 +607,6 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   onClose: () => void;
   onViewCourse: () => void;
 }) => {
-  const [showForm, setShowForm] = useState(false);
   const [formFields, setFormFields] = useState<FormAnswerField[] | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [isEditingForm, setIsEditingForm] = useState(false);
@@ -615,22 +614,19 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   const [savingForm, setSavingForm] = useState(false);
   const [saveFormError, setSaveFormError] = useState('');
 
-  useEffect(() => { setShowForm(false); setFormFields(null); setIsEditingForm(false); setSaveFormError(''); }, [booking?.id]);
-
-  const toggleFormAnswers = async () => {
-    if (showForm) { setShowForm(false); setIsEditingForm(false); return; }
-    setShowForm(true);
-    if (formFields !== null || !booking) return;
+  // Once a registration form is attached, its answers replace the generic
+  // เด็กผู้เรียน/ผู้ปกครอง blocks entirely — fetched eagerly (not behind a
+  // toggle) since it's now the primary identity shown for this booking.
+  useEffect(() => {
+    setIsEditingForm(false);
+    setSaveFormError('');
+    if (!booking?.form_submission_id) { setFormFields(null); return; }
     setFormLoading(true);
-    try {
-      const res = await axios.get(`${API_BASE}/bookings/${booking.id}/form-answers`);
-      setFormFields(res.data.success ? res.data.fields : []);
-    } catch {
-      setFormFields([]);
-    } finally {
-      setFormLoading(false);
-    }
-  };
+    axios.get(`${API_BASE}/bookings/${booking.id}/form-answers`)
+      .then(res => setFormFields(res.data.success ? res.data.fields : []))
+      .catch(() => setFormFields([]))
+      .finally(() => setFormLoading(false));
+  }, [booking?.id, booking?.form_submission_id]);
 
   const startEditForm = () => {
     const initial: Record<string, any> = {};
@@ -660,10 +656,16 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   const si = getStatusInfo(booking.status);
   const dt = new Date(booking.scheduled_at);
   const hasValidDate = !isNaN(dt.getTime());
+  // Person (family_member_picker) and team (team_select) answers lead the
+  // form-data block since they're what this booking is fundamentally
+  // "about" once a form is attached; every other field just lists below.
+  const personFields = (formFields || []).filter(f => f.type === 'family_member_picker');
+  const teamFields = (formFields || []).filter(f => f.type === 'team_select');
+  const otherFields = (formFields || []).filter(f => f.type !== 'family_member_picker' && f.type !== 'team_select');
   return (
     <Dialog open={!!booking} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        รายละเอียดการลงทะเบียน #{booking.id}
+        ข้อมูลที่กรอกไว้ตอนลงทะเบียน #{booking.id}
         <Chip label={si.label} size="small" sx={{ fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor }} />
       </DialogTitle>
       <DialogContent dividers>
@@ -690,42 +692,106 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
             </Typography>
           </Box>
           <Divider />
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เด็กผู้เรียน</Typography>
-            <Typography sx={{ fontWeight: 700 }}>
-              {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
-            </Typography>
-            {booking.child_name_en && (
-              <Typography variant="body2" color="text.secondary">{booking.child_name_en}</Typography>
-            )}
-            <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
-              <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
-              {booking.child_birth_date && (
-                <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+          {booking.form_submission_id ? (
+            <Box>
+              {formLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+              ) : isEditingForm ? (
+                <Stack spacing={1.5}>
+                  {saveFormError && <Alert severity="error" sx={{ py: 0.5 }}>{saveFormError}</Alert>}
+                  {(formFields || []).map(f => (
+                    <FormAnswerFieldEditor
+                      key={f.fieldKey}
+                      field={f}
+                      value={editedAnswers[f.fieldKey]}
+                      onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
+                    />
+                  ))}
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button size="small" onClick={() => setIsEditingForm(false)} disabled={savingForm}>ยกเลิก</Button>
+                    <Button size="small" variant="contained" onClick={saveEditForm} disabled={savingForm}>
+                      {savingForm ? <CircularProgress size={16} color="inherit" /> : 'บันทึก'}
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : formFields && formFields.length > 0 ? (
+                <Stack spacing={1.5}>
+                  {personFields.map(f => (
+                    <Box key={f.fieldKey}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{f.label}</Typography>
+                      <Typography sx={{ fontWeight: 800, fontSize: '16px' }}>{f.value || '-'}</Typography>
+                    </Box>
+                  ))}
+                  {teamFields.length > 0 && (
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap">
+                      {teamFields.map(f => (
+                        <Chip
+                          key={f.fieldKey}
+                          label={`${f.label}: ${f.value || '-'}`}
+                          size="small"
+                          sx={{ fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                  {otherFields.length > 0 && (
+                    <Stack spacing={1}>
+                      {otherFields.map(f => (
+                        <Stack key={f.fieldKey} direction="row" justifyContent="space-between" gap={1.5}>
+                          <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{f.label}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                            {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+                  <Button size="small" onClick={startEditForm} sx={{ fontWeight: 700, px: 0, alignSelf: 'flex-start' }}>แก้ไขข้อมูล</Button>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">ไม่มีข้อมูลที่กรอกไว้</Typography>
               )}
-              {booking.child_gender && (
-                <Chip label={getGenderLabel(booking.child_gender)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
-              )}
-            </Stack>
-          </Box>
-          <Divider />
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
-            <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
-            {booking.parent_name_en && (
-              <Typography variant="body2" color="text.secondary">{booking.parent_name_en}</Typography>
-            )}
-            <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
-              <PhoneIcon sx={{ fontSize: 13 }} color="action" />
-              <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
-            </Stack>
-            {booking.parent_email && (
-              <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
-                <EmailIcon sx={{ fontSize: 13 }} color="action" />
-                <Typography variant="body2">{booking.parent_email}</Typography>
-              </Stack>
-            )}
-          </Box>
+            </Box>
+          ) : (
+            <>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เด็กผู้เรียน</Typography>
+                <Typography sx={{ fontWeight: 700 }}>
+                  {booking.child_name || '-'}{booking.child_nickname && booking.child_nickname !== booking.child_name ? ` (${booking.child_nickname})` : ''}
+                </Typography>
+                {booking.child_name_en && (
+                  <Typography variant="body2" color="text.secondary">{booking.child_name_en}</Typography>
+                )}
+                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                  <Typography variant="body2" color="text.secondary">{formatBirthDate(booking.child_birth_date)}</Typography>
+                  {booking.child_birth_date && (
+                    <Chip icon={<CakeIcon sx={{ fontSize: '12px !important' }} />} label={calculateAge(booking.child_birth_date)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+                  )}
+                  {booking.child_gender && (
+                    <Chip label={getGenderLabel(booking.child_gender)} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700 }} />
+                  )}
+                </Stack>
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ผู้ปกครอง</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{booking.parent_name || '-'}</Typography>
+                {booking.parent_name_en && (
+                  <Typography variant="body2" color="text.secondary">{booking.parent_name_en}</Typography>
+                )}
+                <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+                  <PhoneIcon sx={{ fontSize: 13 }} color="action" />
+                  <Typography variant="body2">{booking.parent_phone || '-'}</Typography>
+                </Stack>
+                {booking.parent_email && (
+                  <Stack direction="row" spacing={0.75} alignItems="center" mt={0.25}>
+                    <EmailIcon sx={{ fontSize: 13 }} color="action" />
+                    <Typography variant="body2">{booking.parent_email}</Typography>
+                  </Stack>
+                )}
+              </Box>
+            </>
+          )}
           <Divider />
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>การชำระเงิน</Typography>
@@ -751,57 +817,6 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
               <Box>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>หมายเหตุ</Typography>
                 <Typography variant="body2">{booking.notes}</Typography>
-              </Box>
-            </>
-          )}
-          {booking.form_submission_id && (
-            <>
-              <Divider />
-              <Box>
-                <Button size="small" onClick={toggleFormAnswers} sx={{ fontWeight: 700, px: 0 }}>
-                  {showForm ? 'ซ่อนข้อมูลเพิ่มเติม' : 'ดูข้อมูลเพิ่มเติม'}
-                </Button>
-                {showForm && (
-                  formLoading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
-                  ) : formFields && formFields.length > 0 ? (
-                    isEditingForm ? (
-                      <Stack spacing={1.5} sx={{ mt: 1 }}>
-                        {saveFormError && <Alert severity="error" sx={{ py: 0.5 }}>{saveFormError}</Alert>}
-                        {formFields.map(f => (
-                          <FormAnswerFieldEditor
-                            key={f.fieldKey}
-                            field={f}
-                            value={editedAnswers[f.fieldKey]}
-                            onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
-                          />
-                        ))}
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          <Button size="small" onClick={() => setIsEditingForm(false)} disabled={savingForm}>ยกเลิก</Button>
-                          <Button size="small" variant="contained" onClick={saveEditForm} disabled={savingForm}>
-                            {savingForm ? <CircularProgress size={16} color="inherit" /> : 'บันทึก'}
-                          </Button>
-                        </Stack>
-                      </Stack>
-                    ) : (
-                      <>
-                        <Stack spacing={1} sx={{ mt: 1 }}>
-                          {formFields.map((f, i) => (
-                            <Stack key={i} direction="row" justifyContent="space-between" gap={1.5}>
-                              <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{f.label}</Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
-                                {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
-                              </Typography>
-                            </Stack>
-                          ))}
-                        </Stack>
-                        <Button size="small" onClick={startEditForm} sx={{ fontWeight: 700, px: 0, mt: 1 }}>แก้ไขข้อมูล</Button>
-                      </>
-                    )
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>ไม่มีข้อมูลที่กรอกไว้</Typography>
-                  )
-                )}
               </Box>
             </>
           )}
@@ -1057,6 +1072,19 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     return value || null;
   };
 
+  // Whoever the registration form's family_member_picker answer names —
+  // once a form is attached, this is the "person" leading the card instead
+  // of the generic child name.
+  const getPersonLabel = (b: Booking): string | null => {
+    if (!b.form_submission_id) return null;
+    const sub = submissionsMap[b.form_submission_id];
+    if (!sub) return null;
+    const personField = sub.fields.find(f => f.type === 'family_member_picker');
+    if (!personField) return null;
+    const value = sub.answers[personField.field_key];
+    return value || null;
+  };
+
   const renderBookingCard = (b: Booking) => {
     const si = getStatusInfo(b.status);
     const dt = new Date(b.scheduled_at);
@@ -1103,56 +1131,65 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Typography>
             </Box>
 
-            {/* Child + parent — nickname leads, but the real first+last name
-                (and the parent's full name) stay visible right here instead
-                of being hidden behind a click. */}
+            {/* Once a registration form is attached, its person/team
+                answers replace the generic child+parent display entirely —
+                same as the detail dialog. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
               <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={0.75} alignItems="center">
-                  <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                    {b.child_nickname || b.child_name || '-'}
-                  </Typography>
-                  {b.child_birth_date && (
-                    <Chip
-                      icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                      label={calculateAge(b.child_birth_date)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                  {b.child_gender && (
-                    <Chip
-                      label={getGenderLabel(b.child_gender)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                  {teamLabel && (
-                    <Chip
-                      label={teamLabel}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
-                    />
-                  )}
-                </Stack>
-                {hasRealName && (
-                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
-                  </Typography>
-                )}
-                {/* Phone leads — it's the reliable way to actually reach this
-                    family, more so than whichever name got typed into the
-                    form; parent name trails as secondary context. */}
-                {b.parent_phone && (
-                  <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
-                    <PhoneIcon sx={{ fontSize: 12 }} />
-                    {b.parent_phone}
-                  </Typography>
-                )}
-                {b.parent_name && (
-                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.parent_name}
-                  </Typography>
+                {b.form_submission_id ? (
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                      {getPersonLabel(b) || '-'}
+                    </Typography>
+                    {teamLabel && (
+                      <Chip
+                        label={teamLabel}
+                        size="small"
+                        sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
+                      />
+                    )}
+                  </Stack>
+                ) : (
+                  <>
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
+                        {b.child_nickname || b.child_name || '-'}
+                      </Typography>
+                      {b.child_birth_date && (
+                        <Chip
+                          icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                          label={calculateAge(b.child_birth_date)}
+                          size="small"
+                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                        />
+                      )}
+                      {b.child_gender && (
+                        <Chip
+                          label={getGenderLabel(b.child_gender)}
+                          size="small"
+                          sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                        />
+                      )}
+                    </Stack>
+                    {hasRealName && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                        {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
+                      </Typography>
+                    )}
+                    {/* Phone leads — it's the reliable way to actually reach
+                        this family; parent name trails as secondary context. */}
+                    {b.parent_phone && (
+                      <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
+                        <PhoneIcon sx={{ fontSize: 12 }} />
+                        {b.parent_phone}
+                      </Typography>
+                    )}
+                    {b.parent_name && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                        {b.parent_name}
+                      </Typography>
+                    )}
+                  </>
                 )}
               </Box>
             </Box>

@@ -35,7 +35,10 @@ const NAV_PATHS = ['/', '/journey', '/album', '/explore', '/rewards'];
 // Register CTA) — the floating menu FAB would sit visually on top of/
 // overlapping that bar (both are `fixed` near the bottom), so it's
 // suppressed on these routes instead of colliding with the page's own CTA.
-const HAS_OWN_BOTTOM_BAR_PREFIXES = ['/class/'];
+// CourseDetail is reached via one of three prefixes depending on course
+// type (see getCourseDetailPath) — all three need to be listed here, not
+// just "/class/", or the FAB reappears on event/service detail pages.
+const HAS_OWN_BOTTOM_BAR_PREFIXES = ['/class/', '/activities/', '/services/'];
 // Only genuine pre-login/onboarding screens keep the old centered-card,
 // no-sidebar treatment — every other route (Booking, CourseDetail,
 // SettingsProfile, MyCoupons, NewsDetail, etc.) now keeps the persistent
