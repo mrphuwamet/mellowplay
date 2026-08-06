@@ -371,7 +371,10 @@ const Home = () => {
     const isOneTimeBooked = !!bookingStatus && !course?.allow_repeat;
     const bookLabel = isOneTimeBooked
       ? (bookingStatus === 'upcoming' ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว') : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว'))
-      : (lang === 'en' ? 'Book Now' : 'จองเลย');
+      // "จอง" (book) for a class/service, "ลงทะเบียน" (register) for an
+      // event — matches the booking flow's own header wording per type
+      // (จองคลาสเรียน/จองบริการ vs ลงทะเบียนกิจกรรม).
+      : (course?.is_event ? (lang === 'en' ? 'Register Now' : 'ลงทะเบียนเลย') : (lang === 'en' ? 'Book Now' : 'จองเลย'));
     const handleBook = (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isOneTimeBooked || !course) return;

@@ -412,6 +412,10 @@ const CHECKIN_ACCESS_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/search-by-phone\/[^/]+$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin\/\d+\/actions\/\d+\/toggle$/ },
+  // So the scanner can show a booking's full registration-form answers too,
+  // not just its own lookup fields — same endpoint the CRM booking list's
+  // "ดูข้อมูลเพิ่มเติม" button already uses.
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/bookings\/\d+\/form-answers$/ },
 ];
 
 async function requireCrmAuth(c: any, next: any) {

@@ -141,7 +141,17 @@ const Booking = () => {
   // คลาส"), but each browses its own course pool via a real is_event/
   // is_service flag (not a category-name guess) so they stay clearly
   // separate systems ("แยกระบบกันชัดเจน") rather than one blended list.
+  //
+  // The URL's ?type= only exists to pick which pool to browse BEFORE a
+  // course is chosen (the nav menu's three "Book ..." links each set it).
+  // Arriving with a specific courseId instead (every course card/detail
+  // page's own CTA does this, with no &type= at all) skipped that entirely
+  // — bookingType silently stayed 'class' for an event/service booked this
+  // way, wrong not just for the header text but for real behavior gated on
+  // it too (single- vs multi-child selection below). Once a course is
+  // loaded, its own is_event/is_service flags are ground truth and win.
   const bookingType: 'class' | 'service' | 'event' =
+    selectedCourse ? (selectedCourse.is_event ? 'event' : selectedCourse.is_service ? 'service' : 'class') :
     searchParams.get('type') === 'event' ? 'event' :
     searchParams.get('type') === 'service' ? 'service' :
     'class';
@@ -154,7 +164,7 @@ const Booking = () => {
   // The one visible difference between the three systems — everything else
   // (progress steps, cards, payment screen) is the exact same component.
   const bookingTypeTitle = bookingType === 'event'
-    ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
+    ? (lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม')
     : bookingType === 'service'
       ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
       : (t.booking?.title || 'จองคลาสเรียน');
@@ -702,6 +712,22 @@ const Booking = () => {
             <CheckCircle size={56} />
           </div>
           <h2 className="text-2xl font-black text-slate-800 text-center mb-6">{t.booking?.bookingSuccess || 'ยืนยันการจองสำเร็จ!'}</h2>
+          {successBooking.qrToken && (
+            <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 flex flex-col items-center">
+              <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-3">
+                {lang === 'en' ? 'Check-in QR Code' : 'QR Code สำหรับเช็คอิน'}
+              </p>
+              <div className="p-3 bg-white rounded-2xl border border-slate-100">
+                <QRCodeSVG value={successBooking.qrToken} size={180} level="M" />
+              </div>
+              <p className="text-[12px] font-bold text-slate-400 text-center mt-3 px-2 leading-relaxed">
+                {lang === 'en'
+                  ? 'Show this to staff at the registration desk on the event day.'
+                  : 'แสดง QR Code นี้กับแอดมินที่จุดลงทะเบียนในวันงาน'}
+              </p>
+            </div>
+          )}
+
           <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-br from-mellow-green/10 to-mellow-blue/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
             <div className="relative z-10 space-y-4">
@@ -765,22 +791,6 @@ const Booking = () => {
               </div>
             </div>
           </div>
-
-          {successBooking.qrToken && (
-            <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 flex flex-col items-center">
-              <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-3">
-                {lang === 'en' ? 'Check-in QR Code' : 'QR Code สำหรับเช็คอิน'}
-              </p>
-              <div className="p-3 bg-white rounded-2xl border border-slate-100">
-                <QRCodeSVG value={successBooking.qrToken} size={180} level="M" />
-              </div>
-              <p className="text-[12px] font-bold text-slate-400 text-center mt-3 px-2 leading-relaxed">
-                {lang === 'en'
-                  ? 'Show this to staff at the registration desk on the event day.'
-                  : 'แสดง QR Code นี้กับแอดมินที่จุดลงทะเบียนในวันงาน'}
-              </p>
-            </div>
-          )}
 
           <p className="text-[12px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
             📸 {lang === 'en' ? 'Please screenshot this screen for easy reference.' : 'โปรดแคปหน้าจอนี้ไว้เพื่อดูข้อมูลอย่างง่าย'}
@@ -1668,7 +1678,7 @@ const Booking = () => {
                 onClick={() => { setIsCourseModalOpen(false); goToChildStep(selectedCourse); }}
                 className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
-                {lang === 'en' ? 'Book Now' : 'จองเลย'}
+                {selectedCourse?.is_event ? (lang === 'en' ? 'Register Now' : 'ลงทะเบียนเลย') : (lang === 'en' ? 'Book Now' : 'จองเลย')}
                 <ArrowRight size={18} />
               </button>
             </div>

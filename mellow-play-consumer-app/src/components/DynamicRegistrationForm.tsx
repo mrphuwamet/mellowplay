@@ -206,6 +206,18 @@ const DynamicRegistrationForm: React.FC<Props> = ({
 
           const isInvalid = field.field_key === invalidFieldKey;
 
+          // "Fill in this field" reads oddly for a pick-one-from-a-list
+          // field — spelling out what's actually missing (a person, a
+          // choice) instead of a generic message people kept not
+          // understanding applied to the picker above it at all.
+          const requiredMessage = field.type === 'family_member_picker'
+            ? (lang === 'en' ? 'Please select 1 person' : 'กรุณาเลือก 1 รายชื่อ')
+            : field.type === 'checkbox'
+            ? (lang === 'en' ? 'Please select at least 1 option' : 'กรุณาเลือกอย่างน้อย 1 ตัวเลือก')
+            : (field.type === 'select' || field.type === 'radio' || field.type === 'team_select')
+            ? (lang === 'en' ? 'Please make a selection' : 'กรุณาเลือกตัวเลือกนี้')
+            : (lang === 'en' ? 'This field is required' : 'กรุณากรอกข้อมูลนี้');
+
           const labelEl = (
             <>
               <label className="text-xs font-bold text-slate-600 block mb-1.5">
@@ -213,7 +225,7 @@ const DynamicRegistrationForm: React.FC<Props> = ({
               </label>
               {isInvalid && (
                 <p className="text-[11px] font-bold text-mellow-red mb-1.5">
-                  {lang === 'en' ? 'This field is required' : 'กรุณากรอกข้อมูลนี้'}
+                  {requiredMessage}
                 </p>
               )}
             </>
@@ -366,11 +378,18 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                         <button key={member.id} type="button" onClick={() => handlePick(member)}
                           className={`p-3 rounded-2xl border text-left flex items-center gap-2 transition-all ${selected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
                           <ChildAvatar avatarType={member.avatar} className="w-8 h-8 shrink-0" />
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <span className="text-xs font-black text-slate-700 truncate block">{display}</span>
                             {member.nickname && member.name && member.nickname !== member.name && (
                               <span className="text-[10px] font-bold text-slate-400 truncate block">{member.name}</span>
                             )}
+                          </div>
+                          {/* A plain highlighted border wasn't registering as
+                              "this is a tappable choice" for a lot of people —
+                              an explicit radio circle makes the pick-one-from-
+                              a-list nature of this control unambiguous. */}
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-mellow-purple border-mellow-purple' : 'border-slate-300'}`}>
+                            {selected && <div className="w-2 h-2 rounded-full bg-white" />}
                           </div>
                         </button>
                       );
