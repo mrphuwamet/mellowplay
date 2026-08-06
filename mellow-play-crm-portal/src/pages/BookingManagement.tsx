@@ -7,7 +7,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar, Switch, Menu, Avatar, OutlinedInput, Checkbox, Pagination,
+  Snackbar, Switch, Menu, OutlinedInput, Checkbox, Pagination,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -1107,9 +1107,6 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 (and the parent's full name) stay visible right here instead
                 of being hidden behind a click. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
-              <Avatar sx={{ width: 38, height: 38, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)', fontWeight: 800, fontSize: '15px' }}>
-                {(b.child_nickname || b.child_name || '?').charAt(0)}
-              </Avatar>
               <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={0.75} alignItems="center">
                   <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
