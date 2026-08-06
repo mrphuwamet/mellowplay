@@ -30,13 +30,17 @@ interface CheckinBooking {
   scheduled_at: string;
   status: string;
   child_name?: string;
+  child_name_en?: string;
   child_nickname?: string;
   child_avatar?: string;
   parent_first_name?: string;
   parent_last_name?: string;
   parent_phone?: string;
+  form_submission_id?: number;
   actions: CheckinAction[];
 }
+
+interface FormAnswerField { label: string; type: string; value: any; }
 
 interface PhoneSearchResult {
   booking_id: number;
@@ -74,6 +78,8 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
   const [phoneResults, setPhoneResults] = useState<PhoneSearchResult[] | null>(null);
+  const [formFields, setFormFields] = useState<FormAnswerField[] | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const lastScannedRef = useRef<string | null>(null);
 
@@ -175,9 +181,28 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
     }
   };
 
+  // Whatever the family filled in on the registration form for this
+  // booking — staff previously only saw the lookup's own bare fields
+  // (nickname/course/parent phone), with no way to see, say, which team
+  // they picked or any other custom question's answer, right at check-in.
+  useEffect(() => {
+    if (!booking?.form_submission_id) { setFormFields(null); return; }
+    let cancelled = false;
+    setFormLoading(true);
+    client.get(`${API_BASE}/bookings/${booking.id}/form-answers`)
+      .then(res => { if (!cancelled) setFormFields(res.data.success ? res.data.fields : []); })
+      .catch(() => { if (!cancelled) setFormFields([]); })
+      .finally(() => { if (!cancelled) setFormLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking?.id, booking?.form_submission_id]);
+
   const attendeeName = booking?.child_nickname || booking?.child_name
     || [booking?.parent_first_name, booking?.parent_last_name].filter(Boolean).join(' ')
     || 'ผู้เข้าร่วม';
+  const attendeeRealName = booking?.child_name && booking.child_name !== attendeeName
+    ? `${booking.child_name}${booking.child_name_en ? ` (${booking.child_name_en})` : ''}`
+    : (booking?.child_name_en || null);
 
   return (
     <Box>
@@ -261,6 +286,9 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
             </Avatar>
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{attendeeName}</Typography>
+              {attendeeRealName && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{attendeeRealName}</Typography>
+              )}
               <Typography variant="body2" color="text.secondary">{booking.course_name}</Typography>
               <Chip
                 size="small"
@@ -274,6 +302,31 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
               ผู้ปกครอง: {[booking.parent_first_name, booking.parent_last_name].filter(Boolean).join(' ')} · {booking.parent_phone}
             </Typography>
+          )}
+
+          {booking.form_submission_id && (
+            <>
+              <Divider sx={{ mb: 1.5 }} />
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                ข้อมูลที่กรอกไว้ตอนลงทะเบียน
+              </Typography>
+              {formLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 1.5 }}><CircularProgress size={18} /></Box>
+              ) : formFields && formFields.length > 0 ? (
+                <Box sx={{ mb: 2 }}>
+                  {formFields.map((f, i) => (
+                    <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, py: 0.4 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>{f.label}</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                        {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 2 }}>ไม่มีข้อมูลที่กรอกไว้</Typography>
+              )}
+            </>
           )}
 
           <Divider sx={{ mb: 1 }} />
