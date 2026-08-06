@@ -38,11 +38,11 @@ const CalendarManagement: React.FC = () => {
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
   const [ruleEditId, setRuleEditId] = useState<number | null>(null);
   const [ruleForm, setRuleForm] = useState<{
-    dayOfWeek: number[]; specificDates: string[]; startTime: string; endTime: string;
+    dayOfWeek: number[]; specificDates: string[]; timeRanges: { start: string; end: string }[];
     maxCapacity: number; validFrom: string; validUntil: string; autoSplit: boolean; splitInterval: number;
-  }>({ 
-    dayOfWeek: [], specificDates: [''], startTime: '', endTime: '', 
-    maxCapacity: 4, validFrom: '', validUntil: '', autoSplit: false, splitInterval: 30 
+  }>({
+    dayOfWeek: [], specificDates: [''], timeRanges: [{ start: '', end: '' }],
+    maxCapacity: 4, validFrom: '', validUntil: '', autoSplit: false, splitInterval: 30
   });
   const [ruleMode, setRuleMode] = useState<'recurring' | 'specific'>('recurring');
   
@@ -115,13 +115,13 @@ const CalendarManagement: React.FC = () => {
   const openCreateRule = () => {
     setRuleEditId(null);
     setRuleMode('recurring');
-    setRuleForm({ dayOfWeek: [1], specificDates: [new Date().toISOString().slice(0, 10)], startTime: '09:00', endTime: '10:00', maxCapacity: 4, validFrom: new Date().toISOString().slice(0, 10), validUntil: '', autoSplit: false, splitInterval: 30 });
+    setRuleForm({ dayOfWeek: [1], specificDates: [new Date().toISOString().slice(0, 10)], timeRanges: [{ start: '09:00', end: '10:00' }], maxCapacity: 4, validFrom: new Date().toISOString().slice(0, 10), validUntil: '', autoSplit: false, splitInterval: 30 });
     setRuleDialogOpen(true);
   };
   const openEditRule = (r: SlotRule) => {
     setRuleEditId(r.id);
     setRuleMode(r.day_of_week !== null ? 'recurring' : 'specific');
-    setRuleForm({ dayOfWeek: r.day_of_week !== null ? [r.day_of_week] : [], specificDates: [r.specific_date ?? ''], startTime: r.start_time, endTime: r.end_time, maxCapacity: r.max_capacity, validFrom: r.valid_from, validUntil: r.valid_until ?? '', autoSplit: false, splitInterval: 30 });
+    setRuleForm({ dayOfWeek: r.day_of_week !== null ? [r.day_of_week] : [], specificDates: [r.specific_date ?? ''], timeRanges: [{ start: r.start_time, end: r.end_time }], maxCapacity: r.max_capacity, validFrom: r.valid_from, validUntil: r.valid_until ?? '', autoSplit: false, splitInterval: 30 });
     setRuleDialogOpen(true);
   };
   const generateSplitSlots = (start: string, end: string, intervalMin: number) => {
@@ -150,13 +150,17 @@ const CalendarManagement: React.FC = () => {
   };
 
   const saveRule = async () => {
-    if (!selectedCalendar || !ruleForm.startTime || !ruleForm.endTime) return;
+    if (!selectedCalendar || ruleForm.timeRanges.some(r => !r.start || !r.end)) return;
     if (ruleMode === 'recurring' && !ruleForm.validFrom) return;
     if (ruleMode === 'specific' && !ruleForm.specificDates.some(d => d)) return;
-    
-    const times = (ruleForm.autoSplit && ruleEditId === null)
-      ? generateSplitSlots(ruleForm.startTime, ruleForm.endTime, ruleForm.splitInterval)
-      : [{ start: ruleForm.startTime, end: ruleForm.endTime }];
+
+    // Each time range creates its own set of slots — auto-split (if on)
+    // applies within every range independently, not just the first one.
+    const times = ruleForm.timeRanges.flatMap(range =>
+      (ruleForm.autoSplit && ruleEditId === null)
+        ? generateSplitSlots(range.start, range.end, ruleForm.splitInterval)
+        : [{ start: range.start, end: range.end }]
+    );
 
     const payloads: any[] = [];
     const daysToSave = ruleMode === 'recurring' ? (ruleForm.dayOfWeek.length > 0 ? ruleForm.dayOfWeek : [null]) : [null];
@@ -475,9 +479,31 @@ const CalendarManagement: React.FC = () => {
               )}
             </Box>
           )}
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <TextField label="เวลาเริ่ม" type="time" fullWidth InputLabelProps={{ shrink: true }} value={ruleForm.startTime} onChange={(e) => setRuleForm(f => ({ ...f, startTime: e.target.value }))} />
-            <TextField label="เวลาสิ้นสุด" type="time" fullWidth InputLabelProps={{ shrink: true }} value={ruleForm.endTime} onChange={(e) => setRuleForm(f => ({ ...f, endTime: e.target.value }))} />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {ruleForm.timeRanges.map((range, i) => (
+              <Box key={i} sx={{ display: 'flex', gap: 1 }}>
+                <TextField label="เวลาเริ่ม" type="time" fullWidth InputLabelProps={{ shrink: true }} value={range.start} onChange={(e) => {
+                  const next = [...ruleForm.timeRanges];
+                  next[i] = { ...next[i], start: e.target.value };
+                  setRuleForm(f => ({ ...f, timeRanges: next }));
+                }} />
+                <TextField label="เวลาสิ้นสุด" type="time" fullWidth InputLabelProps={{ shrink: true }} value={range.end} onChange={(e) => {
+                  const next = [...ruleForm.timeRanges];
+                  next[i] = { ...next[i], end: e.target.value };
+                  setRuleForm(f => ({ ...f, timeRanges: next }));
+                }} />
+                {ruleEditId === null && ruleForm.timeRanges.length > 1 && (
+                  <IconButton color="error" onClick={() => setRuleForm(f => ({ ...f, timeRanges: f.timeRanges.filter((_, idx) => idx !== i) }))}>
+                    <DeleteIcon />
+                  </IconButton>
+                )}
+              </Box>
+            ))}
+            {ruleEditId === null && (
+              <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setRuleForm(f => ({ ...f, timeRanges: [...f.timeRanges, { start: '', end: '' }] }))}>
+                เพิ่มช่วงเวลา
+              </Button>
+            )}
           </Box>
           {ruleEditId === null && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, bgcolor: 'grey.50', p: 1.5, borderRadius: 2 }}>
@@ -498,7 +524,12 @@ const CalendarManagement: React.FC = () => {
               )}
             </Box>
           )}
-          <TextField label="รับได้สูงสุด (คน) ต่อ Slot" type="number" fullWidth inputProps={{ min: 1 }} value={ruleForm.maxCapacity} onChange={(e) => setRuleForm(f => ({ ...f, maxCapacity: parseInt(e.target.value) || 1 }))} />
+          <TextField
+            label="รับได้สูงสุด (คน) ต่อ Slot" type="number" fullWidth inputProps={{ min: 0 }}
+            helperText="ใส่ 0 ได้ — รอบจะยังแสดงอยู่แต่ขึ้นว่าเต็มเสมอ"
+            value={ruleForm.maxCapacity}
+            onChange={(e) => setRuleForm(f => ({ ...f, maxCapacity: Math.max(0, parseInt(e.target.value) || 0) }))}
+          />
           {ruleMode === 'recurring' && (
             <Box sx={{ display: 'flex', gap: 1.5 }}>
               <TextField label="ใช้งานตั้งแต่" type="date" fullWidth InputLabelProps={{ shrink: true }} value={ruleForm.validFrom} onChange={(e) => setRuleForm(f => ({ ...f, validFrom: e.target.value }))} />
