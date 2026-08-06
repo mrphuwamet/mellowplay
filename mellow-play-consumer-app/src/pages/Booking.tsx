@@ -154,7 +154,7 @@ const Booking = () => {
   // The one visible difference between the three systems — everything else
   // (progress steps, cards, payment screen) is the exact same component.
   const bookingTypeTitle = bookingType === 'event'
-    ? (lang === 'en' ? 'Book Event' : 'จองกิจกรรม')
+    ? (lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม')
     : bookingType === 'service'
       ? (lang === 'en' ? 'Book Service' : 'จองบริการ')
       : (t.booking?.title || 'จองคลาสเรียน');
@@ -1668,7 +1668,7 @@ const Booking = () => {
                 onClick={() => { setIsCourseModalOpen(false); goToChildStep(selectedCourse); }}
                 className="w-full h-[52px] bg-mellow-ink text-white rounded-2xl font-black text-[16px] shadow-lg shadow-black/20 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
-                {lang === 'en' ? 'Book Now' : 'จองเลย'}
+                {selectedCourse?.is_event ? (lang === 'en' ? 'Register Now' : 'ลงทะเบียนเลย') : (lang === 'en' ? 'Book Now' : 'จองเลย')}
                 <ArrowRight size={18} />
               </button>
             </div>

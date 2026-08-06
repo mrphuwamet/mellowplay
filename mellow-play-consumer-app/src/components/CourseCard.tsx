@@ -174,7 +174,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
               ? (lang === 'en' ? 'Ended' : 'จบแล้ว')
               : closed
                 ? (lang === 'en' ? 'Registration Closed' : 'ปิดรับลงทะเบียน')
-                : (lang === 'en' ? 'Book Now' : 'จองเลย')}
+                : (course.is_event ? (lang === 'en' ? 'Register Now' : 'ลงทะเบียนเลย') : (lang === 'en' ? 'Book Now' : 'จองเลย'))}
         </button>
       </div>
     </div>

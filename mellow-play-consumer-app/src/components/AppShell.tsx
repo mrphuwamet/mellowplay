@@ -258,7 +258,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     ...beforeBookingItems,
     { to: '/booking', Icon: Calendar, label: lang === 'en' ? 'Book Class' : 'จองคลาส', color: 'text-orange-500', guarded: false },
     { to: '/booking?type=service', Icon: Calendar, label: lang === 'en' ? 'Book Service' : 'จองบริการ', color: 'text-orange-500', guarded: false },
-    { to: '/booking?type=event', Icon: Calendar, label: lang === 'en' ? 'Book Event' : 'จองกิจกรรม', color: 'text-orange-500', guarded: false },
+    { to: '/booking?type=event', Icon: Calendar, label: lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม', color: 'text-orange-500', guarded: false },
     ...afterBookingItems,
   ];
 
@@ -510,7 +510,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={() => setIsBookingMenuOpen(false)}
                 className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
-                {lang === 'en' ? 'Book Event' : 'จองกิจกรรม'}
+                {lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม'}
               </Link>
             </div>
           )}
