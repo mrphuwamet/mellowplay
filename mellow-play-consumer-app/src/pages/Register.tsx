@@ -63,6 +63,7 @@ const Register = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [otpRef, setOtpRef] = useState('');
 
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -251,6 +252,7 @@ const Register = () => {
     try {
       const response = await apiClient.post('/auth/register', payload);
       if (response.data.success) {
+        if (response.data.duplicateWarning) setWarning(response.data.duplicateWarning);
         try {
           const loginRes = await apiClient.post('/auth/login', { login: formData.phone, password: pin });
           if (loginRes.data.success) {
@@ -314,6 +316,7 @@ const Register = () => {
       };
       const response = await apiClient.post('/profiles/children', payload);
       if (response.data.success) {
+        if (response.data.duplicateWarning) setWarning(response.data.duplicateWarning);
         setFamilyMembers(prev => [...prev, memberForm]);
         const userJson = localStorage.getItem('mellow_user');
         if (userJson) {
@@ -898,6 +901,7 @@ const Register = () => {
       )}
 
       <Toast message={error || ''} type="error" onClose={() => setError('')} />
+      <Toast message={warning || ''} type="warning" onClose={() => setWarning('')} />
 
       <div className="flex-1 flex flex-col">
         {step === 'consent' && renderStepConsent()}

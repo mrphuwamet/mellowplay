@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 
 interface ToastProps {
   message: string;
-  type?: 'success' | 'error';
+  type?: 'success' | 'error' | 'warning';
   onClose: () => void;
   duration?: number;
 }
@@ -18,7 +18,11 @@ export function Toast({ message, type = 'error', onClose, duration = 5000 }: Toa
 
   if (!message) return null;
 
-  const bgColor = type === 'success' ? 'bg-green-50 border-green-100 text-green-600' : 'bg-red-50 border-red-100 text-red-500';
+  const bgColor = type === 'success'
+    ? 'bg-green-50 border-green-100 text-green-600'
+    : type === 'warning'
+    ? 'bg-amber-50 border-amber-100 text-amber-600'
+    : 'bg-red-50 border-red-100 text-red-500';
 
   return (
     <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm md:max-w-md p-4 rounded-2xl shadow-xl border text-sm font-bold flex items-center justify-between animate-in fade-in slide-in-from-top-8 duration-300 ${bgColor}`}>

@@ -8,6 +8,50 @@ export class UserRepository {
     this.db = db;
   }
 
+  // A soft, non-blocking check — the record still gets written either way,
+  // this just gives the caller enough to show staff/the registering user a
+  // "this name already exists" warning. Covers every place a real full name
+  // lives (account holders, HD-registered children, CRM walk-in children) —
+  // nicknames don't count, only the real name people are legally known by.
+  async checkDuplicateFullName(
+    fullName: string,
+    exclude: { userId?: number; hdProfileId?: number; crmChildId?: number } = {}
+  ): Promise<Array<{ type: 'user' | 'child'; id: number; name: string }>> {
+    const normalized = fullName.trim().replace(/\s+/g, ' ');
+    if (!normalized) return [];
+
+    const matches: Array<{ type: 'user' | 'child'; id: number; name: string }> = [];
+
+    const userQuery = exclude.userId
+      ? `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?) AND id != ?`
+      : `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?)`;
+    const userBind = exclude.userId ? [normalized, exclude.userId] : [normalized];
+    const { results: userMatches } = await this.db.prepare(userQuery).bind(...userBind).all();
+    for (const u of (userMatches || []) as any[]) {
+      matches.push({ type: 'user', id: u.id, name: `${u.first_name} ${u.last_name}` });
+    }
+
+    const hdQuery = exclude.hdProfileId
+      ? `SELECT id, name FROM HD_Profiles WHERE LOWER(TRIM(name)) = LOWER(?) AND COALESCE(is_deleted, 0) = 0 AND id != ?`
+      : `SELECT id, name FROM HD_Profiles WHERE LOWER(TRIM(name)) = LOWER(?) AND COALESCE(is_deleted, 0) = 0`;
+    const hdBind = exclude.hdProfileId ? [normalized, exclude.hdProfileId] : [normalized];
+    const { results: hdMatches } = await this.db.prepare(hdQuery).bind(...hdBind).all();
+    for (const c of (hdMatches || []) as any[]) {
+      matches.push({ type: 'child', id: c.id, name: c.name });
+    }
+
+    const crmChildQuery = exclude.crmChildId
+      ? `SELECT id, full_name FROM User_CRM_Children WHERE LOWER(TRIM(full_name)) = LOWER(?) AND id != ?`
+      : `SELECT id, full_name FROM User_CRM_Children WHERE LOWER(TRIM(full_name)) = LOWER(?)`;
+    const crmChildBind = exclude.crmChildId ? [normalized, exclude.crmChildId] : [normalized];
+    const { results: crmChildMatches } = await this.db.prepare(crmChildQuery).bind(...crmChildBind).all();
+    for (const c of (crmChildMatches || []) as any[]) {
+      matches.push({ type: 'child', id: c.id, name: c.full_name });
+    }
+
+    return matches;
+  }
+
   async create(phone: string, passwordHash: string, firstName?: string, lastName?: string): Promise<number> {
     const result = await this.db.prepare(
       'INSERT INTO Users (phone, password_hash, first_name, last_name, phone_verified) VALUES (?, ?, ?, ?, 1)'

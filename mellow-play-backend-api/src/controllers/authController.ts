@@ -114,6 +114,14 @@ export class AuthController {
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
+      const duplicateMatches = [
+        ...await userRepository.checkDuplicateFullName(`${firstName} ${lastName}`),
+        ...(await Promise.all(childList.map((child: any) => child.name ? userRepository.checkDuplicateFullName(child.name) : []))).flat(),
+      ];
+      const duplicateWarning = duplicateMatches.length > 0
+        ? `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`
+        : undefined;
+
       const userId = await userRepository.createWithChildren(
         phone,
         passwordHash,
@@ -136,7 +144,7 @@ export class AuthController {
         'เบอร์โทร': phone,
         'จำนวนบุตร': childList.length,
       });
-      return c.json({ success: true, userId });
+      return c.json({ success: true, userId, duplicateWarning });
     } catch (error: any) {
       console.error('register error:', error);
       let message = error.message;
@@ -211,6 +219,10 @@ export class AuthController {
         return c.json({ success: false, message: 'Invalid password', ...result }, result.locked ? 429 : 401);
       }
 
+      if (user.is_banned) {
+        return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
+      }
+
       await config.kv.delete(attemptKey);
 
       console.log('Generating token...');
@@ -272,6 +284,10 @@ export class AuthController {
           const userId = await userRepository.createFromGoogle(googleId, email, firstName, lastName);
           user = await userRepository.findByGoogleId(googleId) || { id: userId, phone: null, email, first_name: firstName, last_name: lastName };
         }
+      }
+
+      if (user.is_banned) {
+        return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
       }
 
       const token = await AuthService.generateToken(user.id, config.jwtSecret);

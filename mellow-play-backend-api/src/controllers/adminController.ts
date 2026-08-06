@@ -49,13 +49,18 @@ export class AdminController {
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
+      const duplicateMatches = await userRepository.checkDuplicateFullName(`${firstName} ${lastName}`);
+      const duplicateWarning = duplicateMatches.length > 0
+        ? `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`
+        : undefined;
+
       const userId = await userRepository.createWithChildren(
         phone, passwordHash, firstName, lastName, [],
         email || undefined, lineId || undefined,
         true, false, address || undefined, prefix || undefined, dob || undefined,
         firstNameEn || undefined, lastNameEn || undefined
       );
-      return c.json({ success: true, userId });
+      return c.json({ success: true, userId, duplicateWarning });
     } catch (error: any) {
       let message = error.message;
       if (message.includes('UNIQUE constraint failed: Users.email')) {
@@ -122,9 +127,20 @@ export class AdminController {
       // flow (POST /auth/phone-change/*).
       const phone = !c.get('crmUser') ? current.phone : (data.phone !== undefined ? data.phone : current.phone);
 
+      const finalFirstName = data.first_name !== undefined ? data.first_name : current.first_name;
+      const finalLastName = data.last_name !== undefined ? data.last_name : current.last_name;
+      let duplicateWarning: string | undefined;
+      if (finalFirstName !== current.first_name || finalLastName !== current.last_name) {
+        const userRepository = new UserRepository(config.db);
+        const duplicateMatches = await userRepository.checkDuplicateFullName(`${finalFirstName} ${finalLastName}`, { userId: id });
+        if (duplicateMatches.length > 0) {
+          duplicateWarning = `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`;
+        }
+      }
+
       await adminRepo.updateUser(id, {
-        firstName:          data.first_name !== undefined ? data.first_name : current.first_name,
-        lastName:           data.last_name !== undefined ? data.last_name : current.last_name,
+        firstName:          finalFirstName,
+        lastName:           finalLastName,
         firstNameEn:        data.first_name_en !== undefined ? data.first_name_en : current.first_name_en,
         lastNameEn:         data.last_name_en !== undefined ? data.last_name_en : current.last_name_en,
         nickname:           data.nickname !== undefined ? data.nickname : current.nickname,
@@ -143,7 +159,7 @@ export class AdminController {
         isCommunityAdmin:   data.is_community_admin !== undefined ? data.is_community_admin : !!current.is_community_admin,
         children:           data.children,
       });
-      return c.json({ success: true });
+      return c.json({ success: true, duplicateWarning });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -251,6 +267,35 @@ export class AdminController {
       // TODO: integrate with email service to send reset link
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       return c.json({ success: true, message: 'Reset link sent', expires_at: expiresAt });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async banUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      const user = await adminRepo.getUserById(id);
+      if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+      const { reason } = await c.req.json().catch(() => ({}));
+      await adminRepo.banUser(id, reason || undefined);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async unbanUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      const user = await adminRepo.getUserById(id);
+      if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+      await adminRepo.unbanUser(id);
+      return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

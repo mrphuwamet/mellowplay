@@ -83,6 +83,9 @@ interface User {
   has_pending_reset?: boolean;
   reset_token_expires_at?: string;
   is_community_admin?: boolean;
+  is_banned?: boolean;
+  banned_at?: string;
+  ban_reason?: string;
 }
 
 interface UserCoupon {
@@ -224,6 +227,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [warnMsg, setWarnMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
@@ -242,6 +246,10 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [resetting, setResetting] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [generatedResetLink, setGeneratedResetLink] = useState('');
+
+  const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [banReason, setBanReason] = useState('');
+  const [banSaving, setBanSaving] = useState(false);
 
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [membershipHistory, setMembershipHistory] = useState<MembershipHistoryEntry[]>([]);
@@ -310,7 +318,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
     setCreateSaving(true);
     setCreateError(null);
     try {
-      await axios.post(`${API_BASE}/users`, {
+      const res = await axios.post(`${API_BASE}/users`, {
         phone: createForm.phone.trim(),
         password: createForm.password.trim(),
         prefix: createForm.prefix || undefined,
@@ -322,7 +330,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         address: createForm.address.trim() || undefined,
       });
       closeCreate();
-      setSuccessMsg('เพิ่มลูกค้าใหม่สำเร็จ');
+      if (res.data.duplicateWarning) setWarnMsg(res.data.duplicateWarning);
+      else setSuccessMsg('เพิ่มลูกค้าใหม่สำเร็จ');
       fetchUsers();
     } catch (e: any) {
       setCreateError(e?.response?.data?.message || 'ไม่สามารถเพิ่มลูกค้าได้');
@@ -519,7 +528,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         marketing_consent: form.marketing_consent === '' ? null : form.marketing_consent === 'true',
         children: children.filter(c => !c.is_hd).map(c => ({ ...c, date_of_birth: c.date_of_birth || null })),
       };
-      await axios.put(`${API_BASE}/users/${editUser!.id}`, payload);
+      const saveRes = await axios.put(`${API_BASE}/users/${editUser!.id}`, payload);
       if (profileImageFile) {
         const fd = new FormData();
         fd.append('avatar', profileImageFile);
@@ -542,6 +551,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         )
       );
       handleClose();
+      if (saveRes.data.duplicateWarning) setWarnMsg(saveRes.data.duplicateWarning);
       fetchUsers();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
@@ -687,6 +697,40 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
     }
   };
 
+  const confirmBan = async () => {
+    if (!editUser) return;
+    setBanSaving(true);
+    try {
+      await axios.post(`${API_BASE}/users/${editUser.id}/ban`, { reason: banReason.trim() || undefined });
+      const bannedAt = new Date().toISOString();
+      setEditUser(prev => prev ? { ...prev, is_banned: true, banned_at: bannedAt, ban_reason: banReason.trim() || undefined } : null);
+      setUsers(prev => prev.map(u => u.id === editUser.id ? { ...u, is_banned: true, banned_at: bannedAt, ban_reason: banReason.trim() || undefined } : u));
+      setBanDialogOpen(false);
+      setBanReason('');
+      setSuccessMsg('ระงับการใช้งานบัญชีนี้แล้ว');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ไม่สามารถระงับการใช้งานได้');
+    } finally {
+      setBanSaving(false);
+    }
+  };
+
+  const handleUnban = async () => {
+    if (!editUser) return;
+    if (!window.confirm('ต้องการยกเลิกการระงับการใช้งานบัญชีนี้ใช่หรือไม่?')) return;
+    setBanSaving(true);
+    try {
+      await axios.delete(`${API_BASE}/users/${editUser.id}/ban`);
+      setEditUser(prev => prev ? { ...prev, is_banned: false, banned_at: undefined, ban_reason: undefined } : null);
+      setUsers(prev => prev.map(u => u.id === editUser.id ? { ...u, is_banned: false, banned_at: undefined, ban_reason: undefined } : u));
+      setSuccessMsg('ยกเลิกการระงับการใช้งานแล้ว');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ไม่สามารถยกเลิกการระงับได้');
+    } finally {
+      setBanSaving(false);
+    }
+  };
+
   // Membership is per-child now — this just flags whether ANY of this
   // parent's children currently has an active Premium membership (see
   // has_premium_child, computed server-side in adminRepository.getAllUsers).
@@ -770,6 +814,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
 
         {error    && <Alert severity="error"   onClose={() => setError(null)}      sx={{ mb: 3 }}>{error}</Alert>}
         {successMsg && <Alert severity="success" onClose={() => setSuccessMsg(null)} sx={{ mb: 3 }}>{successMsg}</Alert>}
+        {warnMsg  && <Alert severity="warning" onClose={() => setWarnMsg(null)}    sx={{ mb: 3 }}>{warnMsg}</Alert>}
 
         {fetchingUser ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>
@@ -1149,8 +1194,48 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
               </Paper>
 
               {/* Security */}
-              <Paper sx={{ p: 3, borderRadius: 3 }}>
+              <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
                 <SectionHeader icon={<SecurityIcon />} title="ความปลอดภัย" />
+
+                {editUser?.is_banned && (
+                  <Box sx={{ border: '1px solid', borderColor: 'error.main', borderRadius: 2, p: 1.5, mb: 2, bgcolor: 'rgba(244,67,54,0.06)' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Chip label="ถูกระงับการใช้งาน" size="small" color="error" sx={{ fontWeight: 700, height: 20, fontSize: '0.65rem' }} />
+                      {editUser.banned_at && (
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(editUser.banned_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                        </Typography>
+                      )}
+                    </Box>
+                    {editUser.ban_reason && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        เหตุผล: {editUser.ban_reason}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+
+                {!readOnly && (
+                  editUser?.is_banned ? (
+                    <Button
+                      variant="outlined" color="success" fullWidth
+                      startIcon={banSaving ? <CircularProgress size={16} color="inherit" /> : <ActiveIcon />}
+                      onClick={handleUnban} disabled={banSaving}
+                      sx={{ borderRadius: 2, mb: 2 }}
+                    >
+                      {banSaving ? 'กำลังดำเนินการ...' : 'ยกเลิกการระงับการใช้งาน'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outlined" color="error" fullWidth
+                      startIcon={<SecurityIcon />}
+                      onClick={() => setBanDialogOpen(true)}
+                      sx={{ borderRadius: 2, mb: 2 }}
+                    >
+                      ระงับการใช้งานบัญชี
+                    </Button>
+                  )
+                )}
 
                 {editUser?.has_pending_reset && (
                   <Box sx={{ border: '1px solid', borderColor: 'warning.main', borderRadius: 2, p: 1.5, mb: 2, bgcolor: 'rgba(255,152,0,0.06)' }}>
@@ -1505,6 +1590,31 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           </DialogActions>
         </Dialog>
 
+        {/* Ban Account Dialog */}
+        <Dialog open={banDialogOpen} onClose={() => !banSaving && setBanDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SecurityIcon color="error" /> ระงับการใช้งานบัญชี
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              บัญชีนี้จะไม่สามารถเข้าสู่ระบบได้อีก จนกว่าจะยกเลิกการระงับ
+            </Typography>
+            <TextField
+              label="เหตุผล (ไม่บังคับ)" fullWidth multiline rows={2}
+              value={banReason} onChange={e => setBanReason(e.target.value)}
+            />
+          </DialogContent>
+          <DialogActions sx={{ p: 3 }}>
+            <Button onClick={() => setBanDialogOpen(false)} variant="outlined" disabled={banSaving}>ยกเลิก</Button>
+            <Button
+              onClick={confirmBan} variant="contained" color="error" disabled={banSaving}
+              startIcon={banSaving ? <CircularProgress size={16} color="inherit" /> : <SecurityIcon />}
+            >
+              {banSaving ? 'กำลังระงับ...' : 'ระงับการใช้งาน'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         <ChildJourneyDialog
           open={!!journeyChildId}
           onClose={() => { setJourneyChildId(null); setJourneyChildName(''); }}
@@ -1543,6 +1653,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       </Box>
 
       {successMsg && <Alert severity="success" onClose={() => setSuccessMsg(null)} sx={{ mb: 3 }}>{successMsg}</Alert>}
+      {warnMsg    && <Alert severity="warning" onClose={() => setWarnMsg(null)}    sx={{ mb: 3 }}>{warnMsg}</Alert>}
       {error      && <Alert severity="error"   onClose={() => setError(null)}      sx={{ mb: 3 }}>{error}</Alert>}
 
       <TextField
@@ -1584,7 +1695,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     </Avatar>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 700 }}>{user.first_name} {user.last_name}</Typography>
-                      {user.has_pending_reset
+                      {user.is_banned
+                        ? <Chip label="ถูกระงับ" size="small" color="error" sx={{ fontSize: '0.6rem', height: 16, mt: 0.25, fontWeight: 700 }} />
+                        : user.has_pending_reset
                         ? <Chip label="รอรีเซ็ตรหัส" size="small" color="warning" variant="outlined" sx={{ fontSize: '0.6rem', height: 16, mt: 0.25 }} />
                         : <Typography variant="caption" color="text.secondary">รหัส: {user.id}</Typography>
                       }
