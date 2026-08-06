@@ -12,6 +12,11 @@ interface AddChildModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void | Promise<void>;
+  // Locks the new member's relationship to this role with no picker shown —
+  // e.g. always 'child' when opened from the plain child-selection step or
+  // a registration form's child-role family_member_picker. Omit to keep the
+  // free-choice behavior (defaults to 'mother').
+  forceRole?: string;
 }
 
 const ddmmyyyyToISO = (value: string) => {
@@ -20,13 +25,22 @@ const ddmmyyyyToISO = (value: string) => {
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 };
 
-const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { t } = useTranslation();
+const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSuccess, forceRole }) => {
+  const { t, lang } = useTranslation();
   const fetchChildren = useChildStore(state => state.fetchChildren);
+  const children = useChildStore(state => state.children);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue('mother'));
+  const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue(forceRole || 'mother'));
+
+  // Reset to the right locked/default role every time the modal is (re)opened
+  // — without this, closing after adding one member left the next open still
+  // showing the previous role instead of forceRole's.
+  React.useEffect(() => {
+    if (isOpen) setFormValue(emptyFamilyMemberFormValue(forceRole || 'mother'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, forceRole]);
 
   if (!isOpen) return null;
 
@@ -36,6 +50,19 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
 
     if (!formValue.firstName.trim() || !formValue.lastName.trim() || !formValue.dob) {
       setError(t.login?.fillRequiredInfo || 'Please fill out all required fields');
+      return;
+    }
+
+    // Same first+last name already exists in this account — almost always
+    // a duplicate/accidental re-add (e.g. double-tapping "add family
+    // member" from a form's picker) rather than a real second person who
+    // happens to share the exact same name.
+    const normalizedNew = `${formValue.firstName.trim()} ${formValue.lastName.trim()}`.toLowerCase();
+    const isDuplicate = children.some(c => (c.name || '').trim().toLowerCase() === normalizedNew);
+    if (isDuplicate) {
+      setError(lang === 'en'
+        ? 'A family member with this exact name already exists in your account.'
+        : 'มีสมาชิกในครอบครัวชื่อ-นามสกุลนี้อยู่ในบัญชีของคุณแล้ว');
       return;
     }
 
@@ -59,7 +86,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           const user = JSON.parse(userJson);
           await fetchChildren(user.id);
         }
-        setFormValue(emptyFamilyMemberFormValue('mother'));
+        setFormValue(emptyFamilyMemberFormValue(forceRole || 'mother'));
         onClose();
         await onSuccess?.();
       }
@@ -91,7 +118,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           {error && <Toast message={error} type="error" onClose={() => setError('')} />}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <FamilyMemberFields value={formValue} onChange={setFormValue} />
+            <FamilyMemberFields value={formValue} onChange={setFormValue} lockRole={forceRole} />
 
             <button
               type="submit"

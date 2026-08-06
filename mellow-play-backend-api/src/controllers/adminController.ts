@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { AdminRepository } from '../repositories/adminRepository';
+import { HDProfileRepository } from '../repositories/hdProfileRepository';
 import { UserRepository } from '../repositories/userRepository';
 import { ConfigService } from '../services/configService';
 import { SystemLogger } from '../utils/logger';
@@ -126,6 +127,7 @@ export class AdminController {
         lastName:           data.last_name !== undefined ? data.last_name : current.last_name,
         firstNameEn:        data.first_name_en !== undefined ? data.first_name_en : current.first_name_en,
         lastNameEn:         data.last_name_en !== undefined ? data.last_name_en : current.last_name_en,
+        nickname:           data.nickname !== undefined ? data.nickname : current.nickname,
         prefix:             data.prefix !== undefined ? data.prefix : current.prefix,
         dob:                data.dob !== undefined ? data.dob : current.dob,
         address:            data.address !== undefined ? data.address : current.address,
@@ -164,6 +166,23 @@ export class AdminController {
         membershipType: membership_type,
         membershipExpiresAt: membership_expires_at,
       });
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Soft-deletes a family member (child or, via the consumer app's own
+  // /profiles endpoint, an adult) — see hdProfileRepository.softDeleteFamilyMember
+  // for why this isn't a hard delete. No ownership check here: staff can
+  // remove any user's family member.
+  async deleteFamilyMember(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const hdProfileRepo = new HDProfileRepository(config.db);
+      const deleted = await hdProfileRepo.softDeleteFamilyMember(id);
+      if (!deleted) return c.json({ success: false, message: 'Family member not found' }, 404);
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);

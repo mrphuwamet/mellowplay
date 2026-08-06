@@ -60,7 +60,7 @@ export class HDProfileRepository {
       FROM HD_Profiles h
       LEFT JOIN Children c ON h.id = c.hd_profile_id
       LEFT JOIN Member_Coupons mc ON c.id = mc.child_id
-      WHERE h.user_id = ?
+      WHERE h.user_id = ? AND COALESCE(h.is_deleted, 0) = 0
     `)
       .bind(userId)
       .all<any>();
@@ -102,6 +102,32 @@ export class HDProfileRepository {
     ).bind(...(isActive ? [fallbackAvatar, childId] : [childId])).run();
 
     return result.success;
+  }
+
+  // "Delete a family member" never actually worked — both the CRM's and the
+  // consumer signup wizard's remove buttons only spliced the in-memory list
+  // before save, so the row reappeared on next load (see UserManagement.tsx
+  // removeChild / AddChild.tsx handleRemoveMember). A real hard DELETE risks
+  // FK breakage for a child with booking/journey/coupon history, so this
+  // soft-deletes instead — is_deleted=1 hides the row from every roster/
+  // picker listing (findByUserId above, adminRepository.getUserById) while
+  // past bookings/reports/redemptions keep showing their name untouched.
+  //
+  // `id` is whatever the caller's own roster already uses to identify this
+  // member — Children.id for an actual child, or the HD_Profiles id itself
+  // for an adult (who has no Children row) — same "child_id || hd_profile_id"
+  // ambiguity useChildStore's own mapping already has, so this resolves
+  // either shape the same way that mapping does.
+  async softDeleteFamilyMember(id: number, ownerUserId?: number): Promise<boolean> {
+    const viaChild = await this.db.prepare(
+      'SELECT hd_profile_id FROM Children WHERE id = ?'
+    ).bind(id).first<{ hd_profile_id: number }>();
+    const hdProfileId = viaChild?.hd_profile_id ?? id;
+
+    const result = ownerUserId != null
+      ? await this.db.prepare('UPDATE HD_Profiles SET is_deleted = 1 WHERE id = ? AND user_id = ?').bind(hdProfileId, ownerUserId).run()
+      : await this.db.prepare('UPDATE HD_Profiles SET is_deleted = 1 WHERE id = ?').bind(hdProfileId).run();
+    return (result.meta.changes ?? 0) > 0;
   }
 
   async updateChildProfile(childId: number, name: string, nickname: string, birth_date: string, relation: string, gender: string = "", nameEn: string | null = null): Promise<boolean> {

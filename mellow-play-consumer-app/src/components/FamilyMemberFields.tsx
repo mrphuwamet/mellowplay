@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from '../LanguageContext';
 import DateField from './DateField';
-import { FAMILY_ROLE_OPTIONS, OTHER_FAMILY_ROLE } from '../utils/familyRoles';
+import { FAMILY_ROLE_OPTIONS, OTHER_FAMILY_ROLE, getFamilyRoleLabel } from '../utils/familyRoles';
 
 // Shared field set for "add/edit a family member" — used by Register.tsx's
 // family step, AddChildModal, and AddChild.tsx so all three stay in sync
@@ -26,9 +26,14 @@ interface FamilyMemberFieldsProps {
   value: FamilyMemberFormValue;
   onChange: (value: FamilyMemberFormValue) => void;
   errors?: Partial<Record<'firstName' | 'lastName' | 'nickname' | 'dob' | 'customRole', string>>;
+  // Locks the relationship to one fixed value with no picker shown at all —
+  // used when this modal was opened from a context that only makes sense
+  // for one role (e.g. a registration form's child-role family_member_picker
+  // should only ever be able to add a child, never an adult).
+  lockRole?: string;
 }
 
-const FamilyMemberFields: React.FC<FamilyMemberFieldsProps> = ({ value, onChange, errors }) => {
+const FamilyMemberFields: React.FC<FamilyMemberFieldsProps> = ({ value, onChange, errors, lockRole }) => {
   const { t, lang } = useTranslation();
   const set = (patch: Partial<FamilyMemberFormValue>) => onChange({ ...value, ...patch });
 
@@ -38,17 +43,23 @@ const FamilyMemberFields: React.FC<FamilyMemberFieldsProps> = ({ value, onChange
         <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">
           {lang === 'th' ? 'คุณคือ...' : 'You are...'}
         </label>
-        <select
-          value={value.role}
-          onChange={e => set({ role: e.target.value })}
-          className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
-        >
-          <option value="" disabled>{lang === 'th' ? 'เลือกความสัมพันธ์' : 'Select relationship'}</option>
-          {FAMILY_ROLE_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{lang === 'en' ? o.labelEn : o.labelTh}</option>
-          ))}
-        </select>
-        {value.role === OTHER_FAMILY_ROLE && (
+        {lockRole ? (
+          <div className="w-full px-4 py-3 bg-slate-100 border border-slate-100 rounded-xl font-bold text-sm text-slate-500">
+            {getFamilyRoleLabel(lockRole, lang)}
+          </div>
+        ) : (
+          <select
+            value={value.role}
+            onChange={e => set({ role: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
+          >
+            <option value="" disabled>{lang === 'th' ? 'เลือกความสัมพันธ์' : 'Select relationship'}</option>
+            {FAMILY_ROLE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{lang === 'en' ? o.labelEn : o.labelTh}</option>
+            ))}
+          </select>
+        )}
+        {!lockRole && value.role === OTHER_FAMILY_ROLE && (
           <input
             type="text"
             placeholder={t.register?.specifyRelation || 'Please specify relationship...'}

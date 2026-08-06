@@ -219,6 +219,26 @@ export class ProfileController {
     }
   }
 
+  // Soft-deletes one of the caller's own family members (child or adult) —
+  // see hdProfileRepository.softDeleteFamilyMember. `id` accepts either a
+  // Children.id or an HD_Profiles.id, same ambiguity useChildStore's own
+  // roster mapping already has (child_id || hd_profile_id).
+  async deleteFamilyMember(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const payload = c.get('jwtPayload');
+      if (!payload?.userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const hdProfileRepository = new HDProfileRepository(config.db);
+      const deleted = await hdProfileRepository.softDeleteFamilyMember(id, payload.userId);
+      if (!deleted) return c.json({ success: false, message: 'Family member not found' }, 404);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async getPendingBookings(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
