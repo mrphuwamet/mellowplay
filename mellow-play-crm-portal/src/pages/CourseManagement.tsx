@@ -45,6 +45,7 @@ import {
   Translate as TranslateIcon,
   ContentCopy as CopyLinkIcon,
   Star as CoverIcon,
+  EventSeat as CapacityIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
@@ -361,6 +362,60 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [itemToDelete, setItemToDelete] = useState<{ id: number | string; name: string } | null>(null);
   const [deleteType, setDeleteType] = useState<'course' | 'category'>('course');
   const [copiedLinkId, setCopiedLinkId] = useState<number | null>(null);
+
+  // "ดูความจุคงเหลือ" — staff couldn't otherwise see remaining seats/team
+  // spots without going through the Add Booking flow's slot picker; pulls
+  // the same two endpoints the consumer app's booking wizard reads from.
+  const [capacityDialogCourse, setCapacityDialogCourse] = useState<Course | null>(null);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacitySlots, setCapacitySlots] = useState<{ date: string; slots: any[] }[] | null>(null);
+  const [capacityTeamInfo, setCapacityTeamInfo] = useState<{
+    formName: string;
+    fields: { label: string; teams: { label: string; capacity: number; remaining: number }[] }[];
+  } | null>(null);
+
+  const openCapacityDialog = async (course: Course) => {
+    setCapacityDialogCourse(course);
+    setCapacityLoading(true);
+    setCapacitySlots(null);
+    setCapacityTeamInfo(null);
+    try {
+      const [slotsRes, formRes] = await Promise.all([
+        course.calendar_id
+          ? axios.get(`${API_BASE}/calendar-slots/upcoming?calendarId=${course.calendar_id}`).catch(() => null)
+          : Promise.resolve(null),
+        course.registration_form_id
+          ? axios.get(`${API_BASE}/registration-forms/${course.registration_form_id}`).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      if (slotsRes?.data?.success) setCapacitySlots(slotsRes.data.upcoming);
+
+      const form = formRes?.data?.success ? formRes.data.form : null;
+      const teamFields = (form?.fields || []).filter((f: any) => f.type === 'team_select');
+      if (form && teamFields.length > 0) {
+        const availRes = await axios.get(`${API_BASE}/registration-forms/${course.registration_form_id}/team-availability?courseId=${course.id}`).catch(() => null);
+        const counts = availRes?.data?.success ? availRes.data.counts : {};
+        setCapacityTeamInfo({
+          formName: form.name,
+          fields: teamFields.map((f: any) => {
+            let teamOptions: { label: string; capacity: number }[] = [];
+            try { teamOptions = f.options_json ? JSON.parse(f.options_json) : []; } catch { /* malformed shouldn't block the rest */ }
+            return {
+              label: f.label,
+              teams: teamOptions.map(t => ({
+                label: t.label, capacity: t.capacity,
+                remaining: Math.max(0, t.capacity - (counts[f.field_key]?.[t.label] || 0)),
+              })),
+            };
+          }),
+        });
+      }
+    } finally {
+      setCapacityLoading(false);
+    }
+  };
+
   const copyCourseLink = (course: any) => {
     navigator.clipboard.writeText(getCourseDetailUrl(course)).then(() => {
       setCopiedLinkId(course.id);
@@ -2147,6 +2202,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     <Tooltip title={copiedLinkId === course.id ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์'}>
                       <IconButton size="small" onClick={() => copyCourseLink(course)} color={copiedLinkId === course.id ? 'success' : 'default'}><CopyLinkIcon fontSize="small" /></IconButton>
                     </Tooltip>
+                    <Tooltip title="ดูความจุคงเหลือ (ที่นั่ง/ทีม)">
+                      <IconButton size="small" onClick={() => openCapacityDialog(course)}><CapacityIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>
@@ -2245,6 +2303,94 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setDeleteDialogOpen(false)} variant="outlined">ยกเลิก</Button>
           <Button onClick={confirmDelete} color="error" variant="contained">ลบข้อมูล</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Capacity dialog — remaining seats per upcoming round (from the
+          course's calendar) and remaining spots per team (from its
+          registration form's team_select field(s), if any). */}
+      <Dialog open={!!capacityDialogCourse} onClose={() => setCapacityDialogCourse(null)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>ความจุคงเหลือ — {capacityDialogCourse?.name}</DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2 }}>
+          {capacityLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : (
+            <Stack spacing={3}>
+              {capacityTeamInfo && (
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                    จำนวนคงเหลือต่อทีม ({capacityTeamInfo.formName})
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    {capacityTeamInfo.fields.map((f, i) => (
+                      <Box key={i}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>{f.label}</Typography>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                          {f.teams.map(t => (
+                            <Chip
+                              key={t.label}
+                              label={`${t.label}: เหลือ ${t.remaining}/${t.capacity}`}
+                              size="small"
+                              color={t.remaining === 0 ? 'error' : 'success'}
+                              variant={t.remaining === 0 ? 'filled' : 'outlined'}
+                              sx={{ fontWeight: 700 }}
+                            />
+                          ))}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>ที่นั่งคงเหลือแต่ละรอบ</Typography>
+                {!capacityDialogCourse?.calendar_id ? (
+                  <Typography variant="body2" color="text.secondary">คลาสนี้ยังไม่ได้ผูกปฏิทิน จึงไม่มีรอบเวลาให้แสดง</Typography>
+                ) : !capacitySlots || capacitySlots.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">ไม่มีรอบที่กำลังจะถึง</Typography>
+                ) : (
+                  <TableContainer sx={{ maxHeight: 340 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700 }}>วันที่</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>เวลา</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }} align="center">คงเหลือ/สูงสุด</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {capacitySlots.flatMap(day => day.slots.map((s: any, i: number) => (
+                          <TableRow key={`${day.date}-${i}`} hover>
+                            <TableCell>{new Date(day.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
+                            <TableCell>{s.startTime}–{s.endTime}</TableCell>
+                            <TableCell align="center">
+                              <Chip
+                                label={`${s.available}/${s.maxCapacity}`}
+                                size="small"
+                                color={s.available === 0 ? 'error' : 'success'}
+                                sx={{ fontWeight: 700 }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+
+              {!capacityDialogCourse?.calendar_id && !capacityTeamInfo && (
+                <Typography variant="body2" color="text.secondary">
+                  คลาสนี้ยังไม่ได้ผูกปฏิทินหรือฟอร์มที่มีทีม จึงไม่มีข้อมูลความจุให้แสดง
+                </Typography>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCapacityDialogCourse(null)}>ปิด</Button>
         </DialogActions>
       </Dialog>
 
