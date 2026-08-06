@@ -16,6 +16,7 @@ import { RegistrationFormController } from './controllers/registrationFormContro
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
 import { CheckinAccessLinkRepository, isCheckinLinkUsable } from './repositories/checkinAccessLinkRepository';
+import { InviteAccessController } from './controllers/inviteAccessController';
 import { RedemptionController } from './controllers/redemptionController';
 import { QueueController } from './controllers/queueController';
 import { OrderController } from './controllers/orderController';
@@ -50,6 +51,7 @@ const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
 const checkinController = new CheckinController();
 const checkinAccessController = new CheckinAccessController();
+const inviteAccessController = new InviteAccessController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
@@ -399,6 +401,7 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/coupon-types$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/journey\/progress-by-booking\/[^/]+$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin-access\/[^/]+\/verify-pin$/ },
+  { method: 'POST', pattern: /^\/api\/v1\/admin\/invite-access\/[^/]+\/verify-pin$/ },
 ];
 
 // The scanner endpoints a checkin-access session (PIN link, not a real CRM
@@ -785,6 +788,15 @@ app.post('/api/v1/admin/checkin-access-links', (c) => checkinAccessController.cr
 app.get('/api/v1/admin/checkin-access-links', (c) => checkinAccessController.list(c));
 app.post('/api/v1/admin/checkin-access-links/:id/revoke', (c) => checkinAccessController.revoke(c));
 app.post('/api/v1/admin/checkin-access/:token/verify-pin', (c) => checkinAccessController.verifyPin(c));
+
+// Distributable invite links — same PIN-link shape as check-in access above,
+// but scoped to one course+round instead: unlocks that round's hidden
+// invite_capacity (see resolveInviteBoostRuleId) for whoever holds the link,
+// while the round still shows as ordinarily full to everyone else.
+app.post('/api/v1/admin/invite-access-links', (c) => inviteAccessController.create(c));
+app.get('/api/v1/admin/invite-access-links', (c) => inviteAccessController.listForRule(c));
+app.post('/api/v1/admin/invite-access-links/:id/revoke', (c) => inviteAccessController.revoke(c));
+app.post('/api/v1/admin/invite-access/:token/verify-pin', (c) => inviteAccessController.verifyPin(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
 app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));

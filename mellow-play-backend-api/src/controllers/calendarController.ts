@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { CalendarRepository } from '../repositories/calendarRepository';
+import { resolveInviteBoostRuleId } from './inviteAccessController';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -69,12 +70,22 @@ export class CalendarController {
       const calendarId = c.req.query('calendarId');
       const branchId = c.req.query('branchId');
       if (!calendarId) return c.json({ success: false, message: 'calendarId required' }, 400);
-      
+
+      // An invite-link session (courseId + inviteSessionToken) unlocks the
+      // extra invite_capacity on whichever round it's scoped to — resolved
+      // here so an invited guest sees the real remaining count, not "full".
+      const courseId = c.req.query('courseId');
+      const inviteSessionToken = c.req.query('inviteSessionToken');
+      const config = new ConfigService(c.env);
+      const boostRuleId = await resolveInviteBoostRuleId(
+        inviteSessionToken, courseId ? parseInt(courseId) : undefined, config.db, config.jwtSecret
+      );
+
       // 90 days (not 30) so an infrequent course (e.g. weekly) still has
       // enough runway to surface up to the ~10 upcoming rounds the consumer
       // app displays, instead of coming up short just because they're spread
       // out further than a month.
-      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 90, branchId ? parseInt(branchId) : undefined);
+      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 90, branchId ? parseInt(branchId) : undefined, boostRuleId);
       return c.json({ success: true, upcoming });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

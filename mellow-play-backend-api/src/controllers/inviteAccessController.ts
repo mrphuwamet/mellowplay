@@ -1,0 +1,85 @@
+import { Context } from 'hono';
+import { Bindings, Variables } from '../types/env';
+import { ConfigService } from '../services/configService';
+import { AuthService } from '../services/authService';
+import { InviteAccessLinkRepository, isInviteLinkUsable, InviteAccessLink } from '../repositories/inviteAccessLinkRepository';
+
+type C = Context<{ Bindings: Bindings; Variables: Variables }>;
+
+const SESSION_SECONDS = 60 * 60 * 24; // 24h — same window as checkin-access sessions
+
+export class InviteAccessController {
+  private repo(c: C) { return new InviteAccessLinkRepository(new ConfigService(c.env).db); }
+
+  async create(c: C) {
+    try {
+      const { label, pin, courseId, calendarSlotRuleId, expiresAt } = await c.req.json();
+      if (!pin || !/^\d{4,8}$/.test(pin)) return c.json({ success: false, message: 'PIN ต้องเป็นตัวเลข 4-8 หลัก' }, 400);
+      if (!courseId || !calendarSlotRuleId) return c.json({ success: false, message: 'courseId และ calendarSlotRuleId จำเป็นต้องระบุ' }, 400);
+      const crmUserId = c.get('crmUser')?.userId ?? null;
+      const { id, token } = await this.repo(c).create(
+        label?.trim() || null, pin, parseInt(courseId), parseInt(calendarSlotRuleId), expiresAt || null, crmUserId
+      );
+      return c.json({ success: true, id, token });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async listForRule(c: C) {
+    try {
+      const calendarSlotRuleId = parseInt(c.req.query('calendarSlotRuleId') || '');
+      if (!calendarSlotRuleId) return c.json({ success: false, message: 'calendarSlotRuleId is required' }, 400);
+      return c.json({ success: true, links: await this.repo(c).listForRule(calendarSlotRuleId) });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async revoke(c: C) {
+    try {
+      await this.repo(c).revoke(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // Public (see ADMIN_PUBLIC_ROUTES in index.ts) — the PIN itself is the
+  // credential, since whoever holds this link is a guest, not a CRM user.
+  // On success returns a session token (used to unlock the extra capacity
+  // on this exact course+round — see resolveInviteBoostRuleId below) plus
+  // courseId so the consumer app can deep-link straight into booking it.
+  async verifyPin(c: C) {
+    try {
+      const token = c.req.param('token');
+      const { pin } = await c.req.json();
+      const link = await this.repo(c).findByToken(token);
+      if (!isInviteLinkUsable(link)) return c.json({ success: false, message: 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว' }, 403);
+
+      const valid = await AuthService.verifyPassword(pin || '', link!.pin_hash);
+      if (!valid) return c.json({ success: false, message: 'PIN ไม่ถูกต้อง' }, 401);
+
+      const config = new ConfigService(c.env);
+      const course = await config.db.prepare('SELECT name FROM Courses WHERE id = ?').bind(link!.course_id).first() as any;
+      const sessionToken = await AuthService.generateTokenWithExpiry(
+        { type: 'invite_access', linkId: link!.id }, config.jwtSecret, SESSION_SECONDS
+      );
+      return c.json({
+        success: true, sessionToken, label: link!.label, expiresIn: SESSION_SECONDS,
+        courseId: link!.course_id, courseName: course?.name || null,
+      });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+}
+
+// Shared by calendarController (availability display) and adminController
+// (booking-time capacity check) — resolves an invite session token down to
+// the one calendar_slot_rule_id it's allowed to boost, or null if missing/
+// invalid/revoked/expired. courseId is checked too so a session can't boost
+// capacity for a course it was never issued for, even if by coincidence its
+// rule_id collided with another course's round.
+export async function resolveInviteBoostRuleId(
+  sessionToken: string | undefined, courseId: number | undefined, db: D1Database, jwtSecret: string
+): Promise<number | null> {
+  if (!sessionToken || !courseId) return null;
+  const payload = await AuthService.verifyToken(sessionToken, jwtSecret);
+  if (!payload || payload.type !== 'invite_access') return null;
+  const link = await new InviteAccessLinkRepository(db).findById(payload.linkId) as InviteAccessLink | null;
+  if (!isInviteLinkUsable(link) || link!.course_id !== courseId) return null;
+  return link!.calendar_slot_rule_id;
+}

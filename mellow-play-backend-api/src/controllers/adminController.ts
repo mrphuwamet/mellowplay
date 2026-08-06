@@ -11,6 +11,7 @@ import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
 import { CalendarRepository } from '../repositories/calendarRepository';
+import { resolveInviteBoostRuleId } from './inviteAccessController';
 import { RegistrationFormRepository } from '../repositories/registrationFormRepository';
 
 export class AdminController {
@@ -359,7 +360,7 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const { childId, childIds, courseId, branchId, scheduledAt, isGuest, status,
               calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode, sponsorTag,
-              formId, formAnswers } = await c.req.json();
+              formId, formAnswers, inviteSessionToken } = await c.req.json();
       
       if (!courseId || !scheduledAt)
         return c.json({ success: false, message: 'courseId, scheduledAt required' }, 400);
@@ -528,8 +529,12 @@ export class AdminController {
       // past its max_capacity with nothing server-side to stop it.
       if (calendarId && slotDate && slotStartTime) {
         const calendarRepo = new CalendarRepository(db);
+        // An invite-link session lets this specific booking dip into that
+        // round's invite_capacity — re-resolved independently here (not
+        // trusted from the client) same as every other value this check uses.
+        const boostRuleId = await resolveInviteBoostRuleId(inviteSessionToken, parseInt(courseId), db, config.jwtSecret);
         const availability = await calendarRepo.getSlotAvailability(
-          parseInt(calendarId), slotDate, slotStartTime, branchId ? parseInt(branchId) : undefined
+          parseInt(calendarId), slotDate, slotStartTime, branchId ? parseInt(branchId) : undefined, boostRuleId
         );
         if (availability && availability.available < parsedChildIds.length) {
           return c.json({

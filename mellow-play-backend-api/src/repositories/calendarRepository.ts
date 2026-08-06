@@ -54,18 +54,18 @@ export class CalendarRepository {
   }
   async createSlotRule(d: any): Promise<number> {
     const r = await this.db.prepare(`
-      INSERT INTO Calendar_Slot_Rules (calendar_id, day_of_week, specific_date, start_time, end_time, max_capacity, valid_from, valid_until)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Calendar_Slot_Rules (calendar_id, day_of_week, specific_date, start_time, end_time, max_capacity, invite_capacity, valid_from, valid_until)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(d.calendarId, d.dayOfWeek ?? null, d.specificDate ?? null, d.startTime, d.endTime,
-            d.maxCapacity ?? 4, d.validFrom, d.validUntil ?? null).run();
+            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null).run();
     return r.meta.last_row_id as number;
   }
   async updateSlotRule(id: number, d: any): Promise<void> {
     await this.db.prepare(`
       UPDATE Calendar_Slot_Rules SET day_of_week=?, specific_date=?, start_time=?, end_time=?,
-        max_capacity=?, valid_from=?, valid_until=?, is_active=? WHERE id=?
+        max_capacity=?, invite_capacity=?, valid_from=?, valid_until=?, is_active=? WHERE id=?
     `).bind(d.dayOfWeek ?? null, d.specificDate ?? null, d.startTime, d.endTime,
-            d.maxCapacity ?? 4, d.validFrom, d.validUntil ?? null, d.isActive ? 1 : 0, id).run();
+            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null, d.isActive ? 1 : 0, id).run();
   }
   async deleteSlotRule(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Calendar_Slot_Rules WHERE id=?').bind(id).run();
@@ -143,7 +143,12 @@ export class CalendarRepository {
     return slots;
   }
 
-  async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number): Promise<any[]> {
+  // boostRuleId — from resolveInviteBoostRuleId, an invite-link session's
+  // scoped rule — adds that rule's invite_capacity on top of max_capacity
+  // for whichever slots came from it. Every other rule (and every visitor
+  // without a valid invite session) only ever sees max_capacity; the extra
+  // pool stays invisible unless you're the one holding that exact link.
+  async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number, boostRuleId?: number | null): Promise<any[]> {
     await this.expirePendingBookings();
     
     const today = new Date();
@@ -198,13 +203,14 @@ export class CalendarRepository {
 
         const startTime = rule.start_time.substring(0, 5);
         const booked = bookingMap.get(`${dateStr}_${startTime}`) || 0;
+        const effectiveCapacity = rule.id === boostRuleId ? rule.max_capacity + (rule.invite_capacity || 0) : rule.max_capacity;
         daySlots.push({
           ruleId: rule.id,
           startTime: startTime,
           endTime: rule.end_time.substring(0, 5),
-          maxCapacity: rule.max_capacity,
+          maxCapacity: effectiveCapacity,
           booked,
-          available: Math.max(0, rule.max_capacity - booked),
+          available: Math.max(0, effectiveCapacity - booked),
         });
       }
 
@@ -221,7 +227,7 @@ export class CalendarRepository {
   // getUpcomingSlots/getAvailableSlots only feed the UI, which a stale page,
   // a race between two simultaneous bookers, or a direct API call can all
   // bypass, so nothing previously stopped a booking past max_capacity.
-  async getSlotAvailability(calendarId: number, slotDate: string, slotStartTime: string, branchId?: number): Promise<{ maxCapacity: number; booked: number; available: number } | null> {
+  async getSlotAvailability(calendarId: number, slotDate: string, slotStartTime: string, branchId?: number, boostRuleId?: number | null): Promise<{ maxCapacity: number; booked: number; available: number } | null> {
     await this.expirePendingBookings();
 
     const dow = new Date(slotDate).getDay();
@@ -247,7 +253,12 @@ export class CalendarRepository {
     const { results: bookings } = await this.db.prepare(bookingsQuery).bind(...bindArgs).all();
 
     const booked = (bookings[0] as any)?.cnt ?? 0;
-    return { maxCapacity: rule.max_capacity, booked, available: Math.max(0, rule.max_capacity - booked) };
+    // Same invite-capacity boost as getUpcomingSlots, but this is the one
+    // that actually gates whether the booking is allowed to go through —
+    // the display-only number above can't be trusted (stale page, forged
+    // request), so this re-resolves it independently at creation time.
+    const effectiveCapacity = rule.id === boostRuleId ? rule.max_capacity + (rule.invite_capacity || 0) : rule.max_capacity;
+    return { maxCapacity: effectiveCapacity, booked, available: Math.max(0, effectiveCapacity - booked) };
   }
 
   // ── Holidays ───────────────────────────────────────────────────────────────
