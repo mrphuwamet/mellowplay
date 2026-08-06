@@ -231,6 +231,7 @@ export class AdminRepository {
         hp.nickname as child_nickname,
         hp.birth_date as child_birth_date,
         hp.gender as child_gender,
+        u.id as parent_user_id,
         (u.first_name || ' ' || u.last_name) as parent_name,
         TRIM(COALESCE(u.first_name_en, '') || ' ' || COALESCE(u.last_name_en, '')) as parent_name_en,
         u.phone as parent_phone,

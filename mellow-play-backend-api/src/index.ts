@@ -471,6 +471,7 @@ app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadU
 app.put('/api/v1/admin/children/:id', (c) => adminController.updateChildProfile(c));
 app.delete('/api/v1/admin/family-members/:id', (c) => adminController.deleteFamilyMember(c));
 app.post('/api/v1/admin/users/:id/reset-password', (c) => adminController.resetUserPassword(c));
+app.get('/api/v1/admin/users/:id/family-roster', (c) => adminController.getUserFamilyRoster(c));
 app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons(c));
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
 app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.updateUserCoupon(c));

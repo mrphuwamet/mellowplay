@@ -56,6 +56,7 @@ interface Booking {
   child_nickname?: string;
   child_birth_date?: string;
   child_gender?: string;
+  parent_user_id?: number;
   parent_name?: string;
   parent_name_en?: string;
   parent_phone?: string;
@@ -532,13 +533,16 @@ const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
 };
 
 interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; value: any; }
+interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; }
 
 // One input per registration-form field type, mirroring what the consumer
 // app's DynamicRegistrationForm renders at submit time — lets staff correct
 // a family's answer (typo, wrong pick) without needing the CRM form builder.
-// family_member_picker has no roster data available here, so it's edited as
-// plain text (it's already a resolved name string, not an id).
-const FormAnswerFieldEditor = ({ field, value, onChange }: { field: FormAnswerField; value: any; onChange: (v: any) => void }) => {
+// family_member_picker is edited by picking a real member of that account's
+// own family roster (see FamilyRosterMember/roster prop) — not free text —
+// so a correction can't end up naming someone who doesn't actually exist
+// in that account.
+const FormAnswerFieldEditor = ({ field, value, onChange, roster }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[] }) => {
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
   try {
@@ -596,6 +600,28 @@ const FormAnswerFieldEditor = ({ field, value, onChange }: { field: FormAnswerFi
       </FormControl>
     );
   }
+  if (field.type === 'family_member_picker') {
+    if (roster && roster.length > 0) {
+      // The stored answer is already the resolved display text (nickname ||
+      // name), same as the consumer app writes — if it doesn't match any
+      // current roster member (renamed, removed, or never matched to begin
+      // with), keep it selectable as a one-off extra option instead of
+      // silently discarding it.
+      const currentMatches = roster.some(m => m.display === value);
+      return (
+        <FormControl fullWidth size="small">
+          <InputLabel>{field.label}</InputLabel>
+          <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
+            <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
+            {!currentMatches && value && <MenuItem value={value}>{value} (เดิม)</MenuItem>}
+            {roster.map(m => <MenuItem key={m.id} value={m.display}>{m.display}{m.name !== m.display ? ` (${m.name})` : ''}</MenuItem>)}
+          </Select>
+        </FormControl>
+      );
+    }
+    return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}
+      helperText="ไม่พบข้อมูลสมาชิกในครอบครัวของบัญชีนี้ — แก้ไขเป็นข้อความได้ตามปกติ" />;
+  }
   return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
 };
 
@@ -613,6 +639,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   const [editedAnswers, setEditedAnswers] = useState<Record<string, any>>({});
   const [savingForm, setSavingForm] = useState(false);
   const [saveFormError, setSaveFormError] = useState('');
+  const [familyRoster, setFamilyRoster] = useState<FamilyRosterMember[]>([]);
 
   // Once a registration form is attached, its answers replace the generic
   // เด็กผู้เรียน/ผู้ปกครอง blocks entirely — fetched eagerly (not behind a
@@ -634,6 +661,15 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
     setEditedAnswers(initial);
     setSaveFormError('');
     setIsEditingForm(true);
+
+    // Only fetched here (not eagerly with the form answers) since it's only
+    // ever needed once editing actually starts, and only if there's a
+    // family_member_picker field to edit at all.
+    if (booking?.parent_user_id && (formFields || []).some(f => f.type === 'family_member_picker')) {
+      axios.get(`${API_BASE}/users/${booking.parent_user_id}/family-roster`)
+        .then(res => setFamilyRoster(res.data.success ? res.data.roster : []))
+        .catch(() => setFamilyRoster([]));
+    }
   };
 
   const saveEditForm = async () => {
@@ -705,6 +741,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                       field={f}
                       value={editedAnswers[f.fieldKey]}
                       onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
+                      roster={familyRoster}
                     />
                   ))}
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
