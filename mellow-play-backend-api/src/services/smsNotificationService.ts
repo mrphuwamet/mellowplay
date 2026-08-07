@@ -79,11 +79,10 @@ export async function sendBookingSuccessSms(
       }
       // A form that names specifically who's attending (e.g. two-parent
       // households, or an event needing a named participant) beats the
-      // account's own linked child/parent as the default child_name/
-      // parent_name — see getFormPreferredNames.
+      // account's own linked child/parent as the default for all 6 name
+      // variables — see getFormPreferredNames.
       const preferred = await smsRepo.getFormPreferredNames(first.form_submission_id);
-      if (preferred.child_name) variables.child_name = preferred.child_name;
-      if (preferred.parent_name) variables.parent_name = preferred.parent_name;
+      Object.assign(variables, preferred);
     }
 
     const message = renderSmsTemplate(first.sms_success_template, variables);

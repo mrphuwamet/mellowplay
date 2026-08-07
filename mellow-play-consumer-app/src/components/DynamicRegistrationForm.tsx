@@ -123,9 +123,18 @@ const DynamicRegistrationForm: React.FC<Props> = ({
       const m = roster.find(r => r.id === id);
       return m ? (m.nickname || m.name) : '';
     }).filter(Boolean).join(', ');
+    // Real name alongside the nickname-preferred display text — CRM staff
+    // (SMS templates, check-in scanner) can then show/use either, not just
+    // whichever one this field happened to display.
+    const realNamesText = currentIds.map(id => {
+      const m = roster.find(r => r.id === id);
+      return m ? m.name : '';
+    }).filter(Boolean).join(', ');
     for (const f of form.fields) {
       if (isChildPickerField(f) && answers[f.field_key] !== namesText) {
         onChange(f.field_key, namesText);
+        onChange(`${f.field_key}__realname`, realNamesText);
+        onChange(`${f.field_key}__nickname`, namesText);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,6 +362,10 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             const handlePick = (member: RosterMember) => {
               if (!isChildPicker || !onChildSelectionChange) {
                 onChange(field.field_key, member.nickname || member.name);
+                // Real name + nickname recorded separately too — see the
+                // matching child-picker sync effect above for why.
+                onChange(`${field.field_key}__realname`, member.name);
+                onChange(`${field.field_key}__nickname`, member.nickname || member.name);
                 return;
               }
               // The effect above syncs this field's answer from

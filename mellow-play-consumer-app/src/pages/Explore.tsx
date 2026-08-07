@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag, CalendarClock } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -13,8 +13,15 @@ import CourseCard from '../components/CourseCard';
 import { CarouselNudgeButtons, useHorizontalCarousel } from '../components/CarouselNudgeButtons';
 import ResponsiveModal from '../components/ResponsiveModal';
 
+type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
+const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
+
 const Explore = () => {
   const navigate = useNavigate();
+  // Lets a direct link (e.g. /explore/upcoming, for marketing/notification
+  // deep-links) open straight into that tab — an invalid/absent segment
+  // just falls back to "all", same as visiting /explore itself.
+  const { category: categoryParam } = useParams<{ category?: string }>();
   const selectedChild = useChildStore(state => state.getSelectedChild());
   const { t, lang } = useTranslation();
   const userJson = localStorage.getItem('mellow_user');
@@ -25,7 +32,9 @@ const Explore = () => {
   const [courses, setCourses] = useState<any[]>([]);
   const [newsItems, setNewsItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState<'all' | 'classes' | 'events' | 'news' | 'media'>('all');
+  const [activeCategory, setActiveCategory] = useState<ExploreCategory>(
+    VALID_CATEGORIES.includes(categoryParam as ExploreCategory) ? (categoryParam as ExploreCategory) : 'all'
+  );
   const [videoModalUrl, setVideoModalUrl] = useState<string | null>(null);
   const [showShopSoon, setShowShopSoon] = useState(false);
 
@@ -59,6 +68,24 @@ const Explore = () => {
     return !hasFutureDate;
   };
 
+  // The soonest upcoming one-off occurrence (specific_date) of a course, or
+  // null if it has none (a purely recurring weekly class has no single
+  // "happening soon" date to rank by, so it's excluded from "upcoming").
+  const getNextOccurrenceDate = (course: any): Date | null => {
+    if (!course.calendar_summary_json) return null;
+    let rules: any[];
+    try { rules = JSON.parse(course.calendar_summary_json); } catch { return null; }
+    if (!rules || rules.length === 0) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const futureDates = rules
+      .filter(r => r.specific_date)
+      .map(r => new Date(r.specific_date))
+      .filter(d => !isNaN(d.getTime()) && d >= today);
+    if (futureDates.length === 0) return null;
+    return futureDates.sort((a, b) => a.getTime() - b.getTime())[0];
+  };
+
   const byNewest = (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   // Extra classes lead the row (leftmost) since they're time-limited/special;
   // regular classes follow, each group still newest-first internally.
@@ -69,16 +96,27 @@ const Explore = () => {
   // here to avoid double-listing them in the general Classes carousel.
   const allClasses = courses.filter(c => !c.is_event && !c.is_service && !isCourseExpired(c)).sort(byExtraFirstThenNewest);
   const eventsOnly = courses.filter(c => c.is_event && !isCourseExpired(c)).sort(byNewest);
+  // Events + Extra Classes with a real one-off date coming up, soonest
+  // first — the "กำลังมาถึง" tab, distinct from Events (which lists every
+  // active event regardless of how soon/whether it even has a set date).
+  const upcomingActivities = courses
+    .filter(c => (c.is_event || c.is_extraclass) && !c.is_service)
+    .map(c => ({ course: c, nextDate: getNextOccurrenceDate(c) }))
+    .filter((x): x is { course: any; nextDate: Date } => x.nextDate !== null)
+    .sort((a, b) => a.nextDate.getTime() - b.nextDate.getTime())
+    .map(x => x.course);
   const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
   const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
 
   const classesCarousel = useHorizontalCarousel(240, 16);
   const eventsCarousel = useHorizontalCarousel(240, 16);
+  const upcomingCarousel = useHorizontalCarousel(240, 16);
   const newsCarousel = useHorizontalCarousel(240, 16);
   const mediaCarousel = useHorizontalCarousel(240, 16);
 
-  const categories: { id: 'all' | 'classes' | 'events' | 'news' | 'media'; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
+  const categories: { id: ExploreCategory; label: string; Icon: typeof Sparkles; iconColor: string; activeBg: string }[] = [
     { id: 'all', label: lang === 'en' ? 'All' : 'ทั้งหมด', Icon: Sparkles, iconColor: 'text-mellow-red', activeBg: 'bg-mellow-red border-mellow-red' },
+    { id: 'upcoming', label: lang === 'en' ? 'Upcoming' : 'กำลังมาถึง', Icon: CalendarClock, iconColor: 'text-mellow-yellow', activeBg: 'bg-mellow-yellow border-mellow-yellow' },
     { id: 'classes', label: lang === 'en' ? 'Classes' : 'คลาส', Icon: GraduationCap, iconColor: 'text-mellow-green', activeBg: 'bg-mellow-green border-mellow-green' },
     { id: 'events', label: lang === 'en' ? 'Events' : 'กิจกรรม', Icon: PartyPopper, iconColor: 'text-mellow-purple', activeBg: 'bg-mellow-purple border-mellow-purple' },
     { id: 'news', label: lang === 'en' ? 'News' : 'ข่าวสาร', Icon: Tent, iconColor: 'text-mellow-blue', activeBg: 'bg-mellow-blue border-mellow-blue' },
@@ -173,10 +211,10 @@ const Explore = () => {
 
       <main className="p-5">
         {/* Categories — fills full width evenly, no ragged trailing space.
-            Stays 5 tiles at every breakpoint (an icon grid, not a content
-            grid) but caps its own width on wide screens so tiles don't
-            balloon as the page container grows. */}
-        <div className="grid grid-cols-5 gap-2 pb-6 md:max-w-[560px]">
+            6 tiles, 2 full rows of 3 at every breakpoint (an icon grid, not
+            a content grid) but caps its own width on wide screens so tiles
+            don't balloon as the page container grows. */}
+        <div className="grid grid-cols-3 gap-2 pb-6 md:max-w-[420px]">
            {categories.map(cat => {
              const isActive = activeCategory === cat.id;
              return (
@@ -205,6 +243,32 @@ const Explore = () => {
               <div className="flex gap-4 overflow-x-hidden pb-4 -mx-5 px-5">{renderCourseCardSkeletons()}</div>
             </section>
           </>
+        )}
+
+        {/* Upcoming Section — Events + Extra Classes with a real one-off
+            date coming up, soonest first. Shown first (above Classes) since
+            it's meant as a quick-access highlight, not just another
+            category alongside the rest. */}
+        {!loading && (activeCategory === 'all' || activeCategory === 'upcoming') && upcomingActivities.length > 0 && (
+          <section className="mb-8">
+             <div className="flex justify-between items-center mb-4 px-1 gap-2">
+                <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Upcoming' : 'กำลังมาถึง'}</h3>
+                <CarouselNudgeButtons onScrollLeft={() => upcomingCarousel.scrollBy('left')} onScrollRight={() => upcomingCarousel.scrollBy('right')} />
+             </div>
+
+             <div ref={upcomingCarousel.ref} style={upcomingCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+                {isBookingStatusLoading ? renderCourseCardSkeletons() : upcomingActivities.map(course => (
+                  <CourseCard
+                    key={course.id}
+                    course={course}
+                    bookingStatus={courseBookingStatus[course.id]}
+                    lang={lang}
+                    childCoupons={selectedChild?.coupons}
+                    couponTypes={couponTypes}
+                  />
+                ))}
+             </div>
+          </section>
         )}
 
         {/* Classes Section — merged (extra classes are flagged via the badge
@@ -314,7 +378,8 @@ const Explore = () => {
         )}
 
         {!loading && activeCategory !== 'all' && activeCategory !== 'classes' &&
-          ((activeCategory === 'events' && eventsOnly.length === 0) ||
+          ((activeCategory === 'upcoming' && upcomingActivities.length === 0) ||
+           (activeCategory === 'events' && eventsOnly.length === 0) ||
            (activeCategory === 'news' && newsOnly.length === 0) ||
            (activeCategory === 'media' && mediaOnly.length === 0)) && (
           <div className="text-center py-16 text-slate-400 font-bold">

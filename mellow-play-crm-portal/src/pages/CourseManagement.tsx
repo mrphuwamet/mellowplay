@@ -89,17 +89,35 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 // smsNotificationService.ts substitutes on the backend. Name variables come
 // in pairs (real name vs nickname) so a template can pick either explicitly;
 // the plain child_name/parent_name default to nickname-if-set.
-const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
-  { key: 'child_name', label: 'ชื่อเด็ก (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
-  { key: 'child_real_name', label: 'ชื่อจริงเด็ก' },
-  { key: 'child_nickname', label: 'ชื่อเล่นเด็ก' },
-  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
-  { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง' },
-  { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง' },
-  { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
-  { key: 'branch_name', label: 'สาขา' },
-  { key: 'scheduled_at', label: 'วันเวลานัดหมาย' },
+const BUILTIN_SMS_VARIABLES: { key: string; label: string; tagLabel: string }[] = [
+  { key: 'child_name', label: 'ชื่อเด็ก (จากฟอร์ม หากมี หรือข้อมูลบัญชี)', tagLabel: 'ชื่อเด็ก' },
+  { key: 'child_real_name', label: 'ชื่อจริงเด็ก', tagLabel: 'ชื่อจริงเด็ก' },
+  { key: 'child_nickname', label: 'ชื่อเล่นเด็ก', tagLabel: 'ชื่อเล่นเด็ก' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (จากฟอร์ม หากมี หรือข้อมูลบัญชี)', tagLabel: 'ชื่อผู้ปกครอง' },
+  { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง', tagLabel: 'ชื่อจริงผู้ปกครอง' },
+  { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง', tagLabel: 'ชื่อเล่นผู้ปกครอง' },
+  { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม', tagLabel: 'ชื่อคอร์ส/กิจกรรม' },
+  { key: 'branch_name', label: 'สาขา', tagLabel: 'สาขา' },
+  { key: 'scheduled_at', label: 'วันเวลานัดหมาย', tagLabel: 'วันเวลานัดหมาย' },
 ];
+
+// A family_member_picker field's plain answer is just one display string
+// (nickname-preferred) — the consumer app also records `${field_key}
+// __realname`/`__nickname` siblings alongside it (see
+// DynamicRegistrationForm.tsx), so offer those as two extra selectable
+// variables right next to the field's own chip.
+function expandFamilyMemberPickerFields(fields: any[]): { field_key: string; label: string }[] {
+  const expanded: { field_key: string; label: string }[] = [];
+  for (const f of fields) {
+    if (f.type === 'heading') continue;
+    expanded.push({ field_key: f.field_key, label: f.label });
+    if (f.type === 'family_member_picker') {
+      expanded.push({ field_key: `${f.field_key}__realname`, label: `${f.label} (ชื่อจริง)` });
+      expanded.push({ field_key: `${f.field_key}__nickname`, label: `${f.label} (ชื่อเล่น)` });
+    }
+  }
+  return expanded;
+}
 
 // Mirrors smsTemplateService.ts's renderSmsTemplate — used for the local
 // Preview dialog so it doesn't need its own backend round-trip.
@@ -433,7 +451,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     axios.get(`${API_BASE}/registration-forms/${formData.registrationFormId}`)
       .then(res => {
         const fields = res.data?.success ? (res.data.form?.fields || []) : [];
-        setSmsFormFields(fields.filter((f: any) => f.type !== 'heading').map((f: any) => ({ field_key: f.field_key, label: f.label })));
+        setSmsFormFields(expandFamilyMemberPickerFields(fields));
       })
       .catch(() => setSmsFormFields([]));
   }, [isEditing, formData.registrationFormId]);
