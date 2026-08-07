@@ -82,6 +82,17 @@ interface CourseImageView {
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
+// Fixed variables every SMS template can use regardless of which
+// registration form (if any) the course has — matches the keys
+// smsNotificationService.ts substitutes on the backend.
+const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
+  { key: 'child_name', label: 'ชื่อเด็ก' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง' },
+  { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
+  { key: 'branch_name', label: 'สาขา' },
+  { key: 'scheduled_at', label: 'วันเวลานัดหมาย' },
+];
+
 interface Course {
   id: number;
   code: string;
@@ -264,6 +275,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [branches, setBranches] = useState<any[]>([]);
   const [couponTypes, setCouponTypes] = useState<any[]>([]);
   const [registrationForms, setRegistrationForms] = useState<any[]>([]);
+  const [smsFormFields, setSmsFormFields] = useState<{ field_key: string; label: string }[]>([]);
+  const smsSuccessTemplateRef = useRef<HTMLTextAreaElement>(null);
+  const smsReminderTemplateRef = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -347,6 +361,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
     checkinActions: [] as string[],
+    smsSuccessEnabled: false,
+    smsSuccessTemplate: '',
+    smsReminderTemplate: '',
   });
 
   const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
@@ -363,6 +380,23 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [itemToDelete, setItemToDelete] = useState<{ id: number | string; name: string } | null>(null);
   const [deleteType, setDeleteType] = useState<'course' | 'category'>('course');
   const [copiedLinkId, setCopiedLinkId] = useState<number | null>(null);
+
+  // Chips offered by the SMS template editor below — re-fetched whenever
+  // the assigned registration form changes while the dialog is open, so
+  // switching forms updates the available {{field_key}} chips immediately
+  // without needing to save the course first.
+  useEffect(() => {
+    if (!isEditing || !formData.registrationFormId) {
+      setSmsFormFields([]);
+      return;
+    }
+    axios.get(`${API_BASE}/registration-forms/${formData.registrationFormId}`)
+      .then(res => {
+        const fields = res.data?.success ? (res.data.form?.fields || []) : [];
+        setSmsFormFields(fields.filter((f: any) => f.type !== 'heading').map((f: any) => ({ field_key: f.field_key, label: f.label })));
+      })
+      .catch(() => setSmsFormFields([]));
+  }, [isEditing, formData.registrationFormId]);
 
   // "ดูความจุคงเหลือ" — staff couldn't otherwise see remaining seats/team
   // spots without going through the Add Booking flow's slot picker; pulls
@@ -857,6 +891,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
         checkinActions,
+        smsSuccessEnabled: !!(course as any).sms_success_enabled,
+        smsSuccessTemplate: (course as any).sms_success_template || '',
+        smsReminderTemplate: (course as any).sms_reminder_template || '',
       });
     } else {
       setEditCourse(null);
@@ -881,6 +918,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
         checkinActions: [],
+        smsSuccessEnabled: false,
+        smsSuccessTemplate: '',
+        smsReminderTemplate: '',
       });
     }
     setIsEditing(true);
@@ -896,6 +936,28 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     setFormData(f => ({ ...f, checkinActions: f.checkinActions.map((a, i) => i === index ? label : a) }));
   const removeCheckinAction = (index: number) =>
     setFormData(f => ({ ...f, checkinActions: f.checkinActions.filter((_, i) => i !== index) }));
+
+  // Chip click inserts {{token}} at wherever the cursor last was in that
+  // specific SMS template textarea, rather than always appending to the end.
+  const insertSmsVariable = (
+    field: 'smsSuccessTemplate' | 'smsReminderTemplate',
+    ref: React.RefObject<HTMLTextAreaElement>,
+    fieldKey: string,
+  ) => {
+    const token = `{{${fieldKey}}}`;
+    const el = ref.current;
+    const current = formData[field];
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + token + current.slice(end);
+    setFormData({ ...formData, [field]: next });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
 
   const addCouponRequirement = () => {
     if (couponTypes.length === 0) return;
@@ -967,6 +1029,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         registrationCloseAt:    fromDatetimeLocalValue(formData.registrationCloseAt) || null,
         stampsOnCompletion:     formData.stampsOnCompletion,
         stampExpiryMonths:      formData.stampExpiryMonths,
+        smsSuccessEnabled:      formData.smsSuccessEnabled,
+        smsSuccessTemplate:     formData.smsSuccessTemplate || null,
+        smsReminderTemplate:    formData.smsReminderTemplate || null,
       };
       let courseId = editCourse?.id;
       if (editCourse) {
@@ -1217,6 +1282,63 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     InputLabelProps={{ shrink: true }}
                     helperText="เมื่อถึงวันเวลานี้ ปุ่มจองจะถูกซ่อน แต่ยังแสดงในรายการตามปกติ"
                   />
+                </Grid>
+
+                {/* SMS หลังจองสำเร็จ — ยิงอัตโนมัติจากจุดเดียวกับที่ระบบส่ง
+                    Discord แจ้งจองสำเร็จอยู่แล้ว (ทั้งเคสจ่ายทันทีและเคส Beam
+                    webhook) ข้อความอ้างอิงตัวแปร Dynamic ได้ทั้งค่าพื้นฐาน
+                    (ชื่อเด็ก/ผู้ปกครอง/คอร์ส/สาขา/วันเวลา) และทุกฟิลด์ในฟอร์ม
+                    ลงทะเบียนที่ผูกกับคอร์สนี้ — คลิก chip เพื่อแทรกที่ตำแหน่ง
+                    cursor ปัจจุบันในกล่องข้อความ ช่องข้อความแจ้งเตือนล่วงหน้า
+                    เป็นแค่ค่าเริ่มต้น จะแก้ไขได้อีกครั้งตอนกดส่งจริงที่หน้า
+                    "ส่ง SMS แจ้งเตือน" */}
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={<Switch checked={formData.smsSuccessEnabled} onChange={e => setFormData({ ...formData, smsSuccessEnabled: e.target.checked })} />}
+                    label="เปิดใช้งาน SMS แจ้งจองสำเร็จ"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    label="ข้อความ SMS จองสำเร็จ"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    size="small"
+                    value={formData.smsSuccessTemplate}
+                    onChange={e => setFormData({ ...formData, smsSuccessTemplate: e.target.value })}
+                    inputRef={smsSuccessTemplateRef}
+                    placeholder="เช่น สวัสดีคุณ {{parent_name}} การจอง {{course_name}} สำหรับ {{child_name}} วันที่ {{scheduled_at}} สำเร็จแล้วค่ะ"
+                  />
+                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                    {BUILTIN_SMS_VARIABLES.map(v => (
+                      <Chip key={v.key} size="small" label={v.label} onClick={() => insertSmsVariable('smsSuccessTemplate', smsSuccessTemplateRef, v.key)} />
+                    ))}
+                    {smsFormFields.map(f => (
+                      <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsSuccessTemplate', smsSuccessTemplateRef, f.field_key)} />
+                    ))}
+                  </Stack>
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    label="ข้อความ SMS แจ้งเตือนล่วงหน้า (ค่าเริ่มต้น)"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    size="small"
+                    value={formData.smsReminderTemplate}
+                    onChange={e => setFormData({ ...formData, smsReminderTemplate: e.target.value })}
+                    inputRef={smsReminderTemplateRef}
+                    helperText='ใช้เป็นข้อความตั้งต้นที่หน้า "ส่ง SMS แจ้งเตือน" แก้ไขได้อีกครั้งก่อนส่งจริงทุกครั้ง'
+                  />
+                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                    {BUILTIN_SMS_VARIABLES.map(v => (
+                      <Chip key={v.key} size="small" label={v.label} onClick={() => insertSmsVariable('smsReminderTemplate', smsReminderTemplateRef, v.key)} />
+                    ))}
+                    {smsFormFields.map(f => (
+                      <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsReminderTemplate', smsReminderTemplateRef, f.field_key)} />
+                    ))}
+                  </Stack>
                 </Grid>
 
                 {/* Custom check-in actions — a simple staff-defined text list

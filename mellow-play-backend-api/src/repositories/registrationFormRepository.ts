@@ -34,16 +34,22 @@ export class RegistrationFormRepository {
     return form;
   }
 
-  // Duplicate check is scoped per field (the field marked with
-  // duplicate_check_scope), compared as plain normalized text against every
-  // prior submission's answer for that same field_key — matches the "check
-  // by name" requirement without needing a dedicated identity column.
-  // 'round' scope additionally restricts the comparison to submissions for
-  // the same scheduled_at; 'course' scope compares across all of them.
+  // Duplicate check is scoped per field (any field marked with
+  // duplicate_check_scope), but a submission only counts as a duplicate if
+  // ALL of those scoped fields match together on the SAME prior submission
+  // — matching by name alone is unreliable (common first names/nicknames
+  // collide across unrelated families), so requiring every scoped field to
+  // agree at once (e.g. parent name AND child name both matching the same
+  // old submission) cuts false positives while still catching a real
+  // repeat registration. 'round' scope (on any of the fields) additionally
+  // restricts the comparison to submissions for the same scheduled_at;
+  // otherwise it compares across every occurrence of the course.
   async findDuplicateSubmission(params: {
-    formId: number; courseId: number; fieldKey: string; scope: 'course' | 'round';
-    normalizedValue: string; scheduledAt?: string;
+    formId: number; courseId: number;
+    fields: Array<{ fieldKey: string; scope: 'course' | 'round'; normalizedValue: string }>;
+    scheduledAt?: string;
   }): Promise<boolean> {
+    if (params.fields.length === 0) return false;
     // A submission only counts as a real duplicate if it still has an
     // active booking attached — otherwise someone who cancelled (booking
     // row survives with status='cancelled') or was hard-deleted (no row
@@ -53,7 +59,8 @@ export class RegistrationFormRepository {
     const activeBookingExists = `
       EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
     `;
-    const query = params.scope === 'round'
+    const restrictToRound = params.fields.some(f => f.scope === 'round');
+    const query = restrictToRound
       ? this.db.prepare(`SELECT answers_json FROM Form_Submissions fs WHERE fs.form_id = ? AND fs.course_id = ? AND fs.scheduled_at = ? AND ${activeBookingExists}`)
           .bind(params.formId, params.courseId, params.scheduledAt ?? null)
       : this.db.prepare(`SELECT answers_json FROM Form_Submissions fs WHERE fs.form_id = ? AND fs.course_id = ? AND ${activeBookingExists}`)
@@ -62,8 +69,11 @@ export class RegistrationFormRepository {
     for (const row of results as any[]) {
       try {
         const answers = JSON.parse(row.answers_json || '{}');
-        const value = answers[params.fieldKey];
-        if (value != null && String(value).trim().toLowerCase() === params.normalizedValue) return true;
+        const allFieldsMatch = params.fields.every(f => {
+          const value = answers[f.fieldKey];
+          return value != null && String(value).trim().toLowerCase() === f.normalizedValue;
+        });
+        if (allFieldsMatch) return true;
       } catch { /* malformed answers_json shouldn't block booking on other rows */ }
     }
     return false;

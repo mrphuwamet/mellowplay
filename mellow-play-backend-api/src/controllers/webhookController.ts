@@ -4,6 +4,7 @@ import { ConfigService } from '../services/configService';
 import { HRRepository } from '../repositories/hrRepository';
 import { SystemLogger } from '../utils/logger';
 import { sendAlert, sendNotification } from '../services/alertService';
+import { sendBookingSuccessSms } from '../services/smsNotificationService';
 
 // Beam's own docs (docs.beamcheckout.com/webhook) describe the webhook body
 // as the same shape as GET /v1/api/charges/{chargeId} — a Charge object with
@@ -270,6 +271,8 @@ export class WebhookController {
             'รหัสจอง': bookingsToUpdate.join(', '),
           });
         } catch { /* notification must never block webhook processing */ }
+
+        await sendBookingSuccessSms(config.db, config, bookingsToUpdate);
 
         return c.json({ success: true, message: 'Webhook processed successfully' });
       }
