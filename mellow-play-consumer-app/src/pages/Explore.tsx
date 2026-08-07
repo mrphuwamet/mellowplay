@@ -12,6 +12,8 @@ import { stripHtml } from '../utils/stripHtml';
 import CourseCard from '../components/CourseCard';
 import { CarouselNudgeButtons, useHorizontalCarousel } from '../components/CarouselNudgeButtons';
 import ResponsiveModal from '../components/ResponsiveModal';
+import BookingDetailModal from '../components/BookingDetailModal';
+import ChildAvatar from '../components/ChildAvatar';
 
 type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
 const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
@@ -23,6 +25,7 @@ const Explore = () => {
   // just falls back to "all", same as visiting /explore itself.
   const { category: categoryParam } = useParams<{ category?: string }>();
   const selectedChild = useChildStore(state => state.getSelectedChild());
+  const children = useChildStore(state => state.children);
   const { t, lang } = useTranslation();
   const userJson = localStorage.getItem('mellow_user');
   const user = userJson ? JSON.parse(userJson) : null;
@@ -31,6 +34,8 @@ const Explore = () => {
 
   const [courses, setCourses] = useState<any[]>([]);
   const [newsItems, setNewsItems] = useState<any[]>([]);
+  const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
+  const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<ExploreCategory>(
     VALID_CATEGORIES.includes(categoryParam as ExploreCategory) ? (categoryParam as ExploreCategory) : 'all'
@@ -51,6 +56,16 @@ const Explore = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  // The "กำลังมาถึง" tab is the parent's own upcoming bookings (things
+  // already registered for), same data Home.tsx's upcoming-activities
+  // sidebar uses — not a general browse-all-events discovery feed.
+  useEffect(() => {
+    if (!user?.id) { setUpcomingBookings([]); return; }
+    apiClient.get(`/profiles/bookings/upcoming?userId=${user.id}`)
+      .then(res => { if (res.data.success) setUpcomingBookings(res.data.bookings || []); })
+      .catch(err => console.error(err));
+  }, [user?.id]);
+
   // A course with only one-off (specific_date) calendar rules and no
   // recurring (day_of_week) rule is a single-occurrence event — once every
   // specific_date has passed, it's expired and shouldn't clutter discovery.
@@ -68,24 +83,6 @@ const Explore = () => {
     return !hasFutureDate;
   };
 
-  // The soonest upcoming one-off occurrence (specific_date) of a course, or
-  // null if it has none (a purely recurring weekly class has no single
-  // "happening soon" date to rank by, so it's excluded from "upcoming").
-  const getNextOccurrenceDate = (course: any): Date | null => {
-    if (!course.calendar_summary_json) return null;
-    let rules: any[];
-    try { rules = JSON.parse(course.calendar_summary_json); } catch { return null; }
-    if (!rules || rules.length === 0) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const futureDates = rules
-      .filter(r => r.specific_date)
-      .map(r => new Date(r.specific_date))
-      .filter(d => !isNaN(d.getTime()) && d >= today);
-    if (futureDates.length === 0) return null;
-    return futureDates.sort((a, b) => a.getTime() - b.getTime())[0];
-  };
-
   const byNewest = (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   // Extra classes lead the row (leftmost) since they're time-limited/special;
   // regular classes follow, each group still newest-first internally.
@@ -96,15 +93,6 @@ const Explore = () => {
   // here to avoid double-listing them in the general Classes carousel.
   const allClasses = courses.filter(c => !c.is_event && !c.is_service && !isCourseExpired(c)).sort(byExtraFirstThenNewest);
   const eventsOnly = courses.filter(c => c.is_event && !isCourseExpired(c)).sort(byNewest);
-  // Events + Extra Classes with a real one-off date coming up, soonest
-  // first — the "กำลังมาถึง" tab, distinct from Events (which lists every
-  // active event regardless of how soon/whether it even has a set date).
-  const upcomingActivities = courses
-    .filter(c => (c.is_event || c.is_extraclass) && !c.is_service)
-    .map(c => ({ course: c, nextDate: getNextOccurrenceDate(c) }))
-    .filter((x): x is { course: any; nextDate: Date } => x.nextDate !== null)
-    .sort((a, b) => a.nextDate.getTime() - b.nextDate.getTime())
-    .map(x => x.course);
   const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
   const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
 
@@ -245,11 +233,12 @@ const Explore = () => {
           </>
         )}
 
-        {/* Upcoming Section — Events + Extra Classes with a real one-off
-            date coming up, soonest first. Shown first (above Classes) since
-            it's meant as a quick-access highlight, not just another
-            category alongside the rest. */}
-        {!loading && (activeCategory === 'all' || activeCategory === 'upcoming') && upcomingActivities.length > 0 && (
+        {/* Upcoming Section — the parent's own bookings coming up soon
+            (same data/endpoint as Home's upcoming-activities sidebar), not
+            a general browse-all-events feed. Shown first (above Classes)
+            since it's meant as a quick-access highlight. Guests/logged-out
+            visitors have none of these, so the section just stays hidden. */}
+        {!loading && (activeCategory === 'all' || activeCategory === 'upcoming') && upcomingBookings.length > 0 && (
           <section className="mb-8">
              <div className="flex justify-between items-center mb-4 px-1 gap-2">
                 <h3 className="font-black text-lg leading-tight shrink-0">{lang === 'en' ? 'Upcoming' : 'กำลังมาถึง'}</h3>
@@ -257,15 +246,37 @@ const Explore = () => {
              </div>
 
              <div ref={upcomingCarousel.ref} style={upcomingCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
-                {isBookingStatusLoading ? renderCourseCardSkeletons() : upcomingActivities.map(course => (
-                  <CourseCard
-                    key={course.id}
-                    course={course}
-                    bookingStatus={courseBookingStatus[course.id]}
-                    lang={lang}
-                    childCoupons={selectedChild?.coupons}
-                    couponTypes={couponTypes}
-                  />
+                {upcomingBookings.map(booking => (
+                  <div
+                    key={booking.id}
+                    onClick={() => setSelectedBooking(booking)}
+                    className="shrink-0 w-[240px] snap-center bg-white rounded-2xl p-3 shadow-sm border border-slate-100 cursor-pointer hover:shadow-md transition-all active:scale-[0.98] flex flex-col"
+                  >
+                    <div className="relative mb-3">
+                      {booking.course_thumbnail ? (
+                        <img src={booking.course_thumbnail} alt={booking.course_name} loading="lazy" className="w-full aspect-[4/3] rounded-xl object-cover" />
+                      ) : (
+                        <div className="w-full aspect-[4/3] rounded-xl bg-slate-100 flex items-center justify-center">
+                          <BookOpen size={28} className="text-slate-400" />
+                        </div>
+                      )}
+                      {children.length > 1 && booking.child_nickname && (
+                        <div className="absolute top-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full pl-0.5 pr-2 py-0.5 shadow-sm">
+                          <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5" />
+                          <span className="text-[11px] font-black text-slate-700">{booking.child_nickname}</span>
+                        </div>
+                      )}
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-[14px] line-clamp-2">{booking.course_name}</h4>
+                    <p className="text-[12px] font-medium text-slate-500 mt-1.5">
+                      {new Date(booking.scheduled_at).toLocaleDateString()}
+                      {' · '}
+                      {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    {booking.branch_name && (
+                      <p className="text-[11px] font-medium text-slate-500 truncate mt-auto pt-2">{booking.branch_name}</p>
+                    )}
+                  </div>
                 ))}
              </div>
           </section>
@@ -378,7 +389,7 @@ const Explore = () => {
         )}
 
         {!loading && activeCategory !== 'all' && activeCategory !== 'classes' &&
-          ((activeCategory === 'upcoming' && upcomingActivities.length === 0) ||
+          ((activeCategory === 'upcoming' && upcomingBookings.length === 0) ||
            (activeCategory === 'events' && eventsOnly.length === 0) ||
            (activeCategory === 'news' && newsOnly.length === 0) ||
            (activeCategory === 'media' && mediaOnly.length === 0)) && (
@@ -435,6 +446,14 @@ const Explore = () => {
             : 'ร้านค้าสำหรับสินค้าและของที่ระลึกของ Mellow Play กำลังจะมาเร็วๆ นี้!'}
         </p>
       </ResponsiveModal>
+
+      {selectedBooking && (
+        <BookingDetailModal
+          isOpen={!!selectedBooking}
+          onClose={() => setSelectedBooking(null)}
+          booking={selectedBooking}
+        />
+      )}
     </div>
   );
 };
