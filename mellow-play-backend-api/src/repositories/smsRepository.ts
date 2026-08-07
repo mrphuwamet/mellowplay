@@ -29,6 +29,38 @@ export class SmsRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
+  // A course's registration form can ask specifically who is actually
+  // attending (e.g. an event that needs a named "ผู้เข้าแข่งขัน (ผู้ปกครอง)"/
+  // "(เด็ก)" — see family_member_picker's `config_json.role`), which may
+  // well NOT be the account holder — the classic case is two parents on one
+  // account where either could be the one showing up. When such a field
+  // exists and was actually answered, that's a better default child_name/
+  // parent_name than the account's own linked child/parent.
+  async getFormPreferredNames(formSubmissionId: number): Promise<{ child_name?: string; parent_name?: string }> {
+    const submission = await this.db.prepare('SELECT form_id, answers_json FROM Form_Submissions WHERE id = ?')
+      .bind(formSubmissionId).first<{ form_id: number; answers_json: string }>();
+    if (!submission) return {};
+
+    const { results: fields } = await this.db.prepare(
+      `SELECT field_key, config_json FROM Registration_Form_Fields WHERE form_id = ? AND type = 'family_member_picker'`
+    ).bind(submission.form_id).all<{ field_key: string; config_json: string | null }>();
+    if (fields.length === 0) return {};
+
+    let answers: Record<string, any> = {};
+    try { answers = JSON.parse(submission.answers_json || '{}'); } catch { /* malformed shouldn't block a send */ }
+
+    const result: { child_name?: string; parent_name?: string } = {};
+    for (const f of fields) {
+      let role: string | undefined;
+      try { role = JSON.parse(f.config_json || '{}').role; } catch { /* ignore malformed config */ }
+      const value = answers[f.field_key];
+      if (value == null || String(value).trim() === '') continue;
+      if (role === 'child') result.child_name = String(value);
+      else if (role === 'adult') result.parent_name = String(value);
+    }
+    return result;
+  }
+
   async logSms(entry: {
     bookingId: number; courseId: number | null; type: 'booking_success' | 'reminder';
     phone: string; message: string; status: 'sent' | 'failed';

@@ -1,21 +1,22 @@
 import { API_URL } from '../config';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControl, Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
-  TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
+  DialogTitle, FormControl, Grid, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
-import { Sms as SmsIcon, Visibility as ViewIcon, Person as ProfileIcon } from '@mui/icons-material';
+import { Sms as SmsIcon, Visibility as ViewIcon, Person as ProfileIcon, Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
 import SmsPreviewBubble from '../components/SmsPreviewBubble';
+import SmsTemplateEditor from '../components/SmsTemplateEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
 const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
-  { key: 'child_name', label: 'ชื่อเด็ก (อัตโนมัติ)' },
+  { key: 'child_name', label: 'ชื่อเด็ก (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
   { key: 'child_real_name', label: 'ชื่อจริงเด็ก' },
   { key: 'child_nickname', label: 'ชื่อเล่นเด็ก' },
-  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (อัตโนมัติ)' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
   { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง' },
   { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง' },
   { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
@@ -83,6 +84,22 @@ interface ReminderCandidate {
 
 interface SendResult { sent: number; failed: number; results: { bookingId: number; ok: boolean; detail?: string }[] }
 
+// Client-side instant filter + pagination, shared by all 3 tabs — search
+// resets to page 1 so a query never lands on a now-out-of-range page.
+function useFilteredPage<T>(rows: T[], searchFields: (row: T) => Array<string | null | undefined>) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r => searchFields(r).some(f => (f || '').toLowerCase().includes(q)));
+  }, [rows, query]);
+  useEffect(() => { setPage(0); }, [query, rows.length]);
+  const paged = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  return { query, setQuery, page, setPage, rowsPerPage, setRowsPerPage, filtered, paged };
+}
+
 const SmsNotifications: React.FC = () => {
   const [tab, setTab] = useState(0);
   const [courses, setCourses] = useState<CourseOption[]>([]);
@@ -128,6 +145,10 @@ function RecipientTable({
   onToggle: (bookingId: number) => void;
   onToggleAll: () => void;
 }) {
+  // "Select all" only ever acts on the rows actually shown (this page) —
+  // selections on other pages are untouched, so the checked/indeterminate
+  // state must count against this page's rows, not the global selected size.
+  const selectedOnPage = rows.filter(r => selected.has(r.booking_id)).length;
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420 }}>
       <Table size="small" stickyHeader>
@@ -135,8 +156,8 @@ function RecipientTable({
           <TableRow>
             <TableCell padding="checkbox">
               <Checkbox
-                indeterminate={selected.size > 0 && selected.size < rows.length}
-                checked={rows.length > 0 && selected.size === rows.length}
+                indeterminate={selectedOnPage > 0 && selectedOnPage < rows.length}
+                checked={rows.length > 0 && selectedOnPage === rows.length}
                 onChange={onToggleAll}
               />
             </TableCell>
@@ -243,23 +264,6 @@ function ResultDialog({ result, onClose }: { result: SendResult | null; onClose:
   );
 }
 
-// Click-to-insert variable chips, shared by the compose box in the reminder
-// tab — inserts at wherever the cursor last was, not always at the end.
-function VariableChips({
-  formFields, onInsert,
-}: { formFields: { field_key: string; label: string }[]; onInsert: (token: string) => void }) {
-  return (
-    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-      {BUILTIN_SMS_VARIABLES.map(v => (
-        <Chip key={v.key} size="small" label={v.label} onClick={() => onInsert(v.key)} />
-      ))}
-      {formFields.map(f => (
-        <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => onInsert(f.field_key)} />
-      ))}
-    </Stack>
-  );
-}
-
 const STATUS_OPTIONS = [
   { key: '', label: 'ทั้งหมด' },
   { key: 'pending', label: 'รอดำเนินการ' },
@@ -283,7 +287,6 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const messageRef = useRef<HTMLTextAreaElement>(null);
 
   const selectedCourse = useMemo(() => courses.find(c => c.id === courseId), [courses, courseId]);
 
@@ -313,21 +316,21 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
     } finally { setLoading(false); }
   };
 
+  const filteredPage = useFilteredPage(rows, r => [r.child_name, r.child_real_name, r.parent_name, r.parent_real_name, r.phone, r.course_name, r.branch_name]);
+
   const toggle = (id: number) => setSelected(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const toggleAll = () => setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.booking_id)));
-
-  const insertVariable = (fieldKey: string) => {
-    const token = `{{${fieldKey}}}`;
-    const el = messageRef.current;
-    const start = el?.selectionStart ?? message.length;
-    const end = el?.selectionEnd ?? message.length;
-    setMessage(message.slice(0, start) + token + message.slice(end));
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(start + token.length, start + token.length); });
-  };
+  // Only ever acts on the current page's rows — see RecipientTable's comment.
+  const toggleAll = () => setSelected(prev => {
+    const pageIds = filteredPage.paged.map(r => r.booking_id);
+    const allSelected = pageIds.every(id => prev.has(id));
+    const next = new Set(prev);
+    pageIds.forEach(id => allSelected ? next.delete(id) : next.add(id));
+    return next;
+  });
 
   const send = async () => {
     if (selected.size === 0 || !message.trim()) return;
@@ -398,21 +401,37 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
         </Grid>
       </Paper>
 
-      <RecipientTable rows={rows} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="ค้นหาชื่อเด็ก/ผู้ปกครอง เบอร์โทร คอร์ส หรือสาขา"
+        value={filteredPage.query}
+        onChange={e => filteredPage.setQuery(e.target.value)}
+        sx={{ mb: 1.5 }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+      />
+      <RecipientTable rows={filteredPage.paged} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
+      <TablePagination
+        component="div"
+        count={filteredPage.filtered.length}
+        page={filteredPage.page}
+        onPageChange={(_, p) => filteredPage.setPage(p)}
+        rowsPerPage={filteredPage.rowsPerPage}
+        onRowsPerPageChange={e => { filteredPage.setRowsPerPage(parseInt(e.target.value, 10)); filteredPage.setPage(0); }}
+        rowsPerPageOptions={[10, 25, 50]}
+        labelRowsPerPage="แถวต่อหน้า"
+        labelDisplayedRows={({ from, to, count }) => `${from}-${to} จาก ${count}`}
+      />
 
       <Paper variant="outlined" sx={{ p: 2, mt: 2, borderRadius: 2 }}>
-        <TextField
-          label="ข้อความ SMS"
-          fullWidth
-          multiline
-          rows={4}
-          size="small"
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS</Typography>
+        <SmsTemplateEditor
           value={message}
-          onChange={e => setMessage(e.target.value)}
-          inputRef={messageRef}
-          placeholder="เช่น สวัสดีคุณ {{parent_name}} อีก 2 วันจะถึงกำหนด {{course_name}} ของ {{child_name}} แล้วนะคะ"
+          onChange={setMessage}
+          placeholder="เช่น สวัสดีคุณ [ชื่อผู้ปกครอง] อีก 2 วันจะถึงกำหนด [ชื่อคอร์ส/กิจกรรม] ของ [ชื่อเด็ก] แล้วนะคะ"
+          builtins={BUILTIN_SMS_VARIABLES}
+          formFields={formFields.map(f => ({ key: f.field_key, label: f.label }))}
         />
-        <VariableChips formFields={formFields} onInsert={insertVariable} />
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
           <Button variant="outlined" disabled={!message.trim()} onClick={() => setPreviewOpen(true)} sx={{ borderRadius: 2, fontWeight: 700 }}>
             Preview
@@ -434,6 +453,7 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
   const [rows, setRows] = useState<{ user_id: number; name: string; phone: string; member_since: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const filteredPage = useFilteredPage(rows, r => [r.name, r.phone]);
 
   const search = async () => {
     if (!courseId) return;
@@ -466,6 +486,15 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
         </Grid>
       </Paper>
 
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="ค้นหาชื่อหรือเบอร์โทร"
+        value={filteredPage.query}
+        onChange={e => filteredPage.setQuery(e.target.value)}
+        sx={{ mb: 1.5 }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+      />
       <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 480 }}>
         <Table size="small" stickyHeader>
           <TableHead>
@@ -477,7 +506,7 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map(r => (
+            {filteredPage.paged.map(r => (
               <TableRow key={r.user_id} hover>
                 <TableCell>{r.name}</TableCell>
                 <TableCell>{r.phone}</TableCell>
@@ -491,7 +520,7 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
                 </TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 && (
+            {filteredPage.paged.length === 0 && (
               <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                 {searched ? 'ไม่มีสมาชิกที่ยังไม่สมัครกิจกรรมนี้' : 'เลือกกิจกรรมแล้วกดค้นหา'}
               </TableCell></TableRow>
@@ -499,6 +528,17 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filteredPage.filtered.length}
+        page={filteredPage.page}
+        onPageChange={(_, p) => filteredPage.setPage(p)}
+        rowsPerPage={filteredPage.rowsPerPage}
+        onRowsPerPageChange={e => { filteredPage.setRowsPerPage(parseInt(e.target.value, 10)); filteredPage.setPage(0); }}
+        rowsPerPageOptions={[10, 25, 50]}
+        labelRowsPerPage="แถวต่อหน้า"
+        labelDisplayedRows={({ from, to, count }) => `${from}-${to} จาก ${count}`}
+      />
     </Box>
   );
 }
@@ -526,12 +566,21 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
     } finally { setLoading(false); }
   };
 
+  const filteredPage = useFilteredPage(rows, r => [r.child_name, r.child_real_name, r.parent_name, r.parent_real_name, r.phone, r.course_name, r.branch_name]);
+
   const toggle = (id: number) => setSelected(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const toggleAll = () => setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.booking_id)));
+  // Only ever acts on the current page's rows — see RecipientTable's comment.
+  const toggleAll = () => setSelected(prev => {
+    const pageIds = filteredPage.paged.map(r => r.booking_id);
+    const allSelected = pageIds.every(id => prev.has(id));
+    const next = new Set(prev);
+    pageIds.forEach(id => allSelected ? next.delete(id) : next.add(id));
+    return next;
+  });
 
   const resend = async () => {
     if (selected.size === 0) return;
@@ -578,7 +627,27 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
         </Alert>
       )}
 
-      <RecipientTable rows={rows} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="ค้นหาชื่อเด็ก/ผู้ปกครอง เบอร์โทร คอร์ส หรือสาขา"
+        value={filteredPage.query}
+        onChange={e => filteredPage.setQuery(e.target.value)}
+        sx={{ mb: 1.5 }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+      />
+      <RecipientTable rows={filteredPage.paged} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
+      <TablePagination
+        component="div"
+        count={filteredPage.filtered.length}
+        page={filteredPage.page}
+        onPageChange={(_, p) => filteredPage.setPage(p)}
+        rowsPerPage={filteredPage.rowsPerPage}
+        onRowsPerPageChange={e => { filteredPage.setRowsPerPage(parseInt(e.target.value, 10)); filteredPage.setPage(0); }}
+        rowsPerPageOptions={[10, 25, 50]}
+        labelRowsPerPage="แถวต่อหน้า"
+        labelDisplayedRows={({ from, to, count }) => `${from}-${to} จาก ${count}`}
+      />
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
         <Button variant="contained" disabled={selected.size === 0 || sending} onClick={resend} sx={{ borderRadius: 2, fontWeight: 700 }}>

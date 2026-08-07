@@ -55,8 +55,13 @@ export class SmsController {
           results.push({ bookingId, ok: false, detail: 'ไม่พบข้อมูลผู้รับ (อาจไม่มีเบอร์โทรหรือถูกยกเลิก)' });
           continue;
         }
+        // Same "form answer beats account data" preference as the automatic
+        // send (see getFormPreferredNames) — a manual reminder should still
+        // address whoever the family actually named as attending.
+        const preferred = row.form_submission_id ? await smsRepo.getFormPreferredNames(row.form_submission_id) : {};
         const rendered = renderSmsTemplate(message, {
           ...buildNameVariables(row),
+          ...preferred,
           course_name: row.course_name ?? '',
           branch_name: row.branch_name ?? '',
           scheduled_at: formatThaiDateTime(row.scheduled_at),
