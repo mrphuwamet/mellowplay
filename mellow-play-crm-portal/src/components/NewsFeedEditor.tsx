@@ -5,12 +5,14 @@ import {
   FormatListNumbered, Image as ImageIcon, Link as LinkIcon, Title as HeadingIcon,
   Notes as ParagraphIcon, FormatColorText as ColorIcon, FormatSize as FontSizeIcon,
   SmartButton as ButtonIcon, Undo as UndoIcon, Redo as RedoIcon, Circle as SwatchIcon,
+  FormatColorFill as HighlightIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyleKit } from '@tiptap/extension-text-style';
 import Image from '@tiptap/extension-image';
+import Highlight from '@tiptap/extension-highlight';
 import { API_URL } from '../config';
 import { CtaButton } from './tiptap/extensions';
 
@@ -22,6 +24,7 @@ interface NewsFeedEditorProps {
 }
 
 const COLOR_SWATCHES = ['#0f172a', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#db2777'];
+const HIGHLIGHT_SWATCHES = ['#fff3a3', '#b9f6ca', '#a7d8ff', '#ffd1a9', '#f4b8ff', '#ff9e9e'];
 
 const FONT_SIZES: { label: string; value: string | null }[] = [
   { label: 'เล็ก', value: '12px' },
@@ -34,19 +37,20 @@ const FONT_SIZES: { label: string; value: string | null }[] = [
 // TipTap/ProseMirror manages the contentEditable DOM directly instead of
 // re-rendering it from React state on every keystroke, so it doesn't hit the
 // cursor-loss issue that ruled out third-party editors for the old
-// RichTextEditor (see that file's comment) — this is a separate component
-// rather than a rewrite of that one so course/service descriptions (which
-// still use the old editor) are unaffected.
+// RichTextEditor — kept as its own component rather than a shared one since
+// this one adds article-only extras (CtaButton) RichTextEditor doesn't need.
 const NewsFeedEditor: React.FC<NewsFeedEditorProps> = ({ value, onChange, placeholder, uploadFolder = 'news-feed' }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [colorMenuAnchor, setColorMenuAnchor] = useState<HTMLElement | null>(null);
+  const [highlightMenuAnchor, setHighlightMenuAnchor] = useState<HTMLElement | null>(null);
   const [fontSizeMenuAnchor, setFontSizeMenuAnchor] = useState<HTMLElement | null>(null);
 
   const editor = useEditor({
     extensions: [
       StarterKit,
       TextStyleKit.configure({ fontFamily: false, backgroundColor: false, lineHeight: false }),
+      Highlight.configure({ multicolor: true }),
       Image.configure({
         HTMLAttributes: { style: 'border-radius:8px;display:block;max-width:100%' },
         resize: { enabled: true, directions: ['bottom-right'], minWidth: 60, alwaysPreserveAspectRatio: true },
@@ -158,6 +162,32 @@ const NewsFeedEditor: React.FC<NewsFeedEditorProps> = ({ value, onChange, placeh
             <MenuItem dense onClick={() => { editor.chain().focus().unsetColor().run(); setColorMenuAnchor(null); }}>ล้างสี (ค่าเริ่มต้น)</MenuItem>
           </Menu>
 
+          <Tooltip title="เน้นข้อความ (Highlight)">
+            <IconButton size="small" sx={btn(editor.isActive('highlight'))} onClick={e => setHighlightMenuAnchor(e.currentTarget)}><HighlightIcon fontSize="small" /></IconButton>
+          </Tooltip>
+          <Menu anchorEl={highlightMenuAnchor} open={!!highlightMenuAnchor} onClose={() => setHighlightMenuAnchor(null)}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 1, maxWidth: 180 }}>
+              {HIGHLIGHT_SWATCHES.map(c => (
+                <Box
+                  key={c}
+                  onClick={() => { editor.chain().focus().toggleHighlight({ color: c }).run(); setHighlightMenuAnchor(null); }}
+                  sx={{ width: 22, height: 22, borderRadius: '50%', bgcolor: c, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.1)' }}
+                />
+              ))}
+            </Box>
+            <MenuItem dense onClick={e => e.stopPropagation()}>
+              <ListItemIcon><SwatchIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>
+                <input
+                  type="color"
+                  onChange={e => { editor.chain().focus().toggleHighlight({ color: e.target.value }).run(); setHighlightMenuAnchor(null); }}
+                  style={{ width: '100%', height: 28, border: 'none', cursor: 'pointer' }}
+                />
+              </ListItemText>
+            </MenuItem>
+            <MenuItem dense onClick={() => { editor.chain().focus().unsetHighlight().run(); setHighlightMenuAnchor(null); }}>ล้างการเน้น</MenuItem>
+          </Menu>
+
           <Tooltip title="ขนาดข้อความ">
             <IconButton size="small" onClick={e => setFontSizeMenuAnchor(e.currentTarget)}><FontSizeIcon fontSize="small" /></IconButton>
           </Tooltip>
@@ -228,6 +258,7 @@ const NewsFeedEditor: React.FC<NewsFeedEditorProps> = ({ value, onChange, placeh
               '.newsfeed-editor-content .ProseMirror ul, .newsfeed-editor-content .ProseMirror ol': { paddingLeft: 24 },
               '.newsfeed-editor-content .ProseMirror p': { margin: '4px 0' },
               '.newsfeed-editor-content .ProseMirror a': { color: '#2563eb' },
+              '.newsfeed-editor-content .ProseMirror mark': { borderRadius: 3, padding: '0 2px' },
               // TipTap's built-in image resize NodeView ships unstyled
               // ([data-resize-*] attributes only) — the handle needs its
               // own visible size/color, shown on hover so a static article
@@ -248,7 +279,7 @@ const NewsFeedEditor: React.FC<NewsFeedEditorProps> = ({ value, onChange, placeh
         </Box>
       </Box>
       <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.5 }}>
-        รองรับตัวหนา/เอียง/ขีดเส้นใต้ สีและขนาดข้อความ หัวข้อย่อย ลิสต์ ลิงก์ รูปภาพ (ลากมุมปรับขนาดได้) และปุ่ม CTA
+        รองรับตัวหนา/เอียง/ขีดเส้นใต้ สีและขนาดข้อความ การเน้นข้อความ (Highlight) หัวข้อย่อย ลิสต์ ลิงก์ รูปภาพ (ลากมุมปรับขนาดได้) และปุ่ม CTA
       </Typography>
     </Box>
   );
