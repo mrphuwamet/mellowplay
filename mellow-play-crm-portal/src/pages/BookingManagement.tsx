@@ -1,6 +1,7 @@
 import { API_URL } from '../config';
 import { formatBirthDate } from '../utils/dateFormat';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box, Typography, Paper, Chip, Button, IconButton,
   ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent,
@@ -948,6 +949,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
+
+  // Deep-link support (e.g. the SMS notifications page's "ดูรายละเอียดการ
+  // จอง" button opens `/crm/bookings?bookingId=X` in a new tab) — mirrors
+  // UserManagement.tsx's openUserId pattern.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const bookingId = searchParams.get('bookingId');
+    if (!bookingId || bookings.length === 0) return;
+    const target = bookings.find(b => String(b.id) === bookingId);
+    if (target) setDetailBooking(target);
+    setSearchParams(prev => { prev.delete('bookingId'); return prev; }, { replace: true });
+  }, [bookings, searchParams]);
 
   // Row selection for bulk actions (e.g. filing one report across several
   // children at once) — keyed against `filtered`, not whatever's currently

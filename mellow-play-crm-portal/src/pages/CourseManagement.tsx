@@ -84,14 +84,53 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 
 // Fixed variables every SMS template can use regardless of which
 // registration form (if any) the course has — matches the keys
-// smsNotificationService.ts substitutes on the backend.
+// smsNotificationService.ts substitutes on the backend. Name variables come
+// in pairs (real name vs nickname) so a template can pick either explicitly;
+// the plain child_name/parent_name default to nickname-if-set.
 const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
-  { key: 'child_name', label: 'ชื่อเด็ก' },
-  { key: 'parent_name', label: 'ชื่อผู้ปกครอง' },
+  { key: 'child_name', label: 'ชื่อเด็ก (อัตโนมัติ)' },
+  { key: 'child_real_name', label: 'ชื่อจริงเด็ก' },
+  { key: 'child_nickname', label: 'ชื่อเล่นเด็ก' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (อัตโนมัติ)' },
+  { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง' },
+  { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง' },
   { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
   { key: 'branch_name', label: 'สาขา' },
   { key: 'scheduled_at', label: 'วันเวลานัดหมาย' },
 ];
+
+// Mirrors smsTemplateService.ts's renderSmsTemplate — used for the local
+// Preview dialog so it doesn't need its own backend round-trip.
+function renderSmsTemplate(template: string, variables: Record<string, string>): string {
+  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
+    const value = variables[key];
+    return value != null ? value : match;
+  });
+}
+
+const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+function formatThaiDateTime(raw: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(raw);
+  if (!match) return raw;
+  const [, y, m, d, hh, mm] = match;
+  return `วันที่ ${parseInt(d, 10)} ${THAI_MONTHS_ABBR[parseInt(m, 10) - 1] || m} ${parseInt(y, 10) + 543} เวลา ${hh}:${mm}น.`;
+}
+
+// There's no real booking to preview a per-course template against here
+// (this is just the template editor, not a send), so every builtin gets a
+// generic sample value. Course-specific form fields get a generic
+// "(ตัวอย่าง) <label>" placeholder so an unrendered {{field_key}} never
+// leaks into the preview.
+function buildSampleSmsVariables(courseName: string, formFields: { field_key: string; label: string }[]): Record<string, string> {
+  const vars: Record<string, string> = {
+    child_name: 'น้องเอ๋', child_real_name: 'ธนกร ตัวอย่าง', child_nickname: 'น้องเอ๋',
+    parent_name: 'สมชาย ตัวอย่าง', parent_real_name: 'สมชาย ตัวอย่าง', parent_nickname: 'พี่หนึ่ง',
+    course_name: courseName || 'คอร์สตัวอย่าง', branch_name: 'สาขาตัวอย่าง',
+    scheduled_at: formatThaiDateTime('2026-09-02 16:00'),
+  };
+  for (const f of formFields) vars[f.field_key] = `(ตัวอย่าง) ${f.label}`;
+  return vars;
+}
 
 interface Course {
   id: number;
@@ -276,6 +315,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [couponTypes, setCouponTypes] = useState<any[]>([]);
   const [registrationForms, setRegistrationForms] = useState<any[]>([]);
   const [smsFormFields, setSmsFormFields] = useState<{ field_key: string; label: string }[]>([]);
+  const [smsPreviewField, setSmsPreviewField] = useState<'smsSuccessTemplate' | 'smsReminderTemplate' | null>(null);
   const smsSuccessTemplateRef = useRef<HTMLTextAreaElement>(null);
   const smsReminderTemplateRef = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(true);
@@ -1318,6 +1358,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsSuccessTemplate', smsSuccessTemplateRef, f.field_key)} />
                     ))}
                   </Stack>
+                  <Button size="small" onClick={() => setSmsPreviewField('smsSuccessTemplate')} disabled={!formData.smsSuccessTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
+                    Preview
+                  </Button>
                 </Grid>
                 <Grid item xs={12}>
                   <TextField
@@ -1339,7 +1382,28 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsReminderTemplate', smsReminderTemplateRef, f.field_key)} />
                     ))}
                   </Stack>
+                  <Button size="small" onClick={() => setSmsPreviewField('smsReminderTemplate')} disabled={!formData.smsReminderTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
+                    Preview
+                  </Button>
                 </Grid>
+
+                <Dialog open={!!smsPreviewField} onClose={() => setSmsPreviewField(null)} maxWidth="sm" fullWidth>
+                  <DialogTitle>Preview ข้อความ SMS</DialogTitle>
+                  <DialogContent>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                      แสดงด้วยข้อมูลตัวอย่าง (ไม่มีการจองจริงให้อ้างอิงในหน้านี้)
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50', whiteSpace: 'pre-wrap', fontSize: 14 }}>
+                      {renderSmsTemplate(
+                        (smsPreviewField && formData[smsPreviewField]) || '',
+                        buildSampleSmsVariables(formData.name, smsFormFields),
+                      )}
+                    </Paper>
+                  </DialogContent>
+                  <DialogActions>
+                    <Button onClick={() => setSmsPreviewField(null)}>ปิด</Button>
+                  </DialogActions>
+                </Dialog>
 
                 {/* Custom check-in actions — a simple staff-defined text list
                     (เช็คอิน, รับของที่ระลึก, ...) shown to whoever scans this
