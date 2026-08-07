@@ -11,6 +11,7 @@ import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants
 import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
+import { sendBookingSuccessSms } from '../services/smsNotificationService';
 import { CalendarRepository } from '../repositories/calendarRepository';
 import { resolveInviteBoostRuleId } from './inviteAccessController';
 import { RegistrationFormRepository } from '../repositories/registrationFormRepository';
@@ -512,17 +513,26 @@ export class AdminController {
         const registrationFormRepo = new RegistrationFormRepository(db);
         const form = await registrationFormRepo.getFormWithFields(parseInt(formId));
         if (form) {
+          // Every scoped field must match together on the same prior
+          // submission — see findDuplicateSubmission for why matching any
+          // one field alone (e.g. just the parent's name) is too loose.
+          const scopedFields: Array<{ fieldKey: string; scope: 'course' | 'round'; normalizedValue: string }> = [];
           for (const field of (form.fields || [])) {
             if (!field.duplicate_check_scope) continue;
             const value = formAnswers[field.field_key];
             if (value == null || String(value).trim() === '') continue;
-            const isDuplicate = await registrationFormRepo.findDuplicateSubmission({
-              formId: parseInt(formId),
-              courseId: parseInt(courseId),
+            scopedFields.push({
               fieldKey: field.field_key,
               scope: field.duplicate_check_scope,
               normalizedValue: String(value).trim().toLowerCase(),
-              scheduledAt: field.duplicate_check_scope === 'round' ? scheduledAt : undefined,
+            });
+          }
+          if (scopedFields.length > 0) {
+            const isDuplicate = await registrationFormRepo.findDuplicateSubmission({
+              formId: parseInt(formId),
+              courseId: parseInt(courseId),
+              fields: scopedFields,
+              scheduledAt,
             });
             if (isDuplicate) {
               return c.json({
@@ -915,6 +925,8 @@ export class AdminController {
             'รหัสจอง': bookingIds.join(', '),
           });
         } catch { /* notification must never block a successful booking */ }
+
+        await sendBookingSuccessSms(config.db, config, bookingIds);
       }
 
       return c.json({ success: true, id: firstId, bookingIds, qrTokens, paymentUrl: beamPaymentUrl });

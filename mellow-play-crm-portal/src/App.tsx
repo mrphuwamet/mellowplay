@@ -70,6 +70,7 @@ import {
   Celebration as EventMenuIcon,
   MiscellaneousServices as CourseServiceMenuIcon,
   ManageSearch as ChildDirectoryMenuIcon,
+  Sms as SmsMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -84,6 +85,7 @@ import CheckinAccessScanner from './pages/CheckinAccessScanner';
 import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
+import SmsNotifications from './pages/SmsNotifications';
 import IncentiveTracking from './pages/IncentiveTracking';
 import MySchedule from './pages/MySchedule';
 import AttendanceManagement from './pages/AttendanceManagement';
@@ -141,7 +143,7 @@ const drawerWidth = 280;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/calendars', '/crm/bookings'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/calendars', '/crm/bookings', '/crm/sms-notifications'],
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -431,6 +433,7 @@ const AppContent = () => {
       { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'ส่ง SMS แจ้งเตือน', icon: <SmsMenuIcon />, path: '/crm/sms-notifications', feature: 'bookings' },
       { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
     ]);
 
@@ -885,6 +888,7 @@ const AppContent = () => {
             <Route path="/crm/events" element={protect('courses', <CourseManagement courseType="event" />)} />
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
             <Route path="/crm/registration-forms" element={protect('courses', <RegistrationFormManagement />)} />
+            <Route path="/crm/sms-notifications" element={protect('bookings', <SmsNotifications />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/users" element={protect('crm_users', <CrmUserManagement />)} />
             <Route path="/crm/redemptions" element={protect('bookings', <RedemptionManagement />)} />

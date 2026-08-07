@@ -13,6 +13,7 @@ import { CalendarController } from './controllers/calendarController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
+import { SmsController } from './controllers/smsController';
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
 import { CheckinAccessLinkRepository, isCheckinLinkUsable } from './repositories/checkinAccessLinkRepository';
@@ -50,6 +51,7 @@ const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
+const smsController = new SmsController();
 const checkinController = new CheckinController();
 const checkinAccessController = new CheckinAccessController();
 const inviteAccessController = new InviteAccessController();
@@ -810,6 +812,12 @@ app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormControll
 app.get('/api/v1/admin/registration-forms/:id/team-availability', (c) => registrationFormController.getTeamAvailability(c));
 app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
 app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
+
+app.get('/api/v1/admin/sms/reminder-candidates', (c) => smsController.getReminderCandidates(c));
+app.post('/api/v1/admin/sms/send-reminder', (c) => smsController.sendReminder(c));
+app.get('/api/v1/admin/sms/non-registered-members', (c) => smsController.getNonRegisteredMembers(c));
+app.get('/api/v1/admin/sms/unsent-confirmations', (c) => smsController.getUnsentConfirmations(c));
+app.post('/api/v1/admin/sms/resend-confirmation', (c) => smsController.resendConfirmation(c));
 
 app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.getActions(c));
 app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));

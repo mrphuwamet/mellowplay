@@ -647,6 +647,9 @@ export class AdminRepository {
     salesCommissionValue?: number;
     teacherCommissionType?: string;
     teacherCommissionValue?: number;
+    smsSuccessEnabled?: boolean;
+    smsSuccessTemplate?: string;
+    smsReminderTemplate?: string;
   }): Promise<number> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -669,7 +672,8 @@ export class AdminRepository {
         achievement_skills_junior_json, metrics_junior_json,
         thumbnail_url, detail_poster_url, images_json, video_url, teacher_guide_url, is_recommended, is_extraclass, is_event, is_service, allow_repeat, registration_form_id, registration_close_at,
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
-        sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value
+        sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value,
+        sms_success_enabled, sms_success_template, sms_reminder_template
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
@@ -679,7 +683,8 @@ export class AdminRepository {
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?
+        ?, ?, ?, ?,
+        ?, ?, ?
       )
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -701,7 +706,8 @@ export class AdminRepository {
       data.shortDescriptionEn ?? null, data.location ?? null, data.location_link ?? null,
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
-      data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null
+      data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
+      data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null
     ).run();
     return result.meta.last_row_id;
   }
@@ -746,6 +752,9 @@ export class AdminRepository {
     salesCommissionValue?: number;
     teacherCommissionType?: string;
     teacherCommissionValue?: number;
+    smsSuccessEnabled?: boolean;
+    smsSuccessTemplate?: string;
+    smsReminderTemplate?: string;
   }): Promise<void> {
     const p = data.originalPrice ?? 0;
     const v = data.premiumPrice ?? 0;
@@ -771,7 +780,8 @@ export class AdminRepository {
         short_description_en = ?, location = ?, location_link = ?,
         stamps_on_completion = ?, stamp_expiry_months = ?,
         sales_commission_type = ?, sales_commission_value = ?,
-        teacher_commission_type = ?, teacher_commission_value = ?
+        teacher_commission_type = ?, teacher_commission_value = ?,
+        sms_success_enabled = ?, sms_success_template = ?, sms_reminder_template = ?
       WHERE id = ?
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -794,6 +804,7 @@ export class AdminRepository {
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
       data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
+      data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
       id
     ).run();
   }

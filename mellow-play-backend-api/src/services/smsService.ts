@@ -30,6 +30,13 @@ export class SmsService {
     return this.send(phone, message);
   }
 
+  // Generic send for anything that isn't OTP/connectivity-test — booking
+  // confirmations, manual reminders, resent confirmations. Just exposes the
+  // already-hardened private send() (timeout + structured result) publicly.
+  async sendMessage(phone: string, message: string): Promise<{ ok: boolean; detail?: string }> {
+    return this.send(phone, message);
+  }
+
   private async send(phone: string, message: string): Promise<{ ok: boolean; detail?: string }> {
     // A hanging ThaiBulkSMS call used to run until Cloudflare killed the
     // Worker for exceeding its execution limit — the client just saw a raw
