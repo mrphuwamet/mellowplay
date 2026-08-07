@@ -4,7 +4,7 @@ import { ConfigService } from '../services/configService';
 import { SmsRepository } from '../repositories/smsRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { SmsService } from '../services/smsService';
-import { renderSmsTemplate } from '../services/smsTemplateService';
+import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from '../services/smsTemplateService';
 import { sendBookingSuccessSms } from '../services/smsNotificationService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
@@ -56,11 +56,10 @@ export class SmsController {
           continue;
         }
         const rendered = renderSmsTemplate(message, {
-          child_name: row.child_name ?? '',
-          parent_name: row.parent_name ?? '',
+          ...buildNameVariables(row),
           course_name: row.course_name ?? '',
           branch_name: row.branch_name ?? '',
-          scheduled_at: row.scheduled_at ?? '',
+          scheduled_at: formatThaiDateTime(row.scheduled_at),
         });
         const result = await sms.sendMessage(row.phone, rendered);
         if (result.ok) sent++;

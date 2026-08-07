@@ -2,7 +2,7 @@ import { ConfigService } from './configService';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { SmsService } from './smsService';
 import { SmsRepository } from '../repositories/smsRepository';
-import { renderSmsTemplate } from './smsTemplateService';
+import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from './smsTemplateService';
 
 // The automatic "booking confirmed" send — called from both places a
 // booking actually becomes confirmed (adminController.createBooking's
@@ -29,7 +29,9 @@ export async function sendBookingSuccessSms(
       SELECT
         b.id as booking_id, b.course_id, b.scheduled_at, b.form_submission_id,
         COALESCE(hp.nickname, hp.name) as child_name,
+        hp.name as child_real_name, hp.nickname as child_nickname,
         (u.first_name || ' ' || u.last_name) as parent_name,
+        (u.first_name || ' ' || u.last_name) as parent_real_name, u.nickname as parent_nickname,
         u.phone as phone,
         co.name as course_name, co.sms_success_enabled, co.sms_success_template,
         br.name as branch_name
@@ -49,12 +51,17 @@ export async function sendBookingSuccessSms(
     if (!first.sms_success_enabled || !first.sms_success_template) return;
     if (!first.phone) return;
 
+    // Sibling children in the same checkout each contribute their own
+    // name/nickname, comma-joined — the parent is shared across the group.
+    const joinField = (field: string) => bookingRows.map(r => r[field]).filter(Boolean).join(', ');
     const variables: Record<string, string> = {
-      child_name: bookingRows.map(r => r.child_name).filter(Boolean).join(', '),
-      parent_name: first.parent_name ?? '',
+      ...buildNameVariables(first),
+      child_name: joinField('child_name'),
+      child_real_name: joinField('child_real_name'),
+      child_nickname: joinField('child_nickname') || joinField('child_real_name'),
       course_name: first.course_name ?? '',
       branch_name: first.branch_name ?? '',
-      scheduled_at: first.scheduled_at ?? '',
+      scheduled_at: formatThaiDateTime(first.scheduled_at),
     };
 
     if (first.form_submission_id) {

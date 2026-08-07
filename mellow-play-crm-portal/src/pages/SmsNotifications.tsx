@@ -2,21 +2,59 @@ import { API_URL } from '../config';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControl, Grid, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
-  TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography,
+  DialogTitle, FormControl, Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
-import { Sms as SmsIcon } from '@mui/icons-material';
+import { Sms as SmsIcon, Visibility as ViewIcon, Person as ProfileIcon } from '@mui/icons-material';
 import axios from 'axios';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
 const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
-  { key: 'child_name', label: 'ชื่อเด็ก' },
-  { key: 'parent_name', label: 'ชื่อผู้ปกครอง' },
+  { key: 'child_name', label: 'ชื่อเด็ก (อัตโนมัติ)' },
+  { key: 'child_real_name', label: 'ชื่อจริงเด็ก' },
+  { key: 'child_nickname', label: 'ชื่อเล่นเด็ก' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (อัตโนมัติ)' },
+  { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง' },
+  { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง' },
   { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
   { key: 'branch_name', label: 'สาขา' },
   { key: 'scheduled_at', label: 'วันเวลานัดหมาย' },
 ];
+
+const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+// Mirrors smsTemplateService.ts's formatThaiDateTime on the backend — kept
+// in sync manually since this is a separate frontend app.
+function formatThaiDateTime(raw: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(raw || '');
+  if (!match) return raw || '';
+  const [, y, m, d, hh, mm] = match;
+  const buddhistYear = parseInt(y, 10) + 543;
+  const monthAbbr = THAI_MONTHS_ABBR[parseInt(m, 10) - 1] || m;
+  return `วันที่ ${parseInt(d, 10)} ${monthAbbr} ${buddhistYear} เวลา ${hh}:${mm}น.`;
+}
+
+// Mirrors smsTemplateService.ts's renderSmsTemplate — used for the client-
+// side Preview dialogs so a preview doesn't need its own backend round-trip.
+function renderSmsTemplate(template: string, variables: Record<string, string>): string {
+  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
+    const value = variables[key];
+    return value != null ? value : match;
+  });
+}
+
+// Same name-variable shape as smsTemplateService.ts's buildNameVariables.
+function buildNameVariables(row: Partial<ReminderCandidate>): Record<string, string> {
+  return {
+    child_name: row.child_name ?? '',
+    child_real_name: row.child_real_name ?? '',
+    child_nickname: row.child_nickname || row.child_real_name || '',
+    parent_name: row.parent_name ?? '',
+    parent_real_name: row.parent_real_name ?? '',
+    parent_nickname: row.parent_nickname || row.parent_real_name || '',
+  };
+}
 
 interface CourseOption {
   id: number;
@@ -31,7 +69,12 @@ interface ReminderCandidate {
   scheduled_at: string;
   status: string;
   child_name: string;
+  child_real_name?: string;
+  child_nickname?: string;
   parent_name: string;
+  parent_real_name?: string;
+  parent_nickname?: string;
+  parent_user_id?: number;
   phone: string;
   course_name: string;
   branch_name: string | null;
@@ -102,6 +145,7 @@ function RecipientTable({
             <TableCell>คอร์ส/กิจกรรม</TableCell>
             <TableCell>สาขา</TableCell>
             <TableCell>วันเวลา</TableCell>
+            <TableCell align="right">&nbsp;</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -115,17 +159,62 @@ function RecipientTable({
               <TableCell>{row.phone}</TableCell>
               <TableCell>{row.course_name}</TableCell>
               <TableCell>{row.branch_name || '-'}</TableCell>
-              <TableCell>{row.scheduled_at}</TableCell>
+              <TableCell>{formatThaiDateTime(row.scheduled_at)}</TableCell>
+              <TableCell align="right">
+                <Tooltip title="ดูรายละเอียดการจอง">
+                  <IconButton size="small" onClick={() => window.open(`/crm/bookings?bookingId=${row.booking_id}`, '_blank')}>
+                    <ViewIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                {row.parent_user_id && (
+                  <Tooltip title="ดูโปรไฟล์ผู้ปกครอง">
+                    <IconButton size="small" onClick={() => window.open(`/crm/parents?openUserId=${row.parent_user_id}`, '_blank')}>
+                      <ProfileIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </TableCell>
             </TableRow>
           ))}
           {rows.length === 0 && (
-            <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่พบข้อมูล — ลองค้นหาด้วยตัวกรองด้านบน</TableCell></TableRow>
+            <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่พบข้อมูล — ลองค้นหาด้วยตัวกรองด้านบน</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
     </TableContainer>
   );
 }
+
+// Renders the template against real recipient data if one is given
+// (sourceLabel describes whose data was used), or generic sample data as a
+// fallback — e.g. before anything is selected yet, or in the course editor
+// where there's no specific booking to preview against. Any {{form_field}}
+// token with no matching sample value is left as-is, same as a real send.
+function PreviewDialog({
+  open, onClose, template, variables, sourceLabel,
+}: { open: boolean; onClose: () => void; template: string; variables: Record<string, string>; sourceLabel: string }) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Preview ข้อความ SMS</DialogTitle>
+      <DialogContent>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>{sourceLabel}</Typography>
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50', whiteSpace: 'pre-wrap', fontSize: 14 }}>
+          {template.trim() ? renderSmsTemplate(template, variables) : <Typography color="text.disabled">(ยังไม่ได้กรอกข้อความ)</Typography>}
+        </Paper>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>ปิด</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+const SAMPLE_PREVIEW_VARIABLES: Record<string, string> = {
+  child_name: 'น้องเอ๋', child_real_name: 'ธนกร ตัวอย่าง', child_nickname: 'น้องเอ๋',
+  parent_name: 'สมชาย ตัวอย่าง', parent_real_name: 'สมชาย ตัวอย่าง', parent_nickname: 'พี่หนึ่ง',
+  course_name: 'คลาสตัวอย่าง', branch_name: 'สาขาตัวอย่าง',
+  scheduled_at: formatThaiDateTime('2026-09-02 16:00'),
+};
 
 function ResultDialog({ result, onClose }: { result: SendResult | null; onClose: () => void }) {
   if (!result) return null;
@@ -172,9 +261,19 @@ function VariableChips({
   );
 }
 
+const STATUS_OPTIONS = [
+  { key: '', label: 'ทั้งหมด' },
+  { key: 'pending', label: 'รอดำเนินการ' },
+  { key: 'confirmed', label: 'ยืนยันแล้ว' },
+  { key: 'confirmed_paid', label: 'ชำระแล้ว' },
+  { key: 'awaiting_report', label: 'รอกรอกรายงาน' },
+  { key: 'completed', label: 'เสร็จสิ้น' },
+];
+
 function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches: { id: number; name: string }[] }) {
   const [courseId, setCourseId] = useState<number>(0);
   const [branchId, setBranchId] = useState<number>(0);
+  const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
@@ -184,6 +283,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const messageRef = useRef<HTMLTextAreaElement>(null);
 
   const selectedCourse = useMemo(() => courses.find(c => c.id === courseId), [courses, courseId]);
@@ -205,6 +305,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
       const params: Record<string, string> = {};
       if (courseId) params.courseId = String(courseId);
       if (branchId) params.branchId = String(branchId);
+      if (status) params.status = status;
       if (dateFrom) params.dateFrom = dateFrom;
       if (dateTo) params.dateTo = dateTo;
       const res = await axios.get(`${API_BASE}/sms/reminder-candidates`, { params });
@@ -238,6 +339,17 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
     } finally { setSending(false); }
   };
 
+  // Prefer a real selected recipient's actual data so the preview matches
+  // what will really be sent; fall back to the first search result, then to
+  // generic sample data when nothing has been searched/selected yet.
+  const previewSource = rows.find(r => selected.has(r.booking_id)) || rows[0];
+  const previewVariables = previewSource
+    ? { ...buildNameVariables(previewSource), course_name: previewSource.course_name, branch_name: previewSource.branch_name || '', scheduled_at: formatThaiDateTime(previewSource.scheduled_at) }
+    : SAMPLE_PREVIEW_VARIABLES;
+  const previewSourceLabel = previewSource
+    ? `ตัวอย่างจากข้อมูลจริง: ${previewSource.child_name} (${previewSource.parent_name})`
+    : 'ยังไม่มีรายชื่อให้ใช้ — แสดงด้วยข้อมูลตัวอย่าง';
+
   return (
     <Box>
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
@@ -260,13 +372,21 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
               </Select>
             </FormControl>
           </Grid>
+          <Grid item xs={12} sm={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>สถานะ</InputLabel>
+              <Select value={status} label="สถานะ" onChange={e => setStatus(e.target.value)}>
+                {STATUS_OPTIONS.map(s => <MenuItem key={s.key} value={s.key}>{s.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Grid>
           <Grid item xs={6} sm={2}>
             <TextField label="ตั้งแต่วันที่" type="date" fullWidth size="small" value={dateFrom} onChange={e => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
           </Grid>
           <Grid item xs={6} sm={2}>
             <TextField label="ถึงวันที่" type="date" fullWidth size="small" value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
           </Grid>
-          <Grid item xs={12} sm={3}>
+          <Grid item xs={12} sm={2}>
             <Button fullWidth variant="contained" onClick={search} disabled={loading} sx={{ borderRadius: 2, height: '100%' }}>
               {loading ? <CircularProgress size={20} /> : 'ค้นหา'}
             </Button>
@@ -289,7 +409,10 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
           placeholder="เช่น สวัสดีคุณ {{parent_name}} อีก 2 วันจะถึงกำหนด {{course_name}} ของ {{child_name}} แล้วนะคะ"
         />
         <VariableChips formFields={formFields} onInsert={insertVariable} />
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
+          <Button variant="outlined" disabled={!message.trim()} onClick={() => setPreviewOpen(true)} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            Preview
+          </Button>
           <Button variant="contained" disabled={selected.size === 0 || !message.trim() || sending} onClick={send} sx={{ borderRadius: 2, fontWeight: 700 }}>
             {sending ? <CircularProgress size={20} /> : `ส่ง SMS (${selected.size} รายการ)`}
           </Button>
@@ -297,6 +420,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
       </Paper>
 
       <ResultDialog result={result} onClose={() => setResult(null)} />
+      <PreviewDialog open={previewOpen} onClose={() => setPreviewOpen(false)} template={message} variables={previewVariables} sourceLabel={previewSourceLabel} />
     </Box>
   );
 }

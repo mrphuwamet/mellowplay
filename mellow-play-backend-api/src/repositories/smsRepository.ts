@@ -7,7 +7,12 @@ const BOOKING_RECIPIENT_SELECT = `
   SELECT
     b.id as booking_id, b.course_id, b.scheduled_at, b.status, b.form_submission_id,
     COALESCE(hp.nickname, hp.name) as child_name,
+    hp.name as child_real_name,
+    hp.nickname as child_nickname,
     (u.first_name || ' ' || u.last_name) as parent_name,
+    (u.first_name || ' ' || u.last_name) as parent_real_name,
+    u.nickname as parent_nickname,
+    u.id as parent_user_id,
     u.phone as phone,
     co.name as course_name,
     br.name as branch_name
