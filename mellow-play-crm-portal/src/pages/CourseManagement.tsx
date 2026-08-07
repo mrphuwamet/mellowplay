@@ -53,6 +53,7 @@ import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skills
 import FocalPointPicker from '../components/FocalPointPicker';
 import RichTextEditor from '../components/RichTextEditor';
 import SmsPreviewBubble from '../components/SmsPreviewBubble';
+import SmsTemplateEditor from '../components/SmsTemplateEditor';
 
 // Converts rich HTML content into paragraph-separated plain text before
 // sending to the translate API, which only understands plain text.
@@ -89,10 +90,10 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 // in pairs (real name vs nickname) so a template can pick either explicitly;
 // the plain child_name/parent_name default to nickname-if-set.
 const BUILTIN_SMS_VARIABLES: { key: string; label: string }[] = [
-  { key: 'child_name', label: 'ชื่อเด็ก (อัตโนมัติ)' },
+  { key: 'child_name', label: 'ชื่อเด็ก (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
   { key: 'child_real_name', label: 'ชื่อจริงเด็ก' },
   { key: 'child_nickname', label: 'ชื่อเล่นเด็ก' },
-  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (อัตโนมัติ)' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง (จากฟอร์มถ้ามี ไม่งั้นใช้บัญชี)' },
   { key: 'parent_real_name', label: 'ชื่อจริงผู้ปกครอง' },
   { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง' },
   { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม' },
@@ -317,8 +318,6 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [registrationForms, setRegistrationForms] = useState<any[]>([]);
   const [smsFormFields, setSmsFormFields] = useState<{ field_key: string; label: string }[]>([]);
   const [smsPreviewField, setSmsPreviewField] = useState<'smsSuccessTemplate' | 'smsReminderTemplate' | null>(null);
-  const smsSuccessTemplateRef = useRef<HTMLTextAreaElement>(null);
-  const smsReminderTemplateRef = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -978,27 +977,6 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const removeCheckinAction = (index: number) =>
     setFormData(f => ({ ...f, checkinActions: f.checkinActions.filter((_, i) => i !== index) }));
 
-  // Chip click inserts {{token}} at wherever the cursor last was in that
-  // specific SMS template textarea, rather than always appending to the end.
-  const insertSmsVariable = (
-    field: 'smsSuccessTemplate' | 'smsReminderTemplate',
-    ref: React.RefObject<HTMLTextAreaElement>,
-    fieldKey: string,
-  ) => {
-    const token = `{{${fieldKey}}}`;
-    const el = ref.current;
-    const current = formData[field];
-    const start = el?.selectionStart ?? current.length;
-    const end = el?.selectionEnd ?? current.length;
-    const next = current.slice(0, start) + token + current.slice(end);
-    setFormData({ ...formData, [field]: next });
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      const pos = start + token.length;
-      el.setSelectionRange(pos, pos);
-    });
-  };
 
   const addCouponRequirement = () => {
     if (couponTypes.length === 0) return;
@@ -1340,49 +1318,27 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   />
                 </Grid>
                 <Grid item xs={12}>
-                  <TextField
-                    label="ข้อความ SMS จองสำเร็จ"
-                    fullWidth
-                    multiline
-                    rows={4}
-                    size="small"
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS จองสำเร็จ</Typography>
+                  <SmsTemplateEditor
                     value={formData.smsSuccessTemplate}
-                    onChange={e => setFormData({ ...formData, smsSuccessTemplate: e.target.value })}
-                    inputRef={smsSuccessTemplateRef}
-                    placeholder="เช่น สวัสดีคุณ {{parent_name}} การจอง {{course_name}} สำหรับ {{child_name}} วันที่ {{scheduled_at}} สำเร็จแล้วค่ะ"
+                    onChange={text => setFormData({ ...formData, smsSuccessTemplate: text })}
+                    placeholder="เช่น สวัสดีคุณ [ชื่อผู้ปกครอง] การจอง [ชื่อคอร์ส/กิจกรรม] สำหรับ [ชื่อเด็ก] วันที่ [วันเวลานัดหมาย] สำเร็จแล้วค่ะ"
+                    builtins={BUILTIN_SMS_VARIABLES}
+                    formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
                   />
-                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-                    {BUILTIN_SMS_VARIABLES.map(v => (
-                      <Chip key={v.key} size="small" label={v.label} onClick={() => insertSmsVariable('smsSuccessTemplate', smsSuccessTemplateRef, v.key)} />
-                    ))}
-                    {smsFormFields.map(f => (
-                      <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsSuccessTemplate', smsSuccessTemplateRef, f.field_key)} />
-                    ))}
-                  </Stack>
                   <Button size="small" onClick={() => setSmsPreviewField('smsSuccessTemplate')} disabled={!formData.smsSuccessTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
                     Preview
                   </Button>
                 </Grid>
                 <Grid item xs={12}>
-                  <TextField
-                    label="ข้อความ SMS แจ้งเตือนล่วงหน้า (ค่าเริ่มต้น)"
-                    fullWidth
-                    multiline
-                    rows={4}
-                    size="small"
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS แจ้งเตือนล่วงหน้า (ค่าเริ่มต้น)</Typography>
+                  <SmsTemplateEditor
                     value={formData.smsReminderTemplate}
-                    onChange={e => setFormData({ ...formData, smsReminderTemplate: e.target.value })}
-                    inputRef={smsReminderTemplateRef}
-                    helperText='ใช้เป็นข้อความตั้งต้นที่หน้า "ส่ง SMS แจ้งเตือน" แก้ไขได้อีกครั้งก่อนส่งจริงทุกครั้ง'
+                    onChange={text => setFormData({ ...formData, smsReminderTemplate: text })}
+                    placeholder="ใช้เป็นข้อความตั้งต้นที่หน้า ส่ง SMS แจ้งเตือน แก้ไขได้อีกครั้งก่อนส่งจริงทุกครั้ง"
+                    builtins={BUILTIN_SMS_VARIABLES}
+                    formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
                   />
-                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-                    {BUILTIN_SMS_VARIABLES.map(v => (
-                      <Chip key={v.key} size="small" label={v.label} onClick={() => insertSmsVariable('smsReminderTemplate', smsReminderTemplateRef, v.key)} />
-                    ))}
-                    {smsFormFields.map(f => (
-                      <Chip key={f.field_key} size="small" variant="outlined" label={f.label} onClick={() => insertSmsVariable('smsReminderTemplate', smsReminderTemplateRef, f.field_key)} />
-                    ))}
-                  </Stack>
                   <Button size="small" onClick={() => setSmsPreviewField('smsReminderTemplate')} disabled={!formData.smsReminderTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
                     Preview
                   </Button>

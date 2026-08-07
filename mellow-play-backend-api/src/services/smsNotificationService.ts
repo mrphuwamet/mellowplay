@@ -64,6 +64,8 @@ export async function sendBookingSuccessSms(
       scheduled_at: formatThaiDateTime(first.scheduled_at),
     };
 
+    const smsRepo = new SmsRepository(db);
+
     if (first.form_submission_id) {
       const submission = await db.prepare('SELECT answers_json FROM Form_Submissions WHERE id = ?')
         .bind(first.form_submission_id).first<{ answers_json: string }>();
@@ -75,6 +77,13 @@ export async function sendBookingSuccessSms(
           }
         } catch { /* malformed answers_json shouldn't block the send */ }
       }
+      // A form that names specifically who's attending (e.g. two-parent
+      // households, or an event needing a named participant) beats the
+      // account's own linked child/parent as the default child_name/
+      // parent_name — see getFormPreferredNames.
+      const preferred = await smsRepo.getFormPreferredNames(first.form_submission_id);
+      if (preferred.child_name) variables.child_name = preferred.child_name;
+      if (preferred.parent_name) variables.parent_name = preferred.parent_name;
     }
 
     const message = renderSmsTemplate(first.sms_success_template, variables);
@@ -86,7 +95,6 @@ export async function sendBookingSuccessSms(
     const sms = new SmsService(apiKey, apiSecret, senderName);
     const result = await sms.sendMessage(first.phone, message);
 
-    const smsRepo = new SmsRepository(db);
     for (const row of bookingRows) {
       await smsRepo.logSms({
         bookingId: row.booking_id,
