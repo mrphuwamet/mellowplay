@@ -52,6 +52,7 @@ import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
 import FocalPointPicker from '../components/FocalPointPicker';
 import RichTextEditor from '../components/RichTextEditor';
+import SmsPreviewBubble from '../components/SmsPreviewBubble';
 
 // Converts rich HTML content into paragraph-separated plain text before
 // sending to the translate API, which only understands plain text.
@@ -1387,18 +1388,16 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   </Button>
                 </Grid>
 
-                <Dialog open={!!smsPreviewField} onClose={() => setSmsPreviewField(null)} maxWidth="sm" fullWidth>
+                <Dialog open={!!smsPreviewField} onClose={() => setSmsPreviewField(null)} maxWidth="xs" fullWidth>
                   <DialogTitle>Preview ข้อความ SMS</DialogTitle>
                   <DialogContent>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, textAlign: 'center' }}>
                       แสดงด้วยข้อมูลตัวอย่าง (ไม่มีการจองจริงให้อ้างอิงในหน้านี้)
                     </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50', whiteSpace: 'pre-wrap', fontSize: 14 }}>
-                      {renderSmsTemplate(
-                        (smsPreviewField && formData[smsPreviewField]) || '',
-                        buildSampleSmsVariables(formData.name, smsFormFields),
-                      )}
-                    </Paper>
+                    <SmsPreviewBubble message={renderSmsTemplate(
+                      (smsPreviewField && formData[smsPreviewField]) || '',
+                      buildSampleSmsVariables(formData.name, smsFormFields),
+                    )} />
                   </DialogContent>
                   <DialogActions>
                     <Button onClick={() => setSmsPreviewField(null)}>ปิด</Button>

@@ -219,7 +219,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
           showing or manual mode is active) — html5-qrcode's pause/resume
           act on this exact DOM element, so conditionally unmounting it
           would break resume(). */}
-      <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, display: (booking || mode !== 'scan') ? 'none' : 'block' }}>
+      <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box', display: (booking || mode !== 'scan') ? 'none' : 'block' }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           เปิดกล้องและส่อง QR Code ของผู้เข้าร่วมที่ได้รับหลังจองสำเร็จ
         </Typography>
@@ -232,7 +232,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
       </Paper>
 
       {!booking && mode === 'manual' && (
-        <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480 }}>
+        <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box' }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             กรอกเบอร์โทรศัพท์ของผู้ปกครองเพื่อค้นหาการจอง
           </Typography>
@@ -265,10 +265,11 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
                     onClick={() => lookupToken(b.qr_token)}
                     sx={{ borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
                   >
-                    <Avatar src={b.child_avatar || undefined} sx={{ mr: 2, width: 36, height: 36 }}>{name[0]}</Avatar>
+                    <Avatar src={b.child_avatar || undefined} sx={{ mr: 2, width: 36, height: 36, flexShrink: 0 }}>{name[0]}</Avatar>
                     <ListItemText
                       primary={`${name} · ${b.course_name}`}
                       secondary={new Date(b.scheduled_at).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
+                      primaryTypographyProps={{ sx: { fontSize: 15, fontWeight: 700, wordBreak: 'break-word' } }}
                     />
                   </ListItem>
                 );
@@ -279,27 +280,27 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
       )}
 
       {booking && (
-        <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Avatar src={booking.child_avatar || undefined} sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
+        <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box' }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 2 }}>
+            <Avatar src={booking.child_avatar || undefined} sx={{ width: 56, height: 56, bgcolor: 'primary.main', flexShrink: 0 }}>
               {attendeeName[0]}
             </Avatar>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{attendeeName}</Typography>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.25, wordBreak: 'break-word' }}>{attendeeName}</Typography>
               {attendeeRealName && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{attendeeRealName}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>{attendeeRealName}</Typography>
               )}
-              <Typography variant="body2" color="text.secondary">{booking.course_name}</Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ wordBreak: 'break-word' }}>{booking.course_name}</Typography>
               <Chip
                 size="small"
                 label={new Date(booking.scheduled_at).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
-                sx={{ mt: 0.5 }}
+                sx={{ mt: 0.5, maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } }}
               />
             </Box>
           </Box>
 
           {booking.parent_phone && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'block', mb: 2, wordBreak: 'break-word' }}>
               ผู้ปกครอง: {[booking.parent_first_name, booking.parent_last_name].filter(Boolean).join(' ')} · {booking.parent_phone}
             </Typography>
           )}
@@ -307,7 +308,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
           {booking.form_submission_id && (
             <>
               <Divider sx={{ mb: 1.5 }} />
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
                 ข้อมูลที่กรอกไว้ตอนลงทะเบียน
               </Typography>
               {formLoading ? (
@@ -315,16 +316,16 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
               ) : formFields && formFields.length > 0 ? (
                 <Box sx={{ mb: 2 }}>
                   {formFields.map((f, i) => (
-                    <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, py: 0.4 }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>{f.label}</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, textAlign: 'right' }}>
+                    <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0, maxWidth: '45%', wordBreak: 'break-word' }}>{f.label}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
                         {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
                       </Typography>
                     </Box>
                   ))}
                 </Box>
               ) : (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 2 }}>ไม่มีข้อมูลที่กรอกไว้</Typography>
+                <Typography variant="body2" color="text.disabled" sx={{ display: 'block', mb: 2 }}>ไม่มีข้อมูลที่กรอกไว้</Typography>
               )}
             </>
           )}
@@ -348,10 +349,13 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
                     disabled={togglingActionId === action.id}
                     icon={<CheckIcon sx={{ color: 'action.disabled' }} />}
                     checkedIcon={<CheckIcon color="success" />}
+                    sx={{ flexShrink: 0 }}
                   />
                   <ListItemText
                     primary={action.label}
                     secondary={action.checked_at ? new Date(action.checked_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : undefined}
+                    primaryTypographyProps={{ sx: { fontSize: 16, fontWeight: 700, wordBreak: 'break-word' } }}
+                    secondaryTypographyProps={{ sx: { fontSize: 13 } }}
                   />
                 </ListItem>
               ))}

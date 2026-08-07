@@ -7,6 +7,7 @@ import {
 } from '@mui/material';
 import { Sms as SmsIcon, Visibility as ViewIcon, Person as ProfileIcon } from '@mui/icons-material';
 import axios from 'axios';
+import SmsPreviewBubble from '../components/SmsPreviewBubble';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -194,13 +195,11 @@ function PreviewDialog({
   open, onClose, template, variables, sourceLabel,
 }: { open: boolean; onClose: () => void; template: string; variables: Record<string, string>; sourceLabel: string }) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Preview ข้อความ SMS</DialogTitle>
       <DialogContent>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>{sourceLabel}</Typography>
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50', whiteSpace: 'pre-wrap', fontSize: 14 }}>
-          {template.trim() ? renderSmsTemplate(template, variables) : <Typography color="text.disabled">(ยังไม่ได้กรอกข้อความ)</Typography>}
-        </Paper>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, textAlign: 'center' }}>{sourceLabel}</Typography>
+        <SmsPreviewBubble message={renderSmsTemplate(template, variables)} />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>ปิด</Button>
@@ -341,11 +340,16 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
 
   // Prefer a real selected recipient's actual data so the preview matches
   // what will really be sent; fall back to the first search result, then to
-  // generic sample data when nothing has been searched/selected yet.
+  // generic sample data when nothing has been searched/selected yet. Form
+  // fields never have a real answer available here (getReminderCandidates
+  // doesn't return submission answers), so every {{field_key}} always gets
+  // a "(ตัวอย่าง) label" placeholder — otherwise it would leak into the
+  // preview as a raw unrendered token even when real recipient data is used.
+  const formFieldSamples = Object.fromEntries(formFields.map(f => [f.field_key, `(ตัวอย่าง) ${f.label}`]));
   const previewSource = rows.find(r => selected.has(r.booking_id)) || rows[0];
   const previewVariables = previewSource
-    ? { ...buildNameVariables(previewSource), course_name: previewSource.course_name, branch_name: previewSource.branch_name || '', scheduled_at: formatThaiDateTime(previewSource.scheduled_at) }
-    : SAMPLE_PREVIEW_VARIABLES;
+    ? { ...formFieldSamples, ...buildNameVariables(previewSource), course_name: previewSource.course_name, branch_name: previewSource.branch_name || '', scheduled_at: formatThaiDateTime(previewSource.scheduled_at) }
+    : { ...formFieldSamples, ...SAMPLE_PREVIEW_VARIABLES };
   const previewSourceLabel = previewSource
     ? `ตัวอย่างจากข้อมูลจริง: ${previewSource.child_name} (${previewSource.parent_name})`
     : 'ยังไม่มีรายชื่อให้ใช้ — แสดงด้วยข้อมูลตัวอย่าง';
@@ -469,6 +473,7 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
               <TableCell>ชื่อ</TableCell>
               <TableCell>เบอร์โทร</TableCell>
               <TableCell>วันที่เป็นสมาชิก</TableCell>
+              <TableCell align="right">&nbsp;</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -477,10 +482,17 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
                 <TableCell>{r.name}</TableCell>
                 <TableCell>{r.phone}</TableCell>
                 <TableCell>{r.member_since}</TableCell>
+                <TableCell align="right">
+                  <Tooltip title="ดูโปรไฟล์">
+                    <IconButton size="small" onClick={() => window.open(`/crm/parents?openUserId=${r.user_id}`, '_blank')}>
+                      <ProfileIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>
               </TableRow>
             ))}
             {rows.length === 0 && (
-              <TableRow><TableCell colSpan={3} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                 {searched ? 'ไม่มีสมาชิกที่ยังไม่สมัครกิจกรรมนี้' : 'เลือกกิจกรรมแล้วกดค้นหา'}
               </TableCell></TableRow>
             )}
