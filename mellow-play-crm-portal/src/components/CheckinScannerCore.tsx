@@ -40,7 +40,7 @@ interface CheckinBooking {
   actions: CheckinAction[];
 }
 
-interface FormAnswerField { label: string; type: string; value: any; }
+interface FormAnswerField { label: string; type: string; value: any; realName?: string; nickname?: string; }
 
 interface PhoneSearchResult {
   booking_id: number;
@@ -51,6 +51,17 @@ interface PhoneSearchResult {
   child_name?: string;
   child_nickname?: string;
   child_avatar?: string;
+}
+
+// family_member_picker's plain `value` is just one display string
+// (nickname-preferred) — show nickname + real name together when both are
+// available and actually differ, so staff aren't stuck seeing only
+// whichever one the family happened to have set as their display name.
+function formatFormFieldValue(f: FormAnswerField): string {
+  if (f.type === 'family_member_picker' && f.nickname && f.realName && f.nickname !== f.realName) {
+    return `${f.nickname} (${f.realName})`;
+  }
+  return Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-');
 }
 
 interface Props {
@@ -319,7 +330,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
                     <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, py: 0.5 }}>
                       <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0, maxWidth: '45%', wordBreak: 'break-word' }}>{f.label}</Typography>
                       <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
-                        {Array.isArray(f.value) ? f.value.join(', ') : (f.value ?? '-')}
+                        {formatFormFieldValue(f)}
                       </Typography>
                     </Box>
                   ))}

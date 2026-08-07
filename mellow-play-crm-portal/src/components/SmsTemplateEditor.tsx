@@ -4,7 +4,12 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { SmsVariableNode } from './tiptap/smsVariableNode';
 
-export interface SmsTemplateVariable { key: string; label: string }
+// `label` is what the toolbar chip shows (can be long/descriptive).
+// `tagLabel` is what the inline pill inside the editor shows — short by
+// design. Builtins set both explicitly; form fields (whose label is a real,
+// meaningful CRM-authored string, not a description to trim) fall back to
+// showing their full `label` as the tag too — never auto-truncated.
+export interface SmsTemplateVariable { key: string; label: string; tagLabel?: string }
 
 interface SmsTemplateEditorProps {
   value: string;
@@ -63,7 +68,10 @@ function docToText(doc: any): string {
 // backend's renderSmsTemplate expects, so no backend change was needed.
 const SmsTemplateEditor: React.FC<SmsTemplateEditorProps> = ({ value, onChange, placeholder, builtins, formFields = [] }) => {
   const allVariables = useMemo(() => [...builtins, ...formFields], [builtins, formFields]);
-  const labelFor = (key: string) => allVariables.find(v => v.key === key)?.label.split(' (')[0] || key;
+  const labelFor = (key: string) => {
+    const v = allVariables.find(v => v.key === key);
+    return v ? (v.tagLabel || v.label) : key;
+  };
 
   const editor = useEditor({
     extensions: [
@@ -90,7 +98,7 @@ const SmsTemplateEditor: React.FC<SmsTemplateEditorProps> = ({ value, onChange, 
   if (!editor) return null;
 
   const insertVariable = (v: SmsTemplateVariable) => {
-    editor.chain().focus().insertContent({ type: 'smsVariable', attrs: { key: v.key, label: v.label.split(' (')[0] } }).run();
+    editor.chain().focus().insertContent({ type: 'smsVariable', attrs: { key: v.key, label: v.tagLabel || v.label } }).run();
   };
 
   return (

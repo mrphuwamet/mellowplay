@@ -120,7 +120,7 @@ const AppContent = () => {
         <Route path="/report/:bookingId" element={<ReportDetail />} />
         <Route path="/news/:id" element={<NewsDetail />} />
         <Route path="/news-feed/:type" element={<NewsList />} />
-        <Route path="/explore" element={<Explore />} />
+        <Route path="/explore/:category?" element={<Explore />} />
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/settings" element={<SettingsProfile />} />
         <Route path="/settings/profile" element={<SettingsProfile />} />

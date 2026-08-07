@@ -387,9 +387,22 @@ export class AdminController {
       const submission = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
       if (!submission) return c.json({ success: true, fields: [] });
 
+      // family_member_picker's plain value is just one display string
+      // (nickname-preferred) — the consumer app also records `${field_key}
+      // __realname`/`__nickname` siblings alongside it (see
+      // DynamicRegistrationForm.tsx), so surface both here for whoever's
+      // displaying this (currently the check-in scanner). Older submissions
+      // predating that just won't have them, so both stay undefined.
       const fields = submission.fields
         .filter((f: any) => f.type !== 'heading')
-        .map((f: any) => ({ fieldKey: f.field_key, label: f.label, type: f.type, optionsJson: f.options_json, value: submission.answers[f.field_key] }));
+        .map((f: any) => ({
+          fieldKey: f.field_key, label: f.label, type: f.type, optionsJson: f.options_json,
+          value: submission.answers[f.field_key],
+          ...(f.type === 'family_member_picker' ? {
+            realName: submission.answers[`${f.field_key}__realname`],
+            nickname: submission.answers[`${f.field_key}__nickname`],
+          } : {}),
+        }));
 
       return c.json({ success: true, fields });
     } catch (error: any) {
