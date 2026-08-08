@@ -223,6 +223,7 @@ export class AdminController {
         id: p.child_id || p.id,
         name: p.name,
         nickname: p.nickname,
+        relation: p.relation,
         display: p.nickname || p.name,
       }));
 
@@ -232,12 +233,13 @@ export class AdminController {
       // on a family_member_picker booking field. Negative ids keep them
       // from colliding with a real HD_Profiles/Children id in the same list.
       const { results: crmChildren } = await config.db.prepare(
-        'SELECT id, full_name, nickname FROM User_CRM_Children WHERE user_id = ?'
+        'SELECT id, full_name, nickname, relation FROM User_CRM_Children WHERE user_id = ?'
       ).bind(userId).all();
       const crmRoster = (crmChildren as any[]).map(cc => ({
         id: -cc.id,
         name: cc.full_name,
         nickname: cc.nickname,
+        relation: cc.relation,
         display: cc.nickname || cc.full_name,
       }));
 

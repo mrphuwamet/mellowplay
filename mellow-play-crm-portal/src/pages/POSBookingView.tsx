@@ -24,6 +24,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { AddBookingDialog } from '../components/AddBookingDialog';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -98,14 +99,6 @@ const QUEUE_STATUS_FILTERS = [
   { key: 'completed',  label: 'เสร็จแล้ว'     },
   { key: 'cancelled',  label: 'ยกเลิก'        },
 ];
-
-const formatDuration = (d: string) => {
-  if (!d) return '-';
-  const [h, m] = d.split(':').map(Number);
-  if (h>0&&m>0) return `${h} ชม. ${m} นาที`;
-  if (h>0) return `${h} ชม.`;
-  return `${m} นาที`;
-};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SHARED DIALOGS
@@ -451,14 +444,6 @@ interface Booking {
   scheduled_at: string; status: string; age_group: string;
   child_name: string; course_name: string; branch_name: string;
 }
-interface Course {
-  id: number; name: string; name_en: string; code: string;
-  description: string; description_en: string;
-  age_min: number; age_max: number; duration: string;
-  thumbnail_url: string; category_name: string;
-}
-interface Child  { id: number; name: string; little_junior_balance: number; junior_balance: number; }
-interface Member { id: number; phone: string; first_name: string; last_name: string; children: Child[]; }
 
 // ── Booking row ──────────────────────────────────────────────────────────────
 
@@ -606,135 +591,6 @@ const MonthView = ({ bookings, date, onDetail, onReport }: {
         })}
       </Box>
     </Paper>
-  );
-};
-
-// ── Add Booking Dialog ────────────────────────────────────────────────────────
-
-const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess }: {
-  open: boolean; onClose:()=>void; branchId:number|string; branchName:string; onSuccess:()=>void;
-}) => {
-  const [customerType, setCustomerType] = useState<'member'|'guest'>('member');
-  const [phone, setPhone]         = useState('');
-  const [member, setMember]       = useState<Member|null>(null);
-  const [memberLoading, setMemberLoading] = useState(false);
-  const [memberError, setMemberError]     = useState('');
-  const [selectedChildId, setSelectedChildId] = useState('');
-  const [guestName, setGuestName] = useState('');
-  const [guestPhone, setGuestPhone]= useState('');
-  const [courses, setCourses]     = useState<Course[]>([]);
-  const [courseId, setCourseId]   = useState('');
-  const [bookingDate, setBookingDate] = useState(toISODate(new Date()));
-  const [bookingTime, setBookingTime] = useState('09:00');
-  const [paymentStatus, setPaymentStatus] = useState<'pending'|'confirmed_paid'>('confirmed_paid');
-  const [descLang, setDescLang]   = useState<'th'|'en'>('th');
-  const [submitting, setSubmitting]= useState(false);
-  const [error, setError]         = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    axios.get(`${API_BASE}/courses`).then(res=>{ if(res.data.success) setCourses(res.data.courses??[]); }).catch(()=>{});
-  }, [open]);
-
-  const reset=()=>{ setCustomerType('member'); setPhone(''); setMember(null); setMemberError(''); setSelectedChildId(''); setGuestName(''); setGuestPhone(''); setCourseId(''); setBookingDate(toISODate(new Date())); setBookingTime('09:00'); setPaymentStatus('confirmed_paid'); setDescLang('th'); setError(''); };
-  const handleClose=()=>{ reset(); onClose(); };
-
-  const searchMember=async()=>{
-    if(!phone.trim()) return;
-    setMemberLoading(true); setMemberError(''); setMember(null);
-    try {
-      const res=await axios.post(`${API_BASE}/pos/lookup-member`,{phone:phone.trim()});
-      if(res.data.success){ setMember(res.data.member); if(res.data.member.children?.length>0) setSelectedChildId(String(res.data.member.children[0].id)); }
-      else setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้');
-    } catch { setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้'); }
-    finally { setMemberLoading(false); }
-  };
-
-  const handleSubmit=async()=>{
-    if(!courseId) { setError('กรุณาเลือกคลาส'); return; }
-    if(!bookingDate||!bookingTime) { setError('กรุณาระบุวันและเวลา'); return; }
-    if(customerType==='member'&&!selectedChildId) { setError('กรุณาเลือกเด็กจากผลการค้นหา'); return; }
-    setSubmitting(true); setError('');
-    try {
-      const res=await axios.post(`${API_BASE}/bookings`,{ isGuest:customerType==='guest', childId:customerType==='member'?parseInt(selectedChildId):0, courseId:parseInt(courseId), branchId:parseInt(String(branchId)), scheduledAt:`${bookingDate} ${bookingTime}:00`, status:paymentStatus, ...(customerType==='guest'&&{guestName:guestName.trim(),guestPhone:guestPhone.trim()}) });
-      if(res.data.success){ reset(); onSuccess(); }
-      else setError(res.data.message??'เกิดข้อผิดพลาด');
-    } catch(e:any){ setError(e?.response?.data?.message??'เกิดข้อผิดพลาด'); }
-    finally{ setSubmitting(false); }
-  };
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth PaperProps={{sx:{borderRadius:3}}}>
-      <DialogTitle sx={{fontWeight:800,pb:0}}>เพิ่มการจองคลาส</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{mt:2}}>
-          <FormControl>
-            <FormLabel sx={{fontWeight:700,mb:0.5,fontSize:'0.85rem'}}>ประเภทลูกค้า</FormLabel>
-            <RadioGroup row value={customerType} onChange={e=>{ setCustomerType(e.target.value as any); setMember(null); setMemberError(''); }}>
-              <FormControlLabel value="member" control={<Radio size="small"/>} label="สมาชิกในระบบ"/>
-              <FormControlLabel value="guest"  control={<Radio size="small"/>} label="ลูกค้าทั่วไป"/>
-            </RadioGroup>
-          </FormControl>
-          {customerType==='member'&&(
-            <Box>
-              <TextField label="ค้นหาด้วยเบอร์โทร" size="small" fullWidth value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==='Enter'&&searchMember()}
-                InputProps={{endAdornment:<InputAdornment position="end"><IconButton onClick={searchMember} disabled={memberLoading} size="small">{memberLoading?<CircularProgress size={16}/>:<SearchIcon/>}</IconButton></InputAdornment>}}/>
-              {memberError&&<Alert severity="warning" sx={{mt:1,py:0.5}}>{memberError}</Alert>}
-              {member&&(
-                <Paper variant="outlined" sx={{mt:1.5,p:1.5,borderRadius:2}}>
-                  <Typography variant="body2" sx={{fontWeight:700}}>{member.first_name} {member.last_name}</Typography>
-                  {(member.children?.length??0)>0?<FormControl fullWidth size="small" sx={{mt:1.5}}><InputLabel>เลือกเด็ก</InputLabel><Select value={selectedChildId} onChange={e=>setSelectedChildId(e.target.value)} label="เลือกเด็ก">{member.children.map(c=><MenuItem key={c.id} value={String(c.id)}>{c.name}</MenuItem>)}</Select></FormControl>:<Alert severity="warning" sx={{mt:1,py:0.5}}>สมาชิกนี้ยังไม่มีข้อมูลเด็กในระบบ</Alert>}
-                </Paper>
-              )}
-            </Box>
-          )}
-          {customerType==='guest'&&<Stack spacing={1.5}><Stack direction="row" spacing={1.5}><TextField label="ชื่อลูกค้า" size="small" fullWidth placeholder="ไม่บังคับ" value={guestName} onChange={e=>setGuestName(e.target.value)}/><TextField label="เบอร์โทร" size="small" fullWidth placeholder="ไม่บังคับ" value={guestPhone} onChange={e=>setGuestPhone(e.target.value)}/></Stack></Stack>}
-          <Divider/>
-          <FormControl>
-            <FormLabel sx={{fontWeight:700,mb:0.5,fontSize:'0.85rem'}}>สถานะการชำระ</FormLabel>
-            <RadioGroup row value={paymentStatus} onChange={e=>setPaymentStatus(e.target.value as any)}>
-              <FormControlLabel value="confirmed_paid" control={<Radio size="small"/>} label={<Typography variant="body2" sx={{fontWeight:700,color:'#0277bd'}}>ชำระแล้ว</Typography>}/>
-              <FormControlLabel value="pending"        control={<Radio size="small"/>} label={<Typography variant="body2" sx={{fontWeight:700,color:'#e65100'}}>รอชำระ</Typography>}/>
-            </RadioGroup>
-          </FormControl>
-          <FormControl fullWidth size="small">
-            <InputLabel>เลือกคลาส *</InputLabel>
-            <Select value={courseId} onChange={e=>{ setCourseId(e.target.value); setDescLang('th'); }} label="เลือกคลาส *">
-              {courses.map(c=><MenuItem key={c.id} value={String(c.id)}><Box><Typography variant="body2" sx={{fontWeight:700}}>{c.name}</Typography>{c.name_en&&<Typography variant="caption" color="text.secondary">{c.name_en}</Typography>}</Box></MenuItem>)}
-            </Select>
-          </FormControl>
-          {courseId&&(()=>{
-            const c=courses.find(x=>String(x.id)===courseId); if(!c) return null;
-            const desc=descLang==='en'?(c.description_en||c.description):(c.description||c.description_en);
-            return (
-              <Paper variant="outlined" sx={{borderRadius:2,overflow:'hidden'}}>
-                <Box sx={{display:'flex',gap:1.5,p:1.5}}>
-                  {c.thumbnail_url?<Box component="img" src={c.thumbnail_url} alt={c.name} sx={{width:80,height:80,borderRadius:1.5,objectFit:'cover',flexShrink:0}}/>:<Box sx={{width:80,height:80,borderRadius:1.5,flexShrink:0,bgcolor:'primary.50',display:'flex',alignItems:'center',justifyContent:'center'}}><Typography variant="h5" sx={{color:'primary.main',fontWeight:900}}>{c.name.charAt(0)}</Typography></Box>}
-                  <Box sx={{flex:1,minWidth:0}}>
-                    <Typography variant="body2" sx={{fontWeight:800,mb:0.25}}>{c.name}</Typography>
-                    <Stack direction="row" spacing={0.75} flexWrap="wrap">{c.code&&<Chip label={c.code} size="small" variant="outlined" sx={{fontWeight:700,fontSize:'10px',height:20}}/>}{c.category_name&&<Chip label={c.category_name} size="small" color="primary" variant="outlined" sx={{fontWeight:700,fontSize:'10px',height:20}}/>}</Stack>
-                    <Stack direction="row" spacing={2} mt={0.75}>{c.duration&&<Typography variant="caption" color="text.secondary">⏱ {formatDuration(c.duration)}</Typography>}{(c.age_min!=null||c.age_max!=null)&&<Typography variant="caption" color="text.secondary">👶 {c.age_min??'?'}–{c.age_max??'?'} ปี</Typography>}</Stack>
-                  </Box>
-                </Box>
-                {desc&&<><Divider/><Box sx={{px:1.5,pt:1,pb:1.5}}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.75}><Typography variant="caption" sx={{fontWeight:700,color:'text.secondary'}}>รายละเอียด</Typography><ToggleButtonGroup value={descLang} exclusive onChange={(_,v)=>v&&setDescLang(v)} size="small"><ToggleButton value="th" sx={{py:0,px:1,fontSize:'10px',fontWeight:700}}>ไทย</ToggleButton><ToggleButton value="en" sx={{py:0,px:1,fontSize:'10px',fontWeight:700}}>ENG</ToggleButton></ToggleButtonGroup></Stack><Typography variant="caption" color="text.secondary" sx={{display:'block',lineHeight:1.6}}>{desc}</Typography></Box></>}
-              </Paper>
-            );
-          })()}
-          <Stack direction="row" spacing={2}>
-            <TextField label="วันที่ *" type="date" size="small" sx={{flex:1}} value={bookingDate} onChange={e=>setBookingDate(e.target.value)} InputLabelProps={{shrink:true}}/>
-            <TextField label="เวลา *"  type="time" size="small" sx={{flex:1}} value={bookingTime} onChange={e=>setBookingTime(e.target.value)} InputLabelProps={{shrink:true}}/>
-          </Stack>
-          <TextField label="สาขา" size="small" value={branchName||'-'} InputProps={{readOnly:true}}/>
-          {error&&<Alert severity="error">{error}</Alert>}
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{px:3,pb:2.5}}>
-        <Button onClick={handleClose} sx={{fontWeight:700}}>ยกเลิก</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={submitting} sx={{fontWeight:800,borderRadius:2}}>
-          {submitting?<CircularProgress size={20} color="inherit"/>:'บันทึกการจอง'}
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 };
 

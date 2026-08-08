@@ -8,7 +8,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Grid, CircularProgress, Tooltip, Stack, Divider,
   RadioGroup, Radio, FormControlLabel, FormLabel, Alert, InputAdornment,
-  Snackbar, Switch, Menu, OutlinedInput, Checkbox, Pagination,
+  Snackbar, Switch, Menu, Checkbox, Pagination, Autocomplete,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight,
@@ -37,6 +37,7 @@ import {
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { AddBookingDialog, CourseDetailPanel } from '../components/AddBookingDialog';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -471,7 +472,25 @@ const SORT_OPTIONS: { key: string; label: string }[] = [
 const getBookingTypeLabel = (b: Booking): string =>
   b.is_event ? 'กิจกรรม (Event)' : b.is_service ? 'บริการ (Service)' : 'คลาสเรียน';
 
-const getGroupValue = (b: Booking, field: string): string => {
+// Registration-form field types worth grouping/searching by — every one of
+// these has a small, discrete set of possible answers (a team, a dropdown
+// pick), unlike free text/numbers/dates which wouldn't group into anything
+// meaningful.
+const GROUPABLE_FIELD_TYPES = ['team_select', 'select', 'radio', 'checkbox'];
+
+type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>;
+
+// Dynamic form-field group keys are namespaced "field:<field_key>" so they
+// never collide with the fixed native-column keys above — field_key is a
+// fresh UUID per field instance, so it's already unique across every course's
+// form without needing to also track which form it came from.
+const getGroupValue = (b: Booking, field: string, submissionsMap?: SubmissionsMap): string => {
+  if (field.startsWith('field:')) {
+    const fieldKey = field.slice('field:'.length);
+    const raw = submissionsMap?.[String(b.form_submission_id ?? '')]?.answers?.[fieldKey];
+    if (raw == null || raw === '') return 'ไม่ระบุ';
+    return Array.isArray(raw) ? (raw.length ? raw.join(', ') : 'ไม่ระบุ') : String(raw);
+  }
   switch (field) {
     case 'type': return getBookingTypeLabel(b);
     case 'course': return b.course_name || 'ไม่ระบุคลาส';
@@ -501,19 +520,19 @@ interface GroupNode { key: string; items: Booking[]; children?: GroupNode[]; }
 // Recursive so any number of group-by conditions can be layered — pick
 // course + date and you get one course-level group per date sub-group,
 // not just a single flat dimension.
-const buildGroups = (items: Booking[], fields: string[]): GroupNode[] => {
+const buildGroups = (items: Booking[], fields: string[], submissionsMap?: SubmissionsMap): GroupNode[] => {
   if (fields.length === 0) return [{ key: '', items }];
   const [field, ...rest] = fields;
   const map = new Map<string, Booking[]>();
   for (const b of items) {
-    const key = getGroupValue(b, field);
+    const key = getGroupValue(b, field, submissionsMap);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(b);
   }
   return Array.from(map.entries()).map(([key, groupItems]) => ({
     key,
     items: groupItems,
-    children: rest.length > 0 ? buildGroups(groupItems, rest) : undefined,
+    children: rest.length > 0 ? buildGroups(groupItems, rest, submissionsMap) : undefined,
   }));
 };
 
@@ -1061,9 +1080,30 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // don't compose cleanly — see the note rendered near the pagination
   // control below), pagination only applies to the flat, ungrouped view.
   const itemsToRender = groupByFields.length > 0 ? sorted : paginated;
-  const grouped = useMemo(() => buildGroups(itemsToRender, groupByFields), [itemsToRender, groupByFields]);
+  const grouped = useMemo(() => buildGroups(itemsToRender, groupByFields, submissionsMap), [itemsToRender, groupByFields, submissionsMap]);
 
   const courseMap = useMemo(() => new Map(courses.map(c => [c.id, c])), [courses]);
+
+  // Every registration-form field currently in play (across whatever
+  // bookings are loaded right now) worth offering as a group-by option —
+  // "Team" is the flagship case, but any course's own select/radio/checkbox
+  // field works the same way. field_key is already a fresh UUID per field
+  // instance, so de-duping by it is safe even across different forms.
+  const dynamicFieldOptions = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; section: 'form' }>();
+    for (const sub of Object.values(submissionsMap)) {
+      for (const f of sub.fields) {
+        if (!GROUPABLE_FIELD_TYPES.includes(f.type) || map.has(f.field_key)) continue;
+        map.set(f.field_key, { key: `field:${f.field_key}`, label: f.label, section: 'form' });
+      }
+    }
+    return Array.from(map.values());
+  }, [submissionsMap]);
+
+  const groupOptionsAll = useMemo(() => [
+    ...GROUP_OPTIONS.map(o => ({ ...o, section: 'booking' as const })),
+    ...dynamicFieldOptions,
+  ], [dynamicFieldOptions]);
 
   // Defaults to the full filtered set (the toolbar button), but also reused
   // by the selection bar's "Export CSV ที่เลือก" to dump just the checked rows.
@@ -1421,26 +1461,42 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
             sx={{ flex: '1 1 220px', '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
           />
-          <FormControl size="small" sx={{ minWidth: 220, flex: '1 1 220px' }}>
-            <InputLabel sx={{ fontWeight: 700 }}>จัดกลุ่มตาม</InputLabel>
-            <Select
-              multiple
-              value={groupByFields}
-              onChange={e => setGroupByFields(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}
-              input={<OutlinedInput label="จัดกลุ่มตาม" />}
-              renderValue={(selected) => (selected as string[]).length === 0
-                ? 'ไม่จัดกลุ่ม'
-                : (selected as string[]).map(k => GROUP_OPTIONS.find(g => g.key === k)?.label ?? k).join(' › ')}
-              sx={{ borderRadius: 2, fontWeight: 700 }}
-            >
-              {GROUP_OPTIONS.map(opt => (
-                <MenuItem key={opt.key} value={opt.key} sx={{ fontWeight: 700 }}>
-                  <Checkbox checked={groupByFields.includes(opt.key)} size="small" sx={{ p: 0.5, mr: 0.5 }} />
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {/* Autocomplete (not a plain Select) so staff can type to search
+              by field name once dynamic registration-form fields (Team,
+              any other select/radio/checkbox) join the fixed booking-column
+              options below — groupBy renders them as separate labeled
+              sections in the dropdown. */}
+          <Autocomplete
+            multiple
+            size="small"
+            options={groupOptionsAll}
+            groupBy={(option) => option.section === 'booking' ? 'ข้อมูลการจอง' : 'ฟิลด์จากฟอร์มลงทะเบียน'}
+            getOptionLabel={(option) => option.label}
+            isOptionEqualToValue={(option, value) => option.key === value.key}
+            value={groupOptionsAll.filter(o => groupByFields.includes(o.key))}
+            onChange={(_, newValue) => setGroupByFields(newValue.map(o => o.key))}
+            disableCloseOnSelect
+            sx={{ minWidth: 240, flex: '1 1 240px' }}
+            renderOption={(props, option, { selected }) => (
+              <li {...props} key={option.key}>
+                <Checkbox checked={selected} size="small" sx={{ p: 0.5, mr: 0.5 }} />
+                {option.label}
+              </li>
+            )}
+            renderTags={(selected) => (
+              <Typography variant="body2" noWrap sx={{ fontWeight: 700, ml: 1 }}>
+                {selected.map(o => o.label).join(' › ')}
+              </Typography>
+            )}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="จัดกลุ่มตาม"
+                placeholder={groupByFields.length === 0 ? 'ไม่จัดกลุ่ม' : undefined}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 700 } }}
+              />
+            )}
+          />
           {groupByFields.length > 0 && (
             <Stack direction="row" spacing={0.5}>
               <Tooltip title="ขยายทั้งหมด">
@@ -1645,476 +1701,6 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       />
       <ClassDetailDialog course={classDetailCourse} onClose={() => setClassDetailCourse(null)} />
     </Box>
-  );
-};
-
-// ─── Course Detail Panel ─────────────────────────────────────────────────────
-// Shared between AddBookingDialog's course picker and the List view's "ดู
-// รายละเอียดคลาส" action, so both surfaces show the exact same rich course
-// card (thumbnail, code/category chips, duration/age, bilingual description).
-
-const CourseDetailPanel = ({ course }: { course: Course }) => {
-  const [descLang, setDescLang] = useState<'th' | 'en'>('th');
-  const desc = descLang === 'en' ? (course.description_en || course.description) : (course.description || course.description_en);
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-      {/* Thumbnail + meta */}
-      <Box sx={{ display: 'flex', gap: 1.5, p: 1.5 }}>
-        {course.thumbnail_url ? (
-          <Box
-            component="img"
-            src={course.thumbnail_url}
-            alt={course.name}
-            sx={{ width: 80, height: 80, borderRadius: 1.5, objectFit: 'cover', flexShrink: 0 }}
-          />
-        ) : (
-          <Box sx={{
-            width: 80, height: 80, borderRadius: 1.5, flexShrink: 0,
-            bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 900 }}>
-              {course.name.charAt(0)}
-            </Typography>
-          </Box>
-        )}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.25 }}>{course.name}</Typography>
-          {course.name_en && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{course.name_en}</Typography>
-          )}
-          <Stack direction="row" spacing={0.75} flexWrap="wrap">
-            {course.code && (
-              <Chip label={course.code} size="small" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
-            )}
-            {course.category_name && (
-              <Chip label={course.category_name} size="small" color="primary" variant="outlined" sx={{ fontWeight: 700, fontSize: '10px', height: 20 }} />
-            )}
-          </Stack>
-          <Stack direction="row" spacing={2} mt={0.75}>
-            {course.duration && (
-              <Typography variant="caption" color="text.secondary">
-                ⏱ {formatDuration(course.duration)}
-              </Typography>
-            )}
-            {(course.age_min != null || course.age_max != null) && (
-              <Typography variant="caption" color="text.secondary">
-                👶 {course.age_min ?? '?'}–{course.age_max ?? '?'} ปี
-              </Typography>
-            )}
-          </Stack>
-        </Box>
-      </Box>
-      {/* Description */}
-      {desc && (
-        <>
-          <Divider />
-          <Box sx={{ px: 1.5, pt: 1, pb: 1.5 }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.75}>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>รายละเอียด</Typography>
-              <ToggleButtonGroup
-                value={descLang}
-                exclusive
-                onChange={(_, v) => v && setDescLang(v)}
-                size="small"
-              >
-                <ToggleButton value="th" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ไทย</ToggleButton>
-                <ToggleButton value="en" sx={{ py: 0, px: 1, fontSize: '10px', fontWeight: 700 }}>ENG</ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
-            <Typography
-              variant="caption" color="text.secondary"
-              component="div"
-              sx={{ display: 'block', lineHeight: 1.6, '& p': { m: 0, mb: 0.5 } }}
-              dangerouslySetInnerHTML={{ __html: desc }}
-            />
-          </Box>
-        </>
-      )}
-    </Paper>
-  );
-};
-
-// ─── Add Booking Dialog ──────────────────────────────────────────────────────
-
-const AddBookingDialog = ({ open, onClose, branchId, branchName, onSuccess, courses }: {
-  open: boolean;
-  onClose: () => void;
-  branchId: number | string;
-  branchName: string;
-  onSuccess: () => void;
-  courses: Course[];
-}) => {
-  const [customerType, setCustomerType] = useState<'member' | 'guest'>('member');
-  const [phone, setPhone] = useState('');
-  const [member, setMember] = useState<Member | null>(null);
-  const [memberLoading, setMemberLoading] = useState(false);
-  const [memberError, setMemberError] = useState('');
-  const [selectedChildId, setSelectedChildId] = useState('');
-  const [guestName, setGuestName] = useState('');
-  const [guestPhone, setGuestPhone] = useState('');
-  const [courseId, setCourseId] = useState('');
-  const [bookingDate, setBookingDate] = useState(toISODate(new Date()));
-  const [bookingTime, setBookingTime] = useState('09:00');
-  const [paymentStatus, setPaymentStatus] = useState<'pending' | 'confirmed_paid'>('confirmed_paid');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  // Round/slot picker — only for courses bound to a Calendar (see the
-  // useEffect below). Courses with no calendar_id (e.g. extra classes,
-  // one-off events) fall back to the raw date+time fields further down,
-  // same as before this was added.
-  const [upcomingDates, setUpcomingDates] = useState<UpcomingSlotDate[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-  const [selectedDateObj, setSelectedDateObj] = useState<UpcomingSlotDate | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
-
-  const selectedCourse = courses.find(c => String(c.id) === courseId);
-
-  useEffect(() => {
-    setUpcomingDates([]);
-    setSelectedDateObj(null);
-    setSelectedSlot(null);
-    if (!selectedCourse?.calendar_id) return;
-    setSlotsLoading(true);
-    axios.get(`${API_BASE}/calendar-slots/upcoming`, {
-      params: { calendarId: selectedCourse.calendar_id, branchId },
-    }).then(res => {
-      if (res.data.success) {
-        const formatted: UpcomingSlotDate[] = res.data.upcoming.map((ud: any) => ({
-          ...ud, isFull: ud.slots.every((s: TimeSlot) => s.available === 0),
-        }));
-        setUpcomingDates(formatted);
-        setSelectedDateObj(formatted.find((d: UpcomingSlotDate) => !d.isFull) || formatted[0] || null);
-      }
-    }).catch(() => {}).finally(() => setSlotsLoading(false));
-  }, [selectedCourse?.calendar_id, branchId]);
-
-  const reset = () => {
-    setCustomerType('member');
-    setPhone('');
-    setMember(null);
-    setMemberError('');
-    setSelectedChildId('');
-    setGuestName('');
-    setGuestPhone('');
-    setCourseId('');
-    setBookingDate(toISODate(new Date()));
-    setBookingTime('09:00');
-    setPaymentStatus('confirmed_paid');
-    setUpcomingDates([]);
-    setSelectedDateObj(null);
-    setSelectedSlot(null);
-    setError('');
-  };
-
-  const handleClose = () => { reset(); onClose(); };
-
-  const searchMember = async () => {
-    if (!phone.trim()) return;
-    setMemberLoading(true);
-    setMemberError('');
-    setMember(null);
-    try {
-      const res = await axios.post(`${API_BASE}/pos/lookup-member`, { phone: phone.trim() });
-      if (res.data.success) {
-        setMember(res.data.member);
-        if (res.data.member.children?.length > 0) setSelectedChildId(String(res.data.member.children[0].id));
-      } else {
-        setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้');
-      }
-    } catch {
-      setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้');
-    } finally {
-      setMemberLoading(false);
-    }
-  };
-
-  const usesSlotPicker = !!selectedCourse?.calendar_id;
-
-  const handleSubmit = async () => {
-    if (!courseId) { setError('กรุณาเลือกคลาส'); return; }
-    if (usesSlotPicker) {
-      if (!selectedDateObj || !selectedSlot) { setError('กรุณาเลือกวันและรอบเวลา'); return; }
-    } else if (!bookingDate || !bookingTime) {
-      setError('กรุณาระบุวันและเวลา'); return;
-    }
-    if (customerType === 'member' && !selectedChildId) { setError('กรุณาเลือกเด็กจากผลการค้นหา'); return; }
-
-    setSubmitting(true);
-    setError('');
-    try {
-      const res = await axios.post(`${API_BASE}/bookings`, {
-        isGuest: customerType === 'guest',
-        childId: customerType === 'member' ? parseInt(selectedChildId) : 0,
-        courseId: parseInt(courseId),
-        branchId: parseInt(String(branchId)),
-        scheduledAt: usesSlotPicker
-          ? `${selectedDateObj!.date} ${selectedSlot!.startTime}:00`
-          : `${bookingDate} ${bookingTime}:00`,
-        ...(usesSlotPicker && {
-          calendarId: selectedCourse!.calendar_id,
-          slotDate: selectedDateObj!.date,
-          slotStartTime: selectedSlot!.startTime,
-        }),
-        status: paymentStatus,
-        ...(customerType === 'guest' && { guestName: guestName.trim(), guestPhone: guestPhone.trim() }),
-      });
-      if (res.data.success) { reset(); onSuccess(); }
-      else if (res.data.error_code === 'SLOT_FULL') {
-        // Someone else took the last seat between picking and submitting —
-        // clear the stale selection and refetch so the picker reflects
-        // reality instead of letting staff retry the same full slot.
-        setSelectedSlot(null);
-        setError(res.data.message ?? 'รอบเวลานี้เต็มแล้ว กรุณาเลือกรอบเวลาอื่น');
-        if (selectedCourse?.calendar_id) {
-          setSlotsLoading(true);
-          axios.get(`${API_BASE}/calendar-slots/upcoming`, { params: { calendarId: selectedCourse.calendar_id, branchId } })
-            .then(r => {
-              if (r.data.success) {
-                const formatted: UpcomingSlotDate[] = r.data.upcoming.map((ud: any) => ({
-                  ...ud, isFull: ud.slots.every((s: TimeSlot) => s.available === 0),
-                }));
-                setUpcomingDates(formatted);
-                setSelectedDateObj(formatted.find((d: UpcomingSlotDate) => d.date === selectedDateObj?.date) || formatted[0] || null);
-              }
-            }).catch(() => {}).finally(() => setSlotsLoading(false));
-        }
-      }
-      else setError(res.data.message ?? 'เกิดข้อผิดพลาด');
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 800, pb: 0 }}>เพิ่มการลงทะเบียน</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{ mt: 2 }}>
-          {/* Customer type */}
-          <FormControl>
-            <FormLabel sx={{ fontWeight: 700, mb: 0.5, fontSize: '0.85rem' }}>ประเภทลูกค้า</FormLabel>
-            <RadioGroup
-              row
-              value={customerType}
-              onChange={e => { setCustomerType(e.target.value as 'member' | 'guest'); setMember(null); setMemberError(''); }}
-            >
-              <FormControlLabel value="member" control={<Radio size="small" />} label="สมาชิกในระบบ" />
-              <FormControlLabel value="guest"  control={<Radio size="small" />} label="ลูกค้าทั่วไป" />
-            </RadioGroup>
-          </FormControl>
-
-          {/* Member lookup */}
-          {customerType === 'member' && (
-            <Box>
-              <TextField
-                label="ค้นหาด้วยเบอร์โทร"
-                size="small"
-                fullWidth
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && searchMember()}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={searchMember} disabled={memberLoading} size="small">
-                        {memberLoading ? <CircularProgress size={16} /> : <SearchIcon />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              {memberError && <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>{memberError}</Alert>}
-              {member && (
-                <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{member.first_name} {member.last_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{member.phone}</Typography>
-                  {(member.children?.length ?? 0) > 0 ? (
-                    <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-                      <InputLabel>เลือกเด็ก</InputLabel>
-                      <Select value={selectedChildId} onChange={e => setSelectedChildId(e.target.value)} label="เลือกเด็ก">
-                        {member.children.map(c => (
-                          <MenuItem key={c.id} value={String(c.id)}>{c.name}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  ) : (
-                    <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>สมาชิกนี้ยังไม่มีข้อมูลเด็กในระบบ</Alert>
-                  )}
-                </Paper>
-              )}
-            </Box>
-          )}
-
-          {/* Walk-in info */}
-          {customerType === 'guest' && (
-            <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1.5}>
-                <TextField
-                  label="ชื่อลูกค้า"
-                  size="small"
-                  fullWidth
-                  placeholder="ไม่บังคับ"
-                  value={guestName}
-                  onChange={e => setGuestName(e.target.value)}
-                />
-                <TextField
-                  label="เบอร์โทร"
-                  size="small"
-                  fullWidth
-                  placeholder="ไม่บังคับ"
-                  value={guestPhone}
-                  onChange={e => setGuestPhone(e.target.value)}
-                />
-              </Stack>
-            </Stack>
-          )}
-
-          <Divider />
-
-          {/* Payment status */}
-          <FormControl>
-            <FormLabel sx={{ fontWeight: 700, mb: 0.5, fontSize: '0.85rem' }}>สถานะการชำระ</FormLabel>
-            <RadioGroup
-              row
-              value={paymentStatus}
-              onChange={e => setPaymentStatus(e.target.value as 'pending' | 'confirmed_paid')}
-            >
-              <FormControlLabel
-                value="confirmed_paid"
-                control={<Radio size="small" />}
-                label={<Typography variant="body2" sx={{ fontWeight: 700, color: '#0277bd' }}>ชำระแล้ว</Typography>}
-              />
-              <FormControlLabel
-                value="pending"
-                control={<Radio size="small" />}
-                label={<Typography variant="body2" sx={{ fontWeight: 700, color: '#e65100' }}>รอชำระ</Typography>}
-              />
-            </RadioGroup>
-          </FormControl>
-
-          {/* Course selector */}
-          <FormControl fullWidth size="small">
-            <InputLabel>เลือกคลาส *</InputLabel>
-            <Select
-              value={courseId}
-              onChange={e => setCourseId(e.target.value)}
-              label="เลือกคลาส *"
-            >
-              {courses.map(c => (
-                <MenuItem key={c.id} value={String(c.id)}>
-                  <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{c.name}</Typography>
-                    {c.name_en && (
-                      <Typography variant="caption" color="text.secondary">{c.name_en}</Typography>
-                    )}
-                  </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* Course detail panel */}
-          {courseId && (() => {
-            const c = courses.find(x => String(x.id) === courseId);
-            return c ? <CourseDetailPanel key={c.id} course={c} /> : null;
-          })()}
-
-          {/* Round/slot picker — courses bound to a Calendar get a real
-              date+round picker with live capacity, matching what the
-              consumer app already does; courses with no calendar (extra
-              classes, one-off events) fall back to free-typed date+time. */}
-          {courseId && usesSlotPicker ? (
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                เลือกวันและรอบเวลา *
-              </Typography>
-              {slotsLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
-              ) : upcomingDates.length === 0 ? (
-                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้ลงทะเบียนในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
-              ) : (
-                <>
-                  <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
-                    {upcomingDates.map(ud => {
-                      const d = new Date(`${ud.date}T00:00:00`);
-                      const isSelected = selectedDateObj?.date === ud.date;
-                      return (
-                        <Box
-                          key={ud.date}
-                          onClick={() => { if (!ud.isFull) { setSelectedDateObj(ud); setSelectedSlot(null); } }}
-                          sx={{
-                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: ud.isFull ? 'not-allowed' : 'pointer',
-                            bgcolor: isSelected ? 'primary.main' : '#fafafa',
-                            color: isSelected ? 'white' : ud.isFull ? 'text.disabled' : 'text.primary',
-                            border: '1px solid', borderColor: isSelected ? 'primary.main' : '#eee',
-                            opacity: ud.isFull ? 0.5 : 1,
-                          }}
-                        >
-                          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', fontSize: '10px' }}>{THAI_DAYS[d.getDay()]}</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 900 }}>{d.getDate()}</Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '9px', display: 'block' }}>{THAI_MONTHS_SHORT[d.getMonth()]}</Typography>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-
-                  {selectedDateObj && (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
-                      {selectedDateObj.slots.map(slot => {
-                        const isSelected = selectedSlot?.startTime === slot.startTime;
-                        const isFull = slot.available === 0;
-                        return (
-                          <Chip
-                            key={slot.startTime}
-                            label={`${slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
-                            clickable={!isFull}
-                            disabled={isFull}
-                            color={isSelected ? 'primary' : 'default'}
-                            variant={isSelected ? 'filled' : 'outlined'}
-                            onClick={() => setSelectedSlot(slot)}
-                            sx={{ fontWeight: 700 }}
-                          />
-                        );
-                      })}
-                    </Box>
-                  )}
-                </>
-              )}
-            </Box>
-          ) : (
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="วันที่ *" type="date" size="small" sx={{ flex: 1 }}
-                value={bookingDate} onChange={e => setBookingDate(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
-                label="เวลา *" type="time" size="small" sx={{ flex: 1 }}
-                value={bookingTime} onChange={e => setBookingTime(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Stack>
-          )}
-
-          {/* Branch (display only) */}
-          <TextField
-            label="สาขา" size="small" value={branchName || '-'}
-            InputProps={{ readOnly: true }}
-          />
-
-          {error && <Alert severity="error">{error}</Alert>}
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
-        <Button onClick={handleClose} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={submitting} sx={{ fontWeight: 800, borderRadius: 2 }}>
-          {submitting ? <CircularProgress size={20} color="inherit" /> : 'บันทึกการลงทะเบียน'}
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 };
 
