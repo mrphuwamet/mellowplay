@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
+import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
@@ -65,6 +65,27 @@ const calculateAge = (birthDateString: string, t: any) => {
     if (months < 0) months = 11;
   }
   return `${years} ${t.booking?.year || 'ขวบ'} ${months > 0 ? `${months} ${t.booking?.month || 'เดือน'}` : ''}`;
+};
+
+// Plain numeric age in years — calculateAge above returns a formatted
+// "X ขวบ Y เดือน" display string, not something a min/max range check can
+// compare against.
+const getAgeYears = (birthDateString: string): number | null => {
+  if (!birthDateString) return null;
+  const birthDate = new Date(birthDateString);
+  if (isNaN(birthDate.getTime())) return null;
+  const today = new Date();
+  let years = today.getFullYear() - birthDate.getFullYear();
+  const months = today.getMonth() - birthDate.getMonth();
+  if (months < 0 || (months === 0 && today.getDate() < birthDate.getDate())) years--;
+  return years;
+};
+
+const isChildAgeMismatch = (dob: string, course: { age_min?: number; age_max?: number } | null): boolean => {
+  if (!course) return false;
+  const years = getAgeYears(dob);
+  if (years == null) return false;
+  return (course.age_min != null && years < course.age_min) || (course.age_max != null && years > course.age_max);
 };
 
 const formatDuration = (timeStr: string, lang: string) => {
@@ -311,6 +332,9 @@ const Booking = () => {
   // indicator flash forward to "child" before the modal appears.
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const [showGuestModal, setShowGuestModal] = useState(false);
+  // Age outside the course's range is a soft warning, not a hard block —
+  // this just gates the "Next step" button behind one explicit confirm.
+  const [showAgeConfirm, setShowAgeConfirm] = useState(false);
 
   // The account holder themselves, for the registration form's adult-role
   // family_member_picker — they're a family member too, just never a row in
@@ -1206,6 +1230,10 @@ const Booking = () => {
                     : status === 'completed'
                       ? (lang === 'en' ? 'Already Attended' : 'เคยเข้าร่วมแล้ว')
                       : null;
+                  // Soft warning only — age outside the course's range never
+                  // disables the child, it just needs an explicit confirm
+                  // (see the "Next step" button below) before proceeding.
+                  const ageMismatch = isChildAgeMismatch(child.dob, selectedCourse);
                   return (
                     <button key={child.id} disabled={isDisabled} onClick={() => {
                       if (isDisabled) return;
@@ -1229,6 +1257,11 @@ const Booking = () => {
                           status === 'upcoming' ? 'bg-emerald-500 text-white' : 'bg-slate-400 text-white'
                         }`}>
                           {statusLabel}
+                        </span>
+                      )}
+                      {!isDisabled && ageMismatch && (
+                        <span className="absolute -top-2 right-3 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow-sm bg-amber-500 text-white">
+                          {lang === 'en' ? 'Age mismatch' : 'อายุไม่ตรงเกณฑ์'}
                         </span>
                       )}
                       <div className="flex justify-between items-start w-full">
@@ -1264,7 +1297,14 @@ const Booking = () => {
                   whether a branch step even exists depends on branches.length,
                   so advancing before that resolves could jump straight into
                   what a moment later becomes a different step. */}
-              <button disabled={selectedChildren.length === 0 || isLoading} onClick={() => setCurrentStepIndex(currentStepIndex + 1)} className="w-full mt-6 py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all">
+              <button
+                disabled={selectedChildren.length === 0 || isLoading}
+                onClick={() => {
+                  if (selectedChildren.some(c => isChildAgeMismatch(c.dob, selectedCourse))) { setShowAgeConfirm(true); return; }
+                  setCurrentStepIndex(currentStepIndex + 1);
+                }}
+                className="w-full mt-6 py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg disabled:opacity-50 active:scale-95 transition-all"
+              >
                 {t.booking?.nextStep || 'ขั้นตอนถัดไป'}
               </button>
             </div>
@@ -1777,6 +1817,37 @@ const Booking = () => {
             >
               {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>
+      </ResponsiveModal>
+
+      {/* Age Mismatch Confirm Modal — soft warning only, "ยืนยัน" advances
+          the step anyway; there's no re-check once past this, same as any
+          other one-time confirm in this flow. */}
+      <ResponsiveModal isOpen={showAgeConfirm} onClose={() => setShowAgeConfirm(false)} variant="dialog" size="sm" className="text-center">
+            <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 mx-auto mb-5">
+              <AlertTriangle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 text-center mb-2">
+              {lang === 'en' ? 'Age Outside Range' : 'อายุไม่ตรงตามเกณฑ์'}
+            </h3>
+            <p className="text-sm text-slate-500 font-bold text-center mb-6 leading-relaxed">
+              {lang === 'en'
+                ? `This class is intended for ages ${selectedCourse?.age_min ?? '-'}-${selectedCourse?.age_max ?? '-'}. The selected child's age is outside that range — you can still continue if you'd like.`
+                : `คลาสนี้กำหนดช่วงอายุไว้ที่ ${selectedCourse?.age_min ?? '-'}-${selectedCourse?.age_max ?? '-'} ปี เด็กที่เลือกมีอายุไม่ตรงตามเกณฑ์ — ยืนยันเพื่อดำเนินการต่อได้ตามปกติ`}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowAgeConfirm(false)}
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-[0.98] transition-all"
+              >
+                {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
+              </button>
+              <button
+                onClick={() => { setShowAgeConfirm(false); setCurrentStepIndex(currentStepIndex + 1); }}
+                className="flex-1 py-3.5 bg-mellow-purple text-white font-bold rounded-xl active:scale-[0.98] transition-all"
+              >
+                {lang === 'en' ? 'Confirm' : 'ยืนยัน'}
+              </button>
+            </div>
       </ResponsiveModal>
 
       {/* Promo Error Modal */}
