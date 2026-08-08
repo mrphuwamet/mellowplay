@@ -383,6 +383,7 @@ app.get('/api/v1/journey/nodes', (c) => journeyController.listNodes(c));
 app.post('/api/v1/profiles/calculate', (c) => profileController.calculate(c));
 app.post('/api/v1/profiles/children', (c) => profileController.addChild(c));
 app.get('/api/v1/profiles', (c) => profileController.listProfiles(c));
+app.get('/api/v1/profiles/booking-roster', (c) => profileController.getBookingRoster(c));
 app.put('/api/v1/profiles/children/:childId', (c) => profileController.updateChild(c));
 app.delete('/api/v1/profiles/family-members/:id', (c) => profileController.deleteFamilyMember(c));
 app.put('/api/v1/profiles/:childId/avatar', (c) => profileController.updateAvatar(c));

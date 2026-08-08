@@ -108,6 +108,20 @@ const Booking = () => {
   const children = useChildStore(state => state.children);
   const fetchChildren = useChildStore(state => state.fetchChildren);
 
+  // CRM-added family members (e.g. a father a staff member added, with no
+  // HD_Profiles/Children row of his own) — kept separate from `children`
+  // rather than merged into useChildStore, since they can't be booked as an
+  // actual class attendee, only picked for an "adult" registration-form field.
+  const [crmFamilyMembers, setCrmFamilyMembers] = useState<any[]>([]);
+  useEffect(() => {
+    if (localStorage.getItem('mellow_guest') === 'true') return;
+    apiClient.get('/profiles/booking-roster')
+      .then(res => {
+        if (res.data.success) setCrmFamilyMembers(res.data.roster.filter((m: any) => m.id < 0));
+      })
+      .catch(() => {});
+  }, []);
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [upcomingDates, setUpcomingDates] = useState<UpcomingDate[]>([]);
@@ -1315,7 +1329,7 @@ const Booking = () => {
               form={registrationForm}
               answers={formAnswers}
               onChange={(key, value) => setFormAnswers(prev => ({ ...prev, [key]: value }))}
-              roster={children}
+              roster={[...children, ...crmFamilyMembers]}
               onBack={() => setCurrentStepIndex(currentStepIndex - 1)}
               onNext={() => setCurrentStepIndex(currentStepIndex + 1)}
               lang={lang}

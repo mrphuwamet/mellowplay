@@ -41,8 +41,49 @@ export class ProfileController {
 
       const hdProfileRepository = new HDProfileRepository(config.db);
       const profiles = await hdProfileRepository.findByUserId(parseInt(userId));
-      
+
       return c.json({ success: true, profiles });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Roster for picking "who's attending" on a booking form (see
+  // DynamicRegistrationForm's family_member_picker). Unlike listProfiles,
+  // this also includes CRM-added family members (User_CRM_Children) — e.g. a
+  // father a staff member added in the CRM has no HD_Profiles/Children row
+  // of his own, so he'd otherwise never be selectable as an "adult" on a
+  // booking. Negative ids keep these from colliding with a real
+  // HD_Profiles/Children id in the same list; they can never be booked as an
+  // actual class attendee (no chart, no Children row), only picked for
+  // "adult" registration-form fields.
+  async getBookingRoster(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const payload = c.get('jwtPayload');
+      if (!payload?.userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+      const config = new ConfigService(c.env);
+      const hdProfileRepository = new HDProfileRepository(config.db);
+      const profiles = await hdProfileRepository.findByUserId(payload.userId);
+      const hdRoster = (profiles as any[]).map(p => ({
+        id: p.child_id || p.id,
+        name: p.name,
+        nickname: p.nickname,
+        relation: p.relation,
+        avatar: p.avatar,
+      }));
+
+      const { results: crmChildren } = await config.db.prepare(
+        'SELECT id, full_name, nickname, relation FROM User_CRM_Children WHERE user_id = ?'
+      ).bind(payload.userId).all();
+      const crmRoster = (crmChildren as any[]).map(cc => ({
+        id: -cc.id,
+        name: cc.full_name,
+        nickname: cc.nickname,
+        relation: cc.relation,
+      }));
+
+      return c.json({ success: true, roster: [...hdRoster, ...crmRoster] });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
