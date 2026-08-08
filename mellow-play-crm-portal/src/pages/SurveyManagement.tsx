@@ -1,0 +1,497 @@
+import React, { useEffect, useState } from 'react';
+import { API_URL } from '../config';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import {
+  Typography, Box, CircularProgress, Grid, Button, Chip,
+  TextField, MenuItem, Select, FormControl, InputLabel,
+  IconButton, Paper, Stack, Alert, Switch, FormControlLabel,
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Tabs, Tab, Snackbar,
+} from '@mui/material';
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  ArrowBack as BackIcon,
+  Save as SaveIcon,
+  ArrowUpward as UpIcon,
+  ArrowDownward as DownIcon,
+  Title as HeadingIcon,
+  ShortText as TextFieldIcon,
+  Notes as TextareaIcon,
+  Numbers as NumberIcon,
+  Event as DateIcon,
+  ArrowDropDownCircle as SelectIcon,
+  RadioButtonChecked as RadioIcon,
+  CheckBox as CheckboxIcon,
+  Badge as IdentityIcon,
+  Link as LinkIcon,
+  ListAlt as ResponsesIcon,
+} from '@mui/icons-material';
+
+const API_BASE = `${API_URL}/api/v1/admin`;
+const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
+
+type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity';
+
+interface ScoredOption { label: string; points: number; }
+
+interface FieldDraft {
+  fieldKey: string;
+  type: FieldType;
+  label: string;
+  required: boolean;
+  options?: ScoredOption[]; // select/radio/checkbox — points only meaningful when the form has an answer key
+}
+
+const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
+  heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
+  text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
+  textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
+  number: { label: 'ตัวเลข', icon: <NumberIcon fontSize="small" /> },
+  date: { label: 'วันที่', icon: <DateIcon fontSize="small" /> },
+  select: { label: 'ตัวเลือก (Dropdown)', icon: <SelectIcon fontSize="small" /> },
+  radio: { label: 'ตัวเลือก (Radio)', icon: <RadioIcon fontSize="small" /> },
+  checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
+  identity: { label: 'ผู้ตอบแบบสอบถาม (ใครเป็นคนตอบ)', icon: <IdentityIcon fontSize="small" /> },
+};
+
+const FORM_KIND_META: Record<string, { label: string; color: 'default' | 'info' | 'warning' }> = {
+  survey: { label: 'แบบสอบถาม', color: 'default' },
+  pretest: { label: 'Pre-Test', color: 'info' },
+  posttest: { label: 'Post-Test', color: 'warning' },
+};
+
+const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+const emptyField = (type: FieldType): FieldDraft => ({
+  fieldKey: newFieldKey(),
+  type,
+  label: FIELD_TYPE_META[type].label,
+  required: false,
+  options: (type === 'select' || type === 'radio' || type === 'checkbox') ? [{ label: 'ตัวเลือก 1', points: 0 }] : undefined,
+});
+
+const SectionLabel = ({ title }: { title: string }) => (
+  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>{title}</Typography>
+);
+
+const SurveyManagement = () => {
+  const navigate = useNavigate();
+  const [forms, setForms] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [formKind, setFormKind] = useState('survey');
+  const [hasAnswerKey, setHasAnswerKey] = useState(false);
+  const [slug, setSlug] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [pages, setPages] = useState<FieldDraft[][]>([[]]);
+  const [activePage, setActivePage] = useState(0);
+
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
+
+  const fetchForms = () => {
+    setLoading(true);
+    axios.get(`${API_BASE}/survey-forms`)
+      .then(res => { if (res.data.success) setForms(res.data.forms); })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchForms(); }, []);
+
+  const resetFormState = () => {
+    setName(''); setDescription(''); setFormKind('survey'); setHasAnswerKey(false); setSlug(''); setIsActive(true);
+    setPages([[]]); setActivePage(0); setSaveError(null);
+  };
+
+  const startCreate = () => {
+    resetFormState();
+    setEditId(null);
+    setIsEditing(true);
+  };
+
+  const startEdit = async (id: number) => {
+    resetFormState();
+    setEditId(id);
+    setIsEditing(true);
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/survey-forms/${id}`);
+      if (res.data.success) {
+        const form = res.data.form;
+        setName(form.name || '');
+        setDescription(form.description || '');
+        setFormKind(form.form_kind || 'survey');
+        setHasAnswerKey(!!form.has_answer_key);
+        setSlug(form.slug || '');
+        setIsActive(!!form.is_active);
+
+        const grouped: FieldDraft[][] = [];
+        (form.fields || []).forEach((f: any) => {
+          const pIdx = f.page_index ?? 0;
+          if (!grouped[pIdx]) grouped[pIdx] = [];
+          grouped[pIdx][f.field_index] = {
+            fieldKey: f.field_key,
+            type: f.type,
+            label: f.label,
+            required: !!f.required,
+            options: f.options_json ? JSON.parse(f.options_json) : undefined,
+          };
+        });
+        const compacted = grouped.map(page => page.filter(Boolean));
+        setPages(compacted.length > 0 ? compacted : [[]]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!name.trim()) { setSaveError('กรุณากรอกชื่อฟอร์ม'); return; }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const fields = pages.flatMap((page, pageIndex) => page.map((f, fieldIndex) => ({
+        fieldKey: f.fieldKey,
+        pageIndex,
+        fieldIndex,
+        type: f.type,
+        label: f.label,
+        required: f.required,
+        optionsJson: f.options ? JSON.stringify(f.options) : undefined,
+      })));
+      const payload = { name, description, formKind, hasAnswerKey, slug: slug.trim() || undefined, isActive, fields };
+      if (editId) {
+        await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
+      } else {
+        await axios.post(`${API_BASE}/survey-forms`, payload);
+      }
+      setIsEditing(false);
+      fetchForms();
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    await axios.delete(`${API_BASE}/survey-forms/${itemToDelete.id}`);
+    setItemToDelete(null);
+    fetchForms();
+  };
+
+  const copyLink = (form: any) => {
+    const url = `${CONSUMER_APP_URL}/survey/${form.slug || form.id}`;
+    navigator.clipboard.writeText(url).then(() => setLinkCopied(true)).catch(() => {});
+  };
+
+  // ── Page/field editing helpers ──────────────────────────────────────────
+  const addPage = () => { setPages([...pages, []]); setActivePage(pages.length); };
+  const removePage = (pageIdx: number) => {
+    const next = pages.filter((_, i) => i !== pageIdx);
+    setPages(next.length > 0 ? next : [[]]);
+    setActivePage(Math.max(0, Math.min(activePage, next.length - 1)));
+  };
+  const addField = (type: FieldType) => {
+    const next = pages.map((page, i) => i === activePage ? [...page, emptyField(type)] : page);
+    setPages(next);
+  };
+  const updateField = (fieldIdx: number, patch: Partial<FieldDraft>) => {
+    const next = pages.map((page, i) => i === activePage
+      ? page.map((f, j) => j === fieldIdx ? { ...f, ...patch } : f)
+      : page);
+    setPages(next);
+  };
+  const removeField = (fieldIdx: number) => {
+    const next = pages.map((page, i) => i === activePage ? page.filter((_, j) => j !== fieldIdx) : page);
+    setPages(next);
+  };
+  const moveField = (fieldIdx: number, dir: -1 | 1) => {
+    const page = pages[activePage];
+    const targetIdx = fieldIdx + dir;
+    if (targetIdx < 0 || targetIdx >= page.length) return;
+    const reordered = [...page];
+    [reordered[fieldIdx], reordered[targetIdx]] = [reordered[targetIdx], reordered[fieldIdx]];
+    const next = pages.map((p, i) => i === activePage ? reordered : p);
+    setPages(next);
+  };
+
+  if (loading && !isEditing) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
+
+  // ─── Edit/Create Form ────────────────────────────────────────────────────
+  if (isEditing) {
+    const currentPageFields = pages[activePage] || [];
+    return (
+      <Box sx={{ pb: 12 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
+          <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>
+            {editId ? 'แก้ไขแบบสอบถาม/แบบทดสอบ' : 'สร้างแบบสอบถาม/แบบทดสอบใหม่'}
+          </Typography>
+        </Box>
+
+        {saveError && <Alert severity="error" onClose={() => setSaveError(null)} sx={{ mb: 3 }}>{saveError}</Alert>}
+
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+              <SectionLabel title="ข้อมูลทั่วไป" />
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField fullWidth label="ชื่อฟอร์ม" value={name} onChange={e => setName(e.target.value)} required />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField fullWidth label="คำอธิบาย" value={description} onChange={e => setDescription(e.target.value)} />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>ประเภท</InputLabel>
+                    <Select value={formKind} label="ประเภท" onChange={e => setFormKind(e.target.value)}>
+                      <MenuItem value="survey">แบบสอบถาม (Survey)</MenuItem>
+                      <MenuItem value="pretest">Pre-Test</MenuItem>
+                      <MenuItem value="posttest">Post-Test</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth label="ลิงก์ (ไม่บังคับ)" value={slug}
+                    onChange={e => setSlug(e.target.value.replace(/[^a-zA-Z0-9-_]/g, ''))}
+                    helperText={`${CONSUMER_APP_URL}/survey/${slug || '(สุ่มจาก id อัตโนมัติถ้าเว้นว่าง)'}`}
+                  />
+                </Grid>
+              </Grid>
+              <Stack direction="row" spacing={3} alignItems="center" sx={{ mt: 2 }} flexWrap="wrap">
+                <FormControlLabel
+                  control={<Switch checked={isActive} onChange={e => setIsActive(e.target.checked)} />}
+                  label="เปิดใช้งาน"
+                />
+                <FormControlLabel
+                  control={<Switch checked={hasAnswerKey} onChange={e => setHasAnswerKey(e.target.checked)} />}
+                  label="มีเฉลย/ให้คะแนนอัตโนมัติ"
+                />
+              </Stack>
+              {hasAnswerKey && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  ตั้งคะแนนของแต่ละตัวเลือกได้อิสระ (ไม่จำเป็นต้องเท่ากัน) — คะแนนรวมจะคำนวณจากตัวเลือกที่ผู้ตอบเลือก
+                </Alert>
+              )}
+            </Paper>
+
+            <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+              <SectionLabel title="หน้าและฟิลด์" />
+
+              <Tabs
+                value={activePage}
+                onChange={(_, v) => setActivePage(v)}
+                variant="scrollable"
+                scrollButtons="auto"
+                sx={{ mb: 2, borderBottom: '1px solid #eee' }}
+              >
+                {pages.map((_, i) => <Tab key={i} label={`หน้า ${i + 1}`} sx={{ fontWeight: 700, textTransform: 'none' }} />)}
+              </Tabs>
+
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Button size="small" startIcon={<AddIcon />} onClick={addPage}>เพิ่มหน้า</Button>
+                {pages.length > 1 && (
+                  <Button size="small" color="error" onClick={() => removePage(activePage)}>ลบหน้านี้</Button>
+                )}
+              </Stack>
+
+              <Stack spacing={2}>
+                {currentPageFields.length === 0 && (
+                  <Typography variant="body2" color="text.disabled" sx={{ py: 2, textAlign: 'center' }}>
+                    ยังไม่มีฟิลด์ในหน้านี้ — เลือกเพิ่มฟิลด์ด้านล่าง
+                  </Typography>
+                )}
+                {currentPageFields.map((field, idx) => (
+                  <Paper key={field.fieldKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                      <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
+                      <Stack spacing={1.5} sx={{ flex: 1 }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
+                          {field.type !== 'heading' && (
+                            <FormControlLabel
+                              control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
+                              label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
+                            />
+                          )}
+                        </Stack>
+                        <TextField
+                          fullWidth size="small" label="ข้อความ/คำถาม"
+                          value={field.label}
+                          onChange={e => updateField(idx, { label: e.target.value })}
+                        />
+                        {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && !hasAnswerKey && (
+                          <TextField
+                            fullWidth size="small" label="ตัวเลือก (คั่นด้วย ,)"
+                            value={(field.options || []).map(o => o.label).join(', ')}
+                            onChange={e => updateField(idx, {
+                              options: e.target.value.split(',').map(s => s.trim()).filter(Boolean).map(label => {
+                                const existing = (field.options || []).find(o => o.label === label);
+                                return { label, points: existing?.points ?? 0 };
+                              }),
+                            })}
+                          />
+                        )}
+                        {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && hasAnswerKey && (
+                          <Stack spacing={1}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                              ตัวเลือกและคะแนน — แต่ละตัวเลือกให้คะแนนไม่เท่ากันได้ (ใส่ 0 สำหรับตัวเลือกที่ไม่มีคะแนน)
+                            </Typography>
+                            {(field.options || []).map((opt, oIdx) => (
+                              <Stack key={oIdx} direction="row" spacing={1} alignItems="center">
+                                <TextField
+                                  size="small" label="ตัวเลือก" sx={{ flex: 1 }}
+                                  value={opt.label}
+                                  onChange={e => updateField(idx, {
+                                    options: (field.options || []).map((o, i) => i === oIdx ? { ...o, label: e.target.value } : o),
+                                  })}
+                                />
+                                <TextField
+                                  size="small" type="number" label="คะแนน" sx={{ width: 110 }}
+                                  value={opt.points}
+                                  onChange={e => updateField(idx, {
+                                    options: (field.options || []).map((o, i) => i === oIdx ? { ...o, points: parseInt(e.target.value) || 0 } : o),
+                                  })}
+                                />
+                                <IconButton
+                                  size="small" color="error"
+                                  onClick={() => updateField(idx, { options: (field.options || []).filter((_, i) => i !== oIdx) })}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                            ))}
+                            <Button
+                              size="small" startIcon={<AddIcon />} sx={{ alignSelf: 'flex-start' }}
+                              onClick={() => updateField(idx, {
+                                options: [...(field.options || []), { label: `ตัวเลือก ${(field.options?.length || 0) + 1}`, points: 0 }],
+                              })}
+                            >
+                              เพิ่มตัวเลือก
+                            </Button>
+                          </Stack>
+                        )}
+                      </Stack>
+                      <Stack spacing={0.5}>
+                        <IconButton size="small" disabled={idx === 0} onClick={() => moveField(idx, -1)}><UpIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" disabled={idx === currentPageFields.length - 1} onClick={() => moveField(idx, 1)}><DownIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => removeField(idx)}><DeleteIcon fontSize="small" /></IconButton>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block', mt: 3, mb: 1 }}>
+                เพิ่มฟิลด์ในหน้านี้
+              </Typography>
+              <Stack direction="row" flexWrap="wrap" gap={1}>
+                {(Object.keys(FIELD_TYPE_META) as FieldType[]).map(type => (
+                  <Button
+                    key={type}
+                    size="small"
+                    variant="outlined"
+                    startIcon={FIELD_TYPE_META[type].icon}
+                    onClick={() => addField(type)}
+                    sx={{ textTransform: 'none', fontWeight: 700 }}
+                  >
+                    {FIELD_TYPE_META[type].label}
+                  </Button>
+                ))}
+              </Stack>
+            </Paper>
+
+            <Button
+              variant="contained" size="large" startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+              disabled={saving} onClick={handleSave}
+            >
+              บันทึกฟอร์ม
+            </Button>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  }
+
+  // ─── List View ───────────────────────────────────────────────────────────
+  return (
+    <Box>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>แบบสอบถาม / แบบทดสอบ (Pre-Test, Post-Test)</Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={startCreate}>สร้างฟอร์มใหม่</Button>
+      </Stack>
+
+      <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700 }}>ชื่อฟอร์ม</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>ประเภท</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>เฉลย</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">จำนวนคำตอบ</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">จัดการ</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {forms.length === 0 && (
+              <TableRow><TableCell colSpan={6} align="center">
+                <Typography variant="body2" color="text.disabled" sx={{ py: 4 }}>ยังไม่มีแบบสอบถาม/แบบทดสอบ</Typography>
+              </TableCell></TableRow>
+            )}
+            {forms.map(form => (
+              <TableRow key={form.id} hover>
+                <TableCell sx={{ fontWeight: 700 }}>{form.name}</TableCell>
+                <TableCell>
+                  <Chip label={FORM_KIND_META[form.form_kind]?.label ?? form.form_kind} color={FORM_KIND_META[form.form_kind]?.color ?? 'default'} size="small" />
+                </TableCell>
+                <TableCell>
+                  <Chip label={form.has_answer_key ? 'มีเฉลย' : 'ไม่มีเฉลย'} size="small" variant={form.has_answer_key ? 'filled' : 'outlined'} />
+                </TableCell>
+                <TableCell>
+                  <Chip label={form.is_active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'} color={form.is_active ? 'success' : 'default'} size="small" />
+                </TableCell>
+                <TableCell align="right">{form.response_count}</TableCell>
+                <TableCell align="right">
+                  <IconButton size="small" onClick={() => copyLink(form)} title="คัดลอกลิงก์"><LinkIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={() => navigate(`/crm/surveys/${form.id}/responses`)} title="ดูคำตอบ"><ResponsesIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={() => startEdit(form.id)}><EditIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" color="error" onClick={() => setItemToDelete({ id: form.id, name: form.name })}><DeleteIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Dialog open={!!itemToDelete} onClose={() => setItemToDelete(null)}>
+        <DialogTitle>ยืนยันการลบ</DialogTitle>
+        <DialogContent>
+          <Typography>ต้องการลบ <strong>"{itemToDelete?.name}"</strong> ใช่หรือไม่? คำตอบที่มีคนตอบไว้แล้วจะถูกลบไปด้วย</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setItemToDelete(null)}>ยกเลิก</Button>
+          <Button color="error" variant="contained" onClick={handleDelete}>ลบ</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={linkCopied} autoHideDuration={2000} onClose={() => setLinkCopied(false)} message="คัดลอกลิงก์แล้ว" />
+    </Box>
+  );
+};
+
+export default SurveyManagement;

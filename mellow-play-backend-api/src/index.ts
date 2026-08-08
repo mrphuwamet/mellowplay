@@ -13,6 +13,7 @@ import { CalendarController } from './controllers/calendarController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
+import { SurveyController } from './controllers/surveyController';
 import { SmsController } from './controllers/smsController';
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
@@ -51,6 +52,7 @@ const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
+const surveyController = new SurveyController();
 const smsController = new SmsController();
 const checkinController = new CheckinController();
 const checkinAccessController = new CheckinAccessController();
@@ -600,6 +602,12 @@ app.delete('/api/v1/admin/community/posts/:id', (c) => communityController.admin
 
 app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 
+// Answerable by member or guest — no JWT-requiring middleware wraps these,
+// so a missing/invalid token never 401s (which would otherwise bounce a
+// guest straight to /login via the consumer app's global 401 interceptor).
+app.get('/api/v1/surveys/:idOrSlug',        (c) => surveyController.getPublicForm(c));
+app.post('/api/v1/surveys/:idOrSlug/submit', (c) => surveyController.submit(c));
+
 // ================= ADS (CRM-authored promo cards mixed into the feed) =================
 app.get   ('/api/v1/ads/active',        (c) => adsController.getActive(c));
 app.post  ('/api/v1/ads/:id/click',     (c) => adsController.recordClick(c));
@@ -813,6 +821,13 @@ app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormControll
 app.get('/api/v1/admin/registration-forms/:id/team-availability', (c) => registrationFormController.getTeamAvailability(c));
 app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
 app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
+
+app.get('/api/v1/admin/survey-forms',           (c) => surveyController.listForms(c));
+app.post('/api/v1/admin/survey-forms',          (c) => surveyController.createForm(c));
+app.get('/api/v1/admin/survey-forms/:id',       (c) => surveyController.getForm(c));
+app.put('/api/v1/admin/survey-forms/:id',       (c) => surveyController.updateForm(c));
+app.delete('/api/v1/admin/survey-forms/:id',    (c) => surveyController.deleteForm(c));
+app.get('/api/v1/admin/survey-forms/:id/submissions', (c) => surveyController.listSubmissions(c));
 
 app.get('/api/v1/admin/sms/reminder-candidates', (c) => smsController.getReminderCandidates(c));
 app.post('/api/v1/admin/sms/send-reminder', (c) => smsController.sendReminder(c));

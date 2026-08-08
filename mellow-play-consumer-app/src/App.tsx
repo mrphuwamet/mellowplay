@@ -11,6 +11,7 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import AddChild from './pages/AddChild';
 import ReportDetail from './pages/ReportDetail';
+import SurveyDetail from './pages/SurveyDetail';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
 import SettingsProfile from './pages/SettingsProfile';
@@ -118,6 +119,7 @@ const AppContent = () => {
         <Route path="/know-my-child/:type" element={<Navigate to="/" replace />} />
         <Route path="/album" element={<Album />} />
         <Route path="/report/:bookingId" element={<ReportDetail />} />
+        <Route path="/survey/:idOrSlug" element={<SurveyDetail />} />
         <Route path="/news/:id" element={<NewsDetail />} />
         <Route path="/news-feed/:type" element={<NewsList />} />
         <Route path="/explore/:category?" element={<Explore />} />
