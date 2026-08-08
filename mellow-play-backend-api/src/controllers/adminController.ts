@@ -219,13 +219,29 @@ export class AdminController {
       const userId = parseInt(c.req.param('id'));
       const hdProfileRepo = new HDProfileRepository(config.db);
       const profiles = await hdProfileRepo.findByUserId(userId);
-      const roster = profiles.map((p: any) => ({
+      const hdRoster = profiles.map((p: any) => ({
         id: p.child_id || p.id,
         name: p.name,
         nickname: p.nickname,
         display: p.nickname || p.name,
       }));
-      return c.json({ success: true, roster });
+
+      // CRM-added family members (e.g. a father with no consumer-app HD
+      // registration) live in a completely separate table and were never
+      // included here, so they could never be picked as "who's attending"
+      // on a family_member_picker booking field. Negative ids keep them
+      // from colliding with a real HD_Profiles/Children id in the same list.
+      const { results: crmChildren } = await config.db.prepare(
+        'SELECT id, full_name, nickname FROM User_CRM_Children WHERE user_id = ?'
+      ).bind(userId).all();
+      const crmRoster = (crmChildren as any[]).map(cc => ({
+        id: -cc.id,
+        name: cc.full_name,
+        nickname: cc.nickname,
+        display: cc.nickname || cc.full_name,
+      }));
+
+      return c.json({ success: true, roster: [...hdRoster, ...crmRoster] });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
