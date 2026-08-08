@@ -134,7 +134,7 @@ export class AdminRepository {
     profileImageUrl?: string;
     displayName?: string;
     isCommunityAdmin?: boolean;
-    children?: Array<{ id?: number; full_name: string; full_name_en?: string; nickname?: string; gender?: string; date_of_birth?: string }>;
+    children?: Array<{ id?: number; full_name: string; full_name_en?: string; nickname?: string; gender?: string; date_of_birth?: string; relation?: string }>;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Users SET
@@ -162,9 +162,9 @@ export class AdminRepository {
       await this.db.prepare('DELETE FROM User_CRM_Children WHERE user_id = ?').bind(id).run();
       for (const child of data.children) {
         await this.db.prepare(`
-          INSERT INTO User_CRM_Children (user_id, full_name, full_name_en, nickname, gender, date_of_birth)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null).run();
+          INSERT INTO User_CRM_Children (user_id, full_name, full_name_en, nickname, gender, date_of_birth, relation)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null, child.relation ?? null).run();
       }
     }
   }
