@@ -92,6 +92,7 @@ interface Course {
   thumbnail_url: string;
   category_name: string;
   calendar_id?: number;
+  registration_form_id?: number | null;
 }
 
 interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
@@ -543,7 +544,7 @@ interface FamilyRosterMember { id: number; name: string; nickname: string | null
 // own family roster (see FamilyRosterMember/roster prop) — not free text —
 // so a correction can't end up naming someone who doesn't actually exist
 // in that account.
-const FormAnswerFieldEditor = ({ field, value, onChange, roster }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[] }) => {
+const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number> }) => {
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
   try {
@@ -596,7 +597,14 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster }: { field: Form
         <InputLabel>{field.label}</InputLabel>
         <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
           <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
-          {teamOptions.map(t => <MenuItem key={t.label} value={t.label}>{t.label} (รับ {t.capacity})</MenuItem>)}
+          {teamOptions.map(t => {
+            // "Remaining" already counts this booking's own current pick if
+            // it's already in this team — that's the same number staff would
+            // see if they re-checked capacity right now, not one off.
+            const used = teamCounts?.[t.label] ?? 0;
+            const remaining = Math.max(0, t.capacity - used);
+            return <MenuItem key={t.label} value={t.label}>{t.label} (เหลือ {remaining}/เต็ม {t.capacity})</MenuItem>;
+          })}
         </Select>
       </FormControl>
     );
@@ -641,6 +649,10 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
   const [savingForm, setSavingForm] = useState(false);
   const [saveFormError, setSaveFormError] = useState('');
   const [familyRoster, setFamilyRoster] = useState<FamilyRosterMember[]>([]);
+  // Keyed by team_select field_key -> team label -> how many are already in
+  // that team for this exact round — lets the edit dropdown show remaining/
+  // total capacity instead of just the flat capacity number.
+  const [teamCounts, setTeamCounts] = useState<Record<string, Record<string, number>>>({});
 
   // Once a registration form is attached, its answers replace the generic
   // เด็กผู้เรียน/ผู้ปกครอง blocks entirely — fetched eagerly (not behind a
@@ -670,6 +682,17 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
       axios.get(`${API_BASE}/users/${booking.parent_user_id}/family-roster`)
         .then(res => setFamilyRoster(res.data.success ? res.data.roster : []))
         .catch(() => setFamilyRoster([]));
+    }
+
+    // Same "only if actually needed" rule for team capacity — only fetched
+    // when there's a team_select field to edit, and only if we know which
+    // form/round to check counts against.
+    if (booking && course?.registration_form_id && (formFields || []).some(f => f.type === 'team_select')) {
+      axios.get(`${API_BASE}/registration-forms/${course.registration_form_id}/team-availability`, {
+        params: { courseId: booking.course_id, scheduledAt: booking.scheduled_at },
+      })
+        .then(res => setTeamCounts(res.data.success ? res.data.counts : {}))
+        .catch(() => setTeamCounts({}));
     }
   };
 
@@ -743,6 +766,7 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                       value={editedAnswers[f.fieldKey]}
                       onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
                       roster={familyRoster}
+                      teamCounts={teamCounts[f.fieldKey]}
                     />
                   ))}
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
