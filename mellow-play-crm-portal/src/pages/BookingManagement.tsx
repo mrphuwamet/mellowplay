@@ -603,7 +603,7 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: {
             // see if they re-checked capacity right now, not one off.
             const used = teamCounts?.[t.label] ?? 0;
             const remaining = Math.max(0, t.capacity - used);
-            return <MenuItem key={t.label} value={t.label}>{t.label} (เหลือ {remaining}/เต็ม {t.capacity})</MenuItem>;
+            return <MenuItem key={t.label} value={t.label}>{t.label} (เหลือ {remaining}/{t.capacity})</MenuItem>;
           })}
         </Select>
       </FormControl>
