@@ -411,8 +411,7 @@ export class AdminController {
   }
 
   // Staff correcting what a family filled in — e.g. a typo'd name or the
-  // wrong team picked. Only touches the Form_Submissions row (answers_json);
-  // the Bookings rows pointing at it are untouched.
+  // wrong team picked.
   async updateBookingFormAnswers(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -431,7 +430,33 @@ export class AdminController {
       const registrationFormRepo = new RegistrationFormRepository(db);
       const current = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
       const merged = { ...(current?.answers || {}), ...answers };
-      await registrationFormRepo.updateSubmissionAnswers(booking.form_submission_id, JSON.stringify(merged));
+
+      // A multi-child checkout shares ONE Form_Submissions row across every
+      // sibling Bookings row it produced (see createBooking) — updating that
+      // row in place would silently rewrite every sibling's displayed
+      // answers too, not just the one booking staff meant to correct. Fork
+      // it into this booking's own independent copy the first time it's
+      // ever edited from here; any booking never edited this way keeps
+      // sharing the original, untouched.
+      const { results: siblingRows } = await db.prepare(
+        'SELECT id FROM Bookings WHERE form_submission_id = ? AND id != ?'
+      ).bind(booking.form_submission_id, bookingId).all();
+
+      if (siblingRows.length > 0) {
+        const submissionMeta = await db.prepare(
+          'SELECT form_id, course_id, parent_user_id, scheduled_at FROM Form_Submissions WHERE id = ?'
+        ).bind(booking.form_submission_id).first() as any;
+        const newSubmissionId = await registrationFormRepo.createSubmission({
+          formId: submissionMeta.form_id,
+          courseId: submissionMeta.course_id,
+          parentUserId: submissionMeta.parent_user_id,
+          answersJson: JSON.stringify(merged),
+          scheduledAt: submissionMeta.scheduled_at,
+        });
+        await db.prepare('UPDATE Bookings SET form_submission_id = ? WHERE id = ?').bind(newSubmissionId, bookingId).run();
+      } else {
+        await registrationFormRepo.updateSubmissionAnswers(booking.form_submission_id, JSON.stringify(merged));
+      }
 
       return c.json({ success: true });
     } catch (error: any) {
