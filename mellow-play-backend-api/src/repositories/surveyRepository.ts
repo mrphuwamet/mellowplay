@@ -3,6 +3,15 @@ export interface SurveyFieldInput {
   label: string; required?: boolean; optionsJson?: string; configJson?: string;
 }
 
+// Whether a select/radio/checkbox field carries real scoring — an explicit
+// per-field toggle in config_json (`{ scored: true }`), not inferred from
+// whether any option happens to have a non-zero point value, since a form
+// builder can legitimately leave every option at 0 while scoring is still
+// "on" for that question.
+const isFieldScored = (configJson: string | null | undefined): boolean => {
+  try { return !!(configJson && JSON.parse(configJson).scored); } catch { return false; }
+};
+
 export class SurveyRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -42,15 +51,19 @@ export class SurveyRepository {
   }
 
   async createForm(data: {
-    name: string; description?: string; formKind: string; hasAnswerKey?: boolean;
+    name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; fields: SurveyFieldInput[];
   }): Promise<number> {
+    // has_answer_key is derived, not a separate manual toggle — a form is
+    // "graded" as soon as any one of its questions has scoring turned on,
+    // regardless of whether the others do.
+    const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
       INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug)
       VALUES (?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
-      data.hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
+      hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -69,16 +82,17 @@ export class SurveyRepository {
   // approach as Registration_Form_Fields — field_key (client-generated, not
   // the DB id) is what survives across saves for anything referencing it.
   async updateForm(id: number, data: {
-    name: string; description?: string; formKind: string; hasAnswerKey?: boolean;
+    name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; fields: SurveyFieldInput[];
   }): Promise<void> {
+    const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
         UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
-        data.hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null, id,
+        hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null, id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>
@@ -117,6 +131,7 @@ export class SurveyRepository {
     let maxScore = 0;
     for (const f of fields) {
       if (f.type !== 'select' && f.type !== 'radio' && f.type !== 'checkbox') continue;
+      if (!isFieldScored(f.config_json)) continue;
       let options: { label: string; points?: number }[] = [];
       try { options = f.options_json ? JSON.parse(f.options_json) : []; } catch { /* malformed options shouldn't block scoring other fields */ }
       if (options.length === 0) continue;
@@ -148,7 +163,7 @@ export class SurveyRepository {
     let maxScore: number | null = null;
     if (form?.has_answer_key) {
       const { results: fields } = await this.db.prepare(
-        'SELECT field_key, type, options_json FROM Survey_Form_Fields WHERE form_id = ?'
+        'SELECT field_key, type, options_json, config_json FROM Survey_Form_Fields WHERE form_id = ?'
       ).bind(data.formId).all();
       const scored = this.computeScore(fields as any[], data.answers);
       totalScore = scored.totalScore;
