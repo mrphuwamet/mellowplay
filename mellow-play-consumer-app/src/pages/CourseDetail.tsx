@@ -435,7 +435,7 @@ const CourseDetail = () => {
                                <div className="flex items-center gap-2">
                                  <Clock size={16} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
                                  <span className={`text-[15px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
-                                   {slot.startTime} - {slot.endTime}
+                                   {slot.label ? `${slot.label} (${slot.startTime}-${slot.endTime})` : `${slot.startTime} - ${slot.endTime}`}
                                  </span>
                                </div>
                                <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[16px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>

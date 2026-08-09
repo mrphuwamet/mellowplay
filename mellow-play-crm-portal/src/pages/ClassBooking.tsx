@@ -257,7 +257,7 @@ const ClassBooking: React.FC = () => {
             {slots.map((slot, i) => (
               <Paper key={i} variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography fontWeight={800}>{slot.startTime} – {slot.endTime}</Typography>
+                  <Typography fontWeight={800}>{slot.label ? `${slot.label} (${slot.startTime}–${slot.endTime})` : `${slot.startTime} – ${slot.endTime}`}</Typography>
                   <Chip label={`ว่าง ${slot.available}/${slot.maxCapacity}`} size="small"
                     color={slot.available > 0 ? 'success' : 'error'} sx={{ fontWeight: 700, mt: 0.5 }} />
                 </Box>
@@ -316,7 +316,9 @@ const ClassBooking: React.FC = () => {
       <Dialog open={bookDialogOpen} onClose={() => setBookDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>
           จอง: {selectedCourse?.name}
-          <Typography variant="body2" color="text.secondary">{selectedDate} เวลา {selectedSlot?.startTime} – {selectedSlot?.endTime}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {selectedDate} {selectedSlot?.label ? `${selectedSlot.label} (${selectedSlot?.startTime}–${selectedSlot?.endTime})` : `เวลา ${selectedSlot?.startTime} – ${selectedSlot?.endTime}`}
+          </Typography>
         </DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>

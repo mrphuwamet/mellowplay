@@ -40,7 +40,7 @@ export interface Course {
   registration_form_id?: number | null;
 }
 
-interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
+interface TimeSlot { ruleId: number; label?: string | null; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingSlotDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 interface Child { id: number; name: string; }
 interface Member { id: number; phone: string; first_name: string; last_name: string; children: Child[]; }
@@ -669,7 +669,7 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
                         const isSelected = selectedSlot?.startTime === slot.startTime;
                         const isFull = slot.available === 0;
                         return (
-                          <Chip key={slot.startTime} label={`${slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
+                          <Chip key={slot.startTime} label={`${slot.label ? `${slot.label} (${slot.startTime})` : slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
                             clickable={!isFull} disabled={isFull} color={isSelected ? 'primary' : 'default'}
                             variant={isSelected ? 'filled' : 'outlined'} onClick={() => setSelectedSlot(slot)} sx={{ fontWeight: 700 }} />
                         );
