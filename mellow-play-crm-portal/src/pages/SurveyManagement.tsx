@@ -339,11 +339,6 @@ const SurveyManagement = () => {
                         />
                         {isChoiceType(field.type) && (
                           <Stack spacing={1}>
-                            {field.scored && (
-                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-                                แต่ละตัวเลือกให้คะแนนไม่เท่ากันได้ (ใส่ 0 สำหรับตัวเลือกที่ไม่มีคะแนน)
-                              </Typography>
-                            )}
                             {(field.options || []).map((opt, oIdx) => (
                               <Stack key={oIdx} direction="row" spacing={1} alignItems="center">
                                 <TextField
