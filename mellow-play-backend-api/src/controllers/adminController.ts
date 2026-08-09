@@ -561,10 +561,15 @@ export class AdminController {
 
       // Registration-form duplicate check — only meaningful for a real
       // family (guests have no parent identity to dedupe against, mirroring
-      // the guard already used by Check 1/Check 3 below). Scoped per field:
-      // only fields the CRM builder marked with duplicate_check_scope are
-      // compared, as plain normalized text against prior submissions for
-      // this same form+course (and same scheduledAt for 'round' scope).
+      // the guard already used by Check 1/Check 3 below). Two independent
+      // checks run, since they answer different questions:
+      // (a) plain course/round text-field scopes — every such field must
+      //     match together on the same prior submission for this exact
+      //     course (see findDuplicateSubmission).
+      // (b) a family_member_picker field scoped 'calendar' — same PERSON
+      //     (by real name) already registered anywhere on the calendar this
+      //     course shares with other classes/events, regardless of role or
+      //     which specific course/round they went through.
       if (formId && formAnswers && realChildIds.length > 0) {
         const registrationFormRepo = new RegistrationFormRepository(db);
         const form = await registrationFormRepo.getFormWithFields(parseInt(formId));
@@ -573,8 +578,14 @@ export class AdminController {
           // submission — see findDuplicateSubmission for why matching any
           // one field alone (e.g. just the parent's name) is too loose.
           const scopedFields: Array<{ fieldKey: string; scope: 'course' | 'round'; normalizedValue: string }> = [];
+          const calendarCandidateNames: string[] = [];
           for (const field of (form.fields || [])) {
             if (!field.duplicate_check_scope) continue;
+            if (field.type === 'family_member_picker' && field.duplicate_check_scope === 'calendar') {
+              const realNameText = formAnswers[`${field.field_key}__realname`];
+              if (realNameText) calendarCandidateNames.push(...String(realNameText).split(','));
+              continue;
+            }
             const value = formAnswers[field.field_key];
             if (value == null || String(value).trim() === '') continue;
             scopedFields.push({
@@ -582,6 +593,19 @@ export class AdminController {
               scope: field.duplicate_check_scope,
               normalizedValue: String(value).trim().toLowerCase(),
             });
+          }
+          if (calendarCandidateNames.length > 0) {
+            const courseForCalendar = await db.prepare('SELECT calendar_id FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
+            if (courseForCalendar?.calendar_id) {
+              const isDuplicatePerson = await registrationFormRepo.findDuplicatePersonInCalendar(courseForCalendar.calendar_id, calendarCandidateNames);
+              if (isDuplicatePerson) {
+                return c.json({
+                  success: false,
+                  error_code: 'DUPLICATE_FORM_SUBMISSION',
+                  message: 'ข้อมูลนี้เคยลงทะเบียนไว้แล้ว กรุณาตรวจสอบอีกครั้ง',
+                }, 400);
+              }
+            }
           }
           if (scopedFields.length > 0) {
             const isDuplicate = await registrationFormRepo.findDuplicateSubmission({
