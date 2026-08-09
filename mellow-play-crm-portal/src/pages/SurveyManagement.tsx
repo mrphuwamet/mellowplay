@@ -43,7 +43,8 @@ interface FieldDraft {
   type: FieldType;
   label: string;
   required: boolean;
-  options?: ScoredOption[]; // select/radio/checkbox — points only meaningful when the form has an answer key
+  options?: ScoredOption[]; // select/radio/checkbox
+  scored?: boolean;         // select/radio/checkbox — per-field toggle for whether points count at all
 }
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
@@ -66,12 +67,15 @@ const FORM_KIND_META: Record<string, { label: string; color: 'default' | 'info' 
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+const isChoiceType = (type: FieldType) => type === 'select' || type === 'radio' || type === 'checkbox';
+
 const emptyField = (type: FieldType): FieldDraft => ({
   fieldKey: newFieldKey(),
   type,
   label: FIELD_TYPE_META[type].label,
   required: false,
-  options: (type === 'select' || type === 'radio' || type === 'checkbox') ? [{ label: 'ตัวเลือก 1', points: 0 }] : undefined,
+  options: isChoiceType(type) ? [{ label: 'ตัวเลือก 1', points: 0 }] : undefined,
+  scored: false,
 });
 
 const SectionLabel = ({ title }: { title: string }) => (
@@ -91,7 +95,6 @@ const SurveyManagement = () => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [formKind, setFormKind] = useState('survey');
-  const [hasAnswerKey, setHasAnswerKey] = useState(false);
   const [slug, setSlug] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
@@ -109,7 +112,7 @@ const SurveyManagement = () => {
   useEffect(() => { fetchForms(); }, []);
 
   const resetFormState = () => {
-    setName(''); setDescription(''); setFormKind('survey'); setHasAnswerKey(false); setSlug(''); setIsActive(true);
+    setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
     setPages([[]]); setActivePage(0); setSaveError(null);
   };
 
@@ -131,7 +134,6 @@ const SurveyManagement = () => {
         setName(form.name || '');
         setDescription(form.description || '');
         setFormKind(form.form_kind || 'survey');
-        setHasAnswerKey(!!form.has_answer_key);
         setSlug(form.slug || '');
         setIsActive(!!form.is_active);
 
@@ -139,12 +141,15 @@ const SurveyManagement = () => {
         (form.fields || []).forEach((f: any) => {
           const pIdx = f.page_index ?? 0;
           if (!grouped[pIdx]) grouped[pIdx] = [];
+          let scored = false;
+          try { scored = !!(f.config_json && JSON.parse(f.config_json).scored); } catch { /* malformed config shouldn't block loading the rest of the field */ }
           grouped[pIdx][f.field_index] = {
             fieldKey: f.field_key,
             type: f.type,
             label: f.label,
             required: !!f.required,
             options: f.options_json ? JSON.parse(f.options_json) : undefined,
+            scored,
           };
         });
         const compacted = grouped.map(page => page.filter(Boolean));
@@ -168,8 +173,9 @@ const SurveyManagement = () => {
         label: f.label,
         required: f.required,
         optionsJson: f.options ? JSON.stringify(f.options) : undefined,
+        configJson: isChoiceType(f.type) ? JSON.stringify({ scored: !!f.scored }) : undefined,
       })));
-      const payload = { name, description, formKind, hasAnswerKey, slug: slug.trim() || undefined, isActive, fields };
+      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, fields };
       if (editId) {
         await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
       } else {
@@ -277,16 +283,7 @@ const SurveyManagement = () => {
                   control={<Switch checked={isActive} onChange={e => setIsActive(e.target.checked)} />}
                   label="เปิดใช้งาน"
                 />
-                <FormControlLabel
-                  control={<Switch checked={hasAnswerKey} onChange={e => setHasAnswerKey(e.target.checked)} />}
-                  label="มีเฉลย/ให้คะแนนอัตโนมัติ"
-                />
               </Stack>
-              {hasAnswerKey && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  ตั้งคะแนนของแต่ละตัวเลือกได้อิสระ (ไม่จำเป็นต้องเท่ากัน) — คะแนนรวมจะคำนวณจากตัวเลือกที่ผู้ตอบเลือก
-                </Alert>
-              )}
             </Paper>
 
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
@@ -320,12 +317,18 @@ const SurveyManagement = () => {
                     <Stack direction="row" spacing={1.5} alignItems="flex-start">
                       <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
                           <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
                           {field.type !== 'heading' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
+                            />
+                          )}
+                          {isChoiceType(field.type) && (
+                            <FormControlLabel
+                              control={<Switch size="small" checked={!!field.scored} onChange={e => updateField(idx, { scored: e.target.checked })} />}
+                              label={<Typography variant="caption">ให้คะแนน</Typography>}
                             />
                           )}
                         </Stack>
@@ -334,23 +337,13 @@ const SurveyManagement = () => {
                           value={field.label}
                           onChange={e => updateField(idx, { label: e.target.value })}
                         />
-                        {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && !hasAnswerKey && (
-                          <TextField
-                            fullWidth size="small" label="ตัวเลือก (คั่นด้วย ,)"
-                            value={(field.options || []).map(o => o.label).join(', ')}
-                            onChange={e => updateField(idx, {
-                              options: e.target.value.split(',').map(s => s.trim()).filter(Boolean).map(label => {
-                                const existing = (field.options || []).find(o => o.label === label);
-                                return { label, points: existing?.points ?? 0 };
-                              }),
-                            })}
-                          />
-                        )}
-                        {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && hasAnswerKey && (
+                        {isChoiceType(field.type) && (
                           <Stack spacing={1}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-                              ตัวเลือกและคะแนน — แต่ละตัวเลือกให้คะแนนไม่เท่ากันได้ (ใส่ 0 สำหรับตัวเลือกที่ไม่มีคะแนน)
-                            </Typography>
+                            {field.scored && (
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                                แต่ละตัวเลือกให้คะแนนไม่เท่ากันได้ (ใส่ 0 สำหรับตัวเลือกที่ไม่มีคะแนน)
+                              </Typography>
+                            )}
                             {(field.options || []).map((opt, oIdx) => (
                               <Stack key={oIdx} direction="row" spacing={1} alignItems="center">
                                 <TextField
@@ -360,13 +353,15 @@ const SurveyManagement = () => {
                                     options: (field.options || []).map((o, i) => i === oIdx ? { ...o, label: e.target.value } : o),
                                   })}
                                 />
-                                <TextField
-                                  size="small" type="number" label="คะแนน" sx={{ width: 110 }}
-                                  value={opt.points}
-                                  onChange={e => updateField(idx, {
-                                    options: (field.options || []).map((o, i) => i === oIdx ? { ...o, points: parseInt(e.target.value) || 0 } : o),
-                                  })}
-                                />
+                                {field.scored && (
+                                  <TextField
+                                    size="small" type="number" label="คะแนน" sx={{ width: 110 }}
+                                    value={opt.points}
+                                    onChange={e => updateField(idx, {
+                                      options: (field.options || []).map((o, i) => i === oIdx ? { ...o, points: parseInt(e.target.value) || 0 } : o),
+                                    })}
+                                  />
+                                )}
                                 <IconButton
                                   size="small" color="error"
                                   onClick={() => updateField(idx, { options: (field.options || []).filter((_, i) => i !== oIdx) })}
