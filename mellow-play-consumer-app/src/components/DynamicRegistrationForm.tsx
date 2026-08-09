@@ -208,6 +208,17 @@ const DynamicRegistrationForm: React.FC<Props> = ({
           if (field.type === 'heading') {
             return <h4 key={field.field_key} className="text-base font-black text-slate-700 pt-2">{field.label}</h4>;
           }
+          if (field.type === 'image') {
+            let imageUrl: string | undefined;
+            try { imageUrl = field.config_json ? JSON.parse(field.config_json).imageUrl : undefined; } catch { /* malformed config just skips rendering this image */ }
+            if (!imageUrl) return null;
+            return (
+              <figure key={field.field_key} className="space-y-1.5">
+                <img src={imageUrl} alt={field.label || ''} className="w-full rounded-2xl object-cover" />
+                {field.label && <figcaption className="text-xs font-bold text-slate-400 text-center">{field.label}</figcaption>}
+              </figure>
+            );
+          }
 
           const options: string[] = field.options_json ? JSON.parse(field.options_json) : [];
           const config = field.config_json ? JSON.parse(field.config_json) : {};

@@ -68,6 +68,7 @@ export class SurveyController {
         formKind: FORM_KINDS.includes(body.formKind) ? body.formKind : 'survey',
         isActive: body.isActive,
         slug,
+        scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true, id });
@@ -90,6 +91,7 @@ export class SurveyController {
         formKind: FORM_KINDS.includes(body.formKind) ? body.formKind : 'survey',
         isActive: body.isActive,
         slug,
+        scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true });
@@ -129,7 +131,11 @@ export class SurveyController {
         try { options = (JSON.parse(f.options_json || '[]')).map((o: any) => ({ label: o.label })); } catch { /* malformed options render as empty rather than block the form */ }
         return { ...f, options_json: JSON.stringify(options) };
       });
-      return c.json({ success: true, form: { ...form, fields: sanitizedFields } });
+      // score_ranges_json is the "answer key" for the result screen — a
+      // respondent gets it back from submit() only after answering, never
+      // upfront alongside the blank form.
+      const { score_ranges_json, ...formWithoutScoreRanges } = form;
+      return c.json({ success: true, form: { ...formWithoutScoreRanges, fields: sanitizedFields } });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -162,7 +168,7 @@ export class SurveyController {
         answers,
       });
 
-      return c.json({ success: true, totalScore: result.totalScore, maxScore: result.maxScore });
+      return c.json({ success: true, totalScore: result.totalScore, maxScore: result.maxScore, result: result.result });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }

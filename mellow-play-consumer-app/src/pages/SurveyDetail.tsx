@@ -25,7 +25,7 @@ const SurveyDetail = () => {
   const [identity, setIdentity] = useState({ mode: (isLoggedIn ? 'prefill' : 'manual') as 'prefill' | 'manual', name: '', phone: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null } | null>(null);
+  const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; imageUrl?: string } | null } | null>(null);
 
   useEffect(() => {
     if (!idOrSlug) return;
@@ -45,7 +45,7 @@ const SurveyDetail = () => {
         respondentPhone: identity.mode === 'manual' ? identity.phone.trim() || undefined : undefined,
       });
       if (res.data.success) {
-        setResult({ totalScore: res.data.totalScore, maxScore: res.data.maxScore });
+        setResult({ totalScore: res.data.totalScore, maxScore: res.data.maxScore, band: res.data.result });
       } else {
         setError(res.data.message || (lang === 'en' ? 'Failed to submit.' : 'ส่งคำตอบไม่สำเร็จ'));
       }
@@ -95,6 +95,12 @@ const SurveyDetail = () => {
                   <p className="text-sm font-bold text-slate-500 mt-2">
                     {lang === 'en' ? 'Your score' : 'คะแนนของคุณ'}: <span className="text-mellow-purple font-black">{result.totalScore} / {result.maxScore}</span>
                   </p>
+                )}
+                {result.band && (
+                  <div className="mt-4 text-left bg-slate-50 rounded-2xl p-4 space-y-2">
+                    {result.band.imageUrl && <img src={result.band.imageUrl} alt="" className="w-full rounded-xl object-cover" />}
+                    <p className="text-sm font-bold text-slate-700 whitespace-pre-wrap">{result.band.resultText}</p>
+                  </div>
                 )}
               </div>
             ) : (
