@@ -29,12 +29,15 @@ import {
   Badge as IdentityIcon,
   Link as LinkIcon,
   ListAlt as ResponsesIcon,
+  Image as ImageFieldIcon,
+  CloudUpload as UploadIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity';
+type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image';
 
 interface ScoredOption { label: string; points: number; }
 
@@ -45,7 +48,10 @@ interface FieldDraft {
   required: boolean;
   options?: ScoredOption[]; // select/radio/checkbox
   scored?: boolean;         // select/radio/checkbox — per-field toggle for whether points count at all
+  imageUrl?: string;        // image
 }
+
+interface ScoreRange { min: number; max: number; resultText: string; imageUrl?: string; }
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
@@ -57,6 +63,49 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   radio: { label: 'ตัวเลือก (Radio)', icon: <RadioIcon fontSize="small" /> },
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
   identity: { label: 'ผู้ตอบแบบสอบถาม (ใครเป็นคนตอบ)', icon: <IdentityIcon fontSize="small" /> },
+  image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
+};
+
+// Reused by both the field editor's own image field and the score-range
+// result images below — same /admin/upload endpoint the rich-text editors
+// already use for inline images.
+const uploadImage = async (file: File): Promise<string> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('folder', 'surveys');
+  const res = await axios.post(`${API_URL}/api/v1/admin/upload`, fd);
+  if (!res.data.success) throw new Error(res.data.message || 'Upload failed');
+  return res.data.url;
+};
+
+const ImageUploadField = ({ label, url, onChange }: { label: string; url?: string; onChange: (url: string | undefined) => void }) => {
+  const [uploading, setUploading] = useState(false);
+  const inputId = `img-upload-${Math.random().toString(36).slice(2)}`;
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try { onChange(await uploadImage(file)); } catch { /* leave the previous image in place on failure */ }
+    finally { setUploading(false); }
+  };
+  return (
+    <Stack direction="row" spacing={1.5} alignItems="center">
+      {url && (
+        <Box sx={{ position: 'relative' }}>
+          <Box component="img" src={url} alt="" sx={{ width: 64, height: 64, borderRadius: 1.5, objectFit: 'cover', border: '1px solid #eee' }} />
+          <IconButton size="small" onClick={() => onChange(undefined)}
+            sx={{ position: 'absolute', top: -8, right: -8, bgcolor: 'white', boxShadow: 1, p: 0.25 }}>
+            <CloseIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+      )}
+      <label htmlFor={inputId}>
+        <input id={inputId} type="file" accept="image/*" hidden onChange={e => handleFile(e.target.files?.[0])} />
+        <Button component="span" size="small" variant="outlined" startIcon={uploading ? <CircularProgress size={14} /> : <UploadIcon fontSize="small" />} disabled={uploading}>
+          {url ? `เปลี่ยน${label}` : `อัปโหลด${label}`}
+        </Button>
+      </label>
+    </Stack>
+  );
 };
 
 const FORM_KIND_META: Record<string, { label: string; color: 'default' | 'info' | 'warning' }> = {
@@ -99,6 +148,7 @@ const SurveyManagement = () => {
   const [isActive, setIsActive] = useState(true);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
   const [activePage, setActivePage] = useState(0);
+  const [scoreRanges, setScoreRanges] = useState<ScoreRange[]>([]);
 
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
 
@@ -113,7 +163,7 @@ const SurveyManagement = () => {
 
   const resetFormState = () => {
     setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
-    setPages([[]]); setActivePage(0); setSaveError(null);
+    setPages([[]]); setActivePage(0); setScoreRanges([]); setSaveError(null);
   };
 
   const startCreate = () => {
@@ -136,20 +186,22 @@ const SurveyManagement = () => {
         setFormKind(form.form_kind || 'survey');
         setSlug(form.slug || '');
         setIsActive(!!form.is_active);
+        try { setScoreRanges(form.score_ranges_json ? JSON.parse(form.score_ranges_json) : []); } catch { setScoreRanges([]); }
 
         const grouped: FieldDraft[][] = [];
         (form.fields || []).forEach((f: any) => {
           const pIdx = f.page_index ?? 0;
           if (!grouped[pIdx]) grouped[pIdx] = [];
-          let scored = false;
-          try { scored = !!(f.config_json && JSON.parse(f.config_json).scored); } catch { /* malformed config shouldn't block loading the rest of the field */ }
+          let config: any = {};
+          try { config = f.config_json ? JSON.parse(f.config_json) : {}; } catch { /* malformed config shouldn't block loading the rest of the field */ }
           grouped[pIdx][f.field_index] = {
             fieldKey: f.field_key,
             type: f.type,
             label: f.label,
             required: !!f.required,
             options: f.options_json ? JSON.parse(f.options_json) : undefined,
-            scored,
+            scored: !!config.scored,
+            imageUrl: config.imageUrl,
           };
         });
         const compacted = grouped.map(page => page.filter(Boolean));
@@ -173,9 +225,11 @@ const SurveyManagement = () => {
         label: f.label,
         required: f.required,
         optionsJson: f.options ? JSON.stringify(f.options) : undefined,
-        configJson: isChoiceType(f.type) ? JSON.stringify({ scored: !!f.scored }) : undefined,
+        configJson: isChoiceType(f.type) ? JSON.stringify({ scored: !!f.scored })
+          : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
+          : undefined,
       })));
-      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, fields };
+      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, scoreRanges, fields };
       if (editId) {
         await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
       } else {
@@ -238,6 +292,11 @@ const SurveyManagement = () => {
   // ─── Edit/Create Form ────────────────────────────────────────────────────
   if (isEditing) {
     const currentPageFields = pages[activePage] || [];
+    const hasAnyScored = pages.some(page => page.some(f => isChoiceType(f.type) && f.scored));
+    const addScoreRange = () => setScoreRanges([...scoreRanges, { min: 0, max: 0, resultText: '' }]);
+    const updateScoreRange = (i: number, patch: Partial<ScoreRange>) =>
+      setScoreRanges(scoreRanges.map((r, ri) => ri === i ? { ...r, ...patch } : r));
+    const removeScoreRange = (i: number) => setScoreRanges(scoreRanges.filter((_, ri) => ri !== i));
     return (
       <Box sx={{ pb: 12 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
@@ -319,7 +378,7 @@ const SurveyManagement = () => {
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
                           <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
-                          {field.type !== 'heading' && (
+                          {field.type !== 'heading' && field.type !== 'image' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
@@ -333,10 +392,13 @@ const SurveyManagement = () => {
                           )}
                         </Stack>
                         <TextField
-                          fullWidth size="small" label="ข้อความ/คำถาม"
+                          fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
                           value={field.label}
                           onChange={e => updateField(idx, { label: e.target.value })}
                         />
+                        {field.type === 'image' && (
+                          <ImageUploadField label="รูป" url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
+                        )}
                         {isChoiceType(field.type) && (
                           <Stack spacing={1}>
                             {(field.options || []).map((opt, oIdx) => (
@@ -404,6 +466,44 @@ const SurveyManagement = () => {
                 ))}
               </Stack>
             </Paper>
+
+            {hasAnyScored && (
+              <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+                <SectionLabel title="เกณฑ์ผลการประเมิน" />
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  แสดงข้อความ (และรูป) ให้ผู้ตอบเห็นหลังส่งคำตอบ ตามช่วงคะแนนรวมที่ได้
+                </Typography>
+                <Stack spacing={2}>
+                  {scoreRanges.map((range, i) => (
+                    <Paper key={i} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Stack spacing={1.5}>
+                        <Stack direction="row" spacing={1.5}>
+                          <TextField
+                            size="small" type="number" label="คะแนนต่ำสุด" sx={{ width: 130 }}
+                            value={range.min} onChange={e => updateScoreRange(i, { min: parseInt(e.target.value) || 0 })}
+                          />
+                          <TextField
+                            size="small" type="number" label="คะแนนสูงสุด" sx={{ width: 130 }}
+                            value={range.max} onChange={e => updateScoreRange(i, { max: parseInt(e.target.value) || 0 })}
+                          />
+                          <IconButton size="small" color="error" sx={{ ml: 'auto' }} onClick={() => removeScoreRange(i)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                        <TextField
+                          fullWidth size="small" multiline minRows={2} label="ข้อความผลการประเมิน"
+                          value={range.resultText} onChange={e => updateScoreRange(i, { resultText: e.target.value })}
+                        />
+                        <ImageUploadField label="รูป" url={range.imageUrl} onChange={imageUrl => updateScoreRange(i, { imageUrl })} />
+                      </Stack>
+                    </Paper>
+                  ))}
+                  <Button size="small" startIcon={<AddIcon />} sx={{ alignSelf: 'flex-start' }} onClick={addScoreRange}>
+                    เพิ่มช่วงคะแนน
+                  </Button>
+                </Stack>
+              </Paper>
+            )}
 
             <Button
               variant="contained" size="large" startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}

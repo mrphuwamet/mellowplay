@@ -27,11 +27,14 @@ import {
   CheckBox as CheckboxIcon,
   FamilyRestroom as FamilyPickerIcon,
   Groups as TeamSelectIcon,
+  Image as ImageFieldIcon,
+  CloudUpload as UploadIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select';
+type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select' | 'image';
 
 interface TeamOption { label: string; capacity: number; }
 
@@ -44,6 +47,7 @@ interface FieldDraft {
   teamOptions?: TeamOption[]; // team_select — each team's name + how many it can take
   role?: 'adult' | 'child';   // family_member_picker
   duplicateCheckScope?: 'none' | 'course' | 'round';
+  imageUrl?: string;          // image
 }
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
@@ -57,6 +61,7 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
   family_member_picker: { label: 'เลือกสมาชิกในครอบครัว', icon: <FamilyPickerIcon fontSize="small" /> },
   team_select: { label: 'เลือกทีม (จำกัดจำนวนต่อทีม)', icon: <TeamSelectIcon fontSize="small" /> },
+  image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
 };
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -70,6 +75,47 @@ const emptyField = (type: FieldType): FieldDraft => ({
   teamOptions: type === 'team_select' ? [{ label: 'ทีม 1', capacity: 10 }] : undefined,
   role: type === 'family_member_picker' ? 'child' : undefined,
 });
+
+// Same /admin/upload endpoint the rich-text editors and the Survey builder
+// already use for inline images.
+const uploadImage = async (file: File): Promise<string> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('folder', 'registration-forms');
+  const res = await axios.post(`${API_URL}/api/v1/admin/upload`, fd);
+  if (!res.data.success) throw new Error(res.data.message || 'Upload failed');
+  return res.data.url;
+};
+
+const ImageUploadField = ({ url, onChange }: { url?: string; onChange: (url: string | undefined) => void }) => {
+  const [uploading, setUploading] = useState(false);
+  const inputId = `img-upload-${Math.random().toString(36).slice(2)}`;
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try { onChange(await uploadImage(file)); } catch { /* leave the previous image in place on failure */ }
+    finally { setUploading(false); }
+  };
+  return (
+    <Stack direction="row" spacing={1.5} alignItems="center">
+      {url && (
+        <Box sx={{ position: 'relative' }}>
+          <Box component="img" src={url} alt="" sx={{ width: 64, height: 64, borderRadius: 1.5, objectFit: 'cover', border: '1px solid #eee' }} />
+          <IconButton size="small" onClick={() => onChange(undefined)}
+            sx={{ position: 'absolute', top: -8, right: -8, bgcolor: 'white', boxShadow: 1, p: 0.25 }}>
+            <CloseIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+      )}
+      <label htmlFor={inputId}>
+        <input id={inputId} type="file" accept="image/*" hidden onChange={e => handleFile(e.target.files?.[0])} />
+        <Button component="span" size="small" variant="outlined" startIcon={uploading ? <CircularProgress size={14} /> : <UploadIcon fontSize="small" />} disabled={uploading}>
+          {url ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+        </Button>
+      </label>
+    </Stack>
+  );
+};
 
 const SectionLabel = ({ title }: { title: string }) => (
   <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>{title}</Typography>
@@ -128,6 +174,8 @@ const RegistrationFormManagement = () => {
         (form.fields || []).forEach((f: any) => {
           const pIdx = f.page_index ?? 0;
           if (!grouped[pIdx]) grouped[pIdx] = [];
+          let config: any = {};
+          try { config = f.config_json ? JSON.parse(f.config_json) : {}; } catch { /* malformed config shouldn't block loading the rest of the field */ }
           grouped[pIdx][f.field_index] = {
             fieldKey: f.field_key,
             type: f.type,
@@ -135,7 +183,8 @@ const RegistrationFormManagement = () => {
             required: !!f.required,
             options: (f.options_json && f.type !== 'team_select') ? JSON.parse(f.options_json) : undefined,
             teamOptions: (f.options_json && f.type === 'team_select') ? JSON.parse(f.options_json) : undefined,
-            role: f.config_json ? JSON.parse(f.config_json).role : undefined,
+            role: config.role,
+            imageUrl: config.imageUrl,
             duplicateCheckScope: f.duplicate_check_scope || 'none',
           };
         });
@@ -162,7 +211,9 @@ const RegistrationFormManagement = () => {
         optionsJson: f.type === 'team_select'
           ? (f.teamOptions ? JSON.stringify(f.teamOptions) : undefined)
           : (f.options ? JSON.stringify(f.options) : undefined),
-        configJson: f.role ? JSON.stringify({ role: f.role }) : undefined,
+        configJson: f.role ? JSON.stringify({ role: f.role })
+          : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
+          : undefined,
         duplicateCheckScope: f.duplicateCheckScope,
       })));
       const payload = { name, description, isActive, fields };
@@ -287,7 +338,7 @@ const RegistrationFormManagement = () => {
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
                           <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
-                          {field.type !== 'heading' && (
+                          {field.type !== 'heading' && field.type !== 'image' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
@@ -295,10 +346,13 @@ const RegistrationFormManagement = () => {
                           )}
                         </Stack>
                         <TextField
-                          fullWidth size="small" label="ข้อความ/คำถาม"
+                          fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
                           value={field.label}
                           onChange={e => updateField(idx, { label: e.target.value })}
                         />
+                        {field.type === 'image' && (
+                          <ImageUploadField url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
+                        )}
                         {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && (
                           <TextField
                             fullWidth size="small" label="ตัวเลือก (คั่นด้วย ,)"
@@ -358,7 +412,7 @@ const RegistrationFormManagement = () => {
                             </Select>
                           </FormControl>
                         )}
-                        {field.type !== 'heading' && (
+                        {field.type !== 'heading' && field.type !== 'image' && (
                           <FormControl size="small" sx={{ minWidth: 280, display: 'block' }}>
                             <InputLabel>ป้องกันการลงทะเบียนซ้ำ</InputLabel>
                             <Select

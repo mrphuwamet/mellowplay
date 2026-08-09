@@ -52,18 +52,20 @@ export class SurveyRepository {
 
   async createForm(data: {
     name: string; description?: string; formKind: string;
-    isActive?: boolean; slug?: string | null; fields: SurveyFieldInput[];
+    isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
+    fields: SurveyFieldInput[];
   }): Promise<number> {
     // has_answer_key is derived, not a separate manual toggle — a form is
     // "graded" as soon as any one of its questions has scoring turned on,
     // regardless of whether the others do.
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
-      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
       hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
+      hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -83,16 +85,18 @@ export class SurveyRepository {
   // the DB id) is what survives across saves for anything referencing it.
   async updateForm(id: number, data: {
     name: string; description?: string; formKind: string;
-    isActive?: boolean; slug?: string | null; fields: SurveyFieldInput[];
+    isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
+    fields: SurveyFieldInput[];
   }): Promise<void> {
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
-        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?
+        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
-        hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null, id,
+        hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
+        hasAnswerKey ? (data.scoreRangesJson ?? null) : null, id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>
@@ -154,13 +158,27 @@ export class SurveyRepository {
     return { totalScore, maxScore };
   }
 
+  // Finds whichever configured band the final score falls into (inclusive
+  // min/max) — the first match wins, so an admin who accidentally overlaps
+  // two ranges gets deterministic (if not necessarily "correct") behavior
+  // rather than a runtime error.
+  private matchScoreRange(scoreRangesJson: string | null | undefined, totalScore: number): { resultText: string; imageUrl?: string } | null {
+    if (!scoreRangesJson) return null;
+    try {
+      const ranges: { min: number; max: number; resultText: string; imageUrl?: string }[] = JSON.parse(scoreRangesJson);
+      const match = ranges.find(r => totalScore >= r.min && totalScore <= r.max);
+      return match ? { resultText: match.resultText, imageUrl: match.imageUrl } : null;
+    } catch { return null; }
+  }
+
   async createSubmission(data: {
     formId: number; userId?: number | null; respondentName?: string | null;
     respondentPhone?: string | null; answers: Record<string, any>;
-  }): Promise<{ id: number; totalScore: number | null; maxScore: number | null }> {
-    const form = await this.db.prepare('SELECT has_answer_key FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
+  }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; result: { resultText: string; imageUrl?: string } | null }> {
+    const form = await this.db.prepare('SELECT has_answer_key, score_ranges_json FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
     let totalScore: number | null = null;
     let maxScore: number | null = null;
+    let result: { resultText: string; imageUrl?: string } | null = null;
     if (form?.has_answer_key) {
       const { results: fields } = await this.db.prepare(
         'SELECT field_key, type, options_json, config_json FROM Survey_Form_Fields WHERE form_id = ?'
@@ -168,9 +186,10 @@ export class SurveyRepository {
       const scored = this.computeScore(fields as any[], data.answers);
       totalScore = scored.totalScore;
       maxScore = scored.maxScore;
+      result = this.matchScoreRange(form.score_ranges_json, totalScore);
     }
 
-    const result = await this.db.prepare(`
+    const inserted = await this.db.prepare(`
       INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
@@ -178,7 +197,7 @@ export class SurveyRepository {
       JSON.stringify(data.answers), totalScore, maxScore,
     ).run();
 
-    return { id: result.meta.last_row_id, totalScore, maxScore };
+    return { id: inserted.meta.last_row_id, totalScore, maxScore, result };
   }
 
   async listSubmissions(formId: number): Promise<any[]> {
