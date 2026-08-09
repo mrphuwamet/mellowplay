@@ -54,18 +54,18 @@ export class CalendarRepository {
   }
   async createSlotRule(d: any): Promise<number> {
     const r = await this.db.prepare(`
-      INSERT INTO Calendar_Slot_Rules (calendar_id, day_of_week, specific_date, start_time, end_time, max_capacity, invite_capacity, valid_from, valid_until)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Calendar_Slot_Rules (calendar_id, day_of_week, specific_date, start_time, end_time, max_capacity, invite_capacity, valid_from, valid_until, label)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(d.calendarId, d.dayOfWeek ?? null, d.specificDate ?? null, d.startTime, d.endTime,
-            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null).run();
+            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null, d.label?.trim() || null).run();
     return r.meta.last_row_id as number;
   }
   async updateSlotRule(id: number, d: any): Promise<void> {
     await this.db.prepare(`
       UPDATE Calendar_Slot_Rules SET day_of_week=?, specific_date=?, start_time=?, end_time=?,
-        max_capacity=?, invite_capacity=?, valid_from=?, valid_until=?, is_active=? WHERE id=?
+        max_capacity=?, invite_capacity=?, valid_from=?, valid_until=?, is_active=?, label=? WHERE id=?
     `).bind(d.dayOfWeek ?? null, d.specificDate ?? null, d.startTime, d.endTime,
-            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null, d.isActive ? 1 : 0, id).run();
+            d.maxCapacity ?? 4, d.inviteCapacity ?? 0, d.validFrom, d.validUntil ?? null, d.isActive ? 1 : 0, d.label?.trim() || null, id).run();
   }
   async deleteSlotRule(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Calendar_Slot_Rules WHERE id=?').bind(id).run();
@@ -132,6 +132,7 @@ export class CalendarRepository {
         const booked = (bookings[0] as any)?.cnt ?? 0;
         slots.push({
           ruleId: rule.id,
+          label: rule.label ?? null,
           startTime: start,
           endTime: end,
           maxCapacity: rule.max_capacity,
@@ -206,6 +207,7 @@ export class CalendarRepository {
         const effectiveCapacity = rule.id === boostRuleId ? rule.max_capacity + (rule.invite_capacity || 0) : rule.max_capacity;
         daySlots.push({
           ruleId: rule.id,
+          label: rule.label ?? null,
           startTime: startTime,
           endTime: rule.end_time.substring(0, 5),
           maxCapacity: effectiveCapacity,

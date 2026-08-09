@@ -29,7 +29,7 @@ import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
 interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; registration_close_at?: string | null; }
-interface TimeSlot { ruleId: number; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
+interface TimeSlot { ruleId: number; label?: string | null; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
 // Set by InviteAccess.tsx after a guest's link+PIN succeeds — keyed per
@@ -937,7 +937,7 @@ const Booking = () => {
                        <div className="flex justify-between text-sm font-bold text-slate-600">
                          <span>{lang === 'en' ? 'Session' : 'รอบที่จอง'}</span>
                          <span className="text-slate-800 text-right">
-                           {new Date(selectedDateObj.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })} · {selectedSlot.startTime} น.
+                           {new Date(selectedDateObj.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })} · {selectedSlot.label ? `${selectedSlot.label} (${selectedSlot.startTime})` : `${selectedSlot.startTime} น.`}
                          </span>
                        </div>
                      )}
@@ -1417,7 +1417,10 @@ const Booking = () => {
                     {selectedDateObj.slots.map(slot => (
                       <button key={slot.startTime} disabled={slot.available === 0} onClick={() => { setSelectedSlot(slot); setCurrentStepIndex(currentStepIndex + 1); }} className={`p-[5px] rounded-2xl border text-left transition-all relative overflow-hidden ${slot.available === 0 ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed' : selectedSlot?.startTime === slot.startTime ? 'bg-mellow-purple/5 border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100 hover:border-mellow-purple/30'}`}>
                         <div className="flex items-center justify-between gap-2 relative z-10">
-                          <span className="text-xl font-black text-slate-700">{slot.startTime}</span>
+                          <span className="flex flex-col">
+                            {slot.label && <span className="text-[11px] font-bold text-slate-400 leading-none mb-0.5">{slot.label}</span>}
+                            <span className="text-xl font-black text-slate-700">{slot.startTime}</span>
+                          </span>
                           <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${slot.available === 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
                             {slot.available === 0 ? (t.booking?.full || 'เต็มแล้ว') : (
                               <>
@@ -1702,7 +1705,7 @@ const Booking = () => {
                                       <div className="flex items-center gap-2">
                                         <Clock size={14} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
                                         <span className={`text-[14px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
-                                          {slot.startTime} - {slot.endTime}
+                                          {slot.label ? `${slot.label} (${slot.startTime}-${slot.endTime})` : `${slot.startTime} - ${slot.endTime}`}
                                         </span>
                                       </div>
                                       <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[14px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>

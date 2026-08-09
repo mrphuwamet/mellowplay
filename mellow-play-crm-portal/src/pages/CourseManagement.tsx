@@ -2575,7 +2575,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                         return (
                           <TableRow key={`${day.date}-${i}`} hover>
                             <TableCell>{dateLabel}</TableCell>
-                            <TableCell>{s.startTime}–{s.endTime}</TableCell>
+                            <TableCell>{s.label ? `${s.label} (${s.startTime}–${s.endTime})` : `${s.startTime}–${s.endTime}`}</TableCell>
                             <TableCell align="center">
                               <Chip
                                 label={`${s.available}/${s.maxCapacity}`}
@@ -2610,7 +2610,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                             )}
                             <TableCell align="right">
                               <Tooltip title="ลิงก์เชิญพิเศษสำหรับรอบนี้">
-                                <IconButton size="small" onClick={() => openInviteLinksDialog(capacityDialogCourse!.id, s.ruleId, `${dateLabel} · ${s.startTime}–${s.endTime}`)}>
+                                <IconButton size="small" onClick={() => openInviteLinksDialog(capacityDialogCourse!.id, s.ruleId, s.label ? `${dateLabel} · ${s.label} (${s.startTime}–${s.endTime})` : `${dateLabel} · ${s.startTime}–${s.endTime}`)}>
                                   <LinkIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
