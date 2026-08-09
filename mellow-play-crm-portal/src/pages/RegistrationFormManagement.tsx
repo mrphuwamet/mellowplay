@@ -46,7 +46,7 @@ interface FieldDraft {
   options?: string[];         // select/radio/checkbox
   teamOptions?: TeamOption[]; // team_select — each team's name + how many it can take
   role?: 'adult' | 'child';   // family_member_picker
-  duplicateCheckScope?: 'none' | 'course' | 'round';
+  duplicateCheckScope?: 'none' | 'course' | 'round' | 'calendar';
   imageUrl?: string;          // image
 }
 
@@ -418,18 +418,23 @@ const RegistrationFormManagement = () => {
                             <Select
                               value={field.duplicateCheckScope || 'none'}
                               label="ป้องกันการลงทะเบียนซ้ำ"
-                              onChange={e => updateField(idx, { duplicateCheckScope: e.target.value as 'none' | 'course' | 'round' })}
+                              onChange={e => updateField(idx, { duplicateCheckScope: e.target.value as 'none' | 'course' | 'round' | 'calendar' })}
                             >
                               <MenuItem value="none">ไม่ป้องกัน</MenuItem>
-                              <MenuItem value="course">ห้ามซ้ำ — ทั้งคลาส/กิจกรรมนี้ (ทุกรอบ)</MenuItem>
-                              <MenuItem value="round">ห้ามซ้ำ — เฉพาะรอบ/วันเวลาเดียวกัน</MenuItem>
+                              {field.type === 'family_member_picker' ? (
+                                <MenuItem value="calendar">ห้ามซ้ำ — คนนี้เคยลงทะเบียนในปฏิทินนี้แล้ว (ทุกคลาส/กิจกรรมที่ใช้ปฏิทินเดียวกัน)</MenuItem>
+                              ) : [
+                                <MenuItem key="course" value="course">ห้ามซ้ำ — ทั้งคลาส/กิจกรรมนี้ (ทุกรอบ)</MenuItem>,
+                                <MenuItem key="round" value="round">ห้ามซ้ำ — เฉพาะรอบ/วันเวลาเดียวกัน</MenuItem>,
+                              ]}
                             </Select>
                             {field.duplicateCheckScope && field.duplicateCheckScope !== 'none' && (
                               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                ตรวจสอบการซ้ำโดยเทียบจากค่าของฟิลด์นี้เป็นหลัก (เช่น ชื่อ-นามสกุลผู้เข้าร่วม)
-                                {field.duplicateCheckScope === 'course'
-                                  ? ' — จะบล็อกถ้าเคยลงทะเบียนคลาส/กิจกรรมนี้มาแล้ว ไม่ว่าจะรอบไหน'
-                                  : ' — จะบล็อกเฉพาะตอนลงทะเบียนรอบ/วันเวลาเดียวกันซ้ำเท่านั้น ต่างรอบลงทะเบียนได้ปกติ'}
+                                {field.duplicateCheckScope === 'calendar'
+                                  ? 'ตรวจสอบจากชื่อ-นามสกุลจริงของคนที่เลือกในฟิลด์นี้ — จะบล็อกถ้าคนคนนี้เคยลงทะเบียนคลาส/กิจกรรมใดก็ตามที่ใช้ปฏิทินเดียวกันกับคลาสนี้มาแล้ว ไม่ว่าจะบทบาทไหน (พ่อ/แม่/ลูก)'
+                                  : 'ตรวจสอบการซ้ำโดยเทียบจากค่าของฟิลด์นี้เป็นหลัก (เช่น ชื่อ-นามสกุลผู้เข้าร่วม)'}
+                                {field.duplicateCheckScope === 'course' && ' — จะบล็อกถ้าเคยลงทะเบียนคลาส/กิจกรรมนี้มาแล้ว ไม่ว่าจะรอบไหน'}
+                                {field.duplicateCheckScope === 'round' && ' — จะบล็อกเฉพาะตอนลงทะเบียนรอบ/วันเวลาเดียวกันซ้ำเท่านั้น ต่างรอบลงทะเบียนได้ปกติ'}
                               </Typography>
                             )}
                           </FormControl>

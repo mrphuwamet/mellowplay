@@ -79,6 +79,52 @@ export class RegistrationFormRepository {
     return false;
   }
 
+  // A family_member_picker field marked duplicate_check_scope='calendar' is
+  // checked differently from the plain course/round text-field scopes above:
+  // instead of requiring several fields to match together on ONE prior
+  // submission, this looks for the SAME PERSON (by real name, regardless of
+  // which role — parent or child — they were picked under) across every
+  // course that shares this calendar, not just this one course/round. A
+  // physical calendar slot is what's actually being double-booked, so a
+  // person who registered for a different class sharing the same calendar
+  // is still a real duplicate even though the course_id differs.
+  async findDuplicatePersonInCalendar(calendarId: number, candidateNames: string[]): Promise<boolean> {
+    const normalizedCandidates = new Set(candidateNames.map(n => n.trim().toLowerCase()).filter(Boolean));
+    if (normalizedCandidates.size === 0) return false;
+
+    const { results: submissions } = await this.db.prepare(`
+      SELECT fs.form_id, fs.answers_json
+      FROM Form_Submissions fs
+      JOIN Courses c ON c.id = fs.course_id
+      WHERE c.calendar_id = ?
+        AND EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
+    `).bind(calendarId).all();
+    if ((submissions as any[]).length === 0) return false;
+
+    const formIds = Array.from(new Set((submissions as any[]).map((s: any) => s.form_id)));
+    const pickerKeysByForm = new Map<number, string[]>();
+    for (const formId of formIds) {
+      const { results: fields } = await this.db.prepare(
+        `SELECT field_key FROM Registration_Form_Fields WHERE form_id = ? AND type = 'family_member_picker'`
+      ).bind(formId).all();
+      pickerKeysByForm.set(formId, (fields as any[]).map(f => f.field_key));
+    }
+
+    for (const s of submissions as any[]) {
+      const pickerKeys = pickerKeysByForm.get(s.form_id) || [];
+      if (pickerKeys.length === 0) continue;
+      let answers: Record<string, any> = {};
+      try { answers = JSON.parse(s.answers_json || '{}'); } catch { continue; }
+      for (const key of pickerKeys) {
+        const realNameText = answers[`${key}__realname`];
+        if (!realNameText) continue;
+        const names = String(realNameText).split(',').map(n => n.trim().toLowerCase()).filter(Boolean);
+        if (names.some(n => normalizedCandidates.has(n))) return true;
+      }
+    }
+    return false;
+  }
+
   // Used to show (and, via updateSubmissionAnswers, edit) what a family
   // filled in for a specific booking — answers are keyed by field_key, so
   // pair each up with its field's label/options for display; the caller
