@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { PDF_THAI_FONT, PDF_THAI_FONT_FILE, PROMPT_REGULAR_BASE64 } from './thaiPdfFont';
 
 interface PdfExportOptions {
   element: HTMLElement;
@@ -25,14 +26,20 @@ export const exportDashboardPdf = async ({ element, fileName, reportTitle, perio
   const userJson = localStorage.getItem('crm_user');
   const currentUser = userJson ? JSON.parse(userJson) : null;
 
+  // Every string below can contain Thai (report titles, branch names, the
+  // staff member's own name), so the embedded font is registered before the
+  // first text() call and never switched away from. Only one weight exists —
+  // hierarchy comes from size and colour, not from setFont(..., 'bold').
+  pdf.addFileToVFS(PDF_THAI_FONT_FILE, PROMPT_REGULAR_BASE64);
+  pdf.addFont(PDF_THAI_FONT_FILE, PDF_THAI_FONT, 'normal');
+  pdf.setFont(PDF_THAI_FONT, 'normal');
+
   const headerHeight = 90;
   pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
   pdf.text('Mellow Play', margin, margin);
   pdf.setFontSize(13);
   pdf.text(reportTitle, margin, margin + 20);
   pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(100);
   pdf.text(`ช่วงเวลา: ${periodLabel}`, margin, margin + 38);
   pdf.text(`สาขา: ${branchLabel}`, margin, margin + 52);
