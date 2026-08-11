@@ -157,7 +157,16 @@ const NewsDetail = () => {
         >
           <div ref={carouselRef} onScroll={handleCarouselScroll} className="w-full h-full overflow-x-scroll snap-x snap-mandatory flex scrollbar-hide">
             {images.map((url, i) => (
-              <img key={i} src={resolveImageUrl(url)} alt={title} className="w-full h-full object-cover shrink-0 snap-center" />
+              // image_position is the CRM's drag-to-frame choice for this
+              // article's 16:9 hero box; it applies to every slide because the
+              // framing describes the article, not one individual file.
+              <img
+                key={i}
+                src={resolveImageUrl(url)}
+                alt={title}
+                className="w-full h-full object-cover shrink-0 snap-center"
+                style={{ objectPosition: item.image_position || '50% 50%' }}
+              />
             ))}
           </div>
           {images.length > 1 && (
@@ -288,7 +297,13 @@ const NewsDetail = () => {
                 >
                   <div className="w-24 h-24 bg-slate-100 relative shrink-0 overflow-hidden">
                     {sImageUrl ? (
-                      <img src={sImageUrl} alt={sTitle} className="w-full h-full object-cover" />
+                      <img
+                        src={sImageUrl}
+                        alt={sTitle}
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: s.image_position || '50% 50%' }}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center p-3 opacity-30">
                         <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />

@@ -70,7 +70,16 @@ const NewsList = () => {
                 >
                   <div className="w-28 h-28 md:w-full md:h-40 bg-slate-100 relative shrink-0 overflow-hidden">
                     {imageUrl ? (
-                      <img src={imageUrl} alt={itemTitle} className="w-full h-full object-cover" />
+                      // object-position comes from the CRM's drag-to-frame
+                      // control (News_Feed.image_position); centre matches the
+                      // old fixed behaviour for articles saved before it.
+                      <img
+                        src={imageUrl}
+                        alt={itemTitle}
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: item.image_position || '50% 50%' }}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center p-4 opacity-30">
                         <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />

@@ -14,6 +14,8 @@ import {
 import axios from 'axios';
 import { API_URL } from '../config';
 import NewsFeedEditor from '../components/NewsFeedEditor';
+import ImageCropDialog from '../components/ImageCropDialog';
+import { uploadEditorImage } from '../utils/imageUpload';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -40,11 +42,20 @@ const emptyForm = {
   content: '',
   contentEn: '',
   imageUrl: '',
+  // CSS object-position for the thumbnail, adjusted by dragging the preview.
+  imagePosition: '50% 50%',
   imageUrls: [] as string[],
   videoUrl: '',
   linkUrl: '',
   isPublished: true,
   displayOrder: 0,
+};
+
+// '50% 30%' -> { x: 50, y: 30 }. Falls back to centre for an empty or
+// unexpected value so an article saved before migration 0073 still loads.
+const parseImagePosition = (raw?: string | null) => {
+  const match = /^\s*(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\s*$/.exec(raw || '');
+  return match ? { x: parseFloat(match[1]), y: parseFloat(match[2]) } : { x: 50, y: 50 };
 };
 
 const getImageUrl = (url?: string | null) => {
@@ -80,6 +91,24 @@ const NewsFeedManagement = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const multiImageInputRef = useRef<HTMLInputElement>(null);
 
+  // Thumbnail framing. Mirrors the drag-to-position control already used for
+  // course-category images in CourseManagement.tsx: a ref carries the live
+  // value during the drag (state alone would lag behind the pointer) and the
+  // form field is only written on release, so one drag is one undo step.
+  const [thumbCropFile, setThumbCropFile] = useState<File | null>(null);
+  const [thumbPos, setThumbPos] = useState({ x: 50, y: 50 });
+  const [isDraggingThumb, setIsDraggingThumb] = useState(false);
+  const thumbPosRef = useRef({ x: 50, y: 50 });
+  const thumbDragRef = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
+
+  const commitThumbPos = () => {
+    if (!isDraggingThumb) return;
+    setIsDraggingThumb(false);
+    thumbDragRef.current = null;
+    const { x, y } = thumbPosRef.current;
+    setForm(f => ({ ...f, imagePosition: `${Math.round(x)}% ${Math.round(y)}%` }));
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -92,7 +121,16 @@ const NewsFeedManagement = () => {
 
   const filteredItems = filterType === 'all' ? items : items.filter(i => i.type === filterType);
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setError(''); setIsEditing(true); };
+  const openCreate = () => {
+    setEditTarget(null);
+    setForm(emptyForm);
+    // Without this the previous article's framing stays on screen and gets
+    // applied to whatever thumbnail is uploaded next.
+    setThumbPos({ x: 50, y: 50 });
+    thumbPosRef.current = { x: 50, y: 50 };
+    setError('');
+    setIsEditing(true);
+  };
   const openEdit = (item: NewsItem) => {
     setEditTarget(item);
     setForm({
@@ -102,25 +140,36 @@ const NewsFeedManagement = () => {
       content: item.content || '',
       contentEn: item.content_en || '',
       imageUrl: item.image_url || '',
+      imagePosition: (item as any).image_position || '50% 50%',
       imageUrls: item.image_urls || [],
       videoUrl: item.video_url || '',
       linkUrl: item.link_url || '',
       isPublished: !!item.is_published,
       displayOrder: item.display_order,
     });
+    const pos = parseImagePosition((item as any).image_position);
+    setThumbPos(pos);
+    thumbPosRef.current = pos;
     setError('');
     setIsEditing(true);
   };
 
+  // Thumbnails go through the crop dialog first (defaulting to the 16:9 frame
+  // they will be displayed in) and are downscaled/compressed on the way out —
+  // see utils/imageUpload.ts for why that matters for a phone-camera photo.
   const uploadImage = async (file: File) => {
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('folder', 'news-feed');
-      const res = await axios.post(`${API_BASE}/upload`, fd);
-      if (res.data.success) setForm(f => ({ ...f, imageUrl: res.data.url }));
-      else setError('อัปโหลดรูปไม่สำเร็จ');
+      const result = await uploadEditorImage(file, 'news-feed');
+      if (result) {
+        setForm(f => ({ ...f, imageUrl: result.url }));
+        // A freshly cropped thumbnail is framed by the crop, not by
+        // object-position, so start it centred.
+        setThumbPos({ x: 50, y: 50 });
+        thumbPosRef.current = { x: 50, y: 50 };
+      } else {
+        setError('อัปโหลดรูปไม่สำเร็จ');
+      }
     } catch {
       setError('อัปโหลดรูปไม่สำเร็จ');
     } finally {
@@ -225,6 +274,10 @@ const NewsFeedManagement = () => {
         content: item.content,
         contentEn: item.content_en,
         imageUrl: item.image_url,
+        // Every field has to be echoed back here: this endpoint is a full
+        // replace, so anything omitted is reset to its default. image_position
+        // would silently snap back to centre on a publish/unpublish toggle.
+        imagePosition: (item as any).image_position,
         videoUrl: item.video_url,
         linkUrl: item.link_url,
         isPublished: !item.is_published,
@@ -266,18 +319,62 @@ const NewsFeedManagement = () => {
             <Box>
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>รูปภาพปก (Thumbnail)</Typography>
               <Box
-                onClick={() => imageInputRef.current?.click()}
+                onClick={() => { if (!form.imageUrl) imageInputRef.current?.click(); }}
                 sx={{
                   position: 'relative', aspectRatio: '16/9', maxWidth: 320, borderRadius: 2, overflow: 'hidden',
-                  border: '2px dashed #e2e8f0', cursor: 'pointer', bgcolor: '#f9fafb',
-                  '&:hover': { borderColor: 'primary.main', bgcolor: '#f5f0ff' },
+                  border: '2px dashed #e2e8f0', cursor: form.imageUrl ? 'default' : 'pointer', bgcolor: '#f9fafb',
+                  '&:hover': !form.imageUrl ? { borderColor: 'primary.main', bgcolor: '#f5f0ff' } : {},
                 }}
               >
                 {form.imageUrl ? (
                   <>
-                    <img src={getImageUrl(form.imageUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                    {/* This frame is exactly the 16:9 object-fit:cover box the
+                        consumer app renders the thumbnail into, so dragging
+                        here shows the real crop rather than an approximation. */}
+                    <img
+                      src={getImageUrl(form.imageUrl)}
+                      alt=""
+                      draggable={false}
+                      style={{
+                        width: '100%', height: '100%', objectFit: 'cover',
+                        objectPosition: `${thumbPos.x}% ${thumbPos.y}%`,
+                        cursor: isDraggingThumb ? 'grabbing' : 'grab',
+                        userSelect: 'none',
+                        transition: isDraggingThumb ? 'none' : 'object-position 0.1s',
+                      }}
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        setIsDraggingThumb(true);
+                        thumbDragRef.current = { mouseX: e.clientX, mouseY: e.clientY, posX: thumbPosRef.current.x, posY: thumbPosRef.current.y };
+                      }}
+                      onMouseMove={e => {
+                        if (!isDraggingThumb || !thumbDragRef.current) return;
+                        const dx = e.clientX - thumbDragRef.current.mouseX;
+                        const dy = e.clientY - thumbDragRef.current.mouseY;
+                        // Inverted and damped: the image moves with the cursor
+                        // (dragging left reveals more of the right side), and
+                        // 0.18 keeps a small frame from swinging 0-100% in a
+                        // few pixels of travel.
+                        const newX = Math.max(0, Math.min(100, thumbDragRef.current.posX - dx * 0.18));
+                        const newY = Math.max(0, Math.min(100, thumbDragRef.current.posY - dy * 0.18));
+                        thumbPosRef.current = { x: newX, y: newY };
+                        setThumbPos({ x: newX, y: newY });
+                      }}
+                      onMouseUp={commitThumbPos}
+                      onMouseLeave={commitThumbPos}
+                    />
+                    <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.4)', py: 0.4, textAlign: 'center', pointerEvents: 'none' }}>
+                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: 10 }}>
+                        {isDraggingThumb ? 'กำลังปรับตำแหน่ง...' : 'ลากรูปเพื่อเลือกส่วนที่จะแสดงในกรอบ 16:9'}
+                      </Typography>
+                    </Box>
                     <IconButton
-                      onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, imageUrl: '' })); }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setForm(f => ({ ...f, imageUrl: '', imagePosition: '50% 50%' }));
+                        setThumbPos({ x: 50, y: 50 });
+                        thumbPosRef.current = { x: 50, y: 50 };
+                      }}
                       sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(0,0,0,0.45)', color: 'white', p: 0.5 }}
                     >
                       <ClearIcon sx={{ fontSize: 14 }} />
@@ -296,9 +393,17 @@ const NewsFeedManagement = () => {
               </Box>
               <input type="file" hidden accept="image/*" ref={imageInputRef} onChange={e => {
                 const file = e.target.files?.[0];
-                if (file) uploadImage(file);
+                if (file) setThumbCropFile(file);
                 e.target.value = '';
               }} />
+              <ImageCropDialog
+                open={!!thumbCropFile}
+                file={thumbCropFile}
+                defaultAspect={16 / 9}
+                title="ครอบตัดรูปปก (กรอบ 16:9 ตามที่แสดงในแอป)"
+                onCancel={() => setThumbCropFile(null)}
+                onCropped={file => { setThumbCropFile(null); void uploadImage(file); }}
+              />
             </Box>
 
             <Box>
@@ -383,14 +488,17 @@ const NewsFeedManagement = () => {
 
         <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
           <Box display="flex" flexDirection="column" gap={2.5}>
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                ลิงก์ภายนอก (ถ้ามี) — ถ้าบทความมีรูปภาพ การกดที่รูปจะเปิดลิงก์นี้ทันที (ไม่มีปุ่มแยกแสดง เหมือนใช้รูปเป็นปุ่ม) ถ้าไม่มีรูปจะแสดงเป็นปุ่ม "เปิดลิงก์" แทน
-              </Typography>
-              <Box display="flex" gap={2}>
-                <TextField label="ลิงก์ภายนอก (ถ้ามี)" value={form.linkUrl} onChange={(e) => setForm(f => ({ ...f, linkUrl: e.target.value }))} fullWidth placeholder="https://..." />
-              </Box>
-            </Box>
+            {/* The article-level "ลิงก์ภายนอก" field used to be here. A link
+                now belongs to an individual image inside the content (select an
+                image in the editor and set its link), so one article can point
+                several images at different destinations instead of the whole
+                article sharing one URL.
+
+                `form.linkUrl` is deliberately still loaded and still sent in
+                the save payload: articles published before this change have a
+                link_url in the database, and dropping it from the payload would
+                erase their link the first time anyone edited them. The consumer
+                app keeps rendering it for exactly those articles. */}
 
             <Box>
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
