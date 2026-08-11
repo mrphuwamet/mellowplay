@@ -5,7 +5,7 @@ import { SmsRepository } from '../repositories/smsRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { SmsService } from '../services/smsService';
 import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from '../services/smsTemplateService';
-import { sendBookingSuccessSms } from '../services/smsNotificationService';
+import { sendBookingSuccessNotifications } from '../services/bookingNotificationService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -123,7 +123,7 @@ export class SmsController {
         groups.get(key)!.push(row.id);
       }
       for (const ids of groups.values()) {
-        await sendBookingSuccessSms(config.db, config, ids, sentBy);
+        await sendBookingSuccessNotifications(config.db, config, ids, sentBy);
       }
       return c.json({ success: true, groups: groups.size });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }

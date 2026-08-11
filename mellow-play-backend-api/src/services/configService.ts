@@ -31,6 +31,13 @@ export class ConfigService {
     return this.env.GOOGLE_CLIENT_ID;
   }
 
+  // Undefined until the [[send_email]] binding is deployed, which in turn needs
+  // the sending domain onboarded in the dashboard. Callers must treat absence as
+  // "email not configured" rather than an error — see EmailService.isConfigured.
+  get emailBinding() {
+    return this.env.EMAIL;
+  }
+
   get db(): D1Database {
     return this.env.DB;
   }

@@ -11,7 +11,7 @@ import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants
 import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { SmsService } from '../services/smsService';
-import { sendBookingSuccessSms } from '../services/smsNotificationService';
+import { sendBookingSuccessNotifications } from '../services/bookingNotificationService';
 import { CalendarRepository } from '../repositories/calendarRepository';
 import { resolveInviteBoostRuleId } from './inviteAccessController';
 import { RegistrationFormRepository } from '../repositories/registrationFormRepository';
@@ -1010,7 +1010,7 @@ export class AdminController {
           });
         } catch { /* notification must never block a successful booking */ }
 
-        await sendBookingSuccessSms(config.db, config, bookingIds);
+        await sendBookingSuccessNotifications(config.db, config, bookingIds);
       }
 
       return c.json({ success: true, id: firstId, bookingIds, qrTokens, paymentUrl: beamPaymentUrl });

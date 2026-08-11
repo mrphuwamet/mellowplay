@@ -5,7 +5,7 @@
 // SMS templates drop raw text into a plain-text message where nothing can be
 // misread as markup. An email body is HTML, and the values substituted into it
 // include customer-supplied form answers (see the answers_json loop in
-// smsNotificationService). An unescaped "&" or "<" from a customer's answer
+// bookingNotificationService). An unescaped "&" or "<" from a customer answer
 // would corrupt the message at best; an answer containing a tag would inject
 // arbitrary markup into mail sent from our own domain. Escaping the values
 // while leaving the staff-authored template untouched keeps the CRM's
