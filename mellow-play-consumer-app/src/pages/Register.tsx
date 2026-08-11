@@ -166,7 +166,8 @@ const Register = () => {
       // rejects a malformed number with a much less specific error.
       errs.phone = lang === 'en' ? 'Phone number must be 10 digits' : 'เบอร์โทรศัพท์ต้องมี 10 หลัก';
     }
-    if (!formData.email.trim()) errs.email = t.register.requiredEmail;
+    // Email is optional — a parent with no address still gets SMS confirmations,
+    // and register() stores a blank one as NULL. Not validated as required here.
 
     setFieldErrors(errs);
 

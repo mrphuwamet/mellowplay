@@ -215,6 +215,13 @@ export class AuthController {
       const config = new ConfigService(c.env);
       const { phone, otp, password, prefix, firstName, lastName, firstNameEn, lastNameEn, dob, children, email, lineId, pdpaConsent, marketingConsent, address, relationship } = await c.req.json();
 
+      // A blank email has to reach the database as NULL, never as ''.
+      // Users.email is UNIQUE, and SQLite allows any number of NULLs but only one
+      // '' — so with email optional, the SECOND person to leave it empty would fail
+      // on "UNIQUE constraint failed: Users.email" and be shown "อีเมลนี้ถูกใช้งานแล้ว",
+      // which is both wrong and impossible for them to work around.
+      const emailValue = email && String(email).trim() ? String(email).trim() : null;
+
       const childList = children || [];
       const invalidChild = childList.find((child: any) => !child.nickname || !child.gender);
       if (invalidChild) {
@@ -238,7 +245,7 @@ export class AuthController {
         firstName,
         lastName,
         childList,
-        email,
+        emailValue,
         lineId,
         pdpaConsent,
         marketingConsent,
@@ -258,8 +265,8 @@ export class AuthController {
       // request body: the client says which address it used, and only a marker
       // this server put there can make it count as verified. The marker is
       // consumed on use so it cannot be replayed for a second account.
-      if (email) {
-        const address = String(email).trim().toLowerCase();
+      if (emailValue) {
+        const address = emailValue.toLowerCase();
         const markerKey = `email_verified:${address}`;
         if (await config.kv.get(markerKey)) {
           await config.db.prepare('UPDATE Users SET email_verified = 1 WHERE id = ?').bind(userId).run();
