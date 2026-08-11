@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Phone, Mail, User, ChevronLeft, MessageCircle, AlertCircle, Plus, ArrowRight } from 'lucide-react';
+import { Loader2, Phone, Mail, User, ChevronLeft, MessageCircle, AlertCircle, Plus, ArrowRight, CheckCircle } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import apiClient from '../utils/apiClient';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -36,6 +36,59 @@ const Register = () => {
 
   // Form State
   const [step, setStep] = useState<'consent' | 'info' | 'otp' | 'pin' | 'family' | 'summary'>('consent');
+
+  // Optional email verification (see /auth/email-otp/*). Kept out of the phone
+  // OTP state entirely: phone is the identity and gates registration, this does
+  // not gate anything and only sets Users.email_verified when completed.
+  const [emailOtpAvailable, setEmailOtpAvailable] = useState(false);
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailOtpCode, setEmailOtpCode] = useState('');
+  const [emailOtpBusy, setEmailOtpBusy] = useState(false);
+  const [emailOtpMsg, setEmailOtpMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+
+  useEffect(() => {
+    apiClient.get('/auth/email-otp/available')
+      .then(res => setEmailOtpAvailable(!!res.data?.available))
+      .catch(() => setEmailOtpAvailable(false));
+  }, []);
+
+  const requestEmailOtp = async () => {
+    setEmailOtpBusy(true);
+    setEmailOtpMsg(null);
+    try {
+      const res = await apiClient.post('/auth/email-otp/request', { email: formData.email.trim() });
+      if (res.data?.success) {
+        setEmailOtpSent(true);
+        setEmailOtpMsg({ ok: true, text: res.data.message || 'ส่งรหัสไปที่อีเมลแล้ว' });
+      } else {
+        setEmailOtpMsg({ ok: false, text: res.data?.message || 'ส่งรหัสไม่สำเร็จ' });
+      }
+    } catch (err: any) {
+      setEmailOtpMsg({ ok: false, text: err?.response?.data?.message || 'ส่งรหัสไม่สำเร็จ' });
+    } finally {
+      setEmailOtpBusy(false);
+    }
+  };
+
+  const verifyEmailOtp = async () => {
+    setEmailOtpBusy(true);
+    setEmailOtpMsg(null);
+    try {
+      const res = await apiClient.post('/auth/email-otp/verify', { email: formData.email.trim(), otp: emailOtpCode });
+      if (res.data?.success) {
+        setEmailVerified(true);
+        setEmailOtpSent(false);
+        setEmailOtpCode('');
+      } else {
+        setEmailOtpMsg({ ok: false, text: res.data?.message || 'รหัสไม่ถูกต้อง' });
+      }
+    } catch (err: any) {
+      setEmailOtpMsg({ ok: false, text: err?.response?.data?.message || 'รหัสไม่ถูกต้อง' });
+    } finally {
+      setEmailOtpBusy(false);
+    }
+  };
   const [formData, setFormData] = useState({
     phone: '',
     prefix: '',
@@ -466,10 +519,73 @@ const Register = () => {
             type="email"
             placeholder={t.register.email}
             value={formData.email}
-            onChange={(e) => { setFormData({...formData, email: e.target.value}); setFieldErrors(prev => ({...prev, email: undefined})); }}
+            onChange={(e) => {
+              setFormData({...formData, email: e.target.value});
+              setFieldErrors(prev => ({...prev, email: undefined}));
+              // Editing the address invalidates a verification of the old one.
+              setEmailVerified(false);
+              setEmailOtpSent(false);
+              setEmailOtpMsg(null);
+            }}
             className={`w-full pl-12 pr-4 py-[14px] bg-slate-50 border rounded-2xl font-bold text-sm focus:outline-none ${errClass(fieldErrors.email)}`}
           />
         </div>
+
+        {/* Optional email verification. Hidden entirely unless the server says
+            email sending is configured (/auth/email-otp/available) — offering a
+            button that can only fail is worse than not offering it, and unlike the
+            phone OTP this must never be able to block registration. */}
+        {emailOtpAvailable && formData.email.trim() && (
+          emailVerified ? (
+            <p className="mt-2 text-[12px] font-black text-mellow-green flex items-center gap-1.5">
+              <CheckCircle size={14} /> {lang === 'en' ? 'Email verified' : 'ยืนยันอีเมลแล้ว'}
+            </p>
+          ) : (
+            <div className="mt-2">
+              {!emailOtpSent ? (
+                <button
+                  type="button"
+                  onClick={requestEmailOtp}
+                  disabled={emailOtpBusy}
+                  className="text-[12px] font-black text-mellow-purple underline disabled:opacity-50"
+                >
+                  {emailOtpBusy
+                    ? (lang === 'en' ? 'Sending…' : 'กำลังส่ง...')
+                    : (lang === 'en' ? 'Verify this email (optional)' : 'ยืนยันอีเมลนี้ (ไม่บังคับ)')}
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder={lang === 'en' ? '6-digit code' : 'รหัส 6 หลัก'}
+                    value={emailOtpCode}
+                    onChange={e => setEmailOtpCode(e.target.value.replace(/\D/g, ''))}
+                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm tracking-widest focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={verifyEmailOtp}
+                    disabled={emailOtpBusy || emailOtpCode.length < 6}
+                    className="px-4 py-2.5 bg-mellow-purple text-white rounded-xl font-black text-[13px] disabled:opacity-40"
+                  >
+                    {lang === 'en' ? 'Confirm' : 'ยืนยัน'}
+                  </button>
+                </div>
+              )}
+              {emailOtpMsg && (
+                <p className={`mt-1.5 text-[11.5px] font-bold ${emailOtpMsg.ok ? 'text-mellow-green' : 'text-red-500'}`}>
+                  {emailOtpMsg.text}
+                </p>
+              )}
+              {/* Said out loud so nobody thinks registration is stuck behind it. */}
+              <p className="mt-1 text-[11px] text-slate-400 font-medium">
+                {lang === 'en' ? 'You can skip this and register anyway.' : 'ข้ามได้ ไม่กระทบการสมัคร'}
+              </p>
+            </div>
+          )
+        )}
       </div>
 
       <div className="relative">
