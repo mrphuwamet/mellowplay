@@ -26,12 +26,32 @@ const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '
 // split the backend makes, and the reason the preview has to use this instead of
 // the SMS renderer: a customer's form answer containing "<" would otherwise
 // look fine here and corrupt the real email.
-function renderEmailTemplateLocal(template: string, variables: Record<string, string>): string {
+function renderEmailTemplateLocal(
+  template: string,
+  variables: Record<string, string>,
+  rawVariables: Record<string, string> = {},
+): string {
   return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
+    if (key in rawVariables) return rawVariables[key];
     const value = variables[key];
     return value != null ? value.replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]) : match;
   });
 }
+
+// Email-only variables. Not in the shared builtins list because a QR block is
+// markup — it has no meaning in an SMS.
+const EMAIL_ONLY_VARIABLES = [
+  { key: 'qr_code', label: 'QR เช็คอิน (ปุ่มลิงก์)' },
+];
+
+// Stands in for buildCheckinQrBlock in the preview. Shows two buttons on purpose:
+// a sibling checkout sends one email containing one QR per child, and that is the
+// case a template author is most likely to lay out wrongly.
+const SAMPLE_QR_BLOCK = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0;">`
+  + `<tr><td style="font-size:14px;color:#475569;padding-bottom:8px;">กรุณาแสดง QR Code นี้ให้เจ้าหน้าที่ที่จุดลงทะเบียน</td></tr>`
+  + `<tr><td style="padding:4px 0;"><a href="#" style="display:inline-block;background:#7c3aed;color:#ffffff;font-weight:800;font-size:14px;padding:12px 24px;border-radius:999px;text-decoration:none;">QR เช็คอินของ น้องเอ๋</a></td></tr>`
+  + `<tr><td style="padding:4px 0;"><a href="#" style="display:inline-block;background:#7c3aed;color:#ffffff;font-weight:800;font-size:14px;padding:12px 24px;border-radius:999px;text-decoration:none;">QR เช็คอินของ น้องปลื้ม</a></td></tr>`
+  + `</table>`;
 
 function wrapEmailHtmlLocal(bodyHtml: string): string {
   if (/<html[\s>]/i.test(bodyHtml)) return bodyHtml;
@@ -116,7 +136,9 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
   const bothOn = value.smsSuccessEnabled && value.emailSuccessEnabled;
   const noneOn = !value.smsSuccessEnabled && !value.emailSuccessEnabled;
 
-  const previewHtml = wrapEmailHtmlLocal(renderEmailTemplateLocal(value.emailSuccessTemplate, sampleVariables));
+  const previewHtml = wrapEmailHtmlLocal(
+    renderEmailTemplateLocal(value.emailSuccessTemplate, sampleVariables, { qr_code: SAMPLE_QR_BLOCK }),
+  );
   const previewSubject = renderSmsTemplateLocal(value.emailSuccessSubject || DEFAULT_SUBJECT, sampleVariables);
 
   return (
@@ -258,6 +280,14 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
             คลิกเพื่อแทรกตัวแปรที่ตำแหน่ง cursor
           </Typography>
           <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+            {EMAIL_ONLY_VARIABLES.map(v => (
+              <Tooltip
+                key={v.key}
+                title="แทรกปุ่ม QR เช็คอิน — หนึ่งปุ่มต่อเด็กหนึ่งคนในการจองนั้น กดแล้วเปิดหน้าที่แสดง QR เต็มจอ"
+              >
+                <Chip size="small" color="secondary" label={v.label} onClick={() => insertVariable(v.key)} />
+              </Tooltip>
+            ))}
             {builtins.map(v => (
               <Chip key={v.key} size="small" label={v.label} onClick={() => insertVariable(v.key)} />
             ))}

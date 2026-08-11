@@ -5,7 +5,7 @@ import { SmsRepository } from '../repositories/smsRepository';
 import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from './smsTemplateService';
-import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml } from './emailTemplateService';
+import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml, buildCheckinQrBlock } from './emailTemplateService';
 
 // The automatic "booking confirmed" send — called from both places a booking
 // actually becomes confirmed (adminController.createBooking's bypass-payment
@@ -35,7 +35,7 @@ export async function sendBookingSuccessNotifications(
 
     const { results: rows } = await db.prepare(`
       SELECT
-        b.id as booking_id, b.course_id, b.scheduled_at, b.form_submission_id,
+        b.id as booking_id, b.course_id, b.scheduled_at, b.form_submission_id, b.qr_token,
         COALESCE(hp.nickname, hp.name) as child_name,
         hp.name as child_real_name, hp.nickname as child_nickname,
         (u.first_name || ' ' || u.last_name) as parent_name,
@@ -163,7 +163,18 @@ export async function sendBookingSuccessNotifications(
           sentBy,
         });
       } else {
-        const bodyHtml = wrapEmailHtml(renderEmailTemplate(first.email_success_template, variables));
+        // One button per booking, not per email: qr_token is per booking while a
+        // sibling checkout sends a single email, so every child in the group
+        // needs their own. Rendered raw because it is generated markup, not
+        // customer input — see renderEmailTemplate's rawVariables.
+        const consumerAppUrl = await settingsRepo.getOverridable('consumer_app_url', 'https://mellowplay.co');
+        const qrBlock = buildCheckinQrBlock(
+          consumerAppUrl.replace(/\/+$/, ''),
+          bookingRows.map(r => ({ childName: r.child_name || r.child_real_name || '', qrToken: r.qr_token })),
+        );
+        const bodyHtml = wrapEmailHtml(
+          renderEmailTemplate(first.email_success_template, variables, { qr_code: qrBlock }),
+        );
         const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
         const fromName = await settingsRepo.getOverridable('email_from_name', 'Mellow Play');
         const replyTo = await settingsRepo.getOverridable('email_reply_to', '');
