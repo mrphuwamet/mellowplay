@@ -51,6 +51,7 @@ import {
 import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
 import FocalPointPicker from '../components/FocalPointPicker';
+import CourseViewPreview from '../components/CourseViewPreview';
 import RichTextEditor from '../components/RichTextEditor';
 import SmsPreviewBubble from '../components/SmsPreviewBubble';
 import SmsTemplateEditor from '../components/SmsTemplateEditor';
@@ -725,6 +726,37 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     setCourseImageViews(prev => ({
       ...prev,
       [viewKey]: { imageUrl: prev[viewKey]?.imageUrl || formData.thumbnailUrl, focalX: prev[viewKey]?.focalX ?? 50, focalY: prev[viewKey]?.focalY ?? 50, zoom },
+    }));
+  };
+
+  // Most courses use one image everywhere and only need it framed once. Doing
+  // that meant repeating the same pick-image-then-drag-then-zoom three times,
+  // once per ratio, which is the bulk of the work in this tab.
+  const applyViewToAll = (sourceKey: string) => {
+    const source = courseImageViews[sourceKey];
+    const imageUrl = source?.imageUrl || formData.thumbnailUrl;
+    if (!imageUrl) return;
+    setCourseImageViews(prev => {
+      const next = { ...prev };
+      for (const def of imageViewDefs) {
+        next[def.key] = {
+          imageUrl,
+          focalX: source?.focalX ?? 50,
+          focalY: source?.focalY ?? 50,
+          zoom: source?.zoom ?? 1,
+        };
+      }
+      return next;
+    });
+  };
+
+  const resetViewFraming = (viewKey: string) => {
+    setCourseImageViews(prev => ({
+      ...prev,
+      [viewKey]: {
+        imageUrl: prev[viewKey]?.imageUrl || formData.thumbnailUrl,
+        focalX: 50, focalY: 50, zoom: 1,
+      },
     }));
   };
 
@@ -1454,12 +1486,63 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       </Typography>
                     </Box>
                   </Box>
-                  <Button
-                    fullWidth variant="outlined" size="small" startIcon={<ImageIcon />}
-                    onClick={() => { setMediaModalTab('media'); setMediaModalOpen(true); }}
-                  >
-                    จัดการรูปภาพและวิดีโอ
-                  </Button>
+
+                  {/* The same image is shown at three different aspect ratios
+                      around the apps, and which part survives the crop is set
+                      per ratio in the media editor's "มุมมองการแสดงผล" tab. That
+                      tab used to be invisible from here: this summary said only
+                      how many images there were, so there was no way to tell
+                      that per-ratio framing existed, let alone whether it had
+                      been set. These miniatures render with the same
+                      object-position/scale the editor uses, so what is shown
+                      here is the real crop, and each one opens the editor on
+                      that tab. */}
+                  {imageViewDefs.length > 0 && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+                        การครอปตามขนาดที่แสดงผล {!formData.id && '(บันทึกคลาสก่อนจึงจะตั้งค่าได้)'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1.5 }}>
+                        {imageViewDefs.map(def => {
+                          const focal = getViewFocal(def.key);
+                          return (
+                            <CourseViewPreview
+                              key={def.key}
+                              imageUrl={getImageUrl(getViewImageUrl(def.key))}
+                              ratioW={def.ratioW}
+                              ratioH={def.ratioH}
+                              focalX={focal.x}
+                              focalY={focal.y}
+                              zoom={focal.zoom}
+                              label={def.label}
+                              isFallback={!courseImageViews[def.key]}
+                              onClick={formData.id ? () => { setMediaModalTab('views'); setMediaModalOpen(true); } : undefined}
+                            />
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  )}
+
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      fullWidth variant="outlined" size="small" startIcon={<ImageIcon />}
+                      onClick={() => { setMediaModalTab('media'); setMediaModalOpen(true); }}
+                    >
+                      รูปภาพและวิดีโอ
+                    </Button>
+                    <Tooltip title={formData.id ? '' : 'บันทึกคลาสก่อน จึงจะตั้งค่าการครอปต่อขนาดได้'}>
+                      <span style={{ width: '100%' }}>
+                        <Button
+                          fullWidth variant="outlined" size="small" startIcon={<CropIcon />}
+                          disabled={!formData.id}
+                          onClick={() => { setMediaModalTab('views'); setMediaModalOpen(true); }}
+                        >
+                          ตั้งค่าการครอป
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   {/* Separate upload from the Cover image above — this is a
@@ -1915,12 +1998,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                         <ListItemIcon sx={{ minWidth: 32 }}><VideoIcon fontSize="small" /></ListItemIcon>
                         <ListItemText primary="วิดีโอ" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'video' ? 800 : 600 }} />
                       </ListItemButton>
-                      {!!formData.id && (
-                        <ListItemButton selected={mediaModalTab === 'views'} onClick={() => setMediaModalTab('views')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
+                      {/* Shown even before the course is saved, disabled with a
+                          reason. Hiding it outright made the feature look like
+                          it did not exist rather than like it was not ready
+                          yet — the framing is keyed on a course id, so there is
+                          nothing to attach it to until the first save. */}
+                      <Tooltip title={formData.id ? '' : 'บันทึกคลาสก่อน จึงจะตั้งค่าการครอปต่อขนาดได้'} placement="right">
+                        <ListItemButton
+                          selected={mediaModalTab === 'views'}
+                          disabled={!formData.id}
+                          onClick={() => setMediaModalTab('views')}
+                          sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}
+                        >
                           <ListItemIcon sx={{ minWidth: 32 }}><CropIcon fontSize="small" /></ListItemIcon>
                           <ListItemText primary="มุมมองการแสดงผล" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'views' ? 800 : 600 }} />
                         </ListItemButton>
-                      )}
+                      </Tooltip>
                       {!!formData.id && posterViewDef && (
                         <ListItemButton selected={mediaModalTab === 'poster'} onClick={() => setMediaModalTab('poster')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
                           <ListItemIcon sx={{ minWidth: 32 }}><CropIcon fontSize="small" /></ListItemIcon>
@@ -2064,6 +2157,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                                     <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: 'primary.main', fontWeight: 700 }}>
                                       แนะนำ {def.recommendedWidth}×{def.recommendedHeight}px (อัตราส่วน {def.ratioW}:{def.ratioH})
                                     </Typography>
+                                    <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                                      <Button
+                                        size="small" variant="outlined"
+                                        onClick={() => applyViewToAll(def.key)}
+                                        sx={{ textTransform: 'none', fontWeight: 700 }}
+                                      >
+                                        ใช้รูปและการครอปนี้กับทุกขนาด
+                                      </Button>
+                                      <Button
+                                        size="small"
+                                        onClick={() => resetViewFraming(def.key)}
+                                        sx={{ textTransform: 'none' }}
+                                      >
+                                        รีเซ็ตกลับกึ่งกลาง
+                                      </Button>
+                                    </Box>
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
                                       เลือกรูป
                                     </Typography>
