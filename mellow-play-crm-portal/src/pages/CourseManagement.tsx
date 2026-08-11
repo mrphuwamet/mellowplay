@@ -2130,19 +2130,17 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                           เลือกรูปและจุดโฟกัสสำหรับแต่ละตำแหน่งที่แสดงผลในระบบ ถ้าไม่ตั้งค่า ระบบจะใช้รูปปกและจุดกึ่งกลางเป็นค่าเริ่มต้น
                         </Typography>
-                        {/* The consumer's CourseDetail renders the poster gallery
-                            in place of the banner when the gallery has any images
-                            (poster_images wins over the banner view). That is
-                            intended, but nothing here said so — staff could frame
-                            the banner carefully and never see it on the site, with
-                            no clue why. */}
-                        {Object.keys(imageFocals).length > 0 && (
-                          <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
-                            คอร์สนี้มีรูปใน "แกลเลอรีโปสเตอร์" อยู่ {Object.keys(imageFocals).length} รูป —
-                            หน้ารายละเอียดคลาสจะแสดงแกลเลอรีนั้น <b>แทนแบนเนอร์</b> ที่ตั้งค่าไว้ตรงนี้
-                            ถ้าต้องการให้ใช้แบนเนอร์ ให้ลบรูปออกจากแท็บแกลเลอรีโปสเตอร์
-                          </Alert>
-                        )}
+                        {/* A warning used to sit here saying the poster gallery
+                            would override this banner. It is gone because the
+                            override is gone: the consumer app no longer reads
+                            poster_images, so what is set here is what shows.
+                            The warning also told staff to "remove the images from
+                            the poster gallery tab", which was not possible — that
+                            tab lists the course's own cover and gallery images and
+                            only sets a focal point per image; it has no list of its
+                            own and no delete. There was no way to undo the override
+                            from the CRM at all, which is why it had to be fixed in
+                            the rendering instead. */}
                         {imageViewDefs.length === 0 ? (
                           <Typography variant="body2" color="text.disabled">กำลังโหลด...</Typography>
                         ) : (
