@@ -249,6 +249,24 @@ export class AuthController {
         lastNameEn,
         relationship
       );
+
+      // Email verification is optional, so this is a separate UPDATE after the
+      // fact rather than another parameter threaded through createWithChildren's
+      // already 15-argument signature and its INSERT.
+      //
+      // The proof comes from the KV marker verifyEmailOtp wrote, never from the
+      // request body: the client says which address it used, and only a marker
+      // this server put there can make it count as verified. The marker is
+      // consumed on use so it cannot be replayed for a second account.
+      if (email) {
+        const address = String(email).trim().toLowerCase();
+        const markerKey = `email_verified:${address}`;
+        if (await config.kv.get(markerKey)) {
+          await config.db.prepare('UPDATE Users SET email_verified = 1 WHERE id = ?').bind(userId).run();
+          await config.kv.delete(markerKey);
+        }
+      }
+
       await sendNotification(config.db, 'สมาชิกใหม่', {
         'ชื่อ': `${prefix ?? ''}${firstName} ${lastName}`.trim(),
         'เบอร์โทร': phone,
