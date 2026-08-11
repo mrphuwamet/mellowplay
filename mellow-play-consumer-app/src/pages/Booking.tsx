@@ -19,6 +19,7 @@ import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { getCourseDetailPath } from '../utils/courseLinks';
+import ConfirmationChannelNotice from '../components/ConfirmationChannelNotice';
 import logo from '../assets/ui/logo.svg';
 import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
@@ -763,6 +764,12 @@ const Booking = () => {
             <CheckCircle size={56} />
           </div>
           <h2 className="text-2xl font-black text-slate-800 text-center mb-6">{t.booking?.bookingSuccess || 'ยืนยันการจองสำเร็จ!'}</h2>
+          {/* Read off the course's own notification flags, so this never promises
+              an email for a course that only texts (or neither). */}
+          <ConfirmationChannelNotice
+            smsEnabled={!!(selectedCourse as any)?.sms_success_enabled}
+            emailEnabled={!!(selectedCourse as any)?.email_success_enabled}
+          />
           {successBooking.qrToken && (
             <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 flex flex-col items-center">
               <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-3">

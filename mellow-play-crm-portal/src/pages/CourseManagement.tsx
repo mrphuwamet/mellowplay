@@ -2130,6 +2130,19 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                           เลือกรูปและจุดโฟกัสสำหรับแต่ละตำแหน่งที่แสดงผลในระบบ ถ้าไม่ตั้งค่า ระบบจะใช้รูปปกและจุดกึ่งกลางเป็นค่าเริ่มต้น
                         </Typography>
+                        {/* The consumer's CourseDetail renders the poster gallery
+                            in place of the banner when the gallery has any images
+                            (poster_images wins over the banner view). That is
+                            intended, but nothing here said so — staff could frame
+                            the banner carefully and never see it on the site, with
+                            no clue why. */}
+                        {Object.keys(imageFocals).length > 0 && (
+                          <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+                            คอร์สนี้มีรูปใน "แกลเลอรีโปสเตอร์" อยู่ {Object.keys(imageFocals).length} รูป —
+                            หน้ารายละเอียดคลาสจะแสดงแกลเลอรีนั้น <b>แทนแบนเนอร์</b> ที่ตั้งค่าไว้ตรงนี้
+                            ถ้าต้องการให้ใช้แบนเนอร์ ให้ลบรูปออกจากแท็บแกลเลอรีโปสเตอร์
+                          </Alert>
+                        )}
                         {imageViewDefs.length === 0 ? (
                           <Typography variant="body2" color="text.disabled">กำลังโหลด...</Typography>
                         ) : (
