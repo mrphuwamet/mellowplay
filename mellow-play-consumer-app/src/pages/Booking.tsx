@@ -21,7 +21,7 @@ import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import ConfirmationChannelNotice from '../components/ConfirmationChannelNotice';
 import logo from '../assets/ui/logo.svg';
-import PosterCarousel, { type PosterImage } from '../components/PosterCarousel';
+import { type PosterImage } from '../components/PosterCarousel';
 import { SkillIcon } from '../utils/skillIcons';
 import ResponsiveModal from '../components/ResponsiveModal';
 import { QRCodeSVG } from 'qrcode.react';
@@ -1577,9 +1577,10 @@ const Booking = () => {
                   a full-width hero image. */}
               <div className="p-7 flex gap-5">
                 <div className="w-28 md:w-36 lg:w-40 shrink-0">
-                  {selectedCourse.poster_images && selectedCourse.poster_images.length > 0 ? (
-                    <PosterCarousel images={selectedCourse.poster_images} alt={selectedCourse.name} className="w-full" rounded="rounded-2xl" autoPlayMs={0} />
-                  ) : getCourseView(selectedCourse, 'card').url ? (
+                  {/* The poster-gallery branch was removed here for the same
+                      reason as on CourseDetail: it overrode the view configured in
+                      the CRM. The card view is now the only source. */}
+                  {getCourseView(selectedCourse, 'card').url ? (
                     <div className="w-full aspect-[4/5] rounded-2xl overflow-hidden bg-slate-100">
                       <img src={getCourseView(selectedCourse, 'card').url} style={getCourseView(selectedCourse, 'card').style} className="w-full h-full object-cover" />
                     </div>

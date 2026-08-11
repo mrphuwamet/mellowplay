@@ -10,7 +10,6 @@ import { getCourseView } from '../utils/courseImage';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { trackCourseView } from '../utils/analytics';
-import PosterCarousel from '../components/PosterCarousel';
 import PromotionCountdown from '../components/PromotionCountdown';
 import { useChildStore } from '../store/useChildStore';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
@@ -177,13 +176,19 @@ const CourseDetail = () => {
 
   return (
     <div className="mellow-page bg-[#fbfaf7] min-h-screen pb-32 lg:pb-10">
-      {/* Header Poster Gallery & Nav */}
+      {/* Header banner & Nav
+          The poster gallery (Course_Image_Focals / poster_images) used to be
+          rendered here and took precedence over the banner, which meant the
+          banner configured in the CRM was silently ignored on every course that
+          had a gallery image — in practice all of them. It has been dropped:
+          the banner view is now the single answer to "what shows at the top",
+          with its own per-ratio image and framing.
+          Leftover gallery rows are simply no longer read, so no data had to be
+          deleted to make configured banners take effect. A real left/right poster
+          slider is planned as its own separate section rather than as an override
+          of this one. */}
       <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
-        {course.poster_images?.length > 0 ? (
-          <div className="w-full h-[340px] overflow-hidden">
-            <PosterCarousel images={course.poster_images} alt={course.name} className="w-full h-full" />
-          </div>
-        ) : bannerView.url ? (
+        {bannerView.url ? (
           <div className="w-full h-[340px]">
             <img src={bannerView.url} alt={course.name} style={bannerView.style} className="w-full h-full object-cover" />
           </div>
