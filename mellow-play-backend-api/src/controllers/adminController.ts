@@ -7,6 +7,7 @@ import { ConfigService } from '../services/configService';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { EmailService } from '../services/emailService';
 import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants/imageViews';
 import { AuthService } from '../services/authService';
 import { sendAlert, sendNotification } from '../services/alertService';
@@ -1473,6 +1474,75 @@ export class AdminController {
       await new AdminRepository(config.db).deleteBooking(id);
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // POST /api/v1/admin/email/test — sends the email currently being composed in
+  // the CRM to an address the admin types in.
+  //
+  // Takes the already-rendered subject and body rather than a course id, so it
+  // tests exactly what is on screen including unsaved edits, and needs no second
+  // copy of the sample-variable logic on this side.
+  //
+  // Not written to Email_Logs: that table's `type` CHECK only allows the real
+  // notification kinds and is keyed to bookings, so test sends would either need
+  // a table rebuild to widen the constraint or would pollute per-booking "was
+  // this sent" lookups. The provider result goes straight back to the caller
+  // instead, which is what an admin pressing Test actually wants to see.
+  async sendTestEmail(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { to, subject, bodyHtml } = await c.req.json();
+
+      if (!to || typeof to !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim())) {
+        return c.json({ success: false, message: 'กรุณาระบุอีเมลผู้รับให้ถูกต้อง' }, 400);
+      }
+      if (!bodyHtml || typeof bodyHtml !== 'string') {
+        return c.json({ success: false, message: 'ไม่มีเนื้อหาอีเมลให้ส่ง' }, 400);
+      }
+
+      // This endpoint can send arbitrary HTML from contact@mellowplay.co to any
+      // address, so a compromised CRM account could use it to send spam under our
+      // domain — which would cost us the domain reputation everything else
+      // depends on. Capped per CRM user per hour, reusing the KV the OTP limiter
+      // already uses.
+      const crmUser = c.get('crmUser') as { userId: number } | undefined;
+      const limitKey = `email_test_count:${crmUser?.userId ?? 'unknown'}`;
+      const used = parseInt((await config.kv.get(limitKey)) || '0', 10);
+      if (used >= 20) {
+        return c.json({ success: false, message: 'ส่งอีเมลทดสอบครบ 20 ฉบับในชั่วโมงนี้แล้ว กรุณารอสักครู่' }, 429);
+      }
+      await config.kv.put(limitKey, String(used + 1), { expirationTtl: 3600 });
+
+      const settingsRepo = new SettingsRepository(config.db);
+      const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
+      const fromName = await settingsRepo.getOverridable('email_from_name', 'Mellow Play');
+      const replyTo = await settingsRepo.getOverridable('email_reply_to', '');
+      const email = new EmailService(config.emailBinding, fromAddress, fromName, replyTo);
+
+      if (!email.isConfigured) {
+        return c.json({
+          success: false,
+          message: 'ยังไม่ได้ตั้งค่า Email Sending — ต้อง onboard โดเมนใน Cloudflare และ deploy binding ก่อน',
+        }, 400);
+      }
+
+      // "[ทดสอบ]" in the subject so a test landing in a shared inbox is never
+      // mistaken for a real customer confirmation.
+      const result = await email.sendMessage(
+        to.trim(),
+        `[ทดสอบ] ${subject || 'ยืนยันการลงทะเบียน'}`,
+        bodyHtml,
+      );
+
+      return c.json({
+        success: result.ok,
+        message: result.ok ? `ส่งอีเมลทดสอบไปที่ ${to.trim()} แล้ว` : result.detail,
+        messageId: result.messageId ?? null,
+        from: fromAddress,
+      }, result.ok ? 200 : 502);
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
   }
 
   // PATCH /api/v1/admin/courses/:id/visibility — the show/hide toggle in the

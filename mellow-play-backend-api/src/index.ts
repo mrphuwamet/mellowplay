@@ -532,6 +532,7 @@ app.get('/api/v1/admin/courses', (c) => adminController.getCourses(c));
 app.post('/api/v1/admin/courses', (c) => adminController.createCourse(c));
 app.put('/api/v1/admin/courses/:id', (c) => adminController.updateCourse(c));
 app.patch('/api/v1/admin/courses/:id/visibility', (c) => adminController.updateCourseVisibility(c));
+app.post('/api/v1/admin/email/test', (c) => adminController.sendTestEmail(c));
 app.delete('/api/v1/admin/courses/:id', (c) => adminController.deleteCourse(c));
 
 app.get('/api/v1/image-views', (c) => adminController.getImageViews(c));

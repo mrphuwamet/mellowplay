@@ -2,8 +2,11 @@ import React, { useRef, useState } from 'react';
 import {
   Box, Grid, Typography, Switch, FormControlLabel, Button, TextField, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab, Alert, Chip, Stack, Tooltip,
+  CircularProgress,
 } from '@mui/material';
-import { Casino as ShuffleIcon } from '@mui/icons-material';
+import { Casino as ShuffleIcon, Send as SendIcon } from '@mui/icons-material';
+import axios from 'axios';
+import { API_URL } from '../config';
 import SmsTemplateEditor from './SmsTemplateEditor';
 import SmsPreviewBubble from './SmsPreviewBubble';
 import RichTextEditor from './RichTextEditor';
@@ -97,6 +100,28 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
   // Bumping the seed reshuffles every sample value. Held in state rather than
   // regenerated per render so the names stay still while the template is edited.
   const [sampleSeed, setSampleSeed] = useState(1);
+  const [testEmail, setTestEmail] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const sendTest = async () => {
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      const res = await axios.post(`${API_URL}/api/v1/admin/email/test`, {
+        to: testEmail.trim(),
+        subject: previewSubject,
+        bodyHtml: previewHtml,
+      });
+      setTestResult({ ok: !!res.data?.success, message: res.data?.message || 'ส่งแล้ว' });
+    } catch (err: any) {
+      // The endpoint returns 400/429/502 with a reason (not configured, rate
+      // limited, provider error) — showing that beats a generic failure.
+      setTestResult({ ok: false, message: err?.response?.data?.message || 'ส่งอีเมลทดสอบไม่สำเร็จ' });
+    } finally {
+      setTestSending(false);
+    }
+  };
   const emailEditorRef = useRef<any>(null);
   const htmlFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -351,6 +376,41 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
             sx={{ width: '100%', height: 420, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#f4f5f7' }}
           />
         </DialogContent>
+        {/* The test send lives here, not next to the editor: this is where the
+            exact subject and body about to be sent are already on screen, and it
+            sends that same rendered content — so unsaved edits are testable
+            without saving the course first. */}
+        <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+            ส่งอีเมลทดสอบ
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <TextField
+              size="small"
+              placeholder="you@example.com"
+              value={testEmail}
+              onChange={e => { setTestEmail(e.target.value); setTestResult(null); }}
+              sx={{ flex: 1, minWidth: 220 }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={testSending ? <CircularProgress size={14} /> : <SendIcon />}
+              disabled={testSending || !testEmail.trim()}
+              onClick={sendTest}
+              sx={{ textTransform: 'none', fontWeight: 700 }}
+            >
+              ส่งทดสอบ
+            </Button>
+          </Box>
+          {testResult && (
+            <Alert severity={testResult.ok ? 'success' : 'error'} sx={{ mt: 1.25, borderRadius: 2 }}>
+              {testResult.message}
+            </Alert>
+          )}
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.75 }}>
+            ส่งเนื้อหาเดียวกับที่เห็นด้านบน (หัวเรื่องจะมี "[ทดสอบ]" นำหน้า) — นับรวมในโควตาส่งของบัญชี
+          </Typography>
+        </Box>
         <DialogActions>
           <Tooltip title="สุ่มชื่อ สาขา วันเวลา และคำตอบในฟอร์มชุดใหม่">
             <Button startIcon={<ShuffleIcon />} onClick={() => setSampleSeed(s => s + 1)} sx={{ textTransform: 'none', mr: 'auto' }}>
