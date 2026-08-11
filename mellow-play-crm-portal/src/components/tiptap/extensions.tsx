@@ -32,17 +32,19 @@ const PURPLE = '#7c3aed';
 
 const CtaButtonComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, selected, deleteNode, editor, getPos }) => {
   const { href, label, color } = node.attrs as { href: string; label: string; color: string };
-  const [localLabel, setLocalLabel] = useState(label);
-  const [localHref, setLocalHref] = useState(href);
-  const [localColor, setLocalColor] = useState(color);
 
-  const commit = () => {
-    updateAttributes({
-      label: localLabel.trim() || 'ปุ่มกด',
-      href: localHref.trim() || '#',
-      color: localColor,
-    });
-  };
+  // Every field writes straight to the node on change, with no local mirror.
+  //
+  // The previous version kept the values in useState and only committed them in
+  // onBlur, which lost them: this panel is rendered under `{selected && ...}`,
+  // so clicking anywhere outside the node deselects it and React unmounts the
+  // inputs — and blur never fires on an unmounting input. Typing a URL and then
+  // clicking away discarded it silently. A local mirror also went stale on undo,
+  // and the next blur would write the stale value back over it.
+  //
+  // Committing per keystroke is fine for the undo stack: ProseMirror's history
+  // groups steps that arrive within newGroupDelay, so a burst of typing
+  // collapses into one undo entry.
 
   // ProseMirror's implicit click-to-select doesn't reliably fire for an
   // atom node rendered through ReactNodeViewRenderer here — clicking the
@@ -76,10 +78,22 @@ const CtaButtonComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
               display: 'flex', flexDirection: 'column', gap: 1,
             }}
           >
-            <TextField size="small" label="ข้อความปุ่ม" value={localLabel} onChange={e => setLocalLabel(e.target.value)} onBlur={commit} />
-            <TextField size="small" label="ลิงก์ (URL)" value={localHref} onChange={e => setLocalHref(e.target.value)} onBlur={commit} placeholder="https://..." />
+            <TextField
+              size="small"
+              label="ข้อความปุ่ม"
+              value={label}
+              onChange={e => updateAttributes({ label: e.target.value })}
+              onBlur={e => { if (!e.target.value.trim()) updateAttributes({ label: 'ปุ่มกด' }); }}
+            />
+            <TextField
+              size="small"
+              label="ลิงก์ (URL)"
+              value={href === '#' ? '' : href}
+              onChange={e => updateAttributes({ href: e.target.value.trim() || '#' })}
+              placeholder="https://..."
+            />
             <Box display="flex" alignItems="center" gap={1}>
-              <input type="color" value={localColor} onChange={e => { setLocalColor(e.target.value); }} onBlur={commit} style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} />
+              <input type="color" value={color} onChange={e => updateAttributes({ color: e.target.value })} style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} />
               <Button size="small" color="error" onClick={deleteNode} sx={{ ml: 'auto', textTransform: 'none' }}>ลบปุ่ม</Button>
             </Box>
           </Box>
@@ -472,16 +486,20 @@ const YoutubeEmbedComponent: React.FC<NodeViewProps> = ({ node, selected, delete
             onPointerDown={e => e.stopPropagation()}
             sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'grey.100' }}
           >
+            {/* Commits as soon as a valid id can be parsed rather than on blur:
+                this panel unmounts when the node is deselected, and blur is not
+                delivered to an unmounting input, so a pasted URL was lost. */}
             <TextField
               size="small"
               fullWidth
               label="เปลี่ยนลิงก์ YouTube"
               placeholder="https://youtu.be/..."
               value={localUrl}
-              onChange={e => setLocalUrl(e.target.value)}
-              onBlur={() => {
-                const id = extractYoutubeId(localUrl);
-                if (id) { updateAttributes({ videoId: id }); setLocalUrl(''); }
+              onChange={e => {
+                const next = e.target.value;
+                setLocalUrl(next);
+                const id = extractYoutubeId(next);
+                if (id && id !== videoId) updateAttributes({ videoId: id });
               }}
             />
             <Tooltip title="ลบวิดีโอ">
@@ -565,25 +583,21 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
     buttonLabel: string; buttonHref: string; buttonColor: string;
     layout: 'vertical' | 'horizontal';
   };
-  const [local, setLocal] = useState(attrs);
-
+  // No local state mirror — see the note in CtaButtonComponent for why: this
+  // panel unmounts the moment the node is deselected, and an onBlur commit is
+  // never delivered to an unmounting input, so anything typed here (the button
+  // URL in particular) was silently thrown away.
   const selectSelf = () => {
     const pos = getPos();
     if (typeof pos === 'number') editor.commands.setNodeSelection(pos);
   };
 
-  const commit = (patch: Partial<typeof attrs>) => {
-    const next = { ...local, ...patch };
-    setLocal(next);
-    updateAttributes(patch);
-  };
-
   const requestImage = () => {
-    const pos = getPos();
-    editor.view.dom.dispatchEvent(new CustomEvent('mp-media-card-image', { bubbles: true, detail: { pos } }));
+    editor.view.dom.dispatchEvent(new CustomEvent('mp-media-card-image', { bubbles: true }));
   };
 
   const horizontal = attrs.layout === 'horizontal';
+  const hasHref = !!(attrs.buttonHref || '').trim();
 
   return (
     <NodeViewWrapper style={{ display: 'block', margin: '12px 0' }} data-drag-handle>
@@ -596,7 +610,15 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
         }}
       >
         <Box
-          onClick={e => { e.stopPropagation(); selectSelf(); requestImage(); }}
+          // A click on the image used to open the file picker immediately, so
+          // the card could not be selected by clicking the largest part of it
+          // without a file dialog appearing. Now the first click only selects;
+          // picking an image takes a second click (or the "เปลี่ยนรูป" button).
+          onClick={e => {
+            e.stopPropagation();
+            if (selected) requestImage();
+            else selectSelf();
+          }}
           sx={{
             width: horizontal ? 140 : '100%', flexShrink: 0, aspectRatio: horizontal ? '1 / 1' : '16 / 9',
             bgcolor: 'grey.100', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -605,20 +627,35 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
           }}
         >
           {!attrs.imageSrc && (
-            <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 700 }}>คลิกเพื่อใส่รูป</Typography>
+            <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 700 }}>
+              {selected ? 'คลิกอีกครั้งเพื่อเลือกรูป' : 'คลิกเพื่อเลือกการ์ด'}
+            </Typography>
           )}
         </Box>
         <Box sx={{ p: 2, flex: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 0.5 }}>{attrs.title || 'หัวข้อการ์ด'}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.6 }}>{attrs.body || 'คำอธิบายสั้นๆ'}</Typography>
+          {/* The published card only carries the button when it has somewhere to
+              go, so the preview has to show that state too — it previously drew
+              a solid, finished-looking button whether or not a URL was set,
+              which is why a card could look right in the editor and arrive in
+              the article with no button at all. */}
           <Box
             sx={{
-              display: 'inline-block', mt: 1.5, bgcolor: attrs.buttonColor, color: 'white',
-              fontWeight: 800, fontSize: 13, px: 2.5, py: 1, borderRadius: 999,
+              display: 'inline-block', mt: 1.5, fontWeight: 800, fontSize: 13, px: 2.5, py: 1, borderRadius: 999,
+              bgcolor: hasHref ? (attrs.buttonColor || PURPLE) : 'transparent',
+              color: hasHref ? 'white' : 'text.disabled',
+              border: hasHref ? 'none' : '1px dashed',
+              borderColor: hasHref ? 'transparent' : 'text.disabled',
             }}
           >
             {attrs.buttonLabel || 'ดูเพิ่มเติม'}
           </Box>
+          {!hasHref && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'warning.main', fontWeight: 700 }}>
+              ยังไม่ได้ใส่ลิงก์ปุ่ม — ปุ่มจะไม่แสดงในบทความจนกว่าจะใส่
+            </Typography>
+          )}
         </Box>
       </Box>
 
@@ -634,7 +671,7 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
             size="small"
             exclusive
             value={attrs.layout}
-            onChange={(_, v) => { if (v) commit({ layout: v }); }}
+            onChange={(_, v) => { if (v) updateAttributes({ layout: v }); }}
           >
             <ToggleButton value="vertical" sx={{ textTransform: 'none', gap: 0.5 }}>
               <VerticalIcon sx={{ fontSize: 16 }} /> รูปด้านบน
@@ -643,16 +680,22 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
               <HorizontalIcon sx={{ fontSize: 16 }} /> รูปด้านซ้าย
             </ToggleButton>
           </ToggleButtonGroup>
-          <TextField size="small" label="หัวข้อ" value={local.title} onChange={e => setLocal({ ...local, title: e.target.value })} onBlur={() => commit({ title: local.title })} />
-          <TextField size="small" label="คำอธิบาย" multiline minRows={2} value={local.body} onChange={e => setLocal({ ...local, body: e.target.value })} onBlur={() => commit({ body: local.body })} />
-          <TextField size="small" label="ข้อความบนปุ่ม" value={local.buttonLabel} onChange={e => setLocal({ ...local, buttonLabel: e.target.value })} onBlur={() => commit({ buttonLabel: local.buttonLabel })} />
-          <TextField size="small" label="ลิงก์ปุ่ม (URL)" placeholder="https://..." value={local.buttonHref} onChange={e => setLocal({ ...local, buttonHref: e.target.value })} onBlur={() => commit({ buttonHref: local.buttonHref })} />
+          <TextField size="small" label="หัวข้อ" value={attrs.title} onChange={e => updateAttributes({ title: e.target.value })} />
+          <TextField size="small" label="คำอธิบาย" multiline minRows={2} value={attrs.body} onChange={e => updateAttributes({ body: e.target.value })} />
+          <TextField size="small" label="ข้อความบนปุ่ม" value={attrs.buttonLabel} onChange={e => updateAttributes({ buttonLabel: e.target.value })} />
+          <TextField
+            size="small"
+            label="ลิงก์ปุ่ม (URL) — ต้องใส่ ปุ่มจึงจะแสดงในบทความ"
+            placeholder="https://..."
+            value={attrs.buttonHref}
+            onChange={e => updateAttributes({ buttonHref: e.target.value })}
+            error={!hasHref}
+          />
           <Box display="flex" alignItems="center" gap={1}>
             <input
               type="color"
-              value={local.buttonColor}
-              onChange={e => setLocal({ ...local, buttonColor: e.target.value })}
-              onBlur={() => commit({ buttonColor: local.buttonColor })}
+              value={attrs.buttonColor || PURPLE}
+              onChange={e => updateAttributes({ buttonColor: e.target.value })}
               style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }}
             />
             <Button size="small" onClick={requestImage} sx={{ textTransform: 'none' }}>เปลี่ยนรูป</Button>

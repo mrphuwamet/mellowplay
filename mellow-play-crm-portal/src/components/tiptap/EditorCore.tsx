@@ -390,24 +390,28 @@ const EditorCore: React.FC<EditorCoreProps> = ({
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                 กดที่รูปนี้แล้วเปิดลิงก์ (ใช้รูปเป็นปุ่มได้เลย)
               </Typography>
+              {/* Controlled + committed on change, not defaultValue + onBlur:
+                  closing this Menu by clicking outside unmounts the inputs, and
+                  blur is never delivered to an unmounting input, so whatever was
+                  typed here was silently discarded. */}
               <TextField
                 size="small"
                 label="ลิงก์เมื่อกดที่รูป"
                 placeholder="https://..."
-                defaultValue={imageAttrs.href || ''}
-                onBlur={e => editor.commands.updateAttributes('image', { href: e.target.value.trim() || null })}
+                value={imageAttrs.href || ''}
+                onChange={e => editor.commands.updateAttributes('image', { href: e.target.value.trim() || null })}
               />
               <TextField
                 size="small"
                 label="คำบรรยายใต้รูป (Caption)"
-                defaultValue={imageAttrs.caption || ''}
-                onBlur={e => editor.commands.updateAttributes('image', { caption: e.target.value.trim() || null })}
+                value={imageAttrs.caption || ''}
+                onChange={e => editor.commands.updateAttributes('image', { caption: e.target.value || null })}
               />
               <TextField
                 size="small"
                 label="Alt — ข้อความแทนรูป (SEO / screen reader)"
-                defaultValue={imageAttrs.alt || ''}
-                onBlur={e => editor.commands.updateAttributes('image', { alt: e.target.value.trim() || null })}
+                value={imageAttrs.alt || ''}
+                onChange={e => editor.commands.updateAttributes('image', { alt: e.target.value || null })}
               />
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 {([['left', 'ซ้าย'], ['center', 'กลาง'], ['right', 'ขวา']] as const).map(([v, label]) => (
