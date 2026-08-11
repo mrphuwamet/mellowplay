@@ -1200,7 +1200,24 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const courses = await adminRepo.getAllCourses();
+      // Opt-in, because this route is public (ADMIN_PUBLIC_ROUTES) and serves the
+      // consumer app as well as the CRM. Only CRM screens that need to show a
+      // hidden course — the management list, and anything labelling existing
+      // bookings — pass this.
+      //
+      // The flag is honoured only for a caller holding a CRM token, verified
+      // here by hand because this route bypasses requireCrmAuth (same pattern as
+      // deleteBooking's super-admin check above). Without that, anyone could
+      // append ?includeHidden=1 and read back the courses staff had hidden, which
+      // would make the toggle cosmetic.
+      let includeHidden = false;
+      if (c.req.query('includeHidden') === '1') {
+        const authHeader = c.req.header('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+        includeHidden = payload?.type === 'admin';
+      }
+      const courses = await adminRepo.getAllCourses(includeHidden);
       
       const { results: activeCampaigns } = await config.db.prepare(
         "SELECT * FROM Sale_Campaigns WHERE is_active = 1"
@@ -1456,6 +1473,26 @@ export class AdminController {
       await new AdminRepository(config.db).deleteBooking(id);
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // PATCH /api/v1/admin/courses/:id/visibility — the show/hide toggle in the
+  // course list. Deliberately NOT added to ADMIN_PUBLIC_ROUTES: reading the
+  // course list is public, changing what customers can see is not.
+  async updateCourseVisibility(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      if (Number.isNaN(id)) return c.json({ success: false, message: 'invalid id' }, 400);
+      const { isVisible } = await c.req.json();
+      if (typeof isVisible !== 'boolean') {
+        return c.json({ success: false, message: 'isVisible must be a boolean' }, 400);
+      }
+      await adminRepo.setCourseVisibility(id, isVisible);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
   }
 
   async createCourse(c: Context<{ Bindings: Bindings; Variables: Variables }>) {

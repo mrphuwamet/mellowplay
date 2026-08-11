@@ -145,7 +145,7 @@ const RecordMilestone: React.FC<RecordMilestoneProps> = ({ booking, bookings, on
       setSkillsLoading(true);
       try {
         const [coursesRes, libraryRes] = await Promise.all([
-          axios.get(`${API_BASE}/admin/courses`),
+          axios.get(`${API_BASE}/admin/courses?includeHidden=1`),
           axios.get(`${API_BASE}/admin/skills-library`),
         ]);
         if (coursesRes.data.success) setAllCourses(coursesRes.data.courses);

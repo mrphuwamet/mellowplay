@@ -38,6 +38,8 @@ import {
   AutoAwesome as SkillsIcon,
   Percent as PercentIcon,
   Sms as SmsIcon,
+  Visibility as VisibleIcon,
+  VisibilityOff as HiddenIcon,
   People as SalesIcon,
   School as TeacherIcon,
   AutoStories as SkillsLibIcon,
@@ -307,6 +309,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // course is opened, so a staff member doesn't land on Pricing for a course
   // they just clicked into.
   const [editTab, setEditTab] = useState(0);
+  const [visibilityBusyId, setVisibilityBusyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -702,6 +705,26 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     }));
   };
 
+  // COALESCE equivalent for the client: courses created before migration 0074
+  // have is_visible undefined and are visible.
+  const isCourseVisible = (course: any) => course.is_visible !== 0;
+
+  // Optimistic, because the whole point is a one-click toggle — waiting for a
+  // round-trip before the icon changes makes it feel broken. Reverted on failure.
+  const toggleCourseVisibility = async (course: any) => {
+    const next = !isCourseVisible(course);
+    setVisibilityBusyId(course.id);
+    setCourses(prev => prev.map(c => (c.id === course.id ? { ...c, is_visible: next ? 1 : 0 } : c)));
+    try {
+      await axios.patch(`${API_BASE}/courses/${course.id}/visibility`, { isVisible: next });
+    } catch {
+      setCourses(prev => prev.map(c => (c.id === course.id ? { ...c, is_visible: next ? 0 : 1 } : c)));
+      setSaveError('เปลี่ยนสถานะการแสดงคลาสไม่สำเร็จ');
+    } finally {
+      setVisibilityBusyId(null);
+    }
+  };
+
   // Shown on the Notifications tab label so an unconfigured course is visible
   // without opening the tab — the whole point of moving these behind one.
   const notifyChannelCount = (formData.smsSuccessEnabled ? 1 : 0) + (formData.emailSuccessEnabled ? 1 : 0);
@@ -816,7 +839,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     setLoading(true);
     try {
       const [coursesRes, catsRes, calRes, branchesRes, couponsRes, formsRes] = await Promise.all([
-        axios.get(`${API_BASE}/courses`),
+        axios.get(`${API_BASE}/courses?includeHidden=1`),
         axios.get(`${API_BASE}/categories`),
         axios.get(`${API_BASE}/calendars`),
         axios.get(`${API_BASE}/branches`),
@@ -2484,8 +2507,15 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
               const ageRange = formatAgeRange(course.age_min, course.age_max);
               const catColor = categories.find(c => c.id === course.category_id)?.color || '#7452d6';
               const typeMeta = TYPE_META[getCourseType(course)];
+              // A hidden course stays in the list — that is the point of hiding
+              // rather than deleting — but has to be tellable apart from a live
+              // one at a glance, hence the dimming and the strike on its name.
               return (
-                <TableRow key={course.id} hover>
+                <TableRow
+                  key={course.id}
+                  hover
+                  sx={!isCourseVisible(course) ? { opacity: 0.55, '& td:first-of-type': { textDecoration: 'line-through' } } : undefined}
+                >
                   <TableCell sx={{ width: 56 }}>
                     <Box sx={{ width: 44, height: 44, borderRadius: 1.5, overflow: 'hidden', bgcolor: '#f8f5ff', border: '1px solid #eee' }}>
                       {course.thumbnail_url ? (
@@ -2524,6 +2554,16 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     </Tooltip>
                     <Tooltip title="ดูความจุคงเหลือ (ที่นั่ง/ทีม)">
                       <IconButton size="small" onClick={() => openCapacityDialog(course)}><CapacityIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    <Tooltip title={isCourseVisible(course) ? 'กำลังแสดงในแอป — กดเพื่อซ่อน' : 'ซ่อนอยู่ — กดเพื่อแสดงในแอป'}>
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleCourseVisibility(course)}
+                        disabled={visibilityBusyId === course.id}
+                        color={isCourseVisible(course) ? 'success' : 'default'}
+                      >
+                        {isCourseVisible(course) ? <VisibleIcon fontSize="small" /> : <HiddenIcon fontSize="small" />}
+                      </IconButton>
                     </Tooltip>
                     <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>

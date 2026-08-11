@@ -431,7 +431,10 @@ export class AdminRepository {
     await this.db.prepare('DELETE FROM CRM_Users WHERE id = ?').bind(id).run();
   }
 
-  async getAllCourses(): Promise<any[]> {
+  // Defaults to visible-only because this feeds the public course endpoint the
+  // consumer app calls — a hidden course should not reach a customer's browser
+  // at all. COALESCE covers rows written before migration 0074 added the column.
+  async getAllCourses(includeHidden = false): Promise<any[]> {
     const { results } = await this.db.prepare(`
       SELECT c.*, cat.name as category_name,
         (
@@ -451,9 +454,15 @@ export class AdminRepository {
         ) as image_focals_json
       FROM Courses c
       JOIN Course_Categories cat ON c.category_id = cat.id
+      ${includeHidden ? '' : 'WHERE COALESCE(c.is_visible, 1) = 1'}
       ORDER BY cat.name ASC, c.name ASC
     `).all();
     return this.enrichCourseSkillIcons(results as any[]);
+  }
+
+  async setCourseVisibility(id: number, isVisible: boolean): Promise<void> {
+    await this.db.prepare('UPDATE Courses SET is_visible = ? WHERE id = ?')
+      .bind(isVisible ? 1 : 0, id).run();
   }
 
   // A course only ever stores its skills as {th, en} labels — the actual

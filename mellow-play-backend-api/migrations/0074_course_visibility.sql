@@ -1,0 +1,15 @@
+-- Lets staff take a class off the consumer app without deleting it. Until now
+-- the only way to stop a class being shown was to delete the row, which also
+-- destroys its bookings, engagement and image framing.
+--
+-- DEFAULT 1 so every existing course stays visible; hiding is always an explicit
+-- action.
+--
+-- Enforcement note: GET /api/v1/admin/courses is in ADMIN_PUBLIC_ROUTES and is
+-- what the consumer app itself calls, so the filtering happens server-side in
+-- getAllCourses and defaults to excluding hidden courses. Callers that genuinely
+-- need them (the management list, and the screens that label existing bookings)
+-- opt in with ?includeHidden=1. That way a hidden course is never sent to a
+-- customer's browser at all, rather than relying on every consumer page to
+-- filter it out.
+ALTER TABLE Courses ADD COLUMN is_visible INTEGER DEFAULT 1;

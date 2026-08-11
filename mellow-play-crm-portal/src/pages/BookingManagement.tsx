@@ -1758,7 +1758,7 @@ const BookingManagement = () => {
     // Fetched once here (not just when AddBookingDialog opens) so the List
     // view's "ดูรายละเอียดคลาส" action has full course info (description,
     // thumbnail, age range) ready without an extra round trip per click.
-    axios.get(`${API_BASE}/courses`).then(res => {
+    axios.get(`${API_BASE}/courses?includeHidden=1`).then(res => {
       if (res.data.success) setCourses(res.data.courses ?? []);
     }).catch(() => {});
   }, []);
