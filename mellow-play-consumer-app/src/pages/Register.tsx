@@ -603,7 +603,10 @@ const Register = () => {
       {/* Arriving here mid-booking (guest gate redirected them) should read
           as one continuous errand, not a detour into an unrelated signup
           flow — so say so, instead of a generic registration screen. */}
-      {redirect && (redirect.includes('booking') || redirect.includes('/class/')) && (
+      {/* /activities/ and /services/ count too — a course detail path reflects
+          what the course is, so checking only /class/ silently dropped this
+          reassurance for anyone who came from an event or a service. */}
+      {redirect && ['booking', '/class/', '/activities/', '/services/', '/course/'].some(p => redirect.includes(p)) && (
         <div className="bg-mellow-purple/10 text-mellow-purple text-xs font-bold rounded-2xl px-4 py-3 text-center">
           {lang === 'en'
             ? "You're almost there — finish this to continue your booking."

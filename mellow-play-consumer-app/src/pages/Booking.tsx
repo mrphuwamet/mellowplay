@@ -744,7 +744,7 @@ const Booking = () => {
                 setCurrentStepIndex(currentStepIndex - 1);
               }
             } else if (selectedCourse) {
-              navigate(`/class/${selectedCourse.id}`);
+              navigate(getCourseDetailPath(selectedCourse));
             } else {
               navigate(-1);
             }

@@ -146,7 +146,9 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
 
           {booking.course_id && (
             <button
-              onClick={() => navigate(`/class/${booking.course_id}`)}
+              // A booking row carries no is_event/is_service flag, so let
+              // /course/:id resolve the right path rather than assuming a class.
+              onClick={() => navigate(`/course/${booking.course_id}`)}
               className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-[14px] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
             >
               <BookOpen size={16} />

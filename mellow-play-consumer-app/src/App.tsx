@@ -30,13 +30,40 @@ import AppShell from './components/AppShell';
 import { pingVisit } from './utils/visitTracker';
 import { captureTagFromUrl } from './utils/tagAttribution';
 import { retryPendingLineShare } from './utils/lineShare';
+import apiClient from './utils/apiClient';
+import { getCourseDetailPath } from './utils/courseLinks';
 
-// /course/:id was the original path; already shared/bookmarked links must
-// keep resolving, so it redirects to the new canonical /class/:id instead
-// of being removed outright.
+// /course/:id was the original path; already shared/bookmarked links must keep
+// resolving, so it redirects rather than being removed.
+//
+// It used to send everything to /class/:id, which is wrong for an event or a
+// service — and it is also the path anything holding only a course id points at
+// (ad cards, a booking row), so those all ended up on /class/ too. It now looks
+// the course up and redirects to whatever it actually is. /class/:id remains the
+// fallback: if the lookup fails the page still opens, since all three paths
+// render the same CourseDetail.
 const CourseToClassRedirect = () => {
   const { id } = useParams<{ id: string }>();
-  return <Navigate to={`/class/${id}`} replace />;
+  const [target, setTarget] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    apiClient.get('/admin/courses')
+      .then(res => {
+        if (cancelled) return;
+        const course = res.data?.success
+          ? (res.data.courses || []).find((c: any) => String(c.id) === String(id))
+          : null;
+        setTarget(course ? getCourseDetailPath(course) : `/class/${id}`);
+      })
+      .catch(() => { if (!cancelled) setTarget(`/class/${id}`); });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // No spinner: this is a redirect hop, and flashing one makes an otherwise
+  // invisible step look like a page load.
+  if (!target) return null;
+  return <Navigate to={target} replace />;
 };
 
 const AppContent = () => {

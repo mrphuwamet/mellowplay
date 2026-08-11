@@ -11,6 +11,7 @@ import AddChildModal from '../components/AddChildModal';
 import AvatarPickerModal from '../components/AvatarPickerModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
+import { getCourseDetailPath } from '../utils/courseLinks';
 import BirthdayModal from '../components/BirthdayModal';
 import CommunityPostComposer from '../components/CommunityPostComposer';
 import CommunityPostCard from '../components/CommunityPostCard';
@@ -339,10 +340,19 @@ const Home = () => {
       if (isBookingCard) { setSelectedBooking(item.booking); return; }
       if (item.kind === 'ad') {
         apiClient.post(`/ads/${item.id}/click`).catch(() => {});
-        navigate(item.adTargetType === 'course' ? `/class/${item.adTargetId}` : `/news/${item.adTargetId}`);
+        // Only an id is known here, so /course/:id resolves the right path —
+        // an ad can point at an event just as easily as a class.
+        navigate(item.adTargetType === 'course' ? `/course/${item.adTargetId}` : `/news/${item.adTargetId}`);
         return;
       }
-      navigate(item.kind === 'course' ? `/class/${item.id}` : `/news/${item.id}`);
+      // getCourseDetailPath rather than a hardcoded /class/: the feed carries
+      // events and services too, and sending an event to /class/:id was why a
+      // card tapped from the feed never landed on /activities/:id.
+      navigate(
+        item.kind === 'course'
+          ? (item.course ? getCourseDetailPath(item.course) : `/course/${item.id}`)
+          : `/news/${item.id}`,
+      );
     };
     const eyebrow = item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
       : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Activity' : 'กิจกรรมที่กำลังจะมาถึง')
@@ -968,7 +978,7 @@ const Home = () => {
     const ad = ads[adSidebarIndex % ads.length];
     const handleAdClick = () => {
       apiClient.post(`/ads/${ad.id}/click`).catch(() => {});
-      navigate(ad.targetType === 'course' ? `/class/${ad.targetId}` : `/news/${ad.targetId}`);
+      navigate(ad.targetType === 'course' ? `/course/${ad.targetId}` : `/news/${ad.targetId}`);
     };
     return (
       <div>
