@@ -49,6 +49,21 @@ export function renderEmailTemplate(
 // clients' dark modes (which stops many scanners reading it) and mis-rounded by
 // Outlook's Word renderer. A button always works, and the page it opens shows the
 // QR full-size on the phone the attendee is holding at the door anyway.
+// Just the URL, for a template author who wants to build their own button, put
+// the QR behind their own wording, or drop it into a layout of their own — the
+// {{qr_code}} block below is opinionated markup and not always what is wanted.
+//
+// ONE url covering everyone in the checkout, not one per child: a sibling booking
+// sends a single email while qr_token is per booking, and a bare URL cannot carry
+// two destinations. Returning only the first child's link would look like it
+// worked and leave the second child unable to check in. The page splits the tokens
+// and shows a QR for each.
+export function buildCheckinQrLink(consumerAppUrl: string, qrTokens: string[]): string {
+  const usable = qrTokens.filter(Boolean);
+  if (usable.length === 0) return '';
+  return `${consumerAppUrl}/checkin/${usable.map(t => encodeURIComponent(t)).join(',')}`;
+}
+
 export function buildCheckinQrBlock(
   consumerAppUrl: string,
   entries: { childName: string; qrToken: string }[],

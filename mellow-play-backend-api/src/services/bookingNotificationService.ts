@@ -5,7 +5,10 @@ import { SmsRepository } from '../repositories/smsRepository';
 import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from './smsTemplateService';
-import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml, buildCheckinQrBlock } from './emailTemplateService';
+import {
+  renderEmailTemplate, renderEmailSubject, wrapEmailHtml,
+  buildCheckinQrBlock, buildCheckinQrLink,
+} from './emailTemplateService';
 
 // The automatic "booking confirmed" send — called from both places a booking
 // actually becomes confirmed (adminController.createBooking's bypass-payment
@@ -168,10 +171,15 @@ export async function sendBookingSuccessNotifications(
         // needs their own. Rendered raw because it is generated markup, not
         // customer input — see renderEmailTemplate's rawVariables.
         const consumerAppUrl = await settingsRepo.getOverridable('consumer_app_url', 'https://mellowplay.co');
+        const baseUrl = consumerAppUrl.replace(/\/+$/, '');
         const qrBlock = buildCheckinQrBlock(
-          consumerAppUrl.replace(/\/+$/, ''),
+          baseUrl,
           bookingRows.map(r => ({ childName: r.child_name || r.child_real_name || '', qrToken: r.qr_token })),
         );
+        // Goes in the escaped variable map, not rawVariables: it is a plain URL,
+        // so escaping is a no-op today but stays correct if a token ever contains
+        // a character that matters inside an href.
+        variables.qr_link = buildCheckinQrLink(baseUrl, bookingRows.map(r => r.qr_token));
         const bodyHtml = wrapEmailHtml(
           renderEmailTemplate(first.email_success_template, variables, { qr_code: qrBlock }),
         );

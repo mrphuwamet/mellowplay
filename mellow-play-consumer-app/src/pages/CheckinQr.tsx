@@ -22,23 +22,38 @@ import { formatCustomDate } from '../utils/dateFormat';
 const CheckinQr: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const { lang } = useTranslation();
-  const [booking, setBooking] = React.useState<any>(null);
+  const [bookings, setBookings] = React.useState<any[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    apiClient.get(`/admin/checkin/lookup/${encodeURIComponent(token)}`)
-      .then(res => {
-        if (cancelled) return;
-        if (res.data?.success) setBooking(res.data.booking);
-        else setError(res.data?.message || 'ไม่พบข้อมูลการจองสำหรับ QR นี้');
-      })
-      .catch(() => { if (!cancelled) setError('ไม่พบข้อมูลการจองสำหรับ QR นี้'); });
-    return () => { cancelled = true; };
-  }, [token]);
+  // Normally one token — one booking, one QR. Comma-separated only happens for a
+  // sibling checkout, which creates a booking row (and token) per child but sends
+  // the parent a single email; a link per child would mean several links in one
+  // message, so they arrive as one link and are shown stacked here.
+  const tokens = React.useMemo(
+    () => (token || '').split(',').map(t => t.trim()).filter(Boolean),
+    [token],
+  );
 
-  const childName = booking?.child_nickname || booking?.child_name || '';
+  React.useEffect(() => {
+    if (tokens.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      tokens.map(t =>
+        apiClient.get(`/admin/checkin/lookup/${encodeURIComponent(t)}`)
+          .then(res => (res.data?.success ? res.data.booking : null))
+          .catch(() => null),
+      ),
+    ).then(results => {
+      if (cancelled) return;
+      const found = results.filter(Boolean);
+      // One bad token among several must not hide the ones that do work — the
+      // family still needs to check in with whichever codes are valid.
+      if (found.length === 0) setError('ไม่พบข้อมูลการจองสำหรับ QR นี้');
+      else setBookings(found);
+    });
+    return () => { cancelled = true; };
+  }, [tokens]);
+
   const title = lang === 'en' ? 'Check-in QR' : 'QR เช็คอิน';
 
   return (
@@ -51,40 +66,47 @@ const CheckinQr: React.FC = () => {
           <p className="font-black text-slate-700 mb-1">{title}</p>
           <p className="text-sm text-slate-500">{error}</p>
         </div>
-      ) : !booking ? (
+      ) : !bookings ? (
         <div className="flex items-center gap-2 text-slate-500 font-bold">
           <Loader2 size={18} className="animate-spin" />
           {lang === 'en' ? 'Loading…' : 'กำลังโหลด...'}
         </div>
       ) : (
-        <div className="bg-white rounded-3xl shadow-sm p-6 text-center max-w-sm w-full">
-          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</p>
-          <h1 className="text-xl font-black text-slate-800 leading-tight mb-1">{booking.course_name}</h1>
-          {childName && <p className="text-sm font-bold text-mellow-purple mb-4">{childName}</p>}
+        <div className="w-full max-w-sm space-y-4">
+          {bookings.map(booking => {
+            const childName = booking.child_nickname || booking.child_name || '';
+            return (
+              <div key={booking.qr_token} className="bg-white rounded-3xl shadow-sm p-6 text-center">
+                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</p>
+                <h1 className="text-xl font-black text-slate-800 leading-tight mb-1">{booking.course_name}</h1>
+                {childName && <p className="text-sm font-bold text-mellow-purple mb-4">{childName}</p>}
 
-          {/* White padding around the code matters: a QR needs its quiet zone to
-              be scannable, and phone screens at an angle lose the outer modules
-              without it. */}
-          <div className="bg-white p-4 rounded-2xl border-2 border-slate-100 inline-block mb-4">
-            <QRCodeSVG value={booking.qr_token} size={200} level="M" />
-          </div>
+                {/* White padding around the code matters: a QR needs its quiet
+                    zone to be scannable, and phone screens held at an angle lose
+                    the outer modules without it. */}
+                <div className="bg-white p-4 rounded-2xl border-2 border-slate-100 inline-block mb-4">
+                  <QRCodeSVG value={booking.qr_token} size={200} level="M" />
+                </div>
 
-          <div className="space-y-1.5 text-left">
-            {booking.scheduled_at && (
-              <p className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                <Clock size={14} className="text-slate-400 shrink-0" />
-                {formatCustomDate(booking.scheduled_at, lang, 'full')}
-              </p>
-            )}
-            {booking.branch_name && (
-              <p className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                <MapPin size={14} className="text-slate-400 shrink-0" />
-                {booking.branch_name}
-              </p>
-            )}
-          </div>
+                <div className="space-y-1.5 text-left">
+                  {booking.scheduled_at && (
+                    <p className="flex items-center gap-2 text-sm text-slate-600 font-medium">
+                      <Clock size={14} className="text-slate-400 shrink-0" />
+                      {formatCustomDate(booking.scheduled_at, lang, 'full')}
+                    </p>
+                  )}
+                  {booking.branch_name && (
+                    <p className="flex items-center gap-2 text-sm text-slate-600 font-medium">
+                      <MapPin size={14} className="text-slate-400 shrink-0" />
+                      {booking.branch_name}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
 
-          <p className="text-xs text-slate-400 mt-5 leading-relaxed">
+          <p className="text-xs text-slate-400 text-center leading-relaxed px-2">
             {lang === 'en'
               ? 'Show this code to staff at the registration desk.'
               : 'กรุณาแสดง QR Code นี้ให้เจ้าหน้าที่ที่จุดลงทะเบียน'}

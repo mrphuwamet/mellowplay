@@ -44,7 +44,8 @@ function renderEmailTemplateLocal(
 // Email-only variables. Not in the shared builtins list because a QR block is
 // markup — it has no meaning in an SMS.
 const EMAIL_ONLY_VARIABLES = [
-  { key: 'qr_code', label: 'QR เช็คอิน (ปุ่มลิงก์)' },
+  { key: 'qr_code', label: 'QR เช็คอิน (ปุ่มสำเร็จรูป)', hint: 'แทรกบล็อกปุ่มที่จัดรูปแบบมาให้แล้ว — หนึ่งปุ่มต่อเด็กหนึ่งคน' },
+  { key: 'qr_link', label: 'ลิงก์ QR เช็คอิน (URL เปล่า)', hint: 'ได้เฉพาะ URL ไปจัดรูปแบบเอง เช่นทำปุ่มเองหรือใส่ในข้อความ — ลิงก์เดียวครอบทุกคนในการจองนั้น' },
 ];
 
 // Stands in for buildCheckinQrBlock in the preview. Shows two buttons on purpose:
@@ -127,11 +128,18 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
 
   // The chips carry `key`; the sample builder keys off `field_key` because it
   // mirrors the shape the registration-form API returns.
-  const sampleVariables = buildSampleVariables(
-    courseName,
-    (formFields ?? []).map(f => ({ field_key: f.key, label: f.label })),
-    sampleSeed,
-  );
+  // qr_link is a normal (escaped) variable on the server too, so the preview
+  // substitutes a realistic-looking URL rather than leaving {{qr_link}} showing.
+  const sampleQrLink = 'https://mellowplay.co/checkin/EXAMPLE-TOKEN';
+
+  const sampleVariables = {
+    ...buildSampleVariables(
+      courseName,
+      (formFields ?? []).map(f => ({ field_key: f.key, label: f.label })),
+      sampleSeed,
+    ),
+    qr_link: sampleQrLink,
+  };
 
   // Inserts at the cursor in whichever body view is open, matching how the SMS
   // editor's chips behave — without this the email body was the one template
@@ -306,10 +314,7 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
           </Typography>
           <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
             {EMAIL_ONLY_VARIABLES.map(v => (
-              <Tooltip
-                key={v.key}
-                title="แทรกปุ่ม QR เช็คอิน — หนึ่งปุ่มต่อเด็กหนึ่งคนในการจองนั้น กดแล้วเปิดหน้าที่แสดง QR เต็มจอ"
-              >
+              <Tooltip key={v.key} title={v.hint}>
                 <Chip size="small" color="secondary" label={v.label} onClick={() => insertVariable(v.key)} />
               </Tooltip>
             ))}
