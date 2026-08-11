@@ -874,7 +874,16 @@ app.put   ('/api/v1/admin/campaigns/:id',       (c) => adminController.updateCam
 app.delete('/api/v1/admin/campaigns/:id',       (c) => adminController.deleteCampaign(c));
 
 // ── Booking Status ───────────────────────────────────────────────────────────
-app.get('/api/v1/bookings/:id/status',         (c) => adminController.getBookingStatus(c));
+// GET /api/v1/bookings/:id/status was removed rather than implemented. It was
+// wired to adminController.getBookingStatus, which has never existed, so it
+// only ever returned 500 — and nothing in either frontend calls it (the CRM
+// uses PATCH /api/v1/admin/bookings/:id/status, a different route entirely).
+//
+// It also sat outside both requireCrmAuth prefixes (/api/v1/admin/* and
+// /api/v1/system/*), so implementing it as written would have published every
+// booking's status to anyone willing to count upwards from id=1. If a public
+// status lookup is wanted, it needs an unguessable token or a session check,
+// which is a deliberate design decision rather than a bug fix.
 
 // ── Redemptions ─────────────────────────────────────────────────────────────
 app.post('/api/v1/redemptions',                    (c) => redemptionController.create(c));

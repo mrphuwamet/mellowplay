@@ -4,16 +4,20 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev src/index.ts --env dev --remote",
+    "dev:local": "wrangler dev src/index.ts --env dev",
+    "typecheck": "tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply mellow_play_db_dev --env dev --local",
     "deploy": "wrangler deploy --minify src/index.ts",
     "deploy:dev": "wrangler deploy --env dev --minify src/index.ts"
   },
   "dependencies": {
-    "hono": "^4.0.0",
     "@hono/swagger-ui": "^0.2.1",
+    "hono": "^4.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240101.0",
+    "typescript": "^5.9.3",
     "wrangler": "^3.22.0"
   }
 }

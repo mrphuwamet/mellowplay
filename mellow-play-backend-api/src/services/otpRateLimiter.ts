@@ -7,10 +7,20 @@ const COOLDOWN_SECONDS = 60;
 const MAX_REQUESTS_PER_HOUR = 5;
 const MAX_VERIFY_ATTEMPTS = 5;
 
+// `{ ok: boolean; message?: string }` rather than the discriminated union
+// `{ ok: true } | { ok: false; message: string }` it used to declare: this
+// project compiles with "strict": false, and narrowing a union by a boolean
+// discriminant needs strictNullChecks. Without it, every caller's
+// `if (!limit.ok) ... limit.message` failed to compile with
+// "Property 'message' does not exist on type '{ ok: true; }'" — 9 errors across
+// authController. Runtime behaviour is identical; only the declared type
+// changed to one the compiler settings can actually use.
+export type OtpLimitResult = { ok: boolean; message?: string };
+
 export async function enforceOtpRequestLimit(
   kv: KVNamespace,
   identifier: string
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<OtpLimitResult> {
   const cooldownKey = `otp_cooldown:${identifier}`;
   if (await kv.get(cooldownKey)) {
     return {
@@ -40,7 +50,7 @@ export async function enforceOtpRequestLimit(
 export async function enforceOtpVerifyLimit(
   kv: KVNamespace,
   otpKey: string
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<OtpLimitResult> {
   const attemptsKey = `${otpKey}:attempts`;
   const attempts = parseInt((await kv.get(attemptsKey)) || '0', 10);
   if (attempts >= MAX_VERIFY_ATTEMPTS) {

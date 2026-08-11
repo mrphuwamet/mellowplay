@@ -50,7 +50,7 @@ export class CommunityController {
       // Images are an admin-only privilege (set by CRM staff) — regular
       // members can only post plain text (plus polls/location, handled below).
       let imageUrl: string | undefined;
-      const file = body.get('file') as File | null;
+      const file = body.get('file') as unknown as File | null;
       if (file) {
         const userRepo = new UserRepository(config.db);
         const user = await userRepo.findById(userId);

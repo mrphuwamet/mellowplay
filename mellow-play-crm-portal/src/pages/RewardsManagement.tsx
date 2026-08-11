@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Box, Typography, Button, TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Switch, FormControlLabel } from '@mui/material';
 import { Redeem, Add, Edit, Delete } from '@mui/icons-material';
+import { API_URL } from '../config';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787/api/v1';
+const API_BASE = `${API_URL}/api/v1`;
 
 interface Reward {
   id: number;

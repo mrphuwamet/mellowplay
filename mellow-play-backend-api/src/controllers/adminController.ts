@@ -258,7 +258,11 @@ export class AdminController {
     try {
       const id = parseInt(c.req.param('id'));
       const body = await c.req.formData();
-      const file = body.get('avatar') as File | null;
+      // Double cast: the pinned @cloudflare/workers-types (4.2024xxxx) declares
+      // FormData.get as returning string, so a direct `as File` is rejected as
+      // a conversion between non-overlapping types. Same in every upload
+      // handler below and in community/profile controllers.
+      const file = body.get('avatar') as unknown as File | null;
       if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
 
       const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -1378,6 +1382,24 @@ export class AdminController {
     }
   }
 
+  // GET /api/v1/admin/branches/:id — the route in index.ts has always pointed
+  // at this name, but the method never existed, so every request to it threw
+  // "adminController.getBranchById is not a function" and returned 500. The
+  // repository method it needs was already there (getBranchSettings uses it).
+  async getBranchById(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      if (Number.isNaN(id)) return c.json({ success: false, message: 'invalid id' }, 400);
+      const branch = await adminRepo.getBranchById(id);
+      if (!branch) return c.json({ success: false, message: 'Branch not found' }, 404);
+      return c.json({ success: true, branch });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async createBranch(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -1515,7 +1537,7 @@ export class AdminController {
   async uploadFile(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const body = await c.req.formData();
-      const file = body.get('file') as File | null;
+      const file = body.get('file') as unknown as File | null;
       if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
 
       const folder = (body.get('folder') as string) || 'uploads';

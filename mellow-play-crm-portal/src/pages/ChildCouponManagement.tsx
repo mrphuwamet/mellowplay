@@ -66,7 +66,7 @@ export default function ChildCouponManagement({ childId, childName, open, onClos
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <TicketIcon size={20} />
+          <TicketIcon sx={{ fontSize: 20 }} />
           <Typography variant="h6" fontWeight="bold">จัดการคูปอง (Coupon Balance)</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary">
@@ -114,7 +114,7 @@ export default function ChildCouponManagement({ childId, childName, open, onClos
                       <Button
                         variant="contained"
                         size="small"
-                        startIcon={<SaveIcon size={16} />}
+                        startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
                         onClick={() => handleSave(c.coupon_type_id)}
                         disabled={saving || balances[c.coupon_type_id] === c.balance}
                       >

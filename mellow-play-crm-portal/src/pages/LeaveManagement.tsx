@@ -94,7 +94,10 @@ const policyToStr = (p: LeavePolicy): PolicyEditStr => ({
 const API_BASE = `${API_URL}/api/v1/admin`;
 
 // Mock: in a real app this comes from the logged-in user's CRM profile
-const EMPLOYEE_TYPE: 'monthly' | 'daily' = 'daily';
+// (CRM_Users.employment_type). The `as` keeps the type the full union —
+// with a plain annotation TypeScript narrows the const to its literal
+// initializer and flags every `=== 'monthly'` check below as impossible.
+const EMPLOYEE_TYPE = 'daily' as 'monthly' | 'daily';
 
 const leaveTypeConfig: Record<LeaveType, { label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
   annual: { label: 'ลาพักร้อน', icon: <AnnualIcon />, color: '#2196f3', bgColor: '#e3f2fd' },

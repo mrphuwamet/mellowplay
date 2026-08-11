@@ -144,7 +144,7 @@ export class ProfileController {
     try {
       const childId = parseInt(c.req.param('childId'));
       const body = await c.req.formData();
-      const file = body.get('file') as File | null;
+      const file = body.get('file') as unknown as File | null;
       if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
 
       const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -179,7 +179,7 @@ export class ProfileController {
       if (!payload?.userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
 
       const body = await c.req.formData();
-      const file = body.get('file') as File | null;
+      const file = body.get('file') as unknown as File | null;
       if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
 
       const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';

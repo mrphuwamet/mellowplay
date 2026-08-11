@@ -11,7 +11,8 @@ axios.interceptors.request.use((config) => {
   if (config.url?.startsWith(API_URL)) {
     const token = localStorage.getItem('crm_token');
     if (token) {
-      config.headers = config.headers ?? {};
+      // `config.headers` is always an AxiosHeaders instance inside a request
+      // interceptor (axios 1.x), so no null-guard is needed here.
       config.headers.Authorization = `Bearer ${token}`;
     }
   }
