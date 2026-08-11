@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box, IconButton, Tooltip, CircularProgress, Divider, Typography, Menu, MenuItem,
-  ListItemIcon, ListItemText, GlobalStyles, TextField, Button,
+  ListItemIcon, ListItemText, GlobalStyles, Button,
 } from '@mui/material';
 import {
   FormatBold, FormatItalic, FormatUnderlined, FormatListBulleted,
@@ -18,6 +18,7 @@ import { TextStyleKit } from '@tiptap/extension-text-style';
 import Highlight from '@tiptap/extension-highlight';
 import TextAlign from '@tiptap/extension-text-align';
 import { CtaButton, MpImage, ImageRow, YoutubeEmbed, MediaCard, extractYoutubeId } from './extensions';
+import AttrTextField from './AttrTextField';
 import ImageCropDialog from '../ImageCropDialog';
 import { uploadEditorImage } from '../../utils/imageUpload';
 
@@ -390,28 +391,28 @@ const EditorCore: React.FC<EditorCoreProps> = ({
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                 กดที่รูปนี้แล้วเปิดลิงก์ (ใช้รูปเป็นปุ่มได้เลย)
               </Typography>
-              {/* Controlled + committed on change, not defaultValue + onBlur:
-                  closing this Menu by clicking outside unmounts the inputs, and
-                  blur is never delivered to an unmounting input, so whatever was
-                  typed here was silently discarded. */}
-              <TextField
+              {/* AttrTextField rather than a plain controlled TextField: it
+                  commits every keystroke (this Menu unmounts on outside click,
+                  where blur would never fire) while rendering from a local draft
+                  so the attribute round-trip cannot move the caret. */}
+              <AttrTextField
                 size="small"
                 label="ลิงก์เมื่อกดที่รูป"
                 placeholder="https://..."
                 value={imageAttrs.href || ''}
-                onChange={e => editor.commands.updateAttributes('image', { href: e.target.value.trim() || null })}
+                onCommit={v => editor.commands.updateAttributes('image', { href: v.trim() || null })}
               />
-              <TextField
+              <AttrTextField
                 size="small"
                 label="คำบรรยายใต้รูป (Caption)"
                 value={imageAttrs.caption || ''}
-                onChange={e => editor.commands.updateAttributes('image', { caption: e.target.value || null })}
+                onCommit={v => editor.commands.updateAttributes('image', { caption: v || null })}
               />
-              <TextField
+              <AttrTextField
                 size="small"
                 label="Alt — ข้อความแทนรูป (SEO / screen reader)"
                 value={imageAttrs.alt || ''}
-                onChange={e => editor.commands.updateAttributes('image', { alt: e.target.value || null })}
+                onCommit={v => editor.commands.updateAttributes('image', { alt: v || null })}
               />
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 {([['left', 'ซ้าย'], ['center', 'กลาง'], ['right', 'ขวา']] as const).map(([v, label]) => (
@@ -426,7 +427,7 @@ const EditorCore: React.FC<EditorCoreProps> = ({
                   </Button>
                 ))}
               </Box>
-              <Button size="small" onClick={() => setImageMenuAnchor(null)} sx={{ textTransform: 'none' }}>เสร็จสิ้น</Button>
+              <Button variant="contained" size="small" onClick={() => setImageMenuAnchor(null)} sx={{ textTransform: 'none', fontWeight: 700 }}>ตกลง</Button>
             </Box>
           </Menu>
 

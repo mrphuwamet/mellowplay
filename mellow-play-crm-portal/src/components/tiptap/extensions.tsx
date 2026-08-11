@@ -7,6 +7,7 @@ import {
 import { Node, mergeAttributes, nodePasteRule } from '@tiptap/core';
 import Image from '@tiptap/extension-image';
 import { NodeViewWrapper, ReactNodeViewRenderer, NodeViewProps } from '@tiptap/react';
+import AttrTextField from './AttrTextField';
 
 // ---------------------------------------------------------------------------
 // Shared constraint for every node in this file
@@ -24,6 +25,16 @@ import { NodeViewWrapper, ReactNodeViewRenderer, NodeViewProps } from '@tiptap/r
 // ---------------------------------------------------------------------------
 
 const PURPLE = '#7c3aed';
+
+// Dismisses a node's settings panel, which is rendered under `{selected && ...}`
+// and therefore closes by dropping the NodeSelection. Puts the caret just after
+// the node so typing continues where the writer would expect. Nothing needs
+// saving first — every field commits as it is typed.
+function closePanel(editor: any, getPos: () => number | undefined, nodeSize: number) {
+  const pos = getPos();
+  if (typeof pos !== 'number') { editor.commands.blur(); return; }
+  editor.chain().focus().setTextSelection(pos + nodeSize).run();
+}
 
 // ===========================================================================
 // CTA button (unchanged behaviour — kept as the simplest "just a button" node,
@@ -78,24 +89,31 @@ const CtaButtonComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
               display: 'flex', flexDirection: 'column', gap: 1,
             }}
           >
-            <TextField
+            <AttrTextField
               size="small"
               label="ข้อความปุ่ม"
               value={label}
-              onChange={e => updateAttributes({ label: e.target.value })}
-              onBlur={e => { if (!e.target.value.trim()) updateAttributes({ label: 'ปุ่มกด' }); }}
+              onCommit={v => updateAttributes({ label: v })}
             />
-            <TextField
+            <AttrTextField
               size="small"
               label="ลิงก์ (URL)"
               value={href === '#' ? '' : href}
-              onChange={e => updateAttributes({ href: e.target.value.trim() || '#' })}
+              onCommit={v => updateAttributes({ href: v.trim() || '#' })}
               placeholder="https://..."
             />
             <Box display="flex" alignItems="center" gap={1}>
               <input type="color" value={color} onChange={e => updateAttributes({ color: e.target.value })} style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} />
-              <Button size="small" color="error" onClick={deleteNode} sx={{ ml: 'auto', textTransform: 'none' }}>ลบปุ่ม</Button>
+              <Button size="small" color="error" onClick={deleteNode} sx={{ textTransform: 'none' }}>ลบปุ่ม</Button>
             </Box>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => closePanel(editor, getPos, node.nodeSize)}
+              sx={{ textTransform: 'none', fontWeight: 700, alignSelf: 'flex-end', px: 3 }}
+            >
+              ตกลง
+            </Button>
           </Box>
         )}
       </Box>
@@ -351,19 +369,27 @@ const ImageRowComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, se
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
             รูปที่ {editingIndex + 1}
           </Typography>
-          <TextField
+          <AttrTextField
             size="small"
             label="ลิงก์เมื่อกดที่รูป (ถ้ามี)"
             placeholder="https://..."
             value={images[editingIndex].href || ''}
-            onChange={e => update(editingIndex, { href: e.target.value })}
+            onCommit={v => update(editingIndex, { href: v })}
           />
-          <TextField
+          <AttrTextField
             size="small"
             label="คำอธิบายรูป (Alt) — ช่วย SEO และผู้ใช้ screen reader"
             value={images[editingIndex].alt || ''}
-            onChange={e => update(editingIndex, { alt: e.target.value })}
+            onCommit={v => update(editingIndex, { alt: v })}
           />
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => setEditingIndex(null)}
+            sx={{ textTransform: 'none', fontWeight: 700, alignSelf: 'flex-end', px: 3 }}
+          >
+            ตกลง
+          </Button>
         </Box>
       )}
     </NodeViewWrapper>
@@ -635,26 +661,18 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
         <Box sx={{ p: 2, flex: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 0.5 }}>{attrs.title || 'หัวข้อการ์ด'}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.6 }}>{attrs.body || 'คำอธิบายสั้นๆ'}</Typography>
-          {/* The published card only carries the button when it has somewhere to
-              go, so the preview has to show that state too — it previously drew
-              a solid, finished-looking button whether or not a URL was set,
-              which is why a card could look right in the editor and arrive in
-              the article with no button at all. */}
-          <Box
-            sx={{
-              display: 'inline-block', mt: 1.5, fontWeight: 800, fontSize: 13, px: 2.5, py: 1, borderRadius: 999,
-              bgcolor: hasHref ? (attrs.buttonColor || PURPLE) : 'transparent',
-              color: hasHref ? 'white' : 'text.disabled',
-              border: hasHref ? 'none' : '1px dashed',
-              borderColor: hasHref ? 'transparent' : 'text.disabled',
-            }}
-          >
-            {attrs.buttonLabel || 'ดูเพิ่มเติม'}
-          </Box>
-          {!hasHref && (
-            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'warning.main', fontWeight: 700 }}>
-              ยังไม่ได้ใส่ลิงก์ปุ่ม — ปุ่มจะไม่แสดงในบทความจนกว่าจะใส่
-            </Typography>
+          {/* The button is optional. With no URL there is nothing for it to do,
+              so it is simply absent — here and in the published article, which
+              is the same rule, so the preview always matches the output. */}
+          {hasHref && (
+            <Box
+              sx={{
+                display: 'inline-block', mt: 1.5, fontWeight: 800, fontSize: 13, px: 2.5, py: 1,
+                borderRadius: 999, bgcolor: attrs.buttonColor || PURPLE, color: 'white',
+              }}
+            >
+              {attrs.buttonLabel || 'ดูเพิ่มเติม'}
+            </Box>
           )}
         </Box>
       </Box>
@@ -680,16 +698,16 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
               <HorizontalIcon sx={{ fontSize: 16 }} /> รูปด้านซ้าย
             </ToggleButton>
           </ToggleButtonGroup>
-          <TextField size="small" label="หัวข้อ" value={attrs.title} onChange={e => updateAttributes({ title: e.target.value })} />
-          <TextField size="small" label="คำอธิบาย" multiline minRows={2} value={attrs.body} onChange={e => updateAttributes({ body: e.target.value })} />
-          <TextField size="small" label="ข้อความบนปุ่ม" value={attrs.buttonLabel} onChange={e => updateAttributes({ buttonLabel: e.target.value })} />
-          <TextField
+          <AttrTextField size="small" label="หัวข้อ" value={attrs.title} onCommit={v => updateAttributes({ title: v })} />
+          <AttrTextField size="small" label="คำอธิบาย" multiline minRows={2} value={attrs.body} onCommit={v => updateAttributes({ body: v })} />
+          <AttrTextField size="small" label="ข้อความบนปุ่ม" value={attrs.buttonLabel} onCommit={v => updateAttributes({ buttonLabel: v })} />
+          <AttrTextField
             size="small"
-            label="ลิงก์ปุ่ม (URL) — ต้องใส่ ปุ่มจึงจะแสดงในบทความ"
+            label="ลิงก์ปุ่ม (URL) — ไม่ใส่ก็ได้"
+            helperText="เว้นว่างไว้ = ไม่มีปุ่มในการ์ดนี้"
             placeholder="https://..."
             value={attrs.buttonHref}
-            onChange={e => updateAttributes({ buttonHref: e.target.value })}
-            error={!hasHref}
+            onCommit={v => updateAttributes({ buttonHref: v })}
           />
           <Box display="flex" alignItems="center" gap={1}>
             <input
@@ -699,8 +717,19 @@ const MediaCardComponent: React.FC<NodeViewProps> = ({ node, updateAttributes, s
               style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }}
             />
             <Button size="small" onClick={requestImage} sx={{ textTransform: 'none' }}>เปลี่ยนรูป</Button>
-            <Button size="small" color="error" onClick={deleteNode} sx={{ ml: 'auto', textTransform: 'none' }}>ลบการ์ด</Button>
+            <Button size="small" color="error" onClick={deleteNode} sx={{ textTransform: 'none' }}>ลบการ์ด</Button>
           </Box>
+          {/* Everything above is already saved as it is typed; this only closes
+              the panel. It exists because a panel with no visible way out reads
+              as unsaved work. */}
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => closePanel(editor, getPos, node.nodeSize)}
+            sx={{ textTransform: 'none', fontWeight: 700, alignSelf: 'flex-end', px: 3 }}
+          >
+            ตกลง
+          </Button>
         </Box>
       )}
     </NodeViewWrapper>
