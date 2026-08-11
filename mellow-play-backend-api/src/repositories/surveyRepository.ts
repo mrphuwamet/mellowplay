@@ -12,9 +12,81 @@ const isFieldScored = (configJson: string | null | undefined): boolean => {
   try { return !!(configJson && JSON.parse(configJson).scored); } catch { return false; }
 };
 
+const isChoiceLike = (type: string): boolean =>
+  type === 'select' || type === 'radio' || type === 'checkbox';
+
+// Fields that anchor the ones around them: a heading introduces the questions
+// below it, an image is the thing a question refers to, and the "who's
+// answering" block belongs where the form author put it. Shuffling moves
+// questions around these, never the anchors themselves.
+const ANCHOR_TYPES = new Set(['heading', 'image', 'identity']);
+
+const shuffleSlice = <T>(arr: T[], from: number, to: number): void => {
+  for (let i = to - 1; i > from; i--) {
+    const j = from + Math.floor(Math.random() * (i - from + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+};
+
 export class SurveyRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
+
+  // Reorders questions inside each run of consecutive question fields, where a
+  // run is broken by an anchor field or a page boundary. Anchors keep their
+  // exact slots, so "ตอนที่ 2" still sits above the questions it introduces.
+  private shuffleQuestions(fields: any[]): any[] {
+    const out = [...fields];
+    const runs: number[][] = [];
+    let run: number[] = [];
+    let page: number | null = null;
+
+    out.forEach((f, i) => {
+      const isAnchor = ANCHOR_TYPES.has(f.type);
+      if (isAnchor || (page !== null && f.page_index !== page)) {
+        if (run.length) runs.push(run);
+        run = [];
+      }
+      page = f.page_index;
+      if (!isAnchor) run.push(i);
+    });
+    if (run.length) runs.push(run);
+
+    for (const positions of runs) {
+      if (positions.length < 2) continue;
+      const picked = positions.map(i => out[i]);
+      shuffleSlice(picked, 0, picked.length);
+      positions.forEach((slot, k) => { out[slot] = picked[k]; });
+    }
+    return out;
+  }
+
+  private shuffleOptions(fields: any[]): any[] {
+    return fields.map(f => {
+      if (!isChoiceLike(f.type) || !f.options_json) return f;
+      try {
+        const options = JSON.parse(f.options_json);
+        if (!Array.isArray(options) || options.length < 2) return f;
+        shuffleSlice(options, 0, options.length);
+        return { ...f, options_json: JSON.stringify(options) };
+      } catch {
+        return f; // malformed options render as-is rather than break the form
+      }
+    });
+  }
+
+  // field_index is what the consumer app groups a page by, so a shuffled array
+  // whose indices still say the original order would be silently re-sorted
+  // back. Renumber per page, matching how the CRM writes them on save.
+  private renumberFieldIndex(fields: any[]): any[] {
+    const nextIndex = new Map<number, number>();
+    return fields.map(f => {
+      const page = f.page_index ?? 0;
+      const i = nextIndex.get(page) ?? 0;
+      nextIndex.set(page, i + 1);
+      return { ...f, field_index: i };
+    });
+  }
 
   async listForms(): Promise<any[]> {
     const { results } = await this.db.prepare(`
@@ -47,12 +119,21 @@ export class SurveyRepository {
     const { results: fields } = await this.db.prepare(
       'SELECT * FROM Survey_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
     ).bind(form.id).all();
-    return { ...form, fields };
+
+    // Shuffled fresh on every fetch, so the two rounds of a before/after test
+    // are never the same paper twice — and so is a reload, which is fine:
+    // answers key off field_key, not position.
+    let presented = fields as any[];
+    if (form.shuffle_options) presented = this.shuffleOptions(presented);
+    if (form.shuffle_questions) presented = this.renumberFieldIndex(this.shuffleQuestions(presented));
+
+    return { ...form, fields: presented };
   }
 
   async createForm(data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
+    shuffleQuestions?: boolean; shuffleOptions?: boolean;
     fields: SurveyFieldInput[];
   }): Promise<number> {
     // has_answer_key is derived, not a separate manual toggle — a form is
@@ -60,12 +141,13 @@ export class SurveyRepository {
     // regardless of whether the others do.
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
-      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_questions, shuffle_options)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
       hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
       hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
+      data.shuffleQuestions ? 1 : 0, data.shuffleOptions ? 1 : 0,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -86,17 +168,19 @@ export class SurveyRepository {
   async updateForm(id: number, data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
+    shuffleQuestions?: boolean; shuffleOptions?: boolean;
     fields: SurveyFieldInput[];
   }): Promise<void> {
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
-        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?
+        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_questions = ?, shuffle_options = ?
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
         hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
-        hasAnswerKey ? (data.scoreRangesJson ?? null) : null, id,
+        hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
+        data.shuffleQuestions ? 1 : 0, data.shuffleOptions ? 1 : 0, id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>

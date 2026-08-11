@@ -7,7 +7,18 @@ import { SurveyRepository } from '../repositories/surveyRepository';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
-const FORM_KINDS = ['survey', 'pretest', 'posttest'];
+// 'pretest'/'posttest' were folded into one 'test' kind (migration 0076) —
+// before/after is two rounds of ONE form, not two forms. Old values are still
+// accepted from any client that hasn't caught up and mapped forward, so a save
+// from a stale tab can't reintroduce a retired kind.
+const FORM_KINDS = ['survey', 'test'];
+const LEGACY_FORM_KINDS: Record<string, string> = { pretest: 'test', posttest: 'test' };
+
+const normalizeFormKind = (raw: unknown): string => {
+  const kind = typeof raw === 'string' ? raw : '';
+  const mapped = LEGACY_FORM_KINDS[kind] ?? kind;
+  return FORM_KINDS.includes(mapped) ? mapped : 'survey';
+};
 
 export class SurveyController {
   private repo(c: C) { return new SurveyRepository(new ConfigService(c.env).db); }
@@ -65,10 +76,12 @@ export class SurveyController {
       const id = await repo.createForm({
         name: body.name,
         description: body.description,
-        formKind: FORM_KINDS.includes(body.formKind) ? body.formKind : 'survey',
+        formKind: normalizeFormKind(body.formKind),
         isActive: body.isActive,
         slug,
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
+        shuffleQuestions: !!body.shuffleQuestions,
+        shuffleOptions: !!body.shuffleOptions,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true, id });
@@ -88,10 +101,12 @@ export class SurveyController {
       await repo.updateForm(id, {
         name: body.name,
         description: body.description,
-        formKind: FORM_KINDS.includes(body.formKind) ? body.formKind : 'survey',
+        formKind: normalizeFormKind(body.formKind),
         isActive: body.isActive,
         slug,
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
+        shuffleQuestions: !!body.shuffleQuestions,
+        shuffleOptions: !!body.shuffleOptions,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true });

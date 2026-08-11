@@ -108,11 +108,20 @@ const ImageUploadField = ({ label, url, onChange }: { label: string; url?: strin
   );
 };
 
+// 'pretest'/'posttest' were merged into one 'test' kind: a before/after
+// comparison is the SAME form answered twice (its rounds are counted per
+// respondent), so offering two types only led staff into building two forms
+// whose scores can't be compared. The old values stay mapped here for any row
+// that predates the migration.
 const FORM_KIND_META: Record<string, { label: string; color: 'default' | 'info' | 'warning' }> = {
   survey: { label: 'แบบสอบถาม', color: 'default' },
-  pretest: { label: 'Pre-Test', color: 'info' },
-  posttest: { label: 'Post-Test', color: 'warning' },
+  test: { label: 'แบบทดสอบ', color: 'info' },
+  pretest: { label: 'แบบทดสอบ', color: 'info' },
+  posttest: { label: 'แบบทดสอบ', color: 'info' },
 };
+
+const normalizeFormKind = (raw?: string) =>
+  raw === 'pretest' || raw === 'posttest' ? 'test' : (raw || 'survey');
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -146,6 +155,8 @@ const SurveyManagement = () => {
   const [formKind, setFormKind] = useState('survey');
   const [slug, setSlug] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleOptions, setShuffleOptions] = useState(false);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
   const [activePage, setActivePage] = useState(0);
   const [scoreRanges, setScoreRanges] = useState<ScoreRange[]>([]);
@@ -163,6 +174,7 @@ const SurveyManagement = () => {
 
   const resetFormState = () => {
     setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
+    setShuffleQuestions(false); setShuffleOptions(false);
     setPages([[]]); setActivePage(0); setScoreRanges([]); setSaveError(null);
   };
 
@@ -183,9 +195,11 @@ const SurveyManagement = () => {
         const form = res.data.form;
         setName(form.name || '');
         setDescription(form.description || '');
-        setFormKind(form.form_kind || 'survey');
+        setFormKind(normalizeFormKind(form.form_kind));
         setSlug(form.slug || '');
         setIsActive(!!form.is_active);
+        setShuffleQuestions(!!form.shuffle_questions);
+        setShuffleOptions(!!form.shuffle_options);
         try { setScoreRanges(form.score_ranges_json ? JSON.parse(form.score_ranges_json) : []); } catch { setScoreRanges([]); }
 
         const grouped: FieldDraft[][] = [];
@@ -229,7 +243,7 @@ const SurveyManagement = () => {
           : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
           : undefined,
       })));
-      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, scoreRanges, fields };
+      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, shuffleQuestions, shuffleOptions, scoreRanges, fields };
       if (editId) {
         await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
       } else {
@@ -323,9 +337,8 @@ const SurveyManagement = () => {
                   <FormControl fullWidth>
                     <InputLabel>ประเภท</InputLabel>
                     <Select value={formKind} label="ประเภท" onChange={e => setFormKind(e.target.value)}>
-                      <MenuItem value="survey">แบบสอบถาม (Survey)</MenuItem>
-                      <MenuItem value="pretest">Pre-Test</MenuItem>
-                      <MenuItem value="posttest">Post-Test</MenuItem>
+                      <MenuItem value="survey">แบบสอบถาม (ไม่มีคะแนน)</MenuItem>
+                      <MenuItem value="test">แบบทดสอบ (มีคะแนน · ตอบซ้ำเพื่อเทียบก่อน–หลังได้)</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -337,12 +350,27 @@ const SurveyManagement = () => {
                   />
                 </Grid>
               </Grid>
-              <Stack direction="row" spacing={3} alignItems="center" sx={{ mt: 2 }} flexWrap="wrap">
+              <Stack direction="row" useFlexGap flexWrap="wrap" gap={3} alignItems="center" sx={{ mt: 2 }}>
                 <FormControlLabel
                   control={<Switch checked={isActive} onChange={e => setIsActive(e.target.checked)} />}
                   label="เปิดใช้งาน"
                 />
+                <FormControlLabel
+                  control={<Switch checked={shuffleQuestions} onChange={e => setShuffleQuestions(e.target.checked)} />}
+                  label="สลับลำดับข้อ"
+                />
+                <FormControlLabel
+                  control={<Switch checked={shuffleOptions} onChange={e => setShuffleOptions(e.target.checked)} />}
+                  label="สลับลำดับตัวเลือก"
+                />
               </Stack>
+              {(shuffleQuestions || shuffleOptions) && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  สุ่มลำดับใหม่ทุกครั้งที่เปิดฟอร์ม เพื่อไม่ให้จำตำแหน่งคำตอบได้ตอนทำรอบสอง
+                  {shuffleQuestions && ' · หัวข้อและรูปภาพจะอยู่ที่เดิม สลับเฉพาะคำถามที่อยู่ใต้หัวข้อเดียวกันและหน้าเดียวกัน'}
+                  {' · คะแนนไม่เพี้ยน เพราะระบบตรวจจากข้อความตัวเลือก ไม่ใช่ลำดับ'}
+                </Alert>
+              )}
             </Paper>
 
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>

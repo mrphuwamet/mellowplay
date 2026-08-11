@@ -49,14 +49,18 @@ const SurveyFillForm: React.FC<Props> = ({
   form, answers, onChange, identity, onIdentityChange, accountName, accountPhone,
   isLoggedIn, onSubmit, submitting, lang,
 }) => {
+  // Group by page, keeping the order the server sent. It used to slot fields
+  // in by field_index, which silently undid the per-respondent shuffle a form
+  // can now be set to (the server already returns fields in display order and
+  // renumbers field_index to match).
   const pages = useMemo(() => {
     const grouped: SurveyField[][] = [];
     for (const f of form.fields) {
       const idx = f.page_index ?? 0;
       if (!grouped[idx]) grouped[idx] = [];
-      grouped[idx][f.field_index] = f;
+      grouped[idx].push(f);
     }
-    return grouped.map(page => (page || []).filter(Boolean));
+    return grouped.map(page => page || []);
   }, [form]);
 
   const [pageIndex, setPageIndex] = useState(0);
