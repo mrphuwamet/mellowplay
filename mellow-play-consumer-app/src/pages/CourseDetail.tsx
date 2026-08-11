@@ -80,7 +80,9 @@ const CourseDetail = () => {
           <div className="w-10 h-10 rounded-full bg-slate-100" />
           <div className="w-10 h-10 rounded-full bg-slate-100" />
         </div>
-        <div className="w-full aspect-[4/3] bg-slate-200" />
+        {/* Matches the banner's real ratio so the page does not jump when the
+            image arrives. */}
+        <div className="w-full aspect-[16/9] bg-slate-200" />
         <div className="p-5 space-y-4">
           <div className="h-6 w-3/4 bg-slate-200 rounded-full" />
           <div className="space-y-2">
@@ -188,12 +190,18 @@ const CourseDetail = () => {
           slider is planned as its own separate section rather than as an override
           of this one. */}
       <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
+        {/* The boxes below use aspect-[16/9], not a fixed height. h-[340px] with a
+            fluid width meant the displayed ratio changed with the viewport —
+            roughly 3.2:1 on a ~1100px desktop and 1.15:1 on a ~390px phone — so it
+            matched the 16:9 the banner view is framed against on neither, and the
+            crop staff set up in the CRM never looked the same twice. Must stay in
+            step with IMAGE_VIEWS' `banner` def (ratioW/ratioH) in the backend. */}
         {bannerView.url ? (
-          <div className="w-full h-[340px]">
+          <div className="w-full aspect-[16/9]">
             <img src={bannerView.url} alt={course.name} style={bannerView.style} className="w-full h-full object-cover" />
           </div>
         ) : (
-          <div className="w-full h-[340px] flex items-center justify-center opacity-30 p-10">
+          <div className="w-full aspect-[16/9] flex items-center justify-center opacity-30 p-10">
             <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
           </div>
         )}
