@@ -146,7 +146,7 @@ export class SurveyController {
       const form = await this.repo(c).getPublicForm(idOrSlug);
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
 
-      const { answers, respondentName, respondentPhone } = await c.req.json();
+      const { answers, respondentName, respondentPhone, attemptLabel } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const userId = await this.getOptionalUserId(c, config);
@@ -166,9 +166,18 @@ export class SurveyController {
         respondentName: resolvedName,
         respondentPhone: resolvedPhone,
         answers,
+        // Cosmetic round name off the link's ?attempt= — capped so a crafted
+        // link can't stuff arbitrary text into the CRM's tables.
+        attemptLabel: typeof attemptLabel === 'string' ? attemptLabel.trim().slice(0, 40) || null : null,
       });
 
-      return c.json({ success: true, totalScore: result.totalScore, maxScore: result.maxScore, result: result.result });
+      return c.json({
+        success: true,
+        totalScore: result.totalScore,
+        maxScore: result.maxScore,
+        attemptNo: result.attemptNo,
+        result: result.result,
+      });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }

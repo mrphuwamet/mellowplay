@@ -18,6 +18,7 @@ import {
 import axios from 'axios';
 import { API_URL } from '../config';
 import DashboardTabs from '../components/DashboardTabs';
+import { downloadCsv } from '../utils/csvExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 const NO_TAG_LABEL = '(ไม่มี tag)';
@@ -110,21 +111,11 @@ const TagAttributionDashboard = () => {
   // One row per tag × activity so an exported file shows not just how many
   // signups a tag drove, but which class/event/service they were for.
   const exportCSV = () => {
-    const headers = ['Tag', 'กิจกรรม', 'จำนวนการสมัคร', 'จำนวนเด็กที่ไม่ซ้ำ'];
-    const rows = byCourse.map((r) => [
-      `"${r.tag}"`,
-      `"${r.course_name || '-'}"`,
-      r.booking_count,
-      r.unique_children,
-    ].join(','));
-    const csv = '﻿' + [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tag-attribution-${dateFrom}_${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `tag-attribution-${dateFrom}_${dateTo}`,
+      ['Tag', 'กิจกรรม', 'จำนวนการสมัคร', 'จำนวนเด็กที่ไม่ซ้ำ'],
+      byCourse.map((r) => [r.tag, r.course_name || '-', r.booking_count, r.unique_children]),
+    );
   };
 
   return (

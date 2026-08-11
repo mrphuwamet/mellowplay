@@ -171,10 +171,31 @@ export class SurveyRepository {
     } catch { return null; }
   }
 
+  // Which round this is for this respondent on this form. Derived here, never
+  // taken from the client — a "2nd attempt" a respondent can assert is a
+  // respondent who can fake their own improvement.
+  //
+  // Members are keyed by user_id; guests fall back to the phone they typed.
+  // Someone who answers anonymously with no phone at all is unpairable, so
+  // every such submission is round 1.
+  private async nextAttemptNo(formId: number, userId?: number | null, respondentPhone?: string | null): Promise<number> {
+    let prior: { n: number } | null = null;
+    if (userId != null) {
+      prior = await this.db.prepare(
+        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id = ?'
+      ).bind(formId, userId).first<{ n: number }>();
+    } else if (respondentPhone) {
+      prior = await this.db.prepare(
+        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id IS NULL AND respondent_phone = ?'
+      ).bind(formId, respondentPhone).first<{ n: number }>();
+    }
+    return (prior?.n ?? 0) + 1;
+  }
+
   async createSubmission(data: {
     formId: number; userId?: number | null; respondentName?: string | null;
-    respondentPhone?: string | null; answers: Record<string, any>;
-  }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; result: { resultText: string; imageUrl?: string } | null }> {
+    respondentPhone?: string | null; answers: Record<string, any>; attemptLabel?: string | null;
+  }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; attemptNo: number; result: { resultText: string; imageUrl?: string } | null }> {
     const form = await this.db.prepare('SELECT has_answer_key, score_ranges_json FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
     let totalScore: number | null = null;
     let maxScore: number | null = null;
@@ -189,15 +210,17 @@ export class SurveyRepository {
       result = this.matchScoreRange(form.score_ranges_json, totalScore);
     }
 
+    const attemptNo = await this.nextAttemptNo(data.formId, data.userId, data.respondentPhone);
+
     const inserted = await this.db.prepare(`
-      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.formId, data.userId ?? null, data.respondentName ?? null, data.respondentPhone ?? null,
-      JSON.stringify(data.answers), totalScore, maxScore,
+      JSON.stringify(data.answers), totalScore, maxScore, attemptNo, data.attemptLabel ?? null,
     ).run();
 
-    return { id: inserted.meta.last_row_id, totalScore, maxScore, result };
+    return { id: inserted.meta.last_row_id, totalScore, maxScore, attemptNo, result };
   }
 
   async listSubmissions(formId: number): Promise<any[]> {

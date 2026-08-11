@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../config';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -6,8 +6,12 @@ import {
   Typography, Box, CircularProgress, Button, Chip, IconButton,
   Paper, Stack, Dialog, DialogTitle, DialogContent, DialogActions,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Tabs, Tab,
 } from '@mui/material';
-import { ArrowBack as BackIcon, Visibility as ViewIcon, Download as DownloadIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Visibility as ViewIcon } from '@mui/icons-material';
+import FormResponseDashboard, { DashboardSubmission } from '../components/FormResponseDashboard';
+import ExportMenu, { CsvPayload } from '../components/ExportMenu';
+import AttemptComparison, { ComparisonSubmission } from '../components/AttemptComparison';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -26,6 +30,8 @@ const SurveyResponses = () => {
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [tab, setTab] = useState(0);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -41,6 +47,15 @@ const SurveyResponses = () => {
 
   const fieldsByKey = new Map((form?.fields || []).map((f: any) => [f.field_key, f]));
 
+  // answers_json is unpacked once here rather than inside the dashboard, so the
+  // dashboard stays usable by registration forms too — they carry the same
+  // answers map in a different envelope.
+  const dashboardSubmissions: DashboardSubmission[] = useMemo(() => submissions.map(s => {
+    let answers: Record<string, any> = {};
+    try { answers = JSON.parse(s.answers_json || '{}'); } catch { /* a malformed row shouldn't drop the rest of the summary */ }
+    return { id: s.id, created_at: s.created_at, answers, total_score: s.total_score, max_score: s.max_score };
+  }), [submissions]);
+
   const respondentLabel = (s: any) => {
     if (s.user_id) {
       const name = `${s.user_first_name || ''} ${s.user_last_name || ''}`.trim();
@@ -49,31 +64,43 @@ const SurveyResponses = () => {
     return s.respondent_name || 'ไม่ระบุตัวตน (Guest)';
   };
 
-  const exportCSV = () => {
+  // Declared after respondentLabel because it calls it — a useMemo body runs
+  // during render, so it can't sit above the const it depends on.
+  const comparisonSubmissions: ComparisonSubmission[] = useMemo(() => submissions.map(s => ({
+    // Members pair by account, guests by the phone they typed; anything else
+    // is anonymous and gets dropped by the comparison.
+    respondentKey: s.user_id ? `u${s.user_id}` : (s.respondent_phone ? `p${s.respondent_phone}` : ''),
+    respondentName: respondentLabel(s),
+    attemptNo: s.attempt_no ?? 1,
+    attemptLabel: s.attempt_label,
+    totalScore: s.total_score,
+    maxScore: s.max_score,
+    createdAt: s.created_at,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  })), [submissions]);
+
+  // Built on demand by ExportMenu — one row per submission, one column per
+  // question, matching what the table shows.
+  const buildCsv = (): CsvPayload => {
     const questionFields = (form?.fields || []).filter((f: any) => f.type !== 'heading');
-    const headers = ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', ...(form?.has_answer_key ? ['คะแนน'] : []), ...questionFields.map((f: any) => f.label)];
-    const rows = submissions.map(s => {
-      let answers: Record<string, any> = {};
-      try { answers = JSON.parse(s.answers_json || '{}'); } catch { /* malformed row shouldn't block the rest of the export */ }
-      return [
-        formatDateTime(s.created_at),
-        respondentLabel(s),
-        s.respondent_phone || '',
-        ...(form?.has_answer_key ? [s.total_score != null ? `${s.total_score}/${s.max_score}` : ''] : []),
-        ...questionFields.map((f: any) => {
-          const v = answers[f.field_key];
-          return Array.isArray(v) ? v.join('; ') : (v ?? '');
-        }),
-      ];
-    });
-    const csv = [headers, ...rows].map(r => r.map((cell: any) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${form?.name || 'survey'}-responses.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return {
+      fileName: `${form?.name || 'survey'}-responses`,
+      headers: ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', 'รอบ', ...(form?.has_answer_key ? ['คะแนน'] : []), ...questionFields.map((f: any) => f.label)],
+      rows: dashboardSubmissions.map((d, i) => {
+        const s = submissions[i];
+        return [
+          formatDateTime(s.created_at),
+          respondentLabel(s),
+          s.respondent_phone || '',
+          s.attempt_label || `ครั้งที่ ${s.attempt_no ?? 1}`,
+          ...(form?.has_answer_key ? [s.total_score != null ? `${s.total_score}/${s.max_score}` : ''] : []),
+          ...questionFields.map((f: any) => {
+            const v = d.answers[f.field_key];
+            return Array.isArray(v) ? v.join('; ') : (v ?? '');
+          }),
+        ];
+      }),
+    };
   };
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
@@ -86,11 +113,37 @@ const SurveyResponses = () => {
           <Typography variant="h5" sx={{ fontWeight: 800 }}>คำตอบ: {form?.name}</Typography>
           <Typography variant="body2" color="text.secondary">{submissions.length} คำตอบ</Typography>
         </Box>
-        <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportCSV} disabled={submissions.length === 0}>
-          Export CSV
-        </Button>
+        <ExportMenu
+          disabled={submissions.length === 0}
+          csv={buildCsv}
+          pdf={{
+            getElement: () => exportRef.current,
+            fileName: `${form?.name || 'survey'}-${tab === 0 ? 'summary' : tab === 2 ? 'comparison' : 'responses'}`,
+            reportTitle: `${tab === 0 ? 'สรุปผล' : tab === 2 ? 'เทียบก่อน-หลัง' : 'รายคำตอบ'}: ${form?.name || ''}`,
+            periodLabel: `${submissions.length} คำตอบ`,
+          }}
+        />
       </Stack>
 
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid #eef0f3' }}>
+        <Tab label="สรุปผล" sx={{ fontWeight: 700 }} />
+        <Tab label={`รายคำตอบ (${submissions.length})`} sx={{ fontWeight: 700 }} />
+        {/* Only a graded form has scores to take a difference of. */}
+        {form?.has_answer_key && <Tab label="เทียบก่อน–หลัง" sx={{ fontWeight: 700 }} />}
+      </Tabs>
+
+      {/* The PDF captures whatever this wrapper is currently showing, so the
+          file matches the tab the user is looking at. */}
+      <Box ref={exportRef}>
+      {tab === 0 && (
+        <FormResponseDashboard
+          fields={form?.fields || []}
+          submissions={dashboardSubmissions}
+          hasAnswerKey={!!form?.has_answer_key}
+        />
+      )}
+
+      {tab === 1 && (
       <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
         <Table>
           <TableHead>
@@ -126,6 +179,12 @@ const SurveyResponses = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      )}
+
+      {tab === 2 && form?.has_answer_key && (
+        <AttemptComparison submissions={comparisonSubmissions} />
+      )}
+      </Box>
 
       <Dialog open={!!viewing} onClose={() => setViewing(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>คำตอบของ {viewing ? respondentLabel(viewing) : ''}</DialogTitle>

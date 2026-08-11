@@ -38,6 +38,7 @@ import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { AddBookingDialog, CourseDetailPanel } from '../components/AddBookingDialog';
+import { downloadCsv } from '../utils/csvExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -1159,6 +1160,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     }
     const allHeaders = [...headers, ...dynamicFields.map(f => f.label)];
 
+    // Raw values only \u2014 downloadCsv does the quoting, so a course name or a
+    // free-text answer containing a double quote no longer shifts the columns.
     const csvRows = rows.map(b => {
       const dt = new Date(b.scheduled_at);
       const date = isNaN(dt.getTime()) ? b.scheduled_at : dt.toLocaleDateString('th-TH');
@@ -1169,42 +1172,35 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       const sub = b.form_submission_id ? submissions[b.form_submission_id] : undefined;
       const dynamicValues = dynamicFields.map(f => {
         const v = sub?.answers?.[f.fieldKey];
-        return `"${Array.isArray(v) ? v.join(', ') : (v ?? '')}"`;
+        return Array.isArray(v) ? v.join(', ') : (v ?? '');
       });
       return [
         b.id,
-        `"${getBookingTypeLabel(b)}"`,
-        `"${date}"`,
-        `"${time}"`,
-        `"${b.course_name || ''}"`,
-        `"${b.child_name || ''}"`,
-        `"${b.child_name_en || '-'}"`,
-        `"${b.child_nickname || '-'}"`,
-        `"${getGenderLabel(b.child_gender)}"`,
-        `"${childBdate}"`,
-        `"${actualAge}"`,
-        `"${b.parent_name || '-'}"`,
-        `"${b.parent_name_en || '-'}"`,
-        `"${formatParentPhone(b.parent_phone)}"`,
-        `"${b.parent_email || '-'}"`,
-        `"${b.branch_name || ''}"`,
-        `"${status}"`,
-        `"${formatUtcDateTime(b.created_at)}"`,
-        `"${formatUtcDateTime(b.paid_at)}"`,
-        `"${b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}"`,
-        `"${b.payment_method || '-'}"`,
-        `"${b.sponsor_tag || '-'}"`,
+        getBookingTypeLabel(b),
+        date,
+        time,
+        b.course_name || '',
+        b.child_name || '',
+        b.child_name_en || '-',
+        b.child_nickname || '-',
+        getGenderLabel(b.child_gender),
+        childBdate,
+        actualAge,
+        b.parent_name || '-',
+        b.parent_name_en || '-',
+        formatParentPhone(b.parent_phone),
+        b.parent_email || '-',
+        b.branch_name || '',
+        status,
+        formatUtcDateTime(b.created_at),
+        formatUtcDateTime(b.paid_at),
+        b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
+        b.payment_method || '-',
+        b.sponsor_tag || '-',
         ...dynamicValues,
-      ].join(',');
+      ];
     });
-    const csv = '\uFEFF' + [allHeaders.join(','), ...csvRows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bookings_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`bookings_${new Date().toISOString().slice(0, 10)}`, allHeaders, csvRows);
   };
 
   const getTeamLabel = (b: Booking): string | null => {

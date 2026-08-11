@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -8,6 +8,11 @@ import SurveyFillForm from '../components/SurveyFillForm';
 const SurveyDetail = () => {
   const navigate = useNavigate();
   const { idOrSlug } = useParams<{ idOrSlug: string }>();
+  // Staff share the same form twice with a different ?attempt= on each link
+  // ("ก่อนเรียน" / "หลังเรียน") so the CRM can name the rounds. Which round it
+  // actually is gets counted server-side — this is only the label.
+  const [searchParams] = useSearchParams();
+  const attemptLabel = searchParams.get('attempt') || undefined;
   const { lang } = useTranslation();
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
@@ -43,6 +48,7 @@ const SurveyDetail = () => {
         answers,
         respondentName: identity.mode === 'manual' ? identity.name.trim() || undefined : undefined,
         respondentPhone: identity.mode === 'manual' ? identity.phone.trim() || undefined : undefined,
+        attemptLabel,
       });
       if (res.data.success) {
         setResult({ totalScore: res.data.totalScore, maxScore: res.data.maxScore, band: res.data.result });
