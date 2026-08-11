@@ -326,6 +326,9 @@ app.get('/doc', (c) => {
 // --- Auth Routes ---
 app.post('/api/v1/auth/request-otp', (c) => authController.requestOtp(c));
 app.post('/api/v1/auth/verify-otp', (c) => authController.verifyOtp(c));
+app.get ('/api/v1/auth/email-otp/available', (c) => authController.emailOtpAvailable(c));
+app.post('/api/v1/auth/email-otp/request',   (c) => authController.requestEmailOtp(c));
+app.post('/api/v1/auth/email-otp/verify',    (c) => authController.verifyEmailOtp(c));
 app.post('/api/v1/auth/register', (c) => authController.register(c));
 app.post('/api/v1/auth/login', (c) => authController.login(c));
 app.post('/api/v1/auth/google', (c) => authController.googleLogin(c));

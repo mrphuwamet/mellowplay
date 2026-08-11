@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { AuthService } from '../services/authService';
 import { ConfigService } from '../services/configService';
 import { SmsService } from '../services/smsService';
+import { EmailService } from '../services/emailService';
 import { UserRepository } from '../repositories/userRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { sendAlert, sendNotification } from '../services/alertService';
@@ -71,6 +72,115 @@ export class AuthController {
       return c.json({ success: false, message: error.message }, 500);
     }
   }
+  // ── Optional email verification during registration ─────────────────────
+  //
+  // Kept separate from the phone OTP rather than folded into it. Phone stays the
+  // identity (Users.phone is UNIQUE NOT NULL and login keys off it); this only
+  // proves a typed address is real so Users.email_verified can be trusted.
+  // Skipping it must always leave registration completable.
+  //
+  // Why it matters beyond correctness: Cloudflare scales the account's daily send
+  // quota on deliverability, so mail to mistyped addresses costs sending capacity
+  // for every other email the system sends.
+  async requestEmailOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { email } = await c.req.json();
+      const address = (email || '').trim().toLowerCase();
+
+      if (!address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+        return c.json({ success: false, message: 'กรุณากรอกอีเมลให้ถูกต้อง' }, 400);
+      }
+
+      const settingsRepo = new SettingsRepository(config.db);
+      const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
+      const fromName = await settingsRepo.getOverridable('email_from_name', 'Mellow Play');
+      const emailService = new EmailService(config.emailBinding, fromAddress, fromName);
+
+      // Unlike a booking confirmation — where an unsendable email is skipped and
+      // the booking still succeeds — a code that never arrives leaves the user
+      // stuck on the code screen. Refuse up front; the frontend hides the option
+      // entirely via /auth/email-otp/available.
+      if (!emailService.isConfigured) {
+        return c.json({ success: false, message: 'ระบบยังไม่พร้อมส่งอีเมลยืนยัน' }, 503);
+      }
+
+      // Same limiter as the phone OTP, keyed on the address. It matters more here:
+      // repeatedly mailing a non-existent address drives up the bounce rate, which
+      // is what the sending quota is scaled on.
+      const rateLimit = await enforceOtpRequestLimit(config.kv, `email:${address}`);
+      if (!rateLimit.ok) return c.json({ success: false, message: rateLimit.message }, 429);
+
+      const otp = AuthService.generateOTP();
+      const ref = AuthService.generateRefCode();
+      // 5 minutes, matching what sendOtp's wording promises.
+      await config.kv.put(`email_otp:${address}`, JSON.stringify({ otp, ref }), { expirationTtl: 300 });
+
+      const result = await emailService.sendOtp(address, otp, ref);
+      if (!result.ok && !config.isDev) {
+        await sendAlert(config.db, 'Email Send Failed (Registration OTP)', { email: address, detail: result.detail });
+        return c.json({ success: false, message: 'ส่งอีเมลยืนยันไม่สำเร็จ' }, 502);
+      }
+
+      return c.json({
+        success: true,
+        message: 'ส่งรหัสยืนยันไปที่อีเมลแล้ว',
+        ref,
+        ...(config.isDev ? { debug_otp: otp } : {}),
+      });
+    } catch (error: any) {
+      console.error('requestEmailOtp error:', error);
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  async verifyEmailOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const { email, otp } = await c.req.json();
+      const address = (email || '').trim().toLowerCase();
+      const otpKey = `email_otp:${address}`;
+
+      const stored = await config.kv.get(otpKey);
+      if (!stored) return c.json({ success: false, message: 'รหัสหมดอายุ กรุณาขอรหัสใหม่' }, 400);
+
+      const verifyLimit = await enforceOtpVerifyLimit(config.kv, otpKey);
+      if (!verifyLimit.ok) return c.json({ success: false, message: verifyLimit.message }, 429);
+
+      let expected: string | null = null;
+      try { expected = JSON.parse(stored).otp; } catch { expected = stored; }
+      if (!otp || otp !== expected) return c.json({ success: false, message: 'รหัสไม่ถูกต้อง' }, 400);
+
+      await clearOtpVerifyAttempts(config.kv, otpKey);
+      await config.kv.delete(otpKey);
+
+      // The account does not exist yet at this point in registration, so there is
+      // no row to flag. A short-lived marker records the proof and register() reads
+      // it — the client is never trusted to claim "verified", it only reports which
+      // address it verified.
+      await config.kv.put(`email_verified:${address}`, '1', { expirationTtl: 1800 });
+
+      return c.json({ success: true, message: 'ยืนยันอีเมลเรียบร้อย' });
+    } catch (error: any) {
+      console.error('verifyEmailOtp error:', error);
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  // Lets the registration screen decide whether to offer email verification at
+  // all, rather than showing a button that can only fail.
+  async emailOtpAvailable(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const settingsRepo = new SettingsRepository(config.db);
+      const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
+      const emailService = new EmailService(config.emailBinding, fromAddress);
+      return c.json({ success: true, available: emailService.isConfigured });
+    } catch {
+      return c.json({ success: true, available: false });
+    }
+  }
+
   async verifyOtp(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
