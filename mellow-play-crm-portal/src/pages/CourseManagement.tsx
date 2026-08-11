@@ -37,6 +37,7 @@ import {
   AccessTime as DurationIcon,
   AutoAwesome as SkillsIcon,
   Percent as PercentIcon,
+  Sms as SmsIcon,
   People as SalesIcon,
   School as TeacherIcon,
   AutoStories as SkillsLibIcon,
@@ -52,9 +53,8 @@ import axios from 'axios';
 import { renderSkillIcon, type SkillItem, type SkillType } from '../utils/skillsLibrary';
 import FocalPointPicker from '../components/FocalPointPicker';
 import CourseViewPreview from '../components/CourseViewPreview';
+import CourseNotificationsTab from '../components/CourseNotificationsTab';
 import RichTextEditor from '../components/RichTextEditor';
-import SmsPreviewBubble from '../components/SmsPreviewBubble';
-import SmsTemplateEditor from '../components/SmsTemplateEditor';
 
 // Converts rich HTML content into paragraph-separated plain text before
 // sending to the translate API, which only understands plain text.
@@ -118,15 +118,6 @@ function expandFamilyMemberPickerFields(fields: any[]): { field_key: string; lab
     }
   }
   return expanded;
-}
-
-// Mirrors smsTemplateService.ts's renderSmsTemplate — used for the local
-// Preview dialog so it doesn't need its own backend round-trip.
-function renderSmsTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
-    const value = variables[key];
-    return value != null ? value : match;
-  });
 }
 
 const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -336,7 +327,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [couponTypes, setCouponTypes] = useState<any[]>([]);
   const [registrationForms, setRegistrationForms] = useState<any[]>([]);
   const [smsFormFields, setSmsFormFields] = useState<{ field_key: string; label: string }[]>([]);
-  const [smsPreviewField, setSmsPreviewField] = useState<'smsSuccessTemplate' | 'smsReminderTemplate' | null>(null);
+  // Which group of the edit form is showing. Reset to 0 whenever a different
+  // course is opened, so a staff member doesn't land on Pricing for a course
+  // they just clicked into.
+  const [editTab, setEditTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -423,6 +417,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     smsSuccessEnabled: false,
     smsSuccessTemplate: '',
     smsReminderTemplate: '',
+    emailSuccessEnabled: false,
+    emailSuccessSubject: '',
+    emailSuccessTemplate: '',
   });
 
   const [categoryFormData, setCategoryFormData] = useState<{ name: string; description: string; color: string; imageUrl: string; imagePosition: string; type: 'class' | 'event' | 'service' }>({ name: '', description: '', color: '#7452d6', imageUrl: '', imagePosition: '50% 50%', type: courseType });
@@ -729,6 +726,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     }));
   };
 
+  // Shown on the Notifications tab label so an unconfigured course is visible
+  // without opening the tab — the whole point of moving these behind one.
+  const notifyChannelCount = (formData.smsSuccessEnabled ? 1 : 0) + (formData.emailSuccessEnabled ? 1 : 0);
+
   // Most courses use one image everywhere and only need it framed once. Doing
   // that meant repeating the same pick-image-then-drag-then-zoom three times,
   // once per ratio, which is the bulk of the work in this tab.
@@ -984,6 +985,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         smsSuccessEnabled: !!(course as any).sms_success_enabled,
         smsSuccessTemplate: (course as any).sms_success_template || '',
         smsReminderTemplate: (course as any).sms_reminder_template || '',
+        emailSuccessEnabled: !!(course as any).email_success_enabled,
+        emailSuccessSubject: (course as any).email_success_subject || '',
+        emailSuccessTemplate: (course as any).email_success_template || '',
       });
     } else {
       setEditCourse(null);
@@ -1011,8 +1015,12 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         smsSuccessEnabled: false,
         smsSuccessTemplate: '',
         smsReminderTemplate: '',
+        emailSuccessEnabled: false,
+        emailSuccessSubject: '',
+        emailSuccessTemplate: '',
       });
     }
+    setEditTab(0);
     setIsEditing(true);
   };
 
@@ -1101,6 +1109,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         smsSuccessEnabled:      formData.smsSuccessEnabled,
         smsSuccessTemplate:     formData.smsSuccessTemplate || null,
         smsReminderTemplate:    formData.smsReminderTemplate || null,
+        emailSuccessEnabled:    formData.emailSuccessEnabled,
+        emailSuccessSubject:    formData.emailSuccessSubject || null,
+        emailSuccessTemplate:   formData.emailSuccessTemplate || null,
       };
       let courseId = editCourse?.id;
       if (editCourse) {
@@ -1245,6 +1256,33 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
               Basic Info below instead, so the whole form uses the full width. */}
           <Grid item xs={12}>
 
+            {/* The edit form was one ~1,000-line scroll of six stacked sections,
+                which made anything below the fold hard to find and left nowhere
+                obvious to put the email template. Grouped into tabs instead.
+                Notifications is its own tab because SMS and email are two
+                channels for the same event and have to be seen together.
+
+                "รูปภาพและสื่อ" is not a separate tab yet: the media summary,
+                poster and teacher-guide boxes are Grid items nested inside Basic
+                Info (see the comment above), so pulling them out is a separate
+                move rather than a regrouping. */}
+            <Tabs
+              value={editTab}
+              onChange={(_, v) => setEditTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ mb: 2.5, borderBottom: '1px solid', borderColor: 'divider' }}
+            >
+              <Tab label="ข้อมูลพื้นฐาน" sx={{ textTransform: 'none', fontWeight: 700 }} />
+              <Tab label="ราคาและคูปอง" sx={{ textTransform: 'none', fontWeight: 700 }} />
+              <Tab
+                label={notifyChannelCount === 0 ? 'การแจ้งเตือน (ปิดอยู่)' : `การแจ้งเตือน (${notifyChannelCount})`}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              />
+              {courseType === 'class' && <Tab label="ทักษะและตัวชี้วัด" sx={{ textTransform: 'none', fontWeight: 700 }} />}
+            </Tabs>
+
+            {editTab === 0 && (<>
             {/* Basic Info */}
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
               <SectionLabel icon={<CategoryIcon />} title="ข้อมูลพื้นฐาน" />
@@ -1352,63 +1390,6 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     helperText="เมื่อถึงวันเวลานี้ ปุ่มจองจะถูกซ่อน แต่ยังแสดงในรายการตามปกติ"
                   />
                 </Grid>
-
-                {/* SMS หลังจองสำเร็จ — ยิงอัตโนมัติจากจุดเดียวกับที่ระบบส่ง
-                    Discord แจ้งจองสำเร็จอยู่แล้ว (ทั้งเคสจ่ายทันทีและเคส Beam
-                    webhook) ข้อความอ้างอิงตัวแปร Dynamic ได้ทั้งค่าพื้นฐาน
-                    (ชื่อเด็ก/ผู้ปกครอง/คอร์ส/สาขา/วันเวลา) และทุกฟิลด์ในฟอร์ม
-                    ลงทะเบียนที่ผูกกับคอร์สนี้ — คลิก chip เพื่อแทรกที่ตำแหน่ง
-                    cursor ปัจจุบันในกล่องข้อความ ช่องข้อความแจ้งเตือนล่วงหน้า
-                    เป็นแค่ค่าเริ่มต้น จะแก้ไขได้อีกครั้งตอนกดส่งจริงที่หน้า
-                    "ส่ง SMS แจ้งเตือน" */}
-                <Grid item xs={12}>
-                  <FormControlLabel
-                    control={<Switch checked={formData.smsSuccessEnabled} onChange={e => setFormData({ ...formData, smsSuccessEnabled: e.target.checked })} />}
-                    label="เปิดใช้งาน SMS แจ้งจองสำเร็จ"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS จองสำเร็จ</Typography>
-                  <SmsTemplateEditor
-                    value={formData.smsSuccessTemplate}
-                    onChange={text => setFormData({ ...formData, smsSuccessTemplate: text })}
-                    placeholder="เช่น สวัสดีคุณ [ชื่อผู้ปกครอง] การจอง [ชื่อคอร์ส/กิจกรรม] สำหรับ [ชื่อเด็ก] วันที่ [วันเวลานัดหมาย] สำเร็จแล้วค่ะ"
-                    builtins={BUILTIN_SMS_VARIABLES}
-                    formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
-                  />
-                  <Button size="small" onClick={() => setSmsPreviewField('smsSuccessTemplate')} disabled={!formData.smsSuccessTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
-                    Preview
-                  </Button>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS แจ้งเตือนล่วงหน้า (ค่าเริ่มต้น)</Typography>
-                  <SmsTemplateEditor
-                    value={formData.smsReminderTemplate}
-                    onChange={text => setFormData({ ...formData, smsReminderTemplate: text })}
-                    placeholder="ใช้เป็นข้อความตั้งต้นที่หน้า ส่ง SMS แจ้งเตือน แก้ไขได้อีกครั้งก่อนส่งจริงทุกครั้ง"
-                    builtins={BUILTIN_SMS_VARIABLES}
-                    formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
-                  />
-                  <Button size="small" onClick={() => setSmsPreviewField('smsReminderTemplate')} disabled={!formData.smsReminderTemplate.trim()} sx={{ mt: 1, textTransform: 'none' }}>
-                    Preview
-                  </Button>
-                </Grid>
-
-                <Dialog open={!!smsPreviewField} onClose={() => setSmsPreviewField(null)} maxWidth="xs" fullWidth>
-                  <DialogTitle>Preview ข้อความ SMS</DialogTitle>
-                  <DialogContent>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, textAlign: 'center' }}>
-                      แสดงด้วยข้อมูลตัวอย่าง (ไม่มีการจองจริงให้อ้างอิงในหน้านี้)
-                    </Typography>
-                    <SmsPreviewBubble message={renderSmsTemplate(
-                      (smsPreviewField && formData[smsPreviewField]) || '',
-                      buildSampleSmsVariables(formData.name, smsFormFields),
-                    )} />
-                  </DialogContent>
-                  <DialogActions>
-                    <Button onClick={() => setSmsPreviewField(null)}>ปิด</Button>
-                  </DialogActions>
-                </Dialog>
 
                 {/* Custom check-in actions — a simple staff-defined text list
                     (เช็คอิน, รับของที่ระลึก, ...) shown to whoever scans this
@@ -1792,7 +1773,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                 )}
               </Grid>
             </Paper>
+            </>)}
 
+            {editTab === 1 && (<>
             {/* Pricing */}
             <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
               <SectionLabel icon={<PriceIcon />} title="ราคาและคูปอง" />
@@ -1945,12 +1928,33 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                 </Grid>
               </Grid>
             </Paper>
+            </>)}
+
+            {editTab === 2 && (
+              <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+                <SectionLabel icon={<SmsIcon />} title="การแจ้งเตือนเมื่อจองสำเร็จ" />
+                <CourseNotificationsTab
+                  value={{
+                    smsSuccessEnabled: formData.smsSuccessEnabled,
+                    smsSuccessTemplate: formData.smsSuccessTemplate,
+                    smsReminderTemplate: formData.smsReminderTemplate,
+                    emailSuccessEnabled: formData.emailSuccessEnabled,
+                    emailSuccessSubject: formData.emailSuccessSubject,
+                    emailSuccessTemplate: formData.emailSuccessTemplate,
+                  }}
+                  onChange={patch => setFormData(f => ({ ...f, ...patch }))}
+                  builtins={BUILTIN_SMS_VARIABLES}
+                  formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
+                  sampleVariables={buildSampleSmsVariables(formData.name, smsFormFields)}
+                />
+              </Paper>
+            )}
 
             {/* Skills + Achievement — draws from the same Skills Library
                 that's hidden entirely on the Event page, so this section
                 (a per-course pick from that library) doesn't apply there
                 either. */}
-            {courseType === 'class' && (
+            {editTab === 3 && courseType === 'class' && (
               <Paper sx={{ p: 3, borderRadius: 3 }}>
                 <SectionLabel icon={<SkillsIcon />} title="ทักษะและตัวชี้วัด" />
                 <SkillTagInput
