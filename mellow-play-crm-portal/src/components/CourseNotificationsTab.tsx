@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Box, Grid, Typography, Switch, FormControlLabel, Button, TextField, Divider,
-  Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab, Alert, Chip, Stack, Tooltip,
 } from '@mui/material';
+import { Casino as ShuffleIcon } from '@mui/icons-material';
 import SmsTemplateEditor from './SmsTemplateEditor';
 import SmsPreviewBubble from './SmsPreviewBubble';
 import RichTextEditor from './RichTextEditor';
+import { buildSampleVariables } from '../utils/sampleVariables';
 
 // Mirrors the backend's renderSmsTemplate / renderEmailTemplate /wrapEmailHtml so
 // both previews render locally with no round-trip, the same way
@@ -59,19 +61,57 @@ interface CourseNotificationsTabProps {
   onChange: (patch: Partial<CourseNotificationsValue>) => void;
   builtins: React.ComponentProps<typeof SmsTemplateEditor>['builtins'];
   formFields: React.ComponentProps<typeof SmsTemplateEditor>['formFields'];
-  /** Sample values for both previews, built by the page from the course's form. */
-  sampleVariables: Record<string, string>;
+  /** Used to fill {{course_name}} in both previews. */
+  courseName: string;
 }
 
 // SMS and email live in one place because they are two channels for the same
 // event — a booking confirmation. Split across separate screens it is easy to
 // configure email and not notice SMS is still on, and send a parent both.
 const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
-  value, onChange, builtins, formFields, sampleVariables,
+  value, onChange, builtins, formFields, courseName,
 }) => {
   const [smsPreviewField, setSmsPreviewField] = useState<'smsSuccessTemplate' | 'smsReminderTemplate' | null>(null);
   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
   const [emailBodyTab, setEmailBodyTab] = useState<'wysiwyg' | 'html'>('wysiwyg');
+  // Bumping the seed reshuffles every sample value. Held in state rather than
+  // regenerated per render so the names stay still while the template is edited.
+  const [sampleSeed, setSampleSeed] = useState(1);
+  const emailEditorRef = useRef<any>(null);
+  const htmlFieldRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // The chips carry `key`; the sample builder keys off `field_key` because it
+  // mirrors the shape the registration-form API returns.
+  const sampleVariables = buildSampleVariables(
+    courseName,
+    (formFields ?? []).map(f => ({ field_key: f.key, label: f.label })),
+    sampleSeed,
+  );
+
+  // Inserts at the cursor in whichever body view is open, matching how the SMS
+  // editor's chips behave — without this the email body was the one template
+  // field where variables had to be typed by hand and spelled correctly.
+  const insertVariable = (key: string) => {
+    const token = `{{${key}}}`;
+    if (emailBodyTab === 'html') {
+      const el = htmlFieldRef.current;
+      if (!el) { onChange({ emailSuccessTemplate: value.emailSuccessTemplate + token }); return; }
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? start;
+      const next = el.value.slice(0, start) + token + el.value.slice(end);
+      onChange({ emailSuccessTemplate: next });
+      // Restore the caret after React re-renders with the new value, otherwise it
+      // jumps to the end and the next chip lands in the wrong place.
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + token.length, start + token.length);
+      });
+      return;
+    }
+    const editor = emailEditorRef.current;
+    if (editor) editor.chain().focus().insertContent(token).run();
+    else onChange({ emailSuccessTemplate: value.emailSuccessTemplate + token });
+  };
 
   const bothOn = value.smsSuccessEnabled && value.emailSuccessEnabled;
   const noneOn = !value.smsSuccessEnabled && !value.emailSuccessEnabled;
@@ -196,6 +236,7 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
               onChange={html => onChange({ emailSuccessTemplate: html })}
               placeholder="เช่น สวัสดีคุณ {{parent_name}} การลงทะเบียน {{course_name}} สำหรับ {{child_name}} เสร็จสมบูรณ์แล้วค่ะ"
               uploadFolder="course-email"
+              onEditorReady={editor => { emailEditorRef.current = editor; }}
             />
           ) : (
             <TextField
@@ -205,9 +246,25 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
               value={value.emailSuccessTemplate}
               onChange={e => onChange({ emailSuccessTemplate: e.target.value })}
               placeholder="<p>สวัสดีคุณ {{parent_name}}</p>"
+              inputRef={htmlFieldRef}
               InputProps={{ sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 } }}
             />
           )}
+
+          {/* Same chips the SMS editor offers, wired to insert at the cursor in
+              whichever view is open. Builtins are filled, form fields outlined,
+              matching SmsTemplateEditor so the two read as one feature. */}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.25, mb: 0.5 }}>
+            คลิกเพื่อแทรกตัวแปรที่ตำแหน่ง cursor
+          </Typography>
+          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+            {builtins.map(v => (
+              <Chip key={v.key} size="small" label={v.label} onClick={() => insertVariable(v.key)} />
+            ))}
+            {(formFields ?? []).map(f => (
+              <Chip key={f.key} size="small" variant="outlined" label={f.label} onClick={() => insertVariable(f.key)} />
+            ))}
+          </Stack>
 
           <Button
             size="small"
@@ -232,6 +289,11 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
           />
         </DialogContent>
         <DialogActions>
+          <Tooltip title="สุ่มชื่อ สาขา วันเวลา และคำตอบในฟอร์มชุดใหม่ เพื่อดูว่าข้อความยาวขึ้นแล้วยังอ่านดีอยู่ไหม">
+            <Button startIcon={<ShuffleIcon />} onClick={() => setSampleSeed(s => s + 1)} sx={{ textTransform: 'none', mr: 'auto' }}>
+              สุ่มข้อมูลใหม่
+            </Button>
+          </Tooltip>
           <Button onClick={() => setSmsPreviewField(null)}>ปิด</Button>
         </DialogActions>
       </Dialog>
@@ -260,6 +322,11 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
           />
         </DialogContent>
         <DialogActions>
+          <Tooltip title="สุ่มชื่อ สาขา วันเวลา และคำตอบในฟอร์มชุดใหม่">
+            <Button startIcon={<ShuffleIcon />} onClick={() => setSampleSeed(s => s + 1)} sx={{ textTransform: 'none', mr: 'auto' }}>
+              สุ่มข้อมูลใหม่
+            </Button>
+          </Tooltip>
           <Button onClick={() => setEmailPreviewOpen(false)}>ปิด</Button>
         </DialogActions>
       </Dialog>

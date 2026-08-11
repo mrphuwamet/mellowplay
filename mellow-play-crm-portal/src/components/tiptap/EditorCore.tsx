@@ -50,6 +50,12 @@ export interface EditorCoreProps {
   minHeight: number;
   maxHeight: number;
   helperText: string;
+  /**
+   * Hands the TipTap instance to the host once it exists, so a caller can insert
+   * at the cursor — the variable chips above the email body editor need this.
+   * The host must not hold on to it after unmount.
+   */
+  onEditorReady?: (editor: ReturnType<typeof useEditor>) => void;
 }
 
 // What the crop dialog should do with the file once the user is happy with it.
@@ -63,7 +69,7 @@ type PendingKind = 'inline' | 'mediaCard';
 // only real difference.
 const EditorCore: React.FC<EditorCoreProps> = ({
   value, onChange, placeholder, uploadFolder, variant, contentClassName,
-  minHeight, maxHeight, helperText,
+  minHeight, maxHeight, helperText, onEditorReady,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rowInputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +123,11 @@ const EditorCore: React.FC<EditorCoreProps> = ({
       },
     },
   });
+
+  useEffect(() => {
+    if (editor && onEditorReady) onEditorReady(editor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // Switching which item is being edited swaps `value` out from under an
   // already-mounted editor instance — sync it in without fighting the cursor

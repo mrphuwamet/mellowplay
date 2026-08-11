@@ -120,30 +120,6 @@ function expandFamilyMemberPickerFields(fields: any[]): { field_key: string; lab
   return expanded;
 }
 
-const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-function formatThaiDateTime(raw: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(raw);
-  if (!match) return raw;
-  const [, y, m, d, hh, mm] = match;
-  return `วันที่ ${parseInt(d, 10)} ${THAI_MONTHS_ABBR[parseInt(m, 10) - 1] || m} ${parseInt(y, 10) + 543} เวลา ${hh}:${mm}น.`;
-}
-
-// There's no real booking to preview a per-course template against here
-// (this is just the template editor, not a send), so every builtin gets a
-// generic sample value. Course-specific form fields get a generic
-// "(ตัวอย่าง) <label>" placeholder so an unrendered {{field_key}} never
-// leaks into the preview.
-function buildSampleSmsVariables(courseName: string, formFields: { field_key: string; label: string }[]): Record<string, string> {
-  const vars: Record<string, string> = {
-    child_name: 'น้องเอ๋', child_real_name: 'ธนกร ตัวอย่าง', child_nickname: 'น้องเอ๋',
-    parent_name: 'สมชาย ตัวอย่าง', parent_real_name: 'สมชาย ตัวอย่าง', parent_nickname: 'พี่หนึ่ง',
-    course_name: courseName || 'คอร์สตัวอย่าง', branch_name: 'สาขาตัวอย่าง',
-    scheduled_at: formatThaiDateTime('2026-09-02 16:00'),
-  };
-  for (const f of formFields) vars[f.field_key] = `(ตัวอย่าง) ${f.label}`;
-  return vars;
-}
-
 interface Course {
   id: number;
   code: string;
@@ -1945,7 +1921,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   onChange={patch => setFormData(f => ({ ...f, ...patch }))}
                   builtins={BUILTIN_SMS_VARIABLES}
                   formFields={smsFormFields.map(f => ({ key: f.field_key, label: f.label }))}
-                  sampleVariables={buildSampleSmsVariables(formData.name, smsFormFields)}
+                  courseName={formData.name}
                 />
               </Paper>
             )}

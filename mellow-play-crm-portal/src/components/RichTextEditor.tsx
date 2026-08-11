@@ -6,6 +6,8 @@ interface RichTextEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   uploadFolder?: string;
+  /** See EditorCore — lets a host insert at the cursor (variable chips). */
+  onEditorReady?: React.ComponentProps<typeof EditorCore>['onEditorReady'];
 }
 
 // Course / event / service descriptions. Now a thin wrapper over the shared
@@ -17,12 +19,13 @@ interface RichTextEditorProps {
 // The value/onChange/placeholder/uploadFolder API is unchanged, so
 // CourseManagement.tsx needs no call-site changes. The `course` variant leaves
 // out the CTA button and media card, which stay article-only as before.
-const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, placeholder, uploadFolder = 'course-description' }) => (
+const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, placeholder, uploadFolder = 'course-description', onEditorReady }) => (
   <EditorCore
     value={value}
     onChange={onChange}
     placeholder={placeholder}
     uploadFolder={uploadFolder}
+    onEditorReady={onEditorReady}
     variant="course"
     contentClassName="rich-text-editor-content"
     minHeight={180}
