@@ -34,6 +34,8 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 
+import SessionManagement from './SessionManagement';
+
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
@@ -155,6 +157,8 @@ const SurveyManagement = () => {
   const [formKind, setFormKind] = useState('survey');
   const [slug, setSlug] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [topTab, setTopTab] = useState(0);
+  const [sessionEditing, setSessionEditing] = useState(false);
   const [shuffleMode, setShuffleMode] = useState('none');
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
@@ -553,13 +557,29 @@ const SurveyManagement = () => {
   }
 
   // ─── List View ───────────────────────────────────────────────────────────
+  // Forms and sessions share this screen: a session is just a bundle of these
+  // forms, and splitting them across two menu entries made staff hop back and
+  // forth to build one thing. Session editing hides the tabs the same way form
+  // editing does, so an editor is never framed by navigation it can't use.
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>แบบสอบถาม / แบบทดสอบ (Pre-Test, Post-Test)</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={startCreate}>สร้างฟอร์มใหม่</Button>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>แบบสอบถาม / แบบทดสอบ</Typography>
+        {topTab === 0 && <Button variant="contained" startIcon={<AddIcon />} onClick={startCreate}>สร้างฟอร์มใหม่</Button>}
       </Stack>
 
+      {!sessionEditing && (
+        <Tabs value={topTab} onChange={(_, v) => setTopTab(v)} sx={{ mb: 3, borderBottom: '1px solid #eef0f3' }}>
+          <Tab label="แบบฟอร์ม" sx={{ fontWeight: 700 }} />
+          <Tab label="ชุดแบบฟอร์ม (Session)" sx={{ fontWeight: 700 }} />
+          <Tab label="เปรียบเทียบ Session" sx={{ fontWeight: 700 }} />
+        </Tabs>
+      )}
+
+      {topTab === 1 && <SessionManagement view="list" onEditingChange={setSessionEditing} />}
+      {topTab === 2 && <SessionManagement view="compare" onEditingChange={setSessionEditing} />}
+
+      {topTab === 0 && (
       <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
         <Table>
           <TableHead>
@@ -602,6 +622,7 @@ const SurveyManagement = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      )}
 
       <Dialog open={!!itemToDelete} onClose={() => setItemToDelete(null)}>
         <DialogTitle>ยืนยันการลบ</DialogTitle>

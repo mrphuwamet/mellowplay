@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
 import {
   Typography, Box, CircularProgress, Button, Chip, IconButton, Paper, Stack, Alert,
   TextField, Switch, FormControlLabel, MenuItem, Select, FormControl, InputLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab, Snackbar,
+  Dialog, DialogTitle, DialogContent, DialogActions, Snackbar,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ArrowBack as BackIcon,
   Save as SaveIcon, Link as LinkIcon, ArrowUpward as UpIcon, ArrowDownward as DownIcon,
-  Close as CloseIcon, CompareArrows as CompareIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import SessionComparison, { SessionBundle, FormFields } from '../components/SessionComparison';
 
@@ -21,14 +20,18 @@ const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'h
 /**
  * Sessions — chain several forms behind one link.
  *
- * Lives beside SurveyManagement rather than inside it: a session is a
- * different object with its own list, editor and comparison view, and folding
- * three screens into the form builder would bury both.
+ * Rendered inside SurveyManagement's tabs rather than as its own route: a
+ * session is a bundle of those same forms, and putting them on separate menu
+ * entries made staff hop between screens to build one thing. Which tab is
+ * showing is passed in as `view`; `onEditingChange` lets the host hide its
+ * tabs while the session editor is open.
  */
-const SessionManagement = () => {
-  const navigate = useNavigate();
-  const [tab, setTab] = useState(0);
-
+const SessionManagement = ({
+  view = 'list', onEditingChange,
+}: {
+  view?: 'list' | 'compare';
+  onEditingChange?: (editing: boolean) => void;
+}) => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [forms, setForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,12 +76,14 @@ const SessionManagement = () => {
     setSaveError(null);
   };
 
-  const openCreate = () => { resetForm(); setEditId(null); setIsEditing(true); };
+  const openEditor = (editing: boolean) => { setIsEditing(editing); onEditingChange?.(editing); };
+
+  const openCreate = () => { resetForm(); setEditId(null); openEditor(true); };
 
   const openEdit = async (id: number) => {
     resetForm();
     setEditId(id);
-    setIsEditing(true);
+    openEditor(true);
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE}/survey-sessions/${id}`);
@@ -108,7 +113,7 @@ const SessionManagement = () => {
       };
       if (editId) await axios.put(`${API_BASE}/survey-sessions/${editId}`, payload);
       else await axios.post(`${API_BASE}/survey-sessions`, payload);
-      setIsEditing(false);
+      openEditor(false);
       fetchAll();
     } catch (err: any) {
       setSaveError(err.response?.data?.message || 'บันทึกไม่สำเร็จ');
@@ -186,7 +191,7 @@ const SessionManagement = () => {
     return (
       <Box>
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-          <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
+          <IconButton onClick={() => openEditor(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
           <Typography variant="h5" sx={{ fontWeight: 800, flex: 1 }}>
             {editId ? 'แก้ไขชุดแบบฟอร์ม' : 'สร้างชุดแบบฟอร์ม'}
           </Typography>
@@ -263,18 +268,13 @@ const SessionManagement = () => {
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800, flex: 1 }}>ชุดแบบฟอร์ม (Session)</Typography>
-        <Button variant="outlined" onClick={() => navigate('/crm/surveys')}>ไปหน้าแบบฟอร์ม</Button>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>สร้างชุดใหม่</Button>
-      </Stack>
+      {view === 'list' && (
+        <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>สร้างชุดใหม่</Button>
+        </Stack>
+      )}
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid #eef0f3' }}>
-        <Tab label="รายการชุด" sx={{ fontWeight: 700 }} />
-        <Tab label="เปรียบเทียบ Session" sx={{ fontWeight: 700 }} icon={<CompareIcon fontSize="small" />} iconPosition="start" />
-      </Tabs>
-
-      {tab === 0 && (
+      {view === 'list' && (
         <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
           <Table>
             <TableHead>
@@ -317,7 +317,7 @@ const SessionManagement = () => {
         </TableContainer>
       )}
 
-      {tab === 1 && (
+      {view === 'compare' && (
         <Stack spacing={3}>
           <Paper sx={{ p: 3, borderRadius: 3 }}>
             <Stack direction="row" useFlexGap flexWrap="wrap" gap={2} alignItems="center">

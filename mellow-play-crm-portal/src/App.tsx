@@ -87,7 +87,6 @@ import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
 import SurveyManagement from './pages/SurveyManagement';
-import SessionManagement from './pages/SessionManagement';
 import SurveyResponses from './pages/SurveyResponses';
 import SmsNotifications from './pages/SmsNotifications';
 import IncentiveTracking from './pages/IncentiveTracking';
@@ -147,7 +146,7 @@ const drawerWidth = 280;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/survey-sessions', '/crm/calendars', '/crm/bookings', '/crm/sms-notifications'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/sms-notifications'],
   marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -436,7 +435,6 @@ const AppContent = () => {
       { text: 'จัดการบริการ (Service)', icon: <CourseServiceMenuIcon />, path: '/crm/course-services', feature: 'courses' },
       { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'แบบสอบถาม/แบบทดสอบ', icon: <SurveyMenuIcon />, path: '/crm/surveys', feature: 'courses' },
-      { text: 'ชุดแบบฟอร์ม (Session)', icon: <SurveyMenuIcon />, path: '/crm/survey-sessions', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
       { text: 'ส่ง SMS แจ้งเตือน', icon: <SmsMenuIcon />, path: '/crm/sms-notifications', feature: 'bookings' },
@@ -895,7 +893,6 @@ const AppContent = () => {
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
             <Route path="/crm/registration-forms" element={protect('courses', <RegistrationFormManagement />)} />
             <Route path="/crm/surveys" element={protect('courses', <SurveyManagement />)} />
-            <Route path="/crm/survey-sessions" element={protect('courses', <SessionManagement />)} />
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />
             <Route path="/crm/sms-notifications" element={protect('bookings', <SmsNotifications />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
