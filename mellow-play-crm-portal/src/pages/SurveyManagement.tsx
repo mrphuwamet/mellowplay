@@ -155,7 +155,7 @@ const SurveyManagement = () => {
   const [formKind, setFormKind] = useState('survey');
   const [slug, setSlug] = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleMode, setShuffleMode] = useState('none');
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
   const [activePage, setActivePage] = useState(0);
@@ -174,7 +174,7 @@ const SurveyManagement = () => {
 
   const resetFormState = () => {
     setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
-    setShuffleQuestions(false); setShuffleOptions(false);
+    setShuffleMode('none'); setShuffleOptions(false);
     setPages([[]]); setActivePage(0); setScoreRanges([]); setSaveError(null);
   };
 
@@ -198,7 +198,7 @@ const SurveyManagement = () => {
         setFormKind(normalizeFormKind(form.form_kind));
         setSlug(form.slug || '');
         setIsActive(!!form.is_active);
-        setShuffleQuestions(!!form.shuffle_questions);
+        setShuffleMode(form.shuffle_mode || (form.shuffle_questions ? 'within_section' : 'none'));
         setShuffleOptions(!!form.shuffle_options);
         try { setScoreRanges(form.score_ranges_json ? JSON.parse(form.score_ranges_json) : []); } catch { setScoreRanges([]); }
 
@@ -243,7 +243,7 @@ const SurveyManagement = () => {
           : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
           : undefined,
       })));
-      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, shuffleQuestions, shuffleOptions, scoreRanges, fields };
+      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, shuffleMode, shuffleOptions, scoreRanges, fields };
       if (editId) {
         await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
       } else {
@@ -355,20 +355,27 @@ const SurveyManagement = () => {
                   control={<Switch checked={isActive} onChange={e => setIsActive(e.target.checked)} />}
                   label="เปิดใช้งาน"
                 />
-                <FormControlLabel
-                  control={<Switch checked={shuffleQuestions} onChange={e => setShuffleQuestions(e.target.checked)} />}
-                  label="สลับลำดับข้อ"
-                />
+                <FormControl size="small" sx={{ minWidth: 260 }}>
+                  <InputLabel>สลับลำดับข้อ</InputLabel>
+                  <Select value={shuffleMode} label="สลับลำดับข้อ" onChange={e => setShuffleMode(e.target.value)}>
+                    <MenuItem value="none">ไม่สลับ</MenuItem>
+                    <MenuItem value="within_section">สลับภายใน Section</MenuItem>
+                    <MenuItem value="sections">สลับลำดับ Section</MenuItem>
+                    <MenuItem value="all">สลับทั้งชุด (ข้ามหัวข้อ)</MenuItem>
+                  </Select>
+                </FormControl>
                 <FormControlLabel
                   control={<Switch checked={shuffleOptions} onChange={e => setShuffleOptions(e.target.checked)} />}
                   label="สลับลำดับตัวเลือก"
                 />
               </Stack>
-              {(shuffleQuestions || shuffleOptions) && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  สุ่มลำดับใหม่ทุกครั้งที่เปิดฟอร์ม เพื่อไม่ให้จำตำแหน่งคำตอบได้ตอนทำรอบสอง
-                  {shuffleQuestions && ' · หัวข้อและรูปภาพจะอยู่ที่เดิม สลับเฉพาะคำถามที่อยู่ใต้หัวข้อเดียวกันและหน้าเดียวกัน'}
-                  {' · คะแนนไม่เพี้ยน เพราะระบบตรวจจากข้อความตัวเลือก ไม่ใช่ลำดับ'}
+              {(shuffleMode !== 'none' || shuffleOptions) && (
+                <Alert severity={shuffleMode === 'all' ? 'warning' : 'info'} sx={{ mt: 2 }}>
+                  สุ่มลำดับใหม่ทุกครั้งที่เปิดฟอร์ม เพื่อไม่ให้จำตำแหน่งคำตอบได้ตอนทำรอบสอง ·
+                  คะแนนไม่เพี้ยน เพราะระบบตรวจจากข้อความตัวเลือก ไม่ใช่ลำดับ · ไม่สลับข้ามหน้า
+                  {shuffleMode === 'within_section' && ' · หัวข้อและรูปภาพอยู่ที่เดิม สลับเฉพาะข้อที่อยู่ใต้หัวข้อเดียวกัน'}
+                  {shuffleMode === 'sections' && ' · แต่ละ Section ย้ายไปทั้งก้อนพร้อมหัวข้อ ข้อข้างในเรียงเดิม'}
+                  {shuffleMode === 'all' && ' · โหมดนี้ย้ายข้อข้ามหัวข้อได้ เหมาะกับฟอร์มที่ไม่มี Section — ถ้าฟอร์มนี้มีหัวข้อแบ่งเรื่อง ข้อจะไปโผล่ใต้หัวข้อผิดเรื่อง'}
                 </Alert>
               )}
             </Paper>

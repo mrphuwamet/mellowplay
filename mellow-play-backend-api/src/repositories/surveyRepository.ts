@@ -32,31 +32,60 @@ export class SurveyRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Reorders questions inside each run of consecutive question fields, where a
-  // run is broken by an anchor field or a page boundary. Anchors keep their
-  // exact slots, so "ตอนที่ 2" still sits above the questions it introduces.
-  private shuffleQuestions(fields: any[]): any[] {
-    const out = [...fields];
+  // Shuffling never crosses a page: pages are a deliberate pacing decision by
+  // whoever built the form, unlike the order of questions on one screen.
+  private shuffleQuestions(fields: any[], mode: string): any[] {
+    if (mode !== 'within_section' && mode !== 'sections' && mode !== 'all') return fields;
+    const out: any[] = [];
+    let i = 0;
+    while (i < fields.length) {
+      const page = fields[i].page_index;
+      let j = i;
+      while (j < fields.length && fields[j].page_index === page) j++;
+      out.push(...this.shufflePage(fields.slice(i, j), mode));
+      i = j;
+    }
+    return out;
+  }
+
+  private shufflePage(page: any[], mode: string): any[] {
+    // 'sections' moves whole heading blocks and leaves each block's insides
+    // alone. Anything before the first heading is the form's preamble, not a
+    // section, so it stays at the top.
+    if (mode === 'sections') {
+      const firstHeading = page.findIndex(f => f.type === 'heading');
+      if (firstHeading < 0) return page;
+      const blocks: any[][] = [];
+      for (let k = firstHeading; k < page.length; k++) {
+        if (page[k].type === 'heading') blocks.push([page[k]]);
+        else blocks[blocks.length - 1].push(page[k]);
+      }
+      shuffleSlice(blocks, 0, blocks.length);
+      return [...page.slice(0, firstHeading), ...blocks.flat()];
+    }
+
+    // 'within_section' and 'all' both keep anchors in their exact slots and
+    // permute questions between the slots that are left. They differ only in
+    // how far a question may travel: 'within_section' treats every anchor as a
+    // wall, 'all' treats none of them as one.
+    const out = [...page];
     const runs: number[][] = [];
     let run: number[] = [];
-    let page: number | null = null;
-
-    out.forEach((f, i) => {
+    out.forEach((f, k) => {
       const isAnchor = ANCHOR_TYPES.has(f.type);
-      if (isAnchor || (page !== null && f.page_index !== page)) {
+      if (isAnchor && mode === 'within_section') {
         if (run.length) runs.push(run);
         run = [];
       }
-      page = f.page_index;
-      if (!isAnchor) run.push(i);
+      if (!isAnchor) run.push(k);
     });
     if (run.length) runs.push(run);
 
     for (const positions of runs) {
       if (positions.length < 2) continue;
-      const picked = positions.map(i => out[i]);
+      const picked = positions.map(k => out[k]);
       shuffleSlice(picked, 0, picked.length);
-      positions.forEach((slot, k) => { out[slot] = picked[k]; });
+      positions.forEach((slot, n) => { out[slot] = picked[n]; });
     }
     return out;
   }
@@ -125,7 +154,9 @@ export class SurveyRepository {
     // answers key off field_key, not position.
     let presented = fields as any[];
     if (form.shuffle_options) presented = this.shuffleOptions(presented);
-    if (form.shuffle_questions) presented = this.renumberFieldIndex(this.shuffleQuestions(presented));
+    if (form.shuffle_mode && form.shuffle_mode !== 'none') {
+      presented = this.renumberFieldIndex(this.shuffleQuestions(presented, form.shuffle_mode));
+    }
 
     return { ...form, fields: presented };
   }
@@ -133,7 +164,7 @@ export class SurveyRepository {
   async createForm(data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
-    shuffleQuestions?: boolean; shuffleOptions?: boolean;
+    shuffleMode?: string; shuffleOptions?: boolean;
     fields: SurveyFieldInput[];
   }): Promise<number> {
     // has_answer_key is derived, not a separate manual toggle — a form is
@@ -141,13 +172,13 @@ export class SurveyRepository {
     // regardless of whether the others do.
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
-      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_questions, shuffle_options)
+      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_mode, shuffle_options)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
       hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
       hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
-      data.shuffleQuestions ? 1 : 0, data.shuffleOptions ? 1 : 0,
+      data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -168,19 +199,19 @@ export class SurveyRepository {
   async updateForm(id: number, data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
-    shuffleQuestions?: boolean; shuffleOptions?: boolean;
+    shuffleMode?: string; shuffleOptions?: boolean;
     fields: SurveyFieldInput[];
   }): Promise<void> {
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
-        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_questions = ?, shuffle_options = ?
+        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_mode = ?, shuffle_options = ?
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
         hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
         hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
-        data.shuffleQuestions ? 1 : 0, data.shuffleOptions ? 1 : 0, id,
+        data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0, id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>
@@ -279,6 +310,7 @@ export class SurveyRepository {
   async createSubmission(data: {
     formId: number; userId?: number | null; respondentName?: string | null;
     respondentPhone?: string | null; answers: Record<string, any>; attemptLabel?: string | null;
+    sessionId?: number | null; sessionRunId?: string | null;
   }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; attemptNo: number; result: { resultText: string; imageUrl?: string } | null }> {
     const form = await this.db.prepare('SELECT has_answer_key, score_ranges_json FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
     let totalScore: number | null = null;
@@ -297,11 +329,12 @@ export class SurveyRepository {
     const attemptNo = await this.nextAttemptNo(data.formId, data.userId, data.respondentPhone);
 
     const inserted = await this.db.prepare(`
-      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.formId, data.userId ?? null, data.respondentName ?? null, data.respondentPhone ?? null,
       JSON.stringify(data.answers), totalScore, maxScore, attemptNo, data.attemptLabel ?? null,
+      data.sessionId ?? null, data.sessionRunId ?? null,
     ).run();
 
     return { id: inserted.meta.last_row_id, totalScore, maxScore, attemptNo, result };

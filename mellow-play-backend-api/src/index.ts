@@ -14,6 +14,7 @@ import { CourseMaterialController } from './controllers/courseMaterialController
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
 import { SurveyController } from './controllers/surveyController';
+import { SessionController } from './controllers/sessionController';
 import { SmsController } from './controllers/smsController';
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
@@ -53,6 +54,7 @@ const courseMaterialController = new CourseMaterialController();
 const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
 const surveyController = new SurveyController();
+const sessionController = new SessionController();
 const smsController = new SmsController();
 const checkinController = new CheckinController();
 const checkinAccessController = new CheckinAccessController();
@@ -612,6 +614,9 @@ app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 // guest straight to /login via the consumer app's global 401 interceptor).
 app.get('/api/v1/surveys/:idOrSlug',        (c) => surveyController.getPublicForm(c));
 app.post('/api/v1/surveys/:idOrSlug/submit', (c) => surveyController.submit(c));
+// Sessions — several forms behind one link, answered as one questionnaire.
+app.get('/api/v1/survey-sessions/:idOrSlug',            (c) => sessionController.getPublic(c));
+app.post('/api/v1/survey-sessions/:idOrSlug/check-name', (c) => sessionController.checkName(c));
 
 // ================= ADS (CRM-authored promo cards mixed into the feed) =================
 app.get   ('/api/v1/ads/active',        (c) => adsController.getActive(c));
@@ -833,6 +838,12 @@ app.get('/api/v1/admin/survey-forms/:id',       (c) => surveyController.getForm(
 app.put('/api/v1/admin/survey-forms/:id',       (c) => surveyController.updateForm(c));
 app.delete('/api/v1/admin/survey-forms/:id',    (c) => surveyController.deleteForm(c));
 app.get('/api/v1/admin/survey-forms/:id/submissions', (c) => surveyController.listSubmissions(c));
+app.get('/api/v1/admin/survey-sessions',           (c) => sessionController.list(c));
+app.post('/api/v1/admin/survey-sessions',          (c) => sessionController.create(c));
+app.get('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.get(c));
+app.put('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.update(c));
+app.delete('/api/v1/admin/survey-sessions/:id',    (c) => sessionController.remove(c));
+app.get('/api/v1/admin/survey-sessions/:id/submissions', (c) => sessionController.listSubmissions(c));
 
 app.get('/api/v1/admin/sms/reminder-candidates', (c) => smsController.getReminderCandidates(c));
 app.post('/api/v1/admin/sms/send-reminder', (c) => smsController.sendReminder(c));

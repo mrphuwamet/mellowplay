@@ -37,6 +37,13 @@ interface Props {
   onSubmit: () => void;
   submitting: boolean;
   lang: 'th' | 'en';
+  // Session mode: this form is one leg of a chained set, so the page counter
+  // must read across the whole chain and the last page is only "submit" when
+  // no further form follows. Without these the seam between forms is obvious,
+  // which defeats the point of chaining them.
+  progressOffset?: number;
+  progressTotal?: number;
+  isFinalStep?: boolean;
 }
 
 // Fill-it-out renderer for a standalone Survey/Pre-Test/Post-Test form —
@@ -48,6 +55,7 @@ interface Props {
 const SurveyFillForm: React.FC<Props> = ({
   form, answers, onChange, identity, onIdentityChange, accountName, accountPhone,
   isLoggedIn, onSubmit, submitting, lang,
+  progressOffset = 0, progressTotal, isFinalStep = true,
 }) => {
   // Group by page, keeping the order the server sent. It used to slot fields
   // in by field_index, which silently undid the per-respondent shuffle a form
@@ -68,6 +76,8 @@ const SurveyFillForm: React.FC<Props> = ({
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const currentFields = pages[pageIndex] || [];
   const isLastPage = pageIndex === pages.length - 1;
+  const totalPages = progressTotal ?? pages.length;
+  const shownPage = progressOffset + pageIndex + 1;
 
   const isFieldFilled = (f: SurveyField) => {
     if (f.type === 'identity') return identity.mode === 'prefill' ? !!accountName : !!identity.name.trim();
@@ -96,9 +106,9 @@ const SurveyFillForm: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      {pages.length > 1 && (
+      {totalPages > 1 && (
         <p className="text-xs font-bold text-slate-400">
-          {lang === 'en' ? `Page ${pageIndex + 1} of ${pages.length}` : `หน้า ${pageIndex + 1} จาก ${pages.length}`}
+          {lang === 'en' ? `Page ${shownPage} of ${totalPages}` : `หน้า ${shownPage} จาก ${totalPages}`}
         </p>
       )}
 
@@ -252,7 +262,7 @@ const SurveyFillForm: React.FC<Props> = ({
           className="flex-[2] py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all disabled:opacity-50">
           {submitting
             ? (lang === 'en' ? 'Submitting...' : 'กำลังส่ง...')
-            : isLastPage
+            : (isLastPage && isFinalStep)
               ? (lang === 'en' ? 'Submit' : 'ส่งคำตอบ')
               : (lang === 'en' ? 'Next' : 'ขั้นตอนถัดไป')}
         </button>

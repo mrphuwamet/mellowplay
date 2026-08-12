@@ -4,6 +4,7 @@ import { ConfigService } from '../services/configService';
 import { AuthService } from '../services/authService';
 import { UserRepository } from '../repositories/userRepository';
 import { SurveyRepository } from '../repositories/surveyRepository';
+import { SessionRepository } from '../repositories/sessionRepository';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -13,6 +14,16 @@ type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 // from a stale tab can't reintroduce a retired kind.
 const FORM_KINDS = ['survey', 'test'];
 const LEGACY_FORM_KINDS: Record<string, string> = { pretest: 'test', posttest: 'test' };
+
+// Question shuffling used to be a boolean; it is now a mode (migration 0077).
+// A client that still sends the boolean gets the behaviour that flag used to
+// mean, rather than silently losing its setting.
+const SHUFFLE_MODES = ['none', 'within_section', 'sections', 'all'];
+
+const normalizeShuffleMode = (raw: unknown, legacyFlag?: unknown): string => {
+  if (typeof raw === 'string' && SHUFFLE_MODES.includes(raw)) return raw;
+  return legacyFlag ? 'within_section' : 'none';
+};
 
 const normalizeFormKind = (raw: unknown): string => {
   const kind = typeof raw === 'string' ? raw : '';
@@ -80,7 +91,7 @@ export class SurveyController {
         isActive: body.isActive,
         slug,
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
-        shuffleQuestions: !!body.shuffleQuestions,
+        shuffleMode: normalizeShuffleMode(body.shuffleMode, body.shuffleQuestions),
         shuffleOptions: !!body.shuffleOptions,
         fields: this.normalizeFields(body.fields),
       });
@@ -105,7 +116,7 @@ export class SurveyController {
         isActive: body.isActive,
         slug,
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
-        shuffleQuestions: !!body.shuffleQuestions,
+        shuffleMode: normalizeShuffleMode(body.shuffleMode, body.shuffleQuestions),
         shuffleOptions: !!body.shuffleOptions,
         fields: this.normalizeFields(body.fields),
       });
@@ -161,7 +172,7 @@ export class SurveyController {
       const form = await this.repo(c).getPublicForm(idOrSlug);
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
 
-      const { answers, respondentName, respondentPhone, attemptLabel } = await c.req.json();
+      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const userId = await this.getOptionalUserId(c, config);
@@ -175,12 +186,29 @@ export class SurveyController {
         }
       }
 
+      // The session's "one answer per person" rule is enforced here too, not
+      // only by the pre-flight check the app runs before starting: the app's
+      // check is a courtesy to the respondent, this is the actual rule. Scoped
+      // to other runs so a run submitting its 2nd and 3rd form isn't blocked
+      // by its own first one.
+      const parsedSessionId = Number.isInteger(sessionId) ? sessionId : parseInt(sessionId);
+      const inSession = Number.isInteger(parsedSessionId) && parsedSessionId > 0;
+      if (inSession && resolvedName) {
+        const sessions = new SessionRepository(config.db);
+        const session = await sessions.getPublicSession(String(parsedSessionId));
+        if (session?.require_unique_name && await sessions.isNameTaken(parsedSessionId, resolvedName, sessionRunId)) {
+          return c.json({ success: false, message: 'ชื่อนี้ทำแบบฟอร์มชุดนี้ไปแล้ว' }, 409);
+        }
+      }
+
       const result = await this.repo(c).createSubmission({
         formId: form.id,
         userId,
         respondentName: resolvedName,
         respondentPhone: resolvedPhone,
         answers,
+        sessionId: inSession ? parsedSessionId : null,
+        sessionRunId: inSession && typeof sessionRunId === 'string' ? sessionRunId.slice(0, 64) : null,
         // Cosmetic round name off the link's ?attempt= — capped so a crafted
         // link can't stuff arbitrary text into the CRM's tables.
         attemptLabel: typeof attemptLabel === 'string' ? attemptLabel.trim().slice(0, 40) || null : null,
