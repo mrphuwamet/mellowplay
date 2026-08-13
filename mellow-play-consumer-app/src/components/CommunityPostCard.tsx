@@ -1,4 +1,5 @@
 import React from 'react';
+import { FEED_MEDIA_BOX } from '../utils/feedLayout';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Send, Trash2, MapPin, Check, AlertCircle, Flag } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -166,8 +167,8 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
       <p className="text-[15px] text-slate-700 leading-relaxed whitespace-pre-wrap mt-3">{post.content}</p>
 
       {post.image_url && (
-        <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
-          <img src={resolveImageUrl(post.image_url)} alt="" loading="lazy" className="w-full max-h-[420px] object-cover" />
+        <div className={FEED_MEDIA_BOX}>
+          <img src={resolveImageUrl(post.image_url)} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
       )}
 

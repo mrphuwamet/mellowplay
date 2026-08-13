@@ -1,4 +1,5 @@
 import React from 'react';
+import { FEED_MEDIA_BOX } from '../utils/feedLayout';
 import { formatTime24 } from '../utils/dateFormat';
 import { useChildStore } from '../store/useChildStore';
 import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil, Heart } from 'lucide-react';
@@ -430,17 +431,17 @@ const Home = () => {
         )}
 
         {item.image ? (
-          <div className="mt-3 rounded-2xl overflow-hidden bg-slate-50">
+          <div className={FEED_MEDIA_BOX}>
             <img
               src={courseView ? courseView.url : resolveImageUrl(item.image)}
               alt={item.title}
               loading="lazy"
               style={courseView?.style}
-              className="w-full max-h-[260px] object-cover"
+              className="w-full h-full object-cover"
             />
           </div>
         ) : !isBookingCard && (
-          <div className="mt-3 rounded-2xl bg-slate-50 aspect-[16/9] flex items-center justify-center">
+          <div className={`${FEED_MEDIA_BOX} flex items-center justify-center`}>
             <img src={logo} alt="" className="w-16 h-16 object-contain opacity-20 filter grayscale" />
           </div>
         )}
