@@ -186,10 +186,19 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                 {lang === 'en' ? 'Registration Details' : 'ข้อมูลการลงทะเบียน'}
               </h4>
               <div className="bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100">
+                {/* flex-wrap, and the label may shrink. It used to be
+                    shrink-0, so a long question — the consent sentences on an
+                    event form run to a full paragraph — refused to give way
+                    and pushed the row wider than the card instead of wrapping,
+                    cutting itself off at the edge. Now a pair that fits stays
+                    on one line and anything longer drops the answer onto the
+                    next, still right-aligned. */}
                 {formFields.map((f, i) => (
-                  <div key={i} className="flex justify-between gap-3 px-4 py-2.5">
-                    <span className="text-sm font-medium text-slate-500 shrink-0">{f.label}</span>
-                    <span className="text-sm font-bold text-slate-700 text-right">{formatAnswerValue(f.value)}</span>
+                  <div key={i} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-4 py-2.5">
+                    <span className="text-sm font-medium text-slate-500 min-w-0 break-words">{f.label}</span>
+                    <span className="text-sm font-bold text-slate-700 text-right ml-auto min-w-0 break-words">
+                      {formatAnswerValue(f.value)}
+                    </span>
                   </div>
                 ))}
               </div>
