@@ -87,6 +87,8 @@ import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
 import SurveyManagement from './pages/SurveyManagement';
+import MessageLogs from './pages/MessageLogs';
+import BroadcastManagement from './pages/BroadcastManagement';
 import SurveyResponses from './pages/SurveyResponses';
 import SmsNotifications from './pages/SmsNotifications';
 import IncentiveTracking from './pages/IncentiveTracking';
@@ -147,10 +149,10 @@ const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
   classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/sms-notifications'],
-  marketing: ['/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
+  marketing: ['/crm/broadcasts', '/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
-  system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs', '/crm/api-logs'],
+  system: ['/crm/reports', '/crm/settings', '/crm/permissions', '/crm/system-logs', '/crm/api-logs', '/crm/message-logs'],
 };
 
 interface MenuItemConfig {
@@ -453,6 +455,7 @@ const AppContent = () => {
       { text: 'ตรวจสอบโพสต์ชุมชน', icon: <CommunityModerationMenuIcon />, path: '/crm/community-moderation', feature: 'news_feed' },
       { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },
       { text: 'โฆษณาในฟีด', icon: <AdsMenuIcon />, path: '/crm/ads', feature: 'ads' },
+      { text: 'ส่งข่าวสาร/ประชาสัมพันธ์', icon: <CampaignMenuIcon />, path: '/crm/broadcasts', feature: 'settings' },
     ]);
 
     pushGroup('shop', 'สินค้าและบริการ', <ShopIcon />, [
@@ -477,6 +480,7 @@ const AppContent = () => {
       { text: 'จัดการสิทธิ์เข้าถึง', icon: <SecurityIcon />, path: '/crm/permissions', feature: 'permissions' },
       { text: 'System Logs', icon: <SecurityIcon />, path: '/crm/system-logs', feature: 'settings' },
       { text: 'API Call Logs', icon: <ApiLogsMenuIcon />, path: '/crm/api-logs', feature: 'settings' },
+      { text: 'ประวัติส่งอีเมล/SMS', icon: <SmsMenuIcon />, path: '/crm/message-logs', feature: 'settings' },
     ]);
 
     return filtered;
@@ -893,6 +897,8 @@ const AppContent = () => {
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
             <Route path="/crm/registration-forms" element={protect('courses', <RegistrationFormManagement />)} />
             <Route path="/crm/surveys" element={protect('courses', <SurveyManagement />)} />
+            <Route path="/crm/message-logs" element={protect('settings', <MessageLogs />)} />
+            <Route path="/crm/broadcasts" element={protect('settings', <BroadcastManagement />)} />
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />
             <Route path="/crm/sms-notifications" element={protect('bookings', <SmsNotifications />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />

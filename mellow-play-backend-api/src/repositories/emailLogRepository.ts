@@ -15,6 +15,7 @@ export interface EmailLogEntry {
   providerMessageId?: string | null;
   providerDetail?: string | null;
   sentBy?: number | null;
+  broadcastId?: number | null;
 }
 
 // Counterpart to SmsRepository's logging half. Separate table because Sms_Logs
@@ -31,8 +32,8 @@ export class EmailLogRepository {
     await this.db.prepare(`
       INSERT INTO Email_Logs
         (booking_id, course_id, type, email, subject, body_html, status,
-         provider_message_id, provider_detail, sent_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         provider_message_id, provider_detail, sent_by, broadcast_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       entry.bookingId ?? null,
       entry.courseId ?? null,
@@ -44,6 +45,7 @@ export class EmailLogRepository {
       entry.providerMessageId ?? null,
       entry.providerDetail ?? null,
       entry.sentBy ?? null,
+      entry.broadcastId ?? null,
     ).run();
   }
 

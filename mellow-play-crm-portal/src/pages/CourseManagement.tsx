@@ -393,6 +393,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
     checkinActions: [] as string[],
+    confirmationChannelMode: 'off',
     smsSuccessEnabled: false,
     smsSuccessTemplate: '',
     smsReminderTemplate: '',
@@ -981,6 +982,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         stampsOnCompletion: course.stamps_on_completion ?? 0,
         stampExpiryMonths: course.stamp_expiry_months ?? 12,
         checkinActions,
+        confirmationChannelMode: (course as any).confirmation_channel_mode || 'off',
         smsSuccessEnabled: !!(course as any).sms_success_enabled,
         smsSuccessTemplate: (course as any).sms_success_template || '',
         smsReminderTemplate: (course as any).sms_reminder_template || '',
@@ -1011,6 +1013,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         stampsOnCompletion: 0,
         stampExpiryMonths: 12,
         checkinActions: [],
+        confirmationChannelMode: 'off',
         smsSuccessEnabled: false,
         smsSuccessTemplate: '',
         smsReminderTemplate: '',
@@ -1105,6 +1108,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         registrationCloseAt:    fromDatetimeLocalValue(formData.registrationCloseAt) || null,
         stampsOnCompletion:     formData.stampsOnCompletion,
         stampExpiryMonths:      formData.stampExpiryMonths,
+        confirmationChannelMode: formData.confirmationChannelMode,
         smsSuccessEnabled:      formData.smsSuccessEnabled,
         smsSuccessTemplate:     formData.smsSuccessTemplate || null,
         smsReminderTemplate:    formData.smsReminderTemplate || null,
@@ -1934,6 +1938,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                 <SectionLabel icon={<SmsIcon />} title="การแจ้งเตือนเมื่อจองสำเร็จ" />
                 <CourseNotificationsTab
                   value={{
+                    confirmationChannelMode: formData.confirmationChannelMode,
                     smsSuccessEnabled: formData.smsSuccessEnabled,
                     smsSuccessTemplate: formData.smsSuccessTemplate,
                     smsReminderTemplate: formData.smsReminderTemplate,

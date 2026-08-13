@@ -5,7 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Stack, CircularProgress, Divider, List, ListItem, ListItemButton, ListItemText, ListItemAvatar,
-  Avatar, Card, CardContent, Switch, FormControlLabel,
+  Avatar, Card, CardContent, Switch, FormControlLabel, Alert,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -83,6 +83,9 @@ const SystemSettings = () => {
   const [branchForm, setBranchForm] = useState<Partial<Branch>>({});
   const [isEditBranch, setIsEditBranch] = useState(false);
   const [systemSettings, setSystemSettings] = useState<{ [key: string]: string }>({});
+  const [welcomeSubject, setWelcomeSubject] = useState('');
+  const [welcomeBody, setWelcomeBody] = useState('');
+  const [savingWelcome, setSavingWelcome] = useState(false);
 
   // Beam/SMS credentials — super_admin only. GET returns a masked preview
   // only; typing into a field stages a NEW value, an untouched field is
@@ -138,6 +141,8 @@ const SystemSettings = () => {
         const settingsMap: { [key: string]: string } = {};
         settingsRes.data.settings.forEach((s: any) => settingsMap[s.key] = s.value);
         setSystemSettings(settingsMap);
+        setWelcomeSubject(settingsMap['welcome_email_subject'] || '');
+        setWelcomeBody(settingsMap['welcome_email_template'] || '');
       }
       if (isSuperAdmin) {
         const keysRes = await axios.get(`${API_BASE}/integration-keys`);
@@ -229,6 +234,22 @@ const SystemSettings = () => {
     }
   };
 
+  // Subject and body are edited together and saved on a button rather than on
+  // every keystroke like the toggles — a half-typed template must not be what
+  // the next signup receives.
+  const saveWelcomeEmail = async () => {
+    setSavingWelcome(true);
+    try {
+      await axios.put(`${API_BASE}/system/settings`, { key: 'welcome_email_subject', value: welcomeSubject });
+      await axios.put(`${API_BASE}/system/settings`, { key: 'welcome_email_template', value: welcomeBody });
+      setSystemSettings(prev => ({ ...prev, welcome_email_subject: welcomeSubject, welcome_email_template: welcomeBody }));
+    } catch (e: any) {
+      alert('บันทึกไม่สำเร็จ: ' + e.message);
+    } finally {
+      setSavingWelcome(false);
+    }
+  };
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
 
   return (
@@ -265,6 +286,45 @@ const SystemSettings = () => {
                 }
                 label="เปิดใช้งานระบบจ่ายเงินจริง (Beam Payment)"
               />
+            </Stack>
+          </Paper>
+
+          {/* Welcome mail lives here, not on a course: there is one signup
+              flow, so a per-anything template would be a setting with a single
+              possible value. */}
+          <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <SettingsIcon color="primary" /> อีเมลต้อนรับสมาชิกใหม่
+            </Typography>
+            <Stack spacing={2}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={systemSettings['welcome_email_enabled'] === '1'}
+                    onChange={(e) => handleToggleSetting('welcome_email_enabled', e.target.checked ? '1' : '0')}
+                  />
+                }
+                label="ส่งอีเมลต้อนรับอัตโนมัติเมื่อมีคนสมัครสมาชิก"
+              />
+              <Alert severity="info">
+                ส่งเฉพาะคนที่กรอกอีเมลตอนสมัคร (อีเมลไม่บังคับ) · เปิดแล้วจะเริ่มส่งทันทีกับคนที่สมัครใหม่
+                แนะนำให้เขียนเนื้อหาและกดบันทึกก่อนค่อยเปิด · ใช้ตัวแปร <code>{'{{name}}'}</code> <code>{'{{email}}'}</code> <code>{'{{phone}}'}</code>
+              </Alert>
+              <TextField
+                fullWidth label="หัวเรื่อง"
+                value={welcomeSubject}
+                onChange={(e) => setWelcomeSubject(e.target.value)}
+              />
+              <TextField
+                fullWidth multiline minRows={6} label="เนื้อหา (HTML)"
+                value={welcomeBody}
+                onChange={(e) => setWelcomeBody(e.target.value)}
+              />
+              <Box>
+                <Button variant="contained" onClick={saveWelcomeEmail} disabled={savingWelcome}>
+                  {savingWelcome ? 'กำลังบันทึก...' : 'บันทึกอีเมลต้อนรับ'}
+                </Button>
+              </Box>
             </Stack>
           </Paper>
 

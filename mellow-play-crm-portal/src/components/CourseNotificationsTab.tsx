@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Box, Grid, Typography, Switch, FormControlLabel, Button, TextField, Divider,
+  FormControl, InputLabel, Select, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab, Alert, Chip, Stack, Tooltip,
   CircularProgress,
 } from '@mui/material';
@@ -72,6 +73,7 @@ function wrapEmailHtmlLocal(bodyHtml: string): string {
 const DEFAULT_SUBJECT = 'ยืนยันการลงทะเบียน {{course_name}}';
 
 export interface CourseNotificationsValue {
+  confirmationChannelMode: string;
   smsSuccessEnabled: boolean;
   smsSuccessTemplate: string;
   smsReminderTemplate: string;
@@ -166,8 +168,6 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
     else onChange({ emailSuccessTemplate: value.emailSuccessTemplate + token });
   };
 
-  const bothOn = value.smsSuccessEnabled && value.emailSuccessEnabled;
-  const noneOn = !value.smsSuccessEnabled && !value.emailSuccessEnabled;
 
   const previewHtml = wrapEmailHtmlLocal(
     renderEmailTemplateLocal(value.emailSuccessTemplate, sampleVariables, { qr_code: SAMPLE_QR_BLOCK }),
@@ -176,16 +176,35 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
 
   return (
     <Box>
-      {/* Stating the combination out loud, because the two switches are
-          independent and "both" is a valid but easy-to-miss configuration. */}
-      {bothOn && (
-        <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
-          เปิดทั้ง SMS และอีเมล — ผู้ปกครองจะได้รับทั้งสองช่องทางเมื่อจองสำเร็จ
+      {/* The channel policy, stated as one choice. It used to be implied by
+          which of the two switches happened to be on, which meant "email with
+          SMS as backup" existed but nobody could see it or ask for the
+          reverse. The switches below still control whether each channel has a
+          template worth sending. */}
+      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+        <InputLabel>ช่องทางยืนยันเมื่อจองสำเร็จ</InputLabel>
+        <Select
+          label="ช่องทางยืนยันเมื่อจองสำเร็จ"
+          value={value.confirmationChannelMode || 'off'}
+          onChange={e => onChange({ confirmationChannelMode: e.target.value })}
+        >
+          <MenuItem value="off">ไม่ส่งอัตโนมัติ</MenuItem>
+          <MenuItem value="email_first">อีเมลเป็นหลัก — ถ้าไม่มีอีเมล/ส่งไม่สำเร็จ ค่อยส่ง SMS</MenuItem>
+          <MenuItem value="sms_first">SMS เป็นหลัก — ถ้าไม่มีเบอร์/ส่งไม่สำเร็จ ค่อยส่งอีเมล</MenuItem>
+          <MenuItem value="both">ส่งทั้งอีเมลและ SMS ทุกครั้ง</MenuItem>
+          <MenuItem value="email_only">อีเมลอย่างเดียว</MenuItem>
+          <MenuItem value="sms_only">SMS อย่างเดียว</MenuItem>
+        </Select>
+      </FormControl>
+
+      {value.confirmationChannelMode === 'off' && (
+        <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2 }}>
+          จองสำเร็จแล้วผู้ปกครองจะไม่ได้รับการยืนยันอัตโนมัติ
         </Alert>
       )}
-      {noneOn && (
-        <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2 }}>
-          ยังไม่เปิดช่องทางใดเลย — จองสำเร็จแล้วผู้ปกครองจะไม่ได้รับการยืนยันอัตโนมัติ
+      {(value.confirmationChannelMode === 'email_first' || value.confirmationChannelMode === 'sms_first') && (
+        <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
+          ช่องทางสำรองจะทำงานก็ต่อเมื่อมี template ของช่องทางนั้นอยู่ด้วย — ไม่มี template ระบบจะไม่ส่งแทนให้
         </Alert>
       )}
 

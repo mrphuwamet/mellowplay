@@ -659,6 +659,7 @@ export class AdminRepository {
     smsSuccessEnabled?: boolean;
     smsSuccessTemplate?: string;
     smsReminderTemplate?: string;
+    confirmationChannelMode?: string;
     emailSuccessEnabled?: boolean;
     emailSuccessSubject?: string;
     emailSuccessTemplate?: string;
@@ -686,7 +687,8 @@ export class AdminRepository {
         short_description_en, location, location_link, stamps_on_completion, stamp_expiry_months,
         sales_commission_type, sales_commission_value, teacher_commission_type, teacher_commission_value,
         sms_success_enabled, sms_success_template, sms_reminder_template,
-        email_success_enabled, email_success_subject, email_success_template
+        email_success_enabled, email_success_subject, email_success_template,
+        confirmation_channel_mode
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
@@ -722,7 +724,8 @@ export class AdminRepository {
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
       data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
       data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
-      data.emailSuccessEnabled ? 1 : 0, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null
+      data.emailSuccessEnabled ? 1 : 0, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
+      data.confirmationChannelMode ?? 'off'
     ).run();
     return result.meta.last_row_id;
   }
@@ -770,6 +773,7 @@ export class AdminRepository {
     smsSuccessEnabled?: boolean;
     smsSuccessTemplate?: string;
     smsReminderTemplate?: string;
+    confirmationChannelMode?: string;
     emailSuccessEnabled?: boolean;
     emailSuccessSubject?: string;
     emailSuccessTemplate?: string;
@@ -800,7 +804,8 @@ export class AdminRepository {
         sales_commission_type = ?, sales_commission_value = ?,
         teacher_commission_type = ?, teacher_commission_value = ?,
         sms_success_enabled = ?, sms_success_template = ?, sms_reminder_template = ?,
-        email_success_enabled = ?, email_success_subject = ?, email_success_template = ?
+        email_success_enabled = ?, email_success_subject = ?, email_success_template = ?,
+        confirmation_channel_mode = ?
       WHERE id = ?
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
@@ -825,6 +830,7 @@ export class AdminRepository {
       data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
       data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
       data.emailSuccessEnabled ? 1 : 0, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
+      data.confirmationChannelMode ?? 'off',
       id
     ).run();
   }

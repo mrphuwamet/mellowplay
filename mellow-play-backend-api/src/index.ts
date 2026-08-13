@@ -15,6 +15,8 @@ import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
 import { SurveyController } from './controllers/surveyController';
 import { SessionController } from './controllers/sessionController';
+import { BroadcastController } from './controllers/broadcastController';
+import { drainBroadcasts } from './services/broadcastSender';
 import { SmsController } from './controllers/smsController';
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
@@ -55,6 +57,7 @@ const reportController         = new ReportController();
 const registrationFormController = new RegistrationFormController();
 const surveyController = new SurveyController();
 const sessionController = new SessionController();
+const broadcastController = new BroadcastController();
 const smsController = new SmsController();
 const checkinController = new CheckinController();
 const checkinAccessController = new CheckinAccessController();
@@ -622,6 +625,9 @@ app.post('/api/v1/surveys/:idOrSlug/submit', (c) => surveyController.submit(c));
 // Sessions — several forms behind one link, answered as one questionnaire.
 app.get('/api/v1/survey-sessions/:idOrSlug',            (c) => sessionController.getPublic(c));
 app.post('/api/v1/survey-sessions/:idOrSlug/check-name', (c) => sessionController.checkName(c));
+// Unsubscribe carries its own credential in the token — requiring a login to
+// stop marketing mail just gets the sender reported as spam instead.
+app.post('/api/v1/unsubscribe/:token', (c) => broadcastController.unsubscribe(c));
 
 // ================= ADS (CRM-authored promo cards mixed into the feed) =================
 app.get   ('/api/v1/ads/active',        (c) => adsController.getActive(c));
@@ -849,6 +855,15 @@ app.get('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.get(
 app.put('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.update(c));
 app.delete('/api/v1/admin/survey-sessions/:id',    (c) => sessionController.remove(c));
 app.get('/api/v1/admin/survey-sessions/:id/submissions', (c) => sessionController.listSubmissions(c));
+app.get('/api/v1/admin/broadcasts',                 (c) => broadcastController.list(c));
+app.post('/api/v1/admin/broadcasts',                (c) => broadcastController.create(c));
+app.post('/api/v1/admin/broadcasts/preview-audience',(c) => broadcastController.previewAudience(c));
+app.get('/api/v1/admin/broadcasts/:id',             (c) => broadcastController.get(c));
+app.put('/api/v1/admin/broadcasts/:id',             (c) => broadcastController.update(c));
+app.delete('/api/v1/admin/broadcasts/:id',          (c) => broadcastController.remove(c));
+app.post('/api/v1/admin/broadcasts/:id/launch',     (c) => broadcastController.launch(c));
+app.post('/api/v1/admin/broadcasts/:id/cancel',     (c) => broadcastController.cancel(c));
+app.post('/api/v1/admin/broadcasts/drain',          (c) => broadcastController.drainNow(c));
 
 app.get('/api/v1/admin/sms/reminder-candidates', (c) => smsController.getReminderCandidates(c));
 app.post('/api/v1/admin/sms/send-reminder', (c) => smsController.sendReminder(c));
@@ -931,14 +946,31 @@ app.onError((err, c) => {
 // ([triggers]/[env.dev.triggers]). Manual "delete now" buttons in the CRM
 // (adminController.clearApiCallLogs / clearSystemLogs) delete on the exact
 // same 30-day cutoff, so the automatic and manual paths never disagree.
-async function scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
+//
+// Two triggers now share this handler (see wrangler.toml): the daily cleanup,
+// and a five-minute tick that drains the broadcast queue. The drain runs on
+// every tick regardless of which cron fired — it is a cheap no-op when nothing
+// is queued, and skipping it on the daily tick would mean a campaign launched
+// at 18:59 sitting still for the one tick that matters least.
+const DAILY_CRON = '0 19 * * *';
+
+async function scheduled(event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
   const config = new ConfigService(env);
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  if (event.cron === DAILY_CRON) {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      await config.db.prepare('DELETE FROM Api_Call_Logs WHERE created_at < ?').bind(cutoff).run();
+      await config.db.prepare('DELETE FROM System_Logs WHERE created_at < ?').bind(cutoff).run();
+    } catch (err) {
+      console.error('Scheduled log cleanup failed:', err);
+    }
+  }
+
   try {
-    await config.db.prepare('DELETE FROM Api_Call_Logs WHERE created_at < ?').bind(cutoff).run();
-    await config.db.prepare('DELETE FROM System_Logs WHERE created_at < ?').bind(cutoff).run();
+    await drainBroadcasts(config.db, config);
   } catch (err) {
-    console.error('Scheduled log cleanup failed:', err);
+    console.error('Broadcast drain failed:', err);
   }
 }
 

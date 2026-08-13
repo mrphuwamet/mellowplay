@@ -13,6 +13,7 @@ import AddChild from './pages/AddChild';
 import ReportDetail from './pages/ReportDetail';
 import SurveyDetail from './pages/SurveyDetail';
 import SessionDetail from './pages/SessionDetail';
+import Unsubscribe from './pages/Unsubscribe';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
 import SettingsProfile from './pages/SettingsProfile';
@@ -150,6 +151,7 @@ const AppContent = () => {
         <Route path="/report/:bookingId" element={<ReportDetail />} />
         <Route path="/survey/:idOrSlug" element={<SurveyDetail />} />
         <Route path="/session/:idOrSlug" element={<SessionDetail />} />
+        <Route path="/unsubscribe/:token" element={<Unsubscribe />} />
         <Route path="/news/:id" element={<NewsDetail />} />
         <Route path="/news-feed/:type" element={<NewsList />} />
         <Route path="/explore/:category?" element={<Explore />} />
