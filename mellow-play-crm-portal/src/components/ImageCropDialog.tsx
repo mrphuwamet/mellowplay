@@ -16,6 +16,7 @@ const ASPECTS: { label: string; value: number | undefined }[] = [
   { label: 'อิสระ', value: undefined },
   { label: '1:1', value: 1 },
   { label: '4:3', value: 4 / 3 },
+  { label: '4:5', value: 4 / 5 },
   { label: '16:9', value: 16 / 9 },
   { label: '9:16', value: 9 / 16 },
 ];

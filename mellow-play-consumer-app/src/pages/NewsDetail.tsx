@@ -99,7 +99,7 @@ const NewsDetail = () => {
         <div className="h-[64px] px-5 bg-white flex items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-slate-100" />
         </div>
-        <div className="w-full aspect-[16/9] bg-slate-200" />
+        <div className="w-full aspect-[4/5] bg-slate-200" />
         <div className="p-5 space-y-3">
           <div className="h-6 w-3/4 bg-slate-200 rounded-full" />
           <div className="h-3.5 w-full bg-slate-100 rounded-full" />
@@ -152,13 +152,13 @@ const NewsDetail = () => {
         </div>
       ) : images.length > 0 ? (
         <div
-          className={`relative w-full aspect-[16/9] bg-slate-100 ${item.link_url ? 'cursor-pointer' : ''}`}
+          className={`relative w-full aspect-[4/5] bg-slate-100 ${item.link_url ? 'cursor-pointer' : ''}`}
           onClick={() => { if (item.link_url) window.open(item.link_url, '_blank', 'noopener,noreferrer'); }}
         >
           <div ref={carouselRef} onScroll={handleCarouselScroll} className="w-full h-full overflow-x-scroll snap-x snap-mandatory flex scrollbar-hide">
             {images.map((url, i) => (
               // image_position is the CRM's drag-to-frame choice for this
-              // article's 16:9 hero box; it applies to every slide because the
+              // article's 4:5 hero box; it applies to every slide because the
               // framing describes the article, not one individual file.
               <img
                 key={i}
@@ -178,7 +178,7 @@ const NewsDetail = () => {
           )}
         </div>
       ) : (
-        <div className="w-full aspect-[16/9] bg-mellow-purple-soft flex items-center justify-center p-10 opacity-40">
+        <div className="w-full aspect-[4/5] bg-mellow-purple-soft flex items-center justify-center p-10 opacity-40">
           <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
         </div>
       )}

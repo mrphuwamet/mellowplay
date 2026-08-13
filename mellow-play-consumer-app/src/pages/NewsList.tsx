@@ -68,7 +68,7 @@ const NewsList = () => {
                   onClick={() => navigate(`/news/${item.id}`)}
                   className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex w-full md:flex-col"
                 >
-                  <div className="w-28 h-28 md:w-full md:h-40 bg-slate-100 relative shrink-0 overflow-hidden">
+                  <div className="w-28 h-28 md:w-full md:h-auto md:aspect-[4/5] bg-slate-100 relative shrink-0 overflow-hidden">
                     {imageUrl ? (
                       // object-position comes from the CRM's drag-to-frame
                       // control (News_Feed.image_position); centre matches the
