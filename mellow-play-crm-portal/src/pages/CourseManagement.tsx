@@ -12,7 +12,7 @@ import {
   IconButton, Paper, Stack, Alert, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, ListItemButton, ListItemIcon, Divider,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, TableSortLabel,
   ToggleButton, ToggleButtonGroup, Switch, FormControlLabel,
   Tab, Tabs, Rating, Avatar,
 } from '@mui/material';
@@ -271,6 +271,18 @@ const SkillTagInput = ({ label, values, onChange, color = 'primary', onOpenPicke
     </Box>
   );
 };
+
+// Columns that can be sorted and filtered from the header. `type` is only
+// rendered on the class page, matching the row markup below.
+const SORTABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: 'code', label: 'รหัสคลาส' },
+  { key: 'name', label: 'ชื่อคลาส' },
+  { key: 'type', label: 'ประเภท' },
+  { key: 'category', label: 'หมวดหมู่' },
+  { key: 'age', label: 'ช่วงอายุ' },
+  { key: 'price', label: 'ราคาปกติ' },
+  { key: 'duration', label: 'ระยะเวลา' },
+];
 
 const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
@@ -906,8 +918,45 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       .finally(() => setReviewsLoading(false));
   }, [editCourse?.id]);
 
+  // One definition of "what this column contains", shared by the header filter
+  // and the sort. Two separate definitions would eventually disagree, and a
+  // column that sorts by one thing while filtering on another is worse than
+  // neither.
+  const columnText = React.useCallback((course: any, key: string): string => {
+    switch (key) {
+      case 'code': return course.code || '';
+      case 'name': return course.name || '';
+      case 'type': return TYPE_META[getCourseType(course)]?.label || '';
+      case 'category': return categories.find(c => c.id === course.category_id)?.name || '';
+      case 'age': return formatAgeRange(course.age_min, course.age_max);
+      case 'price': return course.original_price != null ? String(course.original_price) : '';
+      case 'duration': return course.duration != null ? String(course.duration) : '';
+      default: return '';
+    }
+  }, [categories]);
+
+  // Numeric columns sort by value, not by their printed text — otherwise 1000
+  // lands before 900.
+  const columnSortValue = React.useCallback((course: any, key: string): string | number => {
+    switch (key) {
+      case 'age': return course.age_min ?? 0;
+      case 'price': return course.original_price ?? 0;
+      case 'duration': return course.duration ?? 0;
+      default: return columnText(course, key).toLowerCase();
+    }
+  }, [columnText]);
+
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+
   const filteredCourses = React.useMemo(() => {
-    return courses.filter(course => {
+    const matchesColumnFilters = (course: any) =>
+      Object.entries(colFilters).every(([key, needle]) => {
+        if (!needle) return true;
+        return columnText(course, key).toLowerCase().includes(needle.toLowerCase());
+      });
+
+    const rows = courses.filter(course => {
       // Events and Services each live entirely on their own page now
       // (/crm/events, /crm/course-services) — the class page never shows
       // either, each dedicated page shows only its own type.
@@ -920,9 +969,20 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         course.id.toString().includes(q);
       const matchesCat = !filters.category || course.category_id === parseInt(filters.category);
       const matchesType = courseType !== 'class' || !filters.type || getCourseType(course) === filters.type;
-      return matchesSearch && matchesCat && matchesType;
+      return matchesSearch && matchesCat && matchesType && matchesColumnFilters(course);
     });
-  }, [courses, filters, courseType]);
+
+    if (!sort) return rows;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = columnSortValue(a, sort.key);
+      const bv = columnSortValue(b, sort.key);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      // localeCompare with 'th' so Thai names order the way staff expect
+      // rather than by code point.
+      return String(av).localeCompare(String(bv), 'th') * dir;
+    });
+  }, [courses, filters, courseType, colFilters, sort, columnText, columnSortValue]);
 
   const handleEditOpen = async (course: Course | null = null) => {
     setSaveError(null);
@@ -2537,14 +2597,45 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
             <TableRow>
               <TableCell sx={{ fontWeight: 800 }}>รูป</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>รหัสคลาส</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>ชื่อคลาส</TableCell>
-              {courseType === 'class' && <TableCell sx={{ fontWeight: 800 }}>ประเภท</TableCell>}
-              <TableCell sx={{ fontWeight: 800 }}>หมวดหมู่</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>ช่วงอายุ</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>ราคาปกติ</TableCell>
-              <TableCell sx={{ fontWeight: 800 }}>ระยะเวลา</TableCell>
+              {SORTABLE_COLUMNS.filter(col => col.key !== 'type' || courseType === 'class').map(col => (
+                <TableCell key={col.key} sx={{ fontWeight: 800 }}>
+                  <TableSortLabel
+                    active={sort?.key === col.key}
+                    direction={sort?.key === col.key ? sort.dir : 'asc'}
+                    onClick={() => setSort(prev =>
+                      prev?.key === col.key
+                        ? (prev.dir === 'asc' ? { key: col.key, dir: 'desc' } : null)
+                        : { key: col.key, dir: 'asc' })}
+                  >
+                    {col.label}
+                  </TableSortLabel>
+                </TableCell>
+              ))}
               <TableCell align="center" sx={{ fontWeight: 800 }}>จัดการ</TableCell>
+            </TableRow>
+            {/* Filter row. One box per column rather than a single search
+                field, because "ชื่อมีคำว่า X และหมวดหมู่คือ Y" is the question
+                staff actually ask and the one search box above cannot express. */}
+            <TableRow>
+              <TableCell sx={{ py: 0.5 }} />
+              {SORTABLE_COLUMNS.filter(col => col.key !== 'type' || courseType === 'class').map(col => (
+                <TableCell key={col.key} sx={{ py: 0.5 }}>
+                  <TextField
+                    size="small" variant="standard" placeholder="กรอง"
+                    value={colFilters[col.key] ?? ''}
+                    onChange={e => { setColFilters(f => ({ ...f, [col.key]: e.target.value })); setPage(0); }}
+                    InputProps={{ sx: { fontSize: 12 } }}
+                    sx={{ width: '100%', minWidth: 64 }}
+                  />
+                </TableCell>
+              ))}
+              <TableCell align="center" sx={{ py: 0.5 }}>
+                {(sort || Object.values(colFilters).some(Boolean)) && (
+                  <Button size="small" onClick={() => { setColFilters({}); setSort(null); setPage(0); }} sx={{ fontSize: 11 }}>
+                    ล้าง
+                  </Button>
+                )}
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

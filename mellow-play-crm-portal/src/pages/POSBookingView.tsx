@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import CalendarPicker from '../components/CalendarPicker';
 import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
@@ -957,7 +958,8 @@ const ServiceQueueTab = () => {
   useEffect(() => {
     Promise.all([
       axios.get(`${API_BASE}/calendars`).then(r=>{
-        const svc=(r.data.calendars??[]).filter((c:any)=>c.type==='service');
+        // Every calendar — see ClassBooking, same reasoning.
+        const svc=r.data.calendars??[];
         setCalendars(svc);
         if(svc.length>0) setSelectedCalendarId(String(svc[0].id));
       }),
@@ -998,9 +1000,7 @@ const ServiceQueueTab = () => {
           <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
             <FormControl size="small" sx={{ minWidth:180 }}>
               <InputLabel>ปฏิทินบริการ</InputLabel>
-              <Select value={selectedCalendarId} label="ปฏิทินบริการ" onChange={e=>setSelectedCalendarId(e.target.value)}>
-                {calendars.map(c=><MenuItem key={c.id} value={String(c.id)}>{c.name}</MenuItem>)}
-              </Select>
+              <CalendarPicker calendars={calendars} value={selectedCalendarId} onChange={setSelectedCalendarId} label="ปฏิทินบริการ" />
             </FormControl>
           </Stack>
           <Button variant="contained" startIcon={<AddIcon/>} onClick={()=>setAddOpen(true)} sx={{ borderRadius:3, fontWeight:800, whiteSpace:'nowrap' }}>เพิ่มคิว</Button>

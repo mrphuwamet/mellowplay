@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import CalendarPicker from '../components/CalendarPicker';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
@@ -51,7 +52,9 @@ const ClassBooking: React.FC = () => {
   useEffect(() => {
     Promise.all([
       axios.get(`${API_BASE}/calendars`).then(r => {
-        const cls = (r.data.calendars ?? []).filter((c: any) => c.type === 'class');
+        // Every calendar, not just type === 'class'. The type field is gone;
+        // it only ever hid options that were selectable elsewhere anyway.
+        const cls = r.data.calendars ?? [];
         setCalendars(cls);
         if (cls.length > 0) setSelectedCalendarId(String(cls[0].id));
       }),
@@ -235,12 +238,7 @@ const ClassBooking: React.FC = () => {
           </Grid>
           {/* Calendar selector */}
           <Box sx={{ mt: 2 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>ปฏิทิน</InputLabel>
-              <Select value={selectedCalendarId} label="ปฏิทิน" onChange={(e) => setSelectedCalendarId(e.target.value)}>
-                {calendars.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.name}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <CalendarPicker calendars={calendars} value={selectedCalendarId} onChange={setSelectedCalendarId} />
           </Box>
         </Paper>
       </Grid>

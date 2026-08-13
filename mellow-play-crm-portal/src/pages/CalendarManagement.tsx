@@ -283,7 +283,6 @@ const CalendarManagement: React.FC = () => {
                   <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: cal.color, flexShrink: 0 }} />
                   <Box>
                     <Typography variant="body2" fontWeight={700}>{cal.name}</Typography>
-                    <Chip label={cal.type === 'class' ? 'คลาสเรียน' : cal.type === 'service' ? 'บริการ' : 'อื่นๆ'} size="small" sx={{ fontSize: '10px', height: 18, mt: 0.3 }} />
                   </Box>
                 </Box>
                 <Box>
@@ -413,14 +412,12 @@ const CalendarManagement: React.FC = () => {
         <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField label="ชื่อปฏิทิน" fullWidth value={calForm.name} onChange={(e) => setCalForm(f => ({ ...f, name: e.target.value }))} />
           <TextField label="คำอธิบาย" fullWidth multiline rows={2} value={calForm.description} onChange={(e) => setCalForm(f => ({ ...f, description: e.target.value }))} />
-          <FormControl fullWidth>
-            <InputLabel>ประเภท</InputLabel>
-            <Select value={calForm.type} label="ประเภท" onChange={(e) => setCalForm(f => ({ ...f, type: e.target.value }))}>
-              <MenuItem value="class">คลาสเรียน</MenuItem>
-              <MenuItem value="service">บริการ</MenuItem>
-              <MenuItem value="other">อื่นๆ</MenuItem>
-            </Select>
-          </FormControl>
+          {/* The "ประเภท" selector used to live here. It only ever narrowed which
+              calendars the class-booking and POS screens would offer, and
+              those now offer all of them — so the field asked staff to make a
+              decision that no longer changes anything. calForm.type is still
+              carried so the stored value is preserved on edit rather than
+              being wiped by a save. */}
           <Box>
             <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>สี</Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
