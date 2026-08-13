@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Map, Star, Camera, Compass, Newspaper as HomeIcon, Lock, User, Users, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, MessageCircle, ChevronDown, ChevronRight, LayoutGrid, X, LogOut, Globe, Pencil } from 'lucide-react';
+import { Map, Star, Camera, Compass, CalendarDays, Newspaper as HomeIcon, Lock, User, Users, Calendar, Heart, Ticket, Settings as SettingsIcon, ArrowRightLeft, Cake, MessageCircle, ChevronDown, ChevronRight, LayoutGrid, X, LogOut, Globe, Pencil } from 'lucide-react';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { useChildStore } from '../store/useChildStore';
 import GuestUnlockModal from './GuestUnlockModal';
@@ -117,6 +117,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   ];
   const afterBookingItems: { to: string; Icon: typeof HomeIcon; label: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
     { to: '/know-my-child', Icon: Heart, label: t.home.quickAccess.knowMyChild, color: 'text-mellow-red', guarded: false, comingSoon: true },
+    { to: '/upcoming', Icon: CalendarDays, label: lang === 'en' ? 'Upcoming' : 'กิจกรรมที่จะมาถึง', color: 'text-orange-500', guarded: true },
     { to: '/my-coupons', Icon: Ticket, label: t.home.quickAccess.myCoupons, color: 'text-pink-500', guarded: true },
     { to: '/journey', Icon: Map, label: t.nav.journey, color: 'text-mellow-purple', guarded: true },
     { to: '/album', Icon: Camera, label: t.nav.album, color: 'text-mellow-blue', guarded: true },

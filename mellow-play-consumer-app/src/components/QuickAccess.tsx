@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Heart, Compass, Star, Map, Calendar, Lock, Ticket } from 'lucide-react';
+import { Camera, Heart, Compass, Star, Map, Calendar, Lock, Ticket , CalendarDays } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import GuestUnlockModal from './GuestUnlockModal';
 
@@ -12,6 +12,8 @@ const QuickAccess = () => {
 
   const menuItems = [
     { label: t.home.quickAccess.booking, icon: Calendar, path: '/booking', color: 'bg-orange-500' },
+    // Right after Book — where a parent looks the moment after booking.
+    { label: lang === 'en' ? 'Upcoming' : 'กิจกรรมที่จะมาถึง', icon: CalendarDays, path: '/upcoming', color: 'bg-mellow-purple', gated: true },
     { label: t.home.quickAccess.knowMyChild, icon: Heart, path: '/know-my-child', color: 'bg-mellow-red', isComingSoon: true },
     { label: t.home.quickAccess.explore, icon: Compass, path: '/explore', color: 'bg-mellow-yellow' },
     { label: t.home.quickAccess.rewards, icon: Star, path: '/rewards', color: 'bg-mellow-green', gated: true },
