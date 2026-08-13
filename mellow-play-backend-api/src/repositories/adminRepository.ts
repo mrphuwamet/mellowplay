@@ -700,7 +700,8 @@ export class AdminRepository {
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?
+        ?, ?, ?,
+        ?
       )
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
