@@ -35,6 +35,55 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Boot failure screen.
+
+         ErrorBoundary (src/components/ErrorBoundary.tsx) catches errors thrown
+         while React renders. It cannot catch a failure BEFORE React ever runs:
+         a bundle the browser can't parse, a script that 404s, a module-scope
+         throw. Those show a white page and nothing else, which is exactly what
+         a Safari user reported and what no log we keep can explain.
+
+         Deliberately plain ES5 in an inline classic script, so it runs even on
+         a browser too old to parse the app bundle itself — the case it exists
+         to report. It says nothing at all unless #root is still empty after
+         eight seconds, so a slow connection is never mistaken for a failure. -->
+    <script>
+      (function () {
+        var failure = null;
+        window.addEventListener('error', function (e) {
+          failure = (e && (e.message || (e.error && e.error.message))) || 'script error';
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          failure = (e && e.reason && (e.reason.message || String(e.reason))) || 'promise rejection';
+        });
+        var mounted = function () {
+          var root = document.getElementById('root');
+          return !!root && root.children.length > 0;
+        };
+        setTimeout(function () {
+          if (mounted()) return;
+          var box = document.createElement('div');
+          box.id = 'boot-failure';
+          box.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;background:#fbfaf7;font-family:Prompt,sans-serif;color:#334155');
+          box.innerHTML =
+            '<div style="font-size:17px;font-weight:800;margin-bottom:8px">เปิดแอปไม่สำเร็จ</div>' +
+            '<div style="font-size:13px;font-weight:600;color:#64748b;max-width:280px;line-height:1.7">เบราว์เซอร์นี้อาจเป็นเวอร์ชันเก่าเกินไป ลองอัปเดต iOS/Safari หรือเปิดด้วย Chrome ดูอีกครั้ง</div>' +
+            '<div style="margin-top:20px;font-size:11px;font-weight:600;color:#94a3b8;word-break:break-word;max-width:300px">' +
+            (failure ? String(failure).replace(/</g, '&lt;') : 'no error reported') +
+            '<br>' + String(navigator.userAgent).replace(/</g, '&lt;') + '</div>' +
+            '<a href="/" style="margin-top:24px;padding:12px 24px;background:#7c5cff;color:#fff;border-radius:16px;font-size:13px;font-weight:800;text-decoration:none">โหลดหน้าใหม่</a>';
+          document.body.appendChild(box);
+          // An overlay rather than replacing #root, and it steps aside if the
+          // app does turn up — a phone on a bad connection is slow, not
+          // broken, and must not be told otherwise.
+          var poll = setInterval(function () {
+            if (!mounted()) return;
+            clearInterval(poll);
+            if (box.parentNode) box.parentNode.removeChild(box);
+          }, 500);
+        }, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
