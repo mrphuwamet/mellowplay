@@ -6,7 +6,7 @@ import {
   DialogContent, DialogTitle, Divider, FormControl, Grid, IconButton,
   InputLabel, MenuItem, Paper, Select, Tab, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TableSortLabel, Tabs, TextField, Typography,
-  Checkbox, FormControlLabel,
+  Checkbox, FormControlLabel, Stack,
 } from '@mui/material';
 import {
   CalendarMonth as CalendarIcon, Add as AddIcon, Edit as EditIcon,
@@ -67,6 +67,10 @@ const CalendarManagement: React.FC = () => {
   const [holidayDialogOpen, setHolidayDialogOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ date: '', description: '' });
 
+  // Day labels — a note pinned to one date, shown beside it in the app.
+  const [dayLabels, setDayLabels] = useState<any[]>([]);
+  const [dayLabelForm, setDayLabelForm] = useState({ date: '', label: '' });
+
   // Rules arrive in insert order, which is why the same date appeared above
   // and below a later one. Sorted by date then start time by default —
   // reading a schedule out of order is the thing this table is for.
@@ -107,6 +111,38 @@ const CalendarManagement: React.FC = () => {
     setRules(res.data.rules ?? []);
   };
 
+  const fetchDayLabels = async (calendarId: number) => {
+    const res = await axios.get(`${API_BASE}/calendar-day-labels?calendarId=${calendarId}`);
+    setDayLabels(res.data.dayLabels ?? []);
+  };
+
+  // Saving an existing date edits it rather than failing — the server upserts,
+  // so the form doubles as the edit form and there is no second dialog.
+  const saveDayLabel = async () => {
+    if (!selectedCalendar || !dayLabelForm.date || !dayLabelForm.label.trim()) return;
+    await axios.post(`${API_BASE}/calendar-day-labels`, {
+      calendarId: selectedCalendar.id,
+      specificDate: dayLabelForm.date,
+      label: dayLabelForm.label.trim(),
+    });
+    setDayLabelForm({ date: '', label: '' });
+    await fetchDayLabels(selectedCalendar.id);
+    show('บันทึกป้ายกำกับวันสำเร็จ');
+  };
+
+  const deleteDayLabel = (id: number) => {
+    setConfirmDialog({
+      open: true,
+      title: 'ลบป้ายกำกับวันนี้ใช่หรือไม่?',
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        await axios.delete(`${API_BASE}/calendar-day-labels/${id}`);
+        if (selectedCalendar) await fetchDayLabels(selectedCalendar.id);
+        show('ลบป้ายกำกับสำเร็จ');
+      },
+    });
+  };
+
   const fetchHolidays = async (calendarId: number) => {
     const res = await axios.get(`${API_BASE}/calendar-holidays?calendarId=${calendarId}`);
     setHolidays(res.data.holidays ?? []);
@@ -121,6 +157,7 @@ const CalendarManagement: React.FC = () => {
     if (selectedCalendar) {
       fetchRules(selectedCalendar.id);
       fetchHolidays(selectedCalendar.id);
+      fetchDayLabels(selectedCalendar.id);
     }
   }, [selectedCalendar]);
 
@@ -344,10 +381,75 @@ const CalendarManagement: React.FC = () => {
                 <Tabs value={rightTab} onChange={(_, v) => setRightTab(v)} sx={{ minHeight: 'auto', '& .MuiTab-root': { py: 0.5, minHeight: 'auto' } }}>
                   <Tab label="Slot Rules" />
                   <Tab label="วันหยุด (Holidays)" />
+                  <Tab label="ป้ายกำกับวัน" />
                 </Tabs>
               </Box>
               
-              {rightTab === 0 ? (
+              {rightTab === 2 ? (
+                <Box>
+                  <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Stack direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
+                      <TextField
+                        size="small" type="date" label="วันที่" InputLabelProps={{ shrink: true }}
+                        value={dayLabelForm.date}
+                        onChange={(e) => setDayLabelForm(f => ({ ...f, date: e.target.value }))}
+                      />
+                      <TextField
+                        size="small" label="ข้อความบนป้าย" sx={{ minWidth: 240, flex: 1 }}
+                        placeholder="เช่น วันเปิดรับรอบพิเศษ"
+                        value={dayLabelForm.label}
+                        onChange={(e) => setDayLabelForm(f => ({ ...f, label: e.target.value }))}
+                      />
+                      <Button
+                        size="medium" variant="contained" startIcon={<AddIcon />} onClick={saveDayLabel}
+                        disabled={!dayLabelForm.date || !dayLabelForm.label.trim()}
+                        sx={{ borderRadius: 2, fontWeight: 700 }}
+                      >
+                        บันทึกป้าย
+                      </Button>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                      ป้ายจะขึ้นข้างวันที่ในตารางรอบฝั่งลูกค้า · หนึ่งวันมีได้หนึ่งป้าย บันทึกวันเดิมซ้ำคือการแก้ไข ·
+                      สีของป้ายใช้สีของปฏิทินนี้ เปลี่ยนได้ที่ปุ่มแก้ไขปฏิทินทางซ้าย
+                    </Typography>
+                  </Box>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'grey.50' }}>
+                          <TableCell sx={{ fontWeight: 700, width: 150 }}>วันที่</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>ป้ายกำกับ</TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {dayLabels.map((d) => (
+                          <TableRow key={d.id} hover>
+                            <TableCell><Typography variant="body2" fontWeight={700}>{d.specific_date}</Typography></TableCell>
+                            <TableCell>
+                              {/* Shown exactly as the app renders it, so what
+                                  staff pick here is what a parent sees. */}
+                              <Box component="span" sx={{
+                                display: 'inline-flex', px: 1, py: 0.25, borderRadius: 1.5, fontWeight: 800, fontSize: 13,
+                                bgcolor: `${selectedCalendar.color}22`, color: selectedCalendar.color,
+                              }}>
+                                {d.label}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">
+                              <IconButton size="small" onClick={() => setDayLabelForm({ date: d.specific_date, label: d.label })}><EditIcon fontSize="small" /></IconButton>
+                              <IconButton size="small" color="error" onClick={() => deleteDayLabel(d.id)}><DeleteIcon fontSize="small" /></IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {dayLabels.length === 0 && (
+                          <TableRow><TableCell colSpan={3} align="center" sx={{ py: 4, color: 'text.secondary' }}>ยังไม่มีป้ายกำกับวันในปฏิทินนี้</TableCell></TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ) : rightTab === 0 ? (
                 <Box>
                   <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end', borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateRule} sx={{ borderRadius: 2, fontWeight: 700 }}>

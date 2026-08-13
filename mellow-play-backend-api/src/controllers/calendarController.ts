@@ -102,6 +102,36 @@ export class CalendarController {
   }
 
   // ── Holidays ───────────────────────────────────────────────────────────────
+  // ── Day labels ─────────────────────────────────────────────────────────
+  // A note pinned to a whole date, alongside the per-round labels that already
+  // existed. Same shape as the holiday endpoints below it.
+  async getDayLabels(c: C) {
+    try {
+      const { calendarId } = c.req.query();
+      if (!calendarId) return c.json({ success: false, message: 'calendarId required' }, 400);
+      return c.json({ success: true, dayLabels: await this.repo(c).getDayLabels(parseInt(calendarId)) });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async saveDayLabel(c: C) {
+    try {
+      const d = await c.req.json();
+      const label = (d.label ?? '').trim();
+      if (!d.calendarId || !d.specificDate || !label) {
+        return c.json({ success: false, message: 'calendarId, specificDate and label are required' }, 400);
+      }
+      await this.repo(c).saveDayLabel(parseInt(d.calendarId), d.specificDate, label);
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deleteDayLabel(c: C) {
+    try {
+      await this.repo(c).deleteDayLabel(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async getHolidays(c: C) {
     try {
       const { calendarId } = c.req.query();

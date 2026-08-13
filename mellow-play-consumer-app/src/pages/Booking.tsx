@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
@@ -1704,7 +1705,10 @@ const Booking = () => {
                           const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
                           return (
                             <div key={i} className="py-2.5 border-b border-slate-100 last:border-0 last:pb-0">
-                              <h4 className="text-[14px] font-bold text-slate-800 mb-2">{displayDate}</h4>
+                              <div className="flex items-center gap-2 flex-wrap mb-2">
+                                <h4 className="text-[14px] font-bold text-slate-800">{displayDate}</h4>
+                                {(day as any).dayLabel && <ScheduleLabel text={(day as any).dayLabel} color={(day as any).labelColor} size="sm" />}
+                              </div>
                               <div className="grid grid-cols-1 gap-2">
                                 {day.slots.map((slot, j) => {
                                   const isFull = slot.available <= 0;
@@ -1712,8 +1716,9 @@ const Booking = () => {
                                     <div key={j} className={`flex items-center justify-between p-2.5 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'}`}>
                                       <div className="flex items-center gap-2">
                                         <Clock size={14} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
-                                        <span className={`text-[14px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
-                                          {slot.label ? `${slot.label} (${slot.startTime}-${slot.endTime})` : `${slot.startTime} - ${slot.endTime}`}
+                                        <span className={`text-[14px] font-bold flex items-center gap-1.5 flex-wrap ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                          {slot.label && <ScheduleLabel text={slot.label} color={(day as any).labelColor} size="sm" />}
+                                          {slot.startTime} - {slot.endTime}
                                         </span>
                                       </div>
                                       <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[14px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>

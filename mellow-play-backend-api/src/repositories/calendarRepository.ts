@@ -171,14 +171,21 @@ export class CalendarRepository {
         GROUP BY SUBSTR(b.scheduled_at, 1, 10), SUBSTR(b.scheduled_at, 12, 5)
     `;
 
-    const [rulesRes, holidaysRes, bookingsRes] = await this.db.batch([
+    const [rulesRes, holidaysRes, bookingsRes, dayLabelsRes, calendarRes] = await this.db.batch([
       this.db.prepare('SELECT * FROM Calendar_Slot_Rules WHERE calendar_id=? AND is_active=1').bind(calendarId),
       this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? AND date >= ? AND date <= ?').bind(calendarId, startDateStr, endDateStr),
-      this.db.prepare(bookingsQuery).bind(calendarId, startDateStr, endDateStr)
+      this.db.prepare(bookingsQuery).bind(calendarId, startDateStr, endDateStr),
+      this.db.prepare('SELECT specific_date, label FROM Calendar_Day_Labels WHERE calendar_id=? AND specific_date >= ? AND specific_date <= ?').bind(calendarId, startDateStr, endDateStr),
+      this.db.prepare('SELECT color FROM Calendars WHERE id=?').bind(calendarId),
     ]);
 
     const rules = rulesRes.results as any[];
     const holidays = new Set((holidaysRes.results as any[]).map(h => h.date));
+    // The calendar's own colour is what tints every label from this calendar —
+    // one place to change it, and the schedule reads as the same calendar the
+    // CRM list shows with that dot.
+    const labelColor = (calendarRes.results as any[])[0]?.color ?? null;
+    const dayLabels = new Map((dayLabelsRes.results as any[]).map(d => [d.specific_date, d.label]));
     const bookingMap = new Map();
     (bookingsRes.results as any[]).forEach(b => {
       bookingMap.set(`${b.slot_date}_${b.slot_start_time.substring(0,5)}`, b.cnt);
@@ -218,7 +225,7 @@ export class CalendarRepository {
 
       if (daySlots.length > 0) {
         daySlots.sort((a, b) => a.startTime.localeCompare(b.startTime));
-        upcoming.push({ date: dateStr, slots: daySlots });
+        upcoming.push({ date: dateStr, dayLabel: dayLabels.get(dateStr) ?? null, labelColor, slots: daySlots });
       }
     }
 
@@ -277,5 +284,27 @@ export class CalendarRepository {
   }
   async deleteHoliday(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Calendar_Holidays WHERE id=?').bind(id).run();
+  }
+
+  // ── Day labels ───────────────────────────────────────────────────────────
+  async getDayLabels(calendarId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(
+      'SELECT * FROM Calendar_Day_Labels WHERE calendar_id=? ORDER BY specific_date ASC'
+    ).bind(calendarId).all();
+    return results;
+  }
+
+  // Upsert rather than insert: one label per day is the rule (see migration
+  // 0081), so saving the same date twice means editing it, not failing.
+  async saveDayLabel(calendarId: number, specificDate: string, label: string): Promise<void> {
+    await this.db.prepare(`
+      INSERT INTO Calendar_Day_Labels (calendar_id, specific_date, label)
+      VALUES (?, ?, ?)
+      ON CONFLICT(calendar_id, specific_date) DO UPDATE SET label = excluded.label
+    `).bind(calendarId, specificDate, label).run();
+  }
+
+  async deleteDayLabel(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Calendar_Day_Labels WHERE id=?').bind(id).run();
   }
 }

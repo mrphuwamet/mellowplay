@@ -794,6 +794,9 @@ app.delete('/api/v1/admin/calendar-slot-rules/:id',(c) => calendarController.del
 app.get   ('/api/v1/admin/calendar-holidays',      (c) => calendarController.getHolidays(c));
 app.post  ('/api/v1/admin/calendar-holidays',      (c) => calendarController.createHoliday(c));
 app.delete('/api/v1/admin/calendar-holidays/:id',  (c) => calendarController.deleteHoliday(c));
+app.get   ('/api/v1/admin/calendar-day-labels',      (c) => calendarController.getDayLabels(c));
+app.post  ('/api/v1/admin/calendar-day-labels',      (c) => calendarController.saveDayLabel(c));
+app.delete('/api/v1/admin/calendar-day-labels/:id',  (c) => calendarController.deleteDayLabel(c));
 app.get   ('/api/v1/admin/calendar-slots/upcoming', (c) => calendarController.getUpcomingSlots(c));
 app.get   ('/api/v1/admin/calendar-slots/available',(c) => calendarController.getAvailableSlots(c));
 

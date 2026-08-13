@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Share2 } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
@@ -439,7 +440,14 @@ const CourseDetail = () => {
                    const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', lang === 'en' ? enDateOptions : thDateOptions);
                    return (
                      <div key={i} className="py-3 border-b border-slate-100 last:border-0 last:pb-0">
-                       <h4 className="text-[16px] font-bold text-slate-800 mb-3">{displayDate}</h4>
+                       {/* The day's own label sits beside the date, which is
+                           what "ให้มี label อยู่ข้างขวาวัน" asked for — before
+                           this, anything about the day had to be repeated onto
+                           every round below it. */}
+                       <div className="flex items-center gap-2 flex-wrap mb-3">
+                         <h4 className="text-[16px] font-bold text-slate-800">{displayDate}</h4>
+                         {day.dayLabel && <ScheduleLabel text={day.dayLabel} color={day.labelColor} />}
+                       </div>
                        <div className="grid grid-cols-1 gap-2">
                          {day.slots.map((slot: any, j: number) => {
                            const isFull = slot.available <= 0;
@@ -447,8 +455,9 @@ const CourseDetail = () => {
                              <div key={j} className={`flex items-center justify-between p-3 rounded-xl border ${isFull ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200'} `}>
                                <div className="flex items-center gap-2">
                                  <Clock size={16} className={isFull ? 'text-slate-400' : 'text-slate-600'} />
-                                 <span className={`text-[15px] font-bold ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
-                                   {slot.label ? `${slot.label} (${slot.startTime}-${slot.endTime})` : `${slot.startTime} - ${slot.endTime}`}
+                                 <span className={`text-[15px] font-bold flex items-center gap-1.5 flex-wrap ${isFull ? 'text-slate-500' : 'text-slate-700'}`}>
+                                   {slot.label && <ScheduleLabel text={slot.label} color={day.labelColor} />}
+                                   {slot.startTime} - {slot.endTime}
                                  </span>
                                </div>
                                <div className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[16px] font-black ${isFull ? 'bg-red-50 text-red-600' : 'bg-mellow-green-soft text-mellow-green-dark'}`}>
