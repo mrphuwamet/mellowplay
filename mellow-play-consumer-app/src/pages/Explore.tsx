@@ -141,7 +141,7 @@ const Explore = () => {
         onClick={() => navigate(`/news/${item.id}`)}
         className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform"
       >
-        <div className="aspect-[4/5] bg-slate-100 relative overflow-hidden">
+        <div className="aspect-[16/9] bg-slate-100 relative overflow-hidden">
           {imageUrl ? (
             <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
           ) : (

@@ -154,7 +154,7 @@ const NewsFeedManagement = () => {
     setIsEditing(true);
   };
 
-  // Thumbnails go through the crop dialog first (defaulting to the 4:5 frame
+  // Thumbnails go through the crop dialog first (defaulting to the 16:9 frame
   // they will be displayed in) and are downscaled/compressed on the way out —
   // see utils/imageUpload.ts for why that matters for a phone-camera photo.
   const uploadImage = async (file: File) => {
@@ -321,14 +321,14 @@ const NewsFeedManagement = () => {
               <Box
                 onClick={() => { if (!form.imageUrl) imageInputRef.current?.click(); }}
                 sx={{
-                  position: 'relative', aspectRatio: '4/5', maxWidth: 320, borderRadius: 2, overflow: 'hidden',
+                  position: 'relative', aspectRatio: '16/9', maxWidth: 320, borderRadius: 2, overflow: 'hidden',
                   border: '2px dashed #e2e8f0', cursor: form.imageUrl ? 'default' : 'pointer', bgcolor: '#f9fafb',
                   '&:hover': !form.imageUrl ? { borderColor: 'primary.main', bgcolor: '#f5f0ff' } : {},
                 }}
               >
                 {form.imageUrl ? (
                   <>
-                    {/* This frame is exactly the 4:5 object-fit:cover box the
+                    {/* This frame is exactly the 16:9 object-fit:cover box the
                         consumer app renders the thumbnail into, so dragging
                         here shows the real crop rather than an approximation. */}
                     <img
@@ -365,7 +365,7 @@ const NewsFeedManagement = () => {
                     />
                     <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.4)', py: 0.4, textAlign: 'center', pointerEvents: 'none' }}>
                       <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: 10 }}>
-                        {isDraggingThumb ? 'กำลังปรับตำแหน่ง...' : 'ลากรูปเพื่อเลือกส่วนที่จะแสดงในกรอบ 4:5'}
+                        {isDraggingThumb ? 'กำลังปรับตำแหน่ง...' : 'ลากรูปเพื่อเลือกส่วนที่จะแสดงในกรอบ 16:9'}
                       </Typography>
                     </Box>
                     <IconButton
@@ -399,8 +399,8 @@ const NewsFeedManagement = () => {
               <ImageCropDialog
                 open={!!thumbCropFile}
                 file={thumbCropFile}
-                defaultAspect={4 / 5}
-                title="ครอบตัดรูปปก (กรอบ 4:5 ตามที่แสดงในแอป)"
+                defaultAspect={16 / 9}
+                title="ครอบตัดรูปปก (กรอบ 16:9 ตามที่แสดงในแอป)"
                 onCancel={() => setThumbCropFile(null)}
                 onCropped={file => { setThumbCropFile(null); void uploadImage(file); }}
               />
