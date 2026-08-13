@@ -219,15 +219,11 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
               chip to insert at the cursor. The reminder box is only a default;
               it can be edited again when actually sending from the
               "ส่งแจ้งเตือน" page. */}
-          <FormControlLabel
-            control={
-              <Switch
-                checked={value.smsSuccessEnabled}
-                onChange={e => onChange({ smsSuccessEnabled: e.target.checked })}
-              />
-            }
-            label="เปิดใช้งาน SMS แจ้งจองสำเร็จ"
-          />
+          {/* No on/off switch here any more. It used to sit beside the channel
+              dropdown above and both claimed to control the same thing — so
+              turning this off while the dropdown still said "ส่งทั้งคู่" left
+              SMS going out, which is exactly what happened in production. The
+              dropdown is the single control; this box is only the wording. */}
         </Grid>
         <Grid item xs={12}>
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS จองสำเร็จ</Typography>
@@ -261,15 +257,8 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
         {/* ── Email ───────────────────────────────────────────────────────── */}
         <Grid item xs={12}>
           <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 0.5 }}>อีเมล</Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={value.emailSuccessEnabled}
-                onChange={e => onChange({ emailSuccessEnabled: e.target.checked })}
-              />
-            }
-            label="เปิดใช้งานอีเมลแจ้งจองสำเร็จ"
-          />
+          {/* Same as SMS above — the channel dropdown decides, this box is the
+              wording only. */}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             ใช้ตัวแปรชุดเดียวกับ SMS ({'{{'}parent_name{'}}'}, {'{{'}course_name{'}}'} ฯลฯ)
             ถ้าผู้ปกครองไม่มีอีเมลในระบบ ระบบจะส่ง SMS ให้แทนอัตโนมัติ

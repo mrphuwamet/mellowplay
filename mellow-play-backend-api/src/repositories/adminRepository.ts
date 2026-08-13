@@ -1,3 +1,17 @@
+// The per-channel flags are DERIVED from the channel mode, never set on their
+// own. They used to be independent switches in the course form, which meant a
+// course could say "email only" in one place and "send both" in another — and
+// the sender obeyed the mode, so switching SMS off did nothing while messages
+// kept going out. One control, one source of truth.
+//
+// A "first" mode marks only its primary channel as enabled: the fallback is
+// exceptional, not the plan, and getUnsentConfirmations uses these flags to
+// decide which bookings SHOULD have had a message.
+const channelFlagsFor = (mode?: string): { sms: number; email: number } => ({
+  sms: mode === 'both' || mode === 'sms_first' || mode === 'sms_only' ? 1 : 0,
+  email: mode === 'both' || mode === 'email_first' || mode === 'email_only' ? 1 : 0,
+});
+
 export class AdminRepository {
   private db: D1Database;
 
@@ -733,8 +747,8 @@ export class AdminRepository {
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
       data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
-      data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
-      data.emailSuccessEnabled ? 1 : 0, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
+      channelFlagsFor(data.confirmationChannelMode).sms, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
+      channelFlagsFor(data.confirmationChannelMode).email, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
       data.confirmationChannelMode ?? 'off'
     ).run();
     return result.meta.last_row_id;
@@ -838,8 +852,8 @@ export class AdminRepository {
       data.stampsOnCompletion ?? 0, data.stampExpiryMonths ?? 12,
       data.salesCommissionType ?? null, data.salesCommissionValue ?? null,
       data.teacherCommissionType ?? null, data.teacherCommissionValue ?? null,
-      data.smsSuccessEnabled ? 1 : 0, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
-      data.emailSuccessEnabled ? 1 : 0, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
+      channelFlagsFor(data.confirmationChannelMode).sms, data.smsSuccessTemplate ?? null, data.smsReminderTemplate ?? null,
+      channelFlagsFor(data.confirmationChannelMode).email, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
       data.confirmationChannelMode ?? 'off',
       id
     ).run();
