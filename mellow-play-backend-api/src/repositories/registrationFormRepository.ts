@@ -91,7 +91,21 @@ export class RegistrationFormRepository {
   async findDuplicatePersonInCalendar(calendarId: number, candidateNames: string[]): Promise<boolean> {
     const normalizedCandidates = new Set(candidateNames.map(n => n.trim().toLowerCase()).filter(Boolean));
     if (normalizedCandidates.size === 0) return false;
+    const taken = await this.listRegisteredNamesInCalendar(calendarId);
+    return taken.some(n => normalizedCandidates.has(n));
+  }
 
+  /**
+   * Every person already registered anywhere on this calendar, normalised the
+   * same way findDuplicatePersonInCalendar compares them.
+   *
+   * Exists so the booking form can grey out and label those people BEFORE
+   * someone fills in a whole form and gets rejected at submit. The check above
+   * now runs off this list rather than repeating the traversal, because two
+   * copies of "who counts as already registered" would drift and the UI would
+   * end up promising something the server refuses.
+   */
+  async listRegisteredNamesInCalendar(calendarId: number): Promise<string[]> {
     const { results: submissions } = await this.db.prepare(`
       SELECT fs.form_id, fs.answers_json
       FROM Form_Submissions fs
@@ -99,7 +113,7 @@ export class RegistrationFormRepository {
       WHERE c.calendar_id = ?
         AND EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
     `).bind(calendarId).all();
-    if ((submissions as any[]).length === 0) return false;
+    if ((submissions as any[]).length === 0) return [];
 
     const formIds = Array.from(new Set((submissions as any[]).map((s: any) => s.form_id)));
     const pickerKeysByForm = new Map<number, string[]>();
@@ -110,6 +124,7 @@ export class RegistrationFormRepository {
       pickerKeysByForm.set(formId, (fields as any[]).map(f => f.field_key));
     }
 
+    const taken = new Set<string>();
     for (const s of submissions as any[]) {
       const pickerKeys = pickerKeysByForm.get(s.form_id) || [];
       if (pickerKeys.length === 0) continue;
@@ -118,11 +133,12 @@ export class RegistrationFormRepository {
       for (const key of pickerKeys) {
         const realNameText = answers[`${key}__realname`];
         if (!realNameText) continue;
-        const names = String(realNameText).split(',').map(n => n.trim().toLowerCase()).filter(Boolean);
-        if (names.some(n => normalizedCandidates.has(n))) return true;
+        for (const n of String(realNameText).split(',').map(x => x.trim().toLowerCase()).filter(Boolean)) {
+          taken.add(n);
+        }
       }
     }
-    return false;
+    return Array.from(taken);
   }
 
   // Used to show (and, via updateSubmissionAnswers, edit) what a family

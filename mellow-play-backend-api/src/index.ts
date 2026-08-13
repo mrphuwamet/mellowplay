@@ -431,6 +431,10 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/coupons$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/registration-form$/ },
+  // POST only because it carries the names being asked about in a body; it
+  // writes nothing. See getRegisteredNamesForCourse for why it takes names
+  // instead of returning them.
+  { method: 'POST', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/registered-names$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/registration-forms\/[^/]+\/team-availability$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
@@ -554,6 +558,7 @@ app.put('/api/v1/admin/courses/:id/image-views', (c) => adminController.updateCo
 app.get('/api/v1/admin/courses/:id/image-focals', (c) => adminController.getCourseImageFocals(c));
 app.put('/api/v1/admin/courses/:id/image-focals', (c) => adminController.updateCourseImageFocals(c));
 app.get('/api/v1/admin/courses/:id/registration-form', (c) => registrationFormController.getFormForCourse(c));
+app.post('/api/v1/admin/courses/:id/registered-names', (c) => registrationFormController.getRegisteredNamesForCourse(c));
 
 app.get('/api/v1/admin/categories', (c) => adminController.getCategories(c));
 app.post('/api/v1/admin/categories', (c) => adminController.createCategory(c));

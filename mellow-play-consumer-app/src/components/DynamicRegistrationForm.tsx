@@ -11,6 +11,9 @@ interface RegFormField {
   required: number | boolean;
   options_json?: string | null;
   config_json?: string | null;
+  // Set in the CRM form builder, per field. 'calendar' is the only value the
+  // picker UI acts on; the server enforces all of them at submit.
+  duplicate_check_scope?: 'course' | 'round' | 'calendar' | null;
   page_index: number;
   field_index: number;
 }
@@ -41,6 +44,12 @@ interface Props {
   // did not exist for these forms.
   childCourseStatus?: Record<number, 'upcoming' | 'completed'>;
   allowRepeat?: boolean;
+  // Real names (lower-cased) already registered anywhere on this course's
+  // calendar. Only used by fields the CRM marked
+  // duplicate_check_scope = 'calendar' — that setting is what the server
+  // enforces at submit, so the form has to read the same rule or it offers
+  // choices that get rejected at the end.
+  registeredNames?: string[];
   onBack: () => void;
   onNext: () => void;
   lang: 'th' | 'en';
@@ -76,7 +85,7 @@ interface Props {
 // straight into Booking.tsx) since it manages its own page index, separate
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
-  form, answers, onChange, roster, childCourseStatus = {}, allowRepeat = false, onBack, onNext, lang,
+  form, answers, onChange, roster, childCourseStatus = {}, allowRepeat = false, registeredNames = [], onBack, onNext, lang,
   childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount, courseId, scheduledAt,
 }) => {
   // field_key -> { teamLabel -> current count } — only fetched when the
@@ -188,6 +197,11 @@ const DynamicRegistrationForm: React.FC<Props> = ({
   // matches the CRM builder's own description of the two roles. The account
   // holder themselves is an adult family member too, just never a `roster`
   // row (that's the Children table) — listed first when picking an adult.
+  const takenNames = React.useMemo(
+    () => new Set(registeredNames.map(n => n.trim().toLowerCase()).filter(Boolean)),
+    [registeredNames]
+  );
+
   const rosterFor = (role: string | undefined) => {
     const members = roster.filter(m =>
       role === 'adult' ? !!(m.relation && m.relation !== 'child') : (!m.relation || m.relation === 'child')
@@ -404,16 +418,25 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                     {list.map(member => {
                       const display = member.nickname || member.name;
                       const selected = isChildPicker ? currentIds.includes(member.id) : value === display;
-                      // Only the child picker gates on this: an adult picker
-                      // names an accompanying parent, who is not the one being
-                      // registered and may legitimately appear twice.
-                      const status = isChildPicker ? childCourseStatus[member.id] : undefined;
-                      const takenLabel = status === 'upcoming'
+                      // Two different rules, and the field's own setting wins
+                      // where it is set. 'calendar' scope is what the server
+                      // actually enforces: same REAL NAME, anywhere on this
+                      // calendar, whichever role they were picked under — so it
+                      // applies to the adult picker too, and ignores the
+                      // course's allow_repeat, which is a different question.
+                      const blocksByCalendar = field.duplicate_check_scope === 'calendar';
+                      const nameTaken = blocksByCalendar
+                        && !!member.name
+                        && takenNames.has(member.name.trim().toLowerCase());
+                      // Fallback for fields with no setting: the generic
+                      // "already booked this course" rule, child picker only.
+                      const status = !blocksByCalendar && isChildPicker ? childCourseStatus[member.id] : undefined;
+                      const takenLabel = nameTaken || status === 'upcoming'
                         ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
                         : status === 'completed'
                           ? (lang === 'en' ? 'Already attended' : 'เคยเข้าร่วมแล้ว')
                           : null;
-                      const isTakenDisabled = !allowRepeat && !!status && !selected;
+                      const isTakenDisabled = !selected && (nameTaken || (!allowRepeat && !!status));
                       return (
                         <button key={member.id} type="button" disabled={isTakenDisabled}
                           onClick={() => { if (!isTakenDisabled) handlePick(member); }}

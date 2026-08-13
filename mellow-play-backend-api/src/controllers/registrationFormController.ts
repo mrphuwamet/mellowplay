@@ -51,6 +51,48 @@ export class RegistrationFormController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * Public: of the people the caller names, which are already registered
+   * somewhere on this course's calendar.
+   *
+   * Same purpose as getTeamAvailability below — let the wizard grey out a
+   * choice that the server would reject anyway, instead of letting someone
+   * fill in a whole form and be turned away at the end. The submit-time check
+   * in createBooking still runs; this is the preview of it, reading the same
+   * list so the two cannot disagree.
+   *
+   * Deliberately takes the names to ask about rather than returning the
+   * roll: this route is unauthenticated (the booking wizard runs it before
+   * any CRM login), and handing out every registrant's real name would turn
+   * a UI hint into a directory of who attends this venue. Answering only
+   * about names the caller already holds reveals nothing they could not
+   * learn by submitting the form and reading the rejection.
+   *
+   * Only meaningful for forms with a family_member_picker set to
+   * duplicate_check_scope = 'calendar'; the client decides whether to ask.
+   */
+  async getRegisteredNamesForCourse(c: C) {
+    try {
+      const courseId = parseInt(c.req.param('id'));
+      const body = await c.req.json().catch(() => ({}));
+      // A roster is a handful of family members; the cap is only here so the
+      // open route can't be used to test thousands of guesses in one call.
+      const candidates: string[] = Array.isArray(body?.names) ? body.names.slice(0, 50) : [];
+      if (candidates.length === 0) return c.json({ success: true, taken: [] });
+
+      const config = new ConfigService(c.env);
+      const course = await config.db.prepare('SELECT calendar_id FROM Courses WHERE id = ?')
+        .bind(courseId).first<{ calendar_id: number | null }>();
+      if (!course?.calendar_id) return c.json({ success: true, taken: [] });
+
+      const registered = new Set(await this.repo(c).listRegisteredNamesInCalendar(course.calendar_id));
+      const taken = candidates
+        .map(n => String(n ?? '').trim().toLowerCase())
+        .filter(n => n && registered.has(n));
+      return c.json({ success: true, taken: Array.from(new Set(taken)) });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // Public: how many spots are left per team on a team_select field, for
   // this specific course+round — read by the consumer booking wizard to
   // disable full teams before submit (also re-checked server-side at

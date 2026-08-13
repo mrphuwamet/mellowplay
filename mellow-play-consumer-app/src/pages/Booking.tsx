@@ -165,6 +165,10 @@ const Booking = () => {
   const [courseCoupons, setCourseCoupons] = useState<any[]>([]);
   const [selectedCoupon, setSelectedCoupon] = useState<any>(null);
   const [registrationForm, setRegistrationForm] = useState<any>(null);
+  // Which of THIS account's family members are already registered on this
+  // course's calendar, for form fields set to duplicate_check_scope =
+  // 'calendar'. Only fetched when such a field exists — see the effect below.
+  const [registeredNames, setRegisteredNames] = useState<string[]>([]);
   const [formAnswers, setFormAnswers] = useState<Record<string, any>>({});
   const [courseSearch, setCourseSearch] = useState('');
   const [courseAgeFilter, setCourseAgeFilter] = useState<'all' | '3-6' | '7-9' | 'custom'>('all');
@@ -491,6 +495,31 @@ const Booking = () => {
       .catch(() => { if (!cancelled) setRegistrationForm(null); });
     return () => { cancelled = true; };
   }, [selectedCourse?.id, selectedCourse?.registration_form_id]);
+
+  // The server rejects a submission naming someone already registered on
+  // this calendar (createBooking -> DUPLICATE_FORM_SUBMISSION). Asking the
+  // same question here lets the picker grey those people out up front instead
+  // of failing at the end of a filled-in form. Only asked when a field
+  // actually carries that setting, so ordinary forms cost nothing extra. The
+  // roster goes up and only the already-registered subset comes back — the
+  // route never hands out other families' names.
+  const rosterNamesKey = [...children, ...crmFamilyMembers]
+    .map((m: any) => m.name).filter(Boolean).join('|');
+  useEffect(() => {
+    const needsNames = (registrationForm?.fields || []).some(
+      (f: any) => f.type === 'family_member_picker' && f.duplicate_check_scope === 'calendar'
+    );
+    const names = rosterNamesKey ? rosterNamesKey.split('|') : [];
+    if (!needsNames || !selectedCourse?.id || names.length === 0) {
+      setRegisteredNames([]);
+      return;
+    }
+    let cancelled = false;
+    apiClient.post(`/admin/courses/${selectedCourse.id}/registered-names`, { names })
+      .then(res => { if (!cancelled) setRegisteredNames(res.data.success ? (res.data.taken || []) : []); })
+      .catch(() => { if (!cancelled) setRegisteredNames([]); });
+    return () => { cancelled = true; };
+  }, [registrationForm, selectedCourse?.id, rosterNamesKey]);
 
   // Informational schedule for the course-preview modal — unlike the
   // booking-flow's own upcomingDates effect below, this isn't gated on a
@@ -1344,6 +1373,7 @@ const Booking = () => {
               roster={[...children, ...crmFamilyMembers]}
               childCourseStatus={childCourseStatus}
               allowRepeat={!!selectedCourse?.allow_repeat}
+              registeredNames={registeredNames}
               onBack={() => setCurrentStepIndex(currentStepIndex - 1)}
               onNext={() => setCurrentStepIndex(currentStepIndex + 1)}
               lang={lang}
