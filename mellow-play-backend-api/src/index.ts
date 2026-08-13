@@ -518,6 +518,11 @@ app.delete('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.d
 app.get   ('/api/v1/system/logs',        (c) => adminController.getSystemLogs(c));
 app.delete('/api/v1/system/logs',        (c) => adminController.clearSystemLogs(c));
 app.get   ('/api/v1/system/api-logs',    (c) => adminController.getApiCallLogs(c));
+// Email/SMS send history — reads Email_Logs and Sms_Logs, which the
+// notification services have been writing all along.
+app.get   ('/api/v1/system/email-logs',     (c) => adminController.getEmailLogs(c));
+app.get   ('/api/v1/system/email-logs/:id', (c) => adminController.getEmailLogDetail(c));
+app.get   ('/api/v1/system/sms-logs',       (c) => adminController.getSmsLogs(c));
 app.delete('/api/v1/system/api-logs',    (c) => adminController.clearApiCallLogs(c));
 app.get   ('/api/v1/admin/system/settings', (c) => adminController.getSystemSettings(c));
 app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemSetting(c));

@@ -47,6 +47,7 @@ export async function sendBookingSuccessNotifications(
         co.name as course_name,
         co.sms_success_enabled, co.sms_success_template,
         co.email_success_enabled, co.email_success_subject, co.email_success_template,
+        co.confirmation_channel_mode,
         br.name as branch_name
       FROM Bookings b
       JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
@@ -62,9 +63,19 @@ export async function sendBookingSuccessNotifications(
 
     const first = bookingRows[0];
 
-    const wantSms = !!first.sms_success_enabled && !!first.sms_success_template;
-    const wantEmail = !!first.email_success_enabled && !!first.email_success_template;
-    if (!wantSms && !wantEmail) return;
+    // One explicit channel policy per course (migration 0080) instead of two
+    // flags whose combination happened to imply a fallback. A row saved before
+    // that column existed derives its mode from the old flags, so an
+    // un-migrated course still behaves exactly as it did.
+    const mode: string = first.confirmation_channel_mode
+      || (first.email_success_enabled && first.sms_success_enabled ? 'both'
+        : first.email_success_enabled ? 'email_first'
+        : first.sms_success_enabled ? 'sms_only'
+        : 'off');
+
+    const hasSmsTemplate = !!first.sms_success_template;
+    const hasEmailTemplate = !!first.email_success_template;
+    if (mode === 'off' || (!hasSmsTemplate && !hasEmailTemplate)) return;
 
     // Sibling children in the same checkout each contribute their own
     // name/nickname, comma-joined — the parent is shared across the group.
@@ -103,20 +114,18 @@ export async function sendBookingSuccessNotifications(
     const settingsRepo = new SettingsRepository(db);
     const hasEmailAddress = !!(first.parent_email || '').trim();
 
-    // Fallback rule (chosen deliberately): a course set up to confirm by email
-    // still has to reach a parent who has no email address on file — Users.email
-    // is nullable and unverified. It falls back to SMS, but only when SMS is not
-    // already being sent for this booking, or the parent would get two texts.
-    //
-    // It also needs an SMS template to fall back to. A course configured for
-    // email only has no reason to have one, and reusing the email body would
-    // mean sending a multi-page HTML-derived text at per-segment SMS pricing, so
-    // that case is recorded as a failure instead of guessing.
-    const emailNeedsFallback = wantEmail && !hasEmailAddress && !wantSms;
-    const canFallback = emailNeedsFallback && !!first.sms_success_template;
-    const sendSms = (wantSms || canFallback) && !!first.phone;
+    const hasPhone = !!(first.phone || '').trim();
 
-    if (sendSms) {
+    // Each channel as a callable, so the policy below can order them and react
+    // to what the first one did. `fallbackFrom` is recorded in the log, because
+    // "why did this parent get an SMS when the course is set to email?" has to
+    // be answerable from the CRM without reading this file.
+    //
+    // A channel with no template is not attempted at all: reusing an email body
+    // as an SMS would send a multi-page HTML-derived text at per-segment
+    // pricing, and inventing a body is worse than sending nothing.
+    const sendSmsChannel = async (fallbackFrom: string | null): Promise<boolean> => {
+      if (!hasSmsTemplate || !hasPhone) return false;
       const message = renderSmsTemplate(first.sms_success_template, variables);
       const apiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
       const apiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
@@ -132,17 +141,17 @@ export async function sendBookingSuccessNotifications(
           phone: first.phone,
           message,
           status: result.ok ? 'sent' : 'failed',
-          // Marked in the log so "why did this parent get an SMS when the course
-          // is set to email?" is answerable from the CRM without guesswork.
-          providerDetail: canFallback
-            ? `fallback from email (no address on file)${result.detail ? `: ${result.detail}` : ''}`
+          providerDetail: fallbackFrom
+            ? `สำรองจาก${fallbackFrom}${result.detail ? `: ${result.detail}` : ''}`
             : result.detail ?? null,
           sentBy,
         });
       }
-    }
+      return result.ok;
+    };
 
-    if (wantEmail) {
+    const sendEmailChannel = async (fallbackFrom: string | null): Promise<boolean> => {
+      if (!hasEmailTemplate) return false;
       const emailRepo = new EmailLogRepository(db);
       const subjectTemplate = first.email_success_subject || 'ยืนยันการลงทะเบียน {{course_name}}';
       const subject = renderEmailSubject(subjectTemplate, variables);
@@ -160,11 +169,10 @@ export async function sendBookingSuccessNotifications(
           subject,
           bodyHtml: null,
           status: 'failed',
-          providerDetail: canFallback
-            ? 'ผู้ปกครองไม่มีอีเมลในระบบ — ส่ง SMS แทนแล้ว'
-            : 'ผู้ปกครองไม่มีอีเมลในระบบ และไม่มี template SMS ให้ส่งแทน',
+          providerDetail: 'ผู้ปกครองไม่มีอีเมลในระบบ',
           sentBy,
         });
+        return false;
       } else {
         // One button per booking, not per email: qr_token is per booking while a
         // sibling checkout sends a single email, so every child in the group
@@ -202,11 +210,36 @@ export async function sendBookingSuccessNotifications(
             bodyHtml,
             status: result.ok ? 'sent' : 'failed',
             providerMessageId: result.messageId ?? null,
-            providerDetail: result.detail ?? null,
+            providerDetail: fallbackFrom
+              ? `สำรองจาก${fallbackFrom}${result.detail ? `: ${result.detail}` : ''}`
+              : result.detail ?? null,
             sentBy,
           });
         }
+        return result.ok;
       }
+    };
+
+    // The policy. A "first" mode falls back when the primary could not be
+    // attempted (no address/phone on file) OR when the provider rejected it —
+    // an address that bounces is no more use to the parent than none at all.
+    switch (mode) {
+      case 'both':
+        await sendEmailChannel(null);
+        await sendSmsChannel(null);
+        break;
+      case 'email_first':
+        if (!(await sendEmailChannel(null))) await sendSmsChannel('อีเมล');
+        break;
+      case 'sms_first':
+        if (!(await sendSmsChannel(null))) await sendEmailChannel('SMS');
+        break;
+      case 'email_only':
+        await sendEmailChannel(null);
+        break;
+      case 'sms_only':
+        await sendSmsChannel(null);
+        break;
     }
   } catch { /* notification must never block a successful booking */ }
 }

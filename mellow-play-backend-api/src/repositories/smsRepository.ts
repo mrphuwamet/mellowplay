@@ -155,4 +155,30 @@ export class SmsRepository {
     `).bind(courseId).all();
     return results;
   }
+
+  // Backs the CRM send-history view, mirroring EmailLogRepository.listRecent.
+  // The whole message is included because an SMS body is short enough to show
+  // in the row itself — there is nothing to preview separately.
+  async listRecent(filters: { limit?: number; type?: string; status?: string; search?: string } = {}): Promise<any[]> {
+    const conditions: string[] = [];
+    const binds: any[] = [];
+    if (filters.type) { conditions.push('type = ?'); binds.push(filters.type); }
+    if (filters.status) { conditions.push('status = ?'); binds.push(filters.status); }
+    if (filters.search) {
+      conditions.push('(phone LIKE ? OR message LIKE ?)');
+      binds.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    binds.push(Math.min(filters.limit ?? 200, 500));
+
+    const { results } = await this.db.prepare(`
+      SELECT id, booking_id, course_id, broadcast_id, type, phone, message, status,
+             provider_detail, sent_by, created_at
+      FROM Sms_Logs
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).bind(...binds).all();
+    return results as any[];
+  }
 }

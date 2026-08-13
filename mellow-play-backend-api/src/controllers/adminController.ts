@@ -4,6 +4,8 @@ import { AdminRepository } from '../repositories/adminRepository';
 import { HDProfileRepository } from '../repositories/hdProfileRepository';
 import { UserRepository } from '../repositories/userRepository';
 import { ConfigService } from '../services/configService';
+import { EmailLogRepository } from '../repositories/emailLogRepository';
+import { SmsRepository } from '../repositories/smsRepository';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
@@ -2744,6 +2746,47 @@ export class AdminController {
       const id = parseInt(c.req.param('id'));
       await config.db.prepare('DELETE FROM Sale_Campaigns WHERE id=?').bind(id).run();
       return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── Message logs (email + SMS send history) ──────────────────────────────
+  //
+  // Both tables have been filling up since the notification work; this is the
+  // first thing that reads them back. List and detail are separate calls: a
+  // full HTML body per row would dwarf the rest of the response, and only the
+  // row the user clicks needs one.
+  async getEmailLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const logs = await new EmailLogRepository(config.db).listRecent({
+        limit: parseInt(c.req.query('limit') || '200'),
+        type: c.req.query('type') || undefined,
+        status: c.req.query('status') || undefined,
+        search: c.req.query('search') || undefined,
+      });
+      return c.json({ success: true, logs });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async getEmailLogDetail(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const log = await new EmailLogRepository(config.db).findById(parseInt(c.req.param('id')));
+      if (!log) return c.json({ success: false, message: 'ไม่พบรายการนี้' }, 404);
+      return c.json({ success: true, log });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async getSmsLogs(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const logs = await new SmsRepository(config.db).listRecent({
+        limit: parseInt(c.req.query('limit') || '200'),
+        type: c.req.query('type') || undefined,
+        status: c.req.query('status') || undefined,
+        search: c.req.query('search') || undefined,
+      });
+      return c.json({ success: true, logs });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 }

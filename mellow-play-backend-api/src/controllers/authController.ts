@@ -7,6 +7,7 @@ import { EmailService } from '../services/emailService';
 import { UserRepository } from '../repositories/userRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { sendAlert, sendNotification } from '../services/alertService';
+import { sendWelcomeEmail } from '../services/welcomeEmailService';
 import { enforceOtpRequestLimit, enforceOtpVerifyLimit, clearOtpVerifyAttempts } from '../services/otpRateLimiter';
 
 export class AuthController {
@@ -279,6 +280,17 @@ export class AuthController {
         'เบอร์โทร': phone,
         'จำนวนบุตร': childList.length,
       });
+
+      // After the account exists and after the verification marker is consumed:
+      // a welcome mail is a courtesy, so it must not sit between the signup
+      // succeeding and the client being told. It swallows its own errors.
+      await sendWelcomeEmail(config.db, config, {
+        id: userId,
+        name: `${firstName} ${lastName}`.trim(),
+        email: emailValue,
+        phone,
+      });
+
       return c.json({ success: true, userId, duplicateWarning });
     } catch (error: any) {
       console.error('register error:', error);

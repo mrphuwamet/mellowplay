@@ -1,4 +1,4 @@
-export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset';
+export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset' | 'welcome' | 'broadcast';
 
 export interface EmailLogEntry {
   bookingId?: number | null;
@@ -57,14 +57,36 @@ export class EmailLogRepository {
   // Backs the CRM's send history view. body_html is excluded on purpose: the
   // list only needs to show what was sent to whom and whether it worked, and a
   // full HTML body per row would dwarf everything else in the response.
-  async listRecent(limit = 200): Promise<any[]> {
+  // The preview dialog fetches one body at a time through findById.
+  async listRecent(filters: { limit?: number; type?: string; status?: string; search?: string } = {}): Promise<any[]> {
+    const conditions: string[] = [];
+    const binds: any[] = [];
+    if (filters.type) { conditions.push('type = ?'); binds.push(filters.type); }
+    if (filters.status) { conditions.push('status = ?'); binds.push(filters.status); }
+    if (filters.search) {
+      conditions.push('(email LIKE ? OR subject LIKE ?)');
+      binds.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    binds.push(Math.min(filters.limit ?? 200, 500));
+
     const { results } = await this.db.prepare(`
-      SELECT id, booking_id, course_id, type, email, subject, status,
-             provider_message_id, provider_detail, sent_by, created_at
+      SELECT id, booking_id, course_id, broadcast_id, type, email, subject, status,
+             provider_message_id, provider_detail, sent_by, created_at,
+             body_html IS NOT NULL AS has_body
       FROM Email_Logs
+      ${where}
       ORDER BY created_at DESC
       LIMIT ?
-    `).bind(limit).all();
+    `).bind(...binds).all();
     return results as any[];
+  }
+
+  // One row WITH its body, for the preview dialog. Deliberately a separate
+  // call: bodies are large, and the OTP/password-reset types store none at all
+  // (a log is the wrong place to keep a live code), so the caller has to be
+  // ready for a null body either way.
+  async findById(id: number): Promise<any | null> {
+    return await this.db.prepare('SELECT * FROM Email_Logs WHERE id = ?').bind(id).first();
   }
 }
