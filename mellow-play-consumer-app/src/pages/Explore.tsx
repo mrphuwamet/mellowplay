@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatTime24 } from '../utils/dateFormat';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag, CalendarClock } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
@@ -271,7 +272,7 @@ const Explore = () => {
                     <p className="text-[12px] font-medium text-slate-500 mt-1.5">
                       {new Date(booking.scheduled_at).toLocaleDateString()}
                       {' · '}
-                      {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatTime24(booking.scheduled_at, lang)}
                     </p>
                     {booking.branch_name && (
                       <p className="text-[11px] font-medium text-slate-500 truncate mt-auto pt-2">{booking.branch_name}</p>

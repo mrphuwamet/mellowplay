@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useState } from 'react';
 import {
   Alert, Avatar, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
@@ -198,7 +199,7 @@ const ServiceQueueBoard: React.FC = () => {
               {services.map(s => <MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField label="เวลานัด (ถ้ามี)" type="time" fullWidth InputLabelProps={{ shrink: true }} value={form.slotTime} onChange={(e) => setForm(f => ({ ...f, slotTime: e.target.value }))} />
+          <TimeField24 label="เวลานัด (ถ้ามี)" fullWidth value={form.slotTime} onChange={(v) => setForm(f => ({ ...f, slotTime: v }))} />
           <FormControl fullWidth>
             <InputLabel>พนักงานที่รับผิดชอบ</InputLabel>
             <Select value={form.staffId} label="พนักงานที่รับผิดชอบ" onChange={(e) => setForm(f => ({ ...f, staffId: e.target.value }))}>

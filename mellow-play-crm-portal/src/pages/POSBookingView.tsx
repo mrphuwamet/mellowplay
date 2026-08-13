@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
@@ -411,7 +412,7 @@ const QueueDetailDialog = ({ open, item, staffList, services, onClose, onRefresh
                 {services.map(s=><MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>)}
               </Select>
             </FormControl>
-            <TextField label="เวลานัด" type="time" size="small" fullWidth value={slotTime} onChange={e=>setSlotTime(e.target.value)} InputLabelProps={{ shrink:true }} />
+            <TimeField24 label="เวลานัด" size="small" fullWidth value={slotTime} onChange={setSlotTime} />
           </Stack>
 
           <FormControl fullWidth size="small">
@@ -900,7 +901,7 @@ const AddQueueDialog = ({ open, onClose, calendars, staffList, services, selecte
             </Select>
           </FormControl>
           <Stack direction="row" spacing={2}>
-            <TextField label="เวลานัด" type="time" size="small" fullWidth value={form.slotTime} onChange={e=>setForm(f=>({...f,slotTime:e.target.value}))} InputLabelProps={{shrink:true}}/>
+            <TimeField24 label="เวลานัด" size="small" fullWidth value={form.slotTime} onChange={(v)=>setForm(f=>({...f,slotTime:v}))} />
             <FormControl fullWidth size="small">
               <InputLabel>พนักงาน</InputLabel>
               <Select value={form.staffId} label="พนักงาน" onChange={e=>setForm(f=>({...f,staffId:e.target.value}))}>

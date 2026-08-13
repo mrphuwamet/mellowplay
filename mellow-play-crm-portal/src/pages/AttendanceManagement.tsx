@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import TimeField24 from '../components/TimeField24';
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -515,20 +516,26 @@ const AttendanceManagement: React.FC<AttendanceManagementProps> = () => {
             </Alert>
           )}
 
-          <TextField
-            label="เวลาเข้างาน" type="time" fullWidth InputLabelProps={{ shrink: true }}
-            value={editForm.checkIn}
-            onChange={(e) => setEditForm((p) => ({ ...p, checkIn: e.target.value }))}
-            helperText={!editIsOffDay ? `ค่าปกติ: ${EMPLOYEE_SCHEDULE.work_start_time}` : undefined}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="เวลาออกงาน" type="time" fullWidth InputLabelProps={{ shrink: true }}
-            value={editForm.checkOut}
-            onChange={(e) => setEditForm((p) => ({ ...p, checkOut: e.target.value }))}
-            helperText={!editIsOffDay ? `ค่าปกติ: ${EMPLOYEE_SCHEDULE.work_end_time}` : undefined}
-            sx={{ mb: 2 }}
-          />
+          <Box sx={{ mb: 2 }}>
+            <TimeField24
+              label="เวลาเข้างาน" fullWidth
+              value={editForm.checkIn}
+              onChange={(v) => setEditForm((p) => ({ ...p, checkIn: v }))}
+            />
+            {!editIsOffDay && (
+              <Typography variant="caption" color="text.secondary">ค่าปกติ: {EMPLOYEE_SCHEDULE.work_start_time}</Typography>
+            )}
+          </Box>
+          <Box sx={{ mb: 2 }}>
+            <TimeField24
+              label="เวลาออกงาน" fullWidth
+              value={editForm.checkOut}
+              onChange={(v) => setEditForm((p) => ({ ...p, checkOut: v }))}
+            />
+            {!editIsOffDay && (
+              <Typography variant="caption" color="text.secondary">ค่าปกติ: {EMPLOYEE_SCHEDULE.work_end_time}</Typography>
+            )}
+          </Box>
 
           {editPreview && (
             <Alert severity={editPreview.otHours > 0 ? 'info' : 'success'} sx={{ mb: 2 }}>

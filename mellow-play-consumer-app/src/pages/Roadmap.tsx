@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatTime24 } from '../utils/dateFormat';
 import { useChildStore } from '../store/useChildStore';
 import { MapPin, Clock, CheckCircle, ChevronRight, AlertCircle, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -235,7 +236,7 @@ const Roadmap = () => {
                             {bookingDate.getDate()}
                           </span>
                           <span className={`text-[10px] font-bold leading-none ${isPast ? 'text-slate-400' : 'text-mellow-blue/70'}`}>
-                            {bookingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {formatTime24(bookingDate, lang)}
                           </span>
                         </div>
 

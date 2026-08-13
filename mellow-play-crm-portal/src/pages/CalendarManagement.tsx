@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
@@ -489,14 +490,14 @@ const CalendarManagement: React.FC = () => {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {ruleForm.timeRanges.map((range, i) => (
               <Box key={i} sx={{ display: 'flex', gap: 1 }}>
-                <TextField label="เวลาเริ่ม" type="time" fullWidth InputLabelProps={{ shrink: true }} value={range.start} onChange={(e) => {
+                <TimeField24 label="เวลาเริ่ม" fullWidth value={range.start} onChange={(v) => {
                   const next = [...ruleForm.timeRanges];
-                  next[i] = { ...next[i], start: e.target.value };
+                  next[i] = { ...next[i], start: v };
                   setRuleForm(f => ({ ...f, timeRanges: next }));
                 }} />
-                <TextField label="เวลาสิ้นสุด" type="time" fullWidth InputLabelProps={{ shrink: true }} value={range.end} onChange={(e) => {
+                <TimeField24 label="เวลาสิ้นสุด" fullWidth value={range.end} onChange={(v) => {
                   const next = [...ruleForm.timeRanges];
-                  next[i] = { ...next[i], end: e.target.value };
+                  next[i] = { ...next[i], end: v };
                   setRuleForm(f => ({ ...f, timeRanges: next }));
                 }} />
                 {ruleEditId === null && ruleForm.timeRanges.length > 1 && (

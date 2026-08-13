@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatTime24 } from '../utils/dateFormat';
 import { useNavigate } from 'react-router-dom';
 import { X, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award, Sparkles } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -106,7 +107,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                 <div className="flex items-center gap-2 text-slate-500">
                   <Clock size={14} />
                   <span className="text-xs font-medium">
-                    {formatFullDate(booking.scheduled_at)} • {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatFullDate(booking.scheduled_at)} • {formatTime24(booking.scheduled_at, lang)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-500">

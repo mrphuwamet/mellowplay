@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paper, Typography, Box, CircularProgress,
@@ -784,25 +785,21 @@ const CrmUserManagement = () => {
                   </Box>
                   <Grid container spacing={2}>
                     <Grid item xs={6}>
-                      <TextField
+                      <TimeField24
                         label="เวลาเข้างาน"
-                        type="time"
                         fullWidth
+                        disabled={readOnly}
                         value={form.work_start_time}
-                        onChange={e => !readOnly && setForm({ ...form, work_start_time: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{ readOnly }}
+                        onChange={v => !readOnly && setForm({ ...form, work_start_time: v })}
                       />
                     </Grid>
                     <Grid item xs={6}>
-                      <TextField
+                      <TimeField24
                         label="เวลาออกงาน"
-                        type="time"
                         fullWidth
+                        disabled={readOnly}
                         value={form.work_end_time}
-                        onChange={e => !readOnly && setForm({ ...form, work_end_time: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{ readOnly }}
+                        onChange={v => !readOnly && setForm({ ...form, work_end_time: v })}
                       />
                     </Grid>
                   </Grid>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import TimeField24 from './TimeField24';
 import {
   Box, Typography, Paper, Chip, Button, IconButton,
   ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent,
@@ -682,7 +683,7 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
           ) : courseId ? (
             <Stack direction="row" spacing={2}>
               <TextField label="วันที่ *" type="date" size="small" sx={{ flex: 1 }} value={bookingDate} onChange={e => setBookingDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-              <TextField label="เวลา *" type="time" size="small" sx={{ flex: 1 }} value={bookingTime} onChange={e => setBookingTime(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <Box sx={{ flex: 1 }}><TimeField24 label="เวลา" required size="small" fullWidth value={bookingTime} onChange={setBookingTime} /></Box>
             </Stack>
           ) : null}
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatTime24 } from '../utils/dateFormat';
 import { useChildStore } from '../store/useChildStore';
 import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil, Heart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -746,7 +747,7 @@ const Home = () => {
               <p className="text-[12px] font-medium text-slate-500 mt-1.5">
                 {new Date(booking.scheduled_at).toLocaleDateString()}
                 <br />
-                {new Date(booking.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {formatTime24(booking.scheduled_at, lang)}
               </p>
               <div className="flex items-center gap-1 mt-auto pt-2">
                 <MapPin size={11} className="text-mellow-purple shrink-0" />
@@ -822,7 +823,7 @@ const Home = () => {
                     <div className="min-w-0 flex-1">
                       <h4 className="font-black text-slate-800 text-[15px] leading-tight line-clamp-2">{booking.course_name}</h4>
                       <p className="text-[13px] font-bold text-slate-500 mt-1">
-                        {hasValidDate ? `${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} น.` : ''}
+                        {hasValidDate ? `${formatTime24(dt, lang)} น.` : ''}
                       </p>
                     </div>
                   </div>
