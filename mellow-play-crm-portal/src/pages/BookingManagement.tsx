@@ -33,6 +33,7 @@ import {
   Email as EmailIcon,
   Payments as PaymentsIcon,
   EventAvailable as BookedAtIcon,
+  ForwardToInbox as ResendIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -994,6 +995,39 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
+  // Manual re-send of the booking confirmation, for when the parent never got
+  // it (wrong address, mail bounced) or the class was moved and they need the
+  // new details. Posts to the same endpoint the SMS notifications page uses,
+  // which replays sendBookingSuccessNotifications — so a resend goes out on
+  // whatever channel the course is set to and reads the current schedule, not
+  // a stored copy of the original message.
+  const [resendTarget, setResendTarget] = useState<Booking[] | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resendResult, setResendResult] = useState<{ severity: 'success' | 'error'; message: string } | null>(null);
+
+  const confirmResend = async () => {
+    if (!resendTarget) return;
+    setResending(true);
+    try {
+      const res = await axios.post(`${API_BASE}/sms/resend-confirmation`, {
+        bookingIds: resendTarget.map(b => b.id),
+      });
+      if (res.data.success) {
+        // "sent" is really "handed to the provider" — a course set to
+        // ช่องทาง = ปิด sends nothing at all and still answers success, so
+        // the wording promises no more than the server actually knows.
+        setResendResult({ severity: 'success', message: `ส่งข้อความยืนยันใหม่แล้ว ${resendTarget.length} รายการ — ตรวจสอบผลได้ที่หน้าประวัติการส่ง` });
+      } else {
+        setResendResult({ severity: 'error', message: res.data.message || 'ส่งไม่สำเร็จ' });
+      }
+    } catch (e: any) {
+      setResendResult({ severity: 'error', message: e.response?.data?.message || e.message || 'ส่งไม่สำเร็จ' });
+    } finally {
+      setResending(false);
+      setResendTarget(null);
+    }
+  };
+
   // Deep-link support (e.g. the SMS notifications page's "ดูรายละเอียดการ
   // จอง" button opens `/crm/bookings?bookingId=X` in a new tab) — mirrors
   // UserManagement.tsx's openUserId pattern.
@@ -1577,6 +1611,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               <Button
                 size="small"
                 variant="outlined"
+                startIcon={<ResendIcon />}
+                onClick={() => setResendTarget(selectedBookings.filter(b => b.status !== 'cancelled'))}
+                disabled={selectedBookings.filter(b => b.status !== 'cancelled').length === 0}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                ส่งยืนยันใหม่ ({selectedBookings.filter(b => b.status !== 'cancelled').length})
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
                 startIcon={<DownloadIcon />}
                 onClick={() => exportCSV(selectedBookings)}
                 sx={{ borderRadius: 2, fontWeight: 700 }}
@@ -1598,6 +1642,42 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           )}
         </Box>
       )}
+
+      {/* Sending a message to a real parent is not undoable, so it asks
+          first and names who is about to be contacted. */}
+      <Dialog open={!!resendTarget} onClose={() => !resending && setResendTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ส่งข้อความยืนยันอีกครั้ง?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+            ระบบจะส่งข้อความยืนยันการลงทะเบียนใหม่ให้ {resendTarget?.length === 1
+              ? `ผู้ปกครองของ ${resendTarget[0].child_name}`
+              : `${resendTarget?.length ?? 0} รายการที่เลือก`} ตามช่องทาง (อีเมล/SMS) ที่ตั้งไว้ในคลาสนั้น
+            โดยใช้วันเวลาล่าสุดของการจอง
+          </Typography>
+          {resendTarget && resendTarget.length > 1 && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: 'text.secondary', fontWeight: 600 }}>
+              รายการที่จองพร้อมกัน (พี่น้องในการจองเดียวกัน) จะได้รับข้อความรวมฉบับเดียว ไม่ส่งซ้ำหลายรอบ
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setResendTarget(null)} disabled={resending} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
+          <Button onClick={confirmResend} variant="contained" disabled={resending} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            {resending ? 'กำลังส่ง…' : 'ส่งเลย'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!resendResult}
+        autoHideDuration={5000}
+        onClose={() => setResendResult(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={resendResult?.severity || 'success'} onClose={() => setResendResult(null)} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          {resendResult?.message}
+        </Alert>
+      </Snackbar>
 
       <Snackbar
         open={contactsCopied}
@@ -1678,6 +1758,12 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           <EditIcon fontSize="small" color="primary" />
           แก้ไข
         </MenuItem>
+        {manageMenu && manageMenu.booking.status !== 'cancelled' && (
+          <MenuItem onClick={() => { setResendTarget([manageMenu.booking]); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
+            <ResendIcon fontSize="small" color="primary" />
+            ส่งข้อความยืนยันอีกครั้ง
+          </MenuItem>
+        )}
         {manageMenu && ['confirmed', 'confirmed_paid'].includes(manageMenu.booking.status) && (
           <MenuItem onClick={() => { onCancel(manageMenu.booking.id); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600, color: 'error.main' }}>
             <CancelIcon fontSize="small" color="error" />

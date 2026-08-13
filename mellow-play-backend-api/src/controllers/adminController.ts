@@ -142,6 +142,30 @@ export class AdminController {
         }
       }
 
+      // Users.phone and Users.email are UNIQUE, so handing a taken value to
+      // the UPDATE surfaces a raw "D1_ERROR: UNIQUE constraint failed" in the
+      // CRM with no hint of which field or whose record is in the way. Blank
+      // is not checked: the repository stores it as NULL, and NULL rows never
+      // collide with each other.
+      const finalEmail = data.email !== undefined ? data.email : current.email;
+      const finalPhone = phone;
+      for (const [column, value, label] of [
+        ['email', finalEmail, 'อีเมล'],
+        ['phone', finalPhone, 'เบอร์โทร'],
+      ] as const) {
+        const trimmed = (value ?? '').trim();
+        if (!trimmed) continue;
+        const clash = await config.db.prepare(
+          `SELECT id, first_name, last_name FROM Users WHERE ${column} = ? AND id != ?`
+        ).bind(trimmed, id).first<{ id: number; first_name: string; last_name: string }>();
+        if (clash) {
+          return c.json({
+            success: false,
+            message: `${label}นี้ถูกใช้กับผู้ใช้อื่นแล้ว: ${[clash.first_name, clash.last_name].filter(Boolean).join(' ')} (#${clash.id})`,
+          }, 400);
+        }
+      }
+
       await adminRepo.updateUser(id, {
         firstName:          finalFirstName,
         lastName:           finalLastName,

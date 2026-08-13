@@ -503,8 +503,12 @@ const Booking = () => {
   // actually carries that setting, so ordinary forms cost nothing extra. The
   // roster goes up and only the already-registered subset comes back — the
   // route never hands out other families' names.
-  const rosterNamesKey = [...children, ...crmFamilyMembers]
-    .map((m: any) => m.name).filter(Boolean).join('|');
+  // mainAccount is included because DynamicRegistrationForm splices the
+  // account holder into the adult picker itself (they are never a row in the
+  // Children-backed roster) — leave them out and the one person most likely
+  // to have registered already is the one person never checked.
+  const rosterNamesKey = [mainAccount, ...children, ...crmFamilyMembers]
+    .map((m: any) => m?.name).filter(Boolean).join('|');
   useEffect(() => {
     const needsNames = (registrationForm?.fields || []).some(
       (f: any) => f.type === 'family_member_picker' && f.duplicate_check_scope === 'calendar'

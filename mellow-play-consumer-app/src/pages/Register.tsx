@@ -715,9 +715,12 @@ const Register = () => {
             {/* Someone who arrived here by pressing "ลงทะเบียน" on an activity
                 is mid-task. The summary recaps what they just typed, which is
                 worth showing when signing up for its own sake — but between
-                them and the thing they actually pressed, it is a dead end. */}
+                them and the thing they actually pressed, it is a dead end.
+                The label stays the plain "next step" either way: naming the
+                destination made signing up read as its own errand that ends
+                somewhere else, when it is one stretch of the same flow. */}
             <button type="button" onClick={finishRegistration} className="w-full mellow-btn-primary">
-              {redirect ? (lang === 'en' ? 'Continue to registration' : 'ไปหน้าลงทะเบียนต่อ') : t.register.nextStep} <ArrowRight size={20} />
+              {t.register.nextStep} <ArrowRight size={20} />
             </button>
           </div>
         </div>

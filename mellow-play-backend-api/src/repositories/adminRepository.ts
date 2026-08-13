@@ -12,6 +12,14 @@ const channelFlagsFor = (mode?: string): { sms: number; email: number } => ({
   email: mode === 'both' || mode === 'email_first' || mode === 'email_only' ? 1 : 0,
 });
 
+// For UNIQUE columns an admin is allowed to clear (Users.phone, Users.email):
+// an empty or whitespace-only string is "no value", and NULL is how SQLite
+// spells that without two blank rows colliding.
+const blankToNull = (v?: string | null): string | null => {
+  const trimmed = (v ?? '').trim();
+  return trimmed === '' ? null : trimmed;
+};
+
 export class AdminRepository {
   private db: D1Database;
 
@@ -129,6 +137,12 @@ export class AdminRepository {
 
   // membership_type/membership_expires_at are no longer edited here — they
   // moved to Children (see updateHdChild) since Premium status is per-child.
+  //
+  // phone and email are UNIQUE on Users, and SQLite counts '' as a real value
+  // while NULL rows never collide. A CRM form clearing the field sends '', so
+  // storing it verbatim means the first person with no email takes the empty
+  // string and everyone after them fails with a raw UNIQUE error — see
+  // blankToNull below.
   async updateUser(id: number, data: {
     firstName?: string;
     lastName?: string;
@@ -163,7 +177,7 @@ export class AdminRepository {
       data.firstName ?? null, data.lastName ?? null,
       data.firstNameEn ?? null, data.lastNameEn ?? null, data.nickname ?? null,
       data.prefix ?? null, data.dob ?? null, data.address ?? null,
-      data.phone ?? null, data.email ?? null,
+      blankToNull(data.phone), blankToNull(data.email),
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
       data.applicationDate ?? null, data.profileImageUrl ?? null, data.displayName ?? null,
