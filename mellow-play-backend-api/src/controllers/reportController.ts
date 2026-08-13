@@ -83,4 +83,23 @@ export class ReportController {
       return c.json({ success: true, summary, trend, byCourse });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
+
+  /**
+   * The name list behind the tag report — its own endpoint rather than another
+   * field on getTagAttribution, because the dashboard loads on every date
+   * change and would otherwise drag a few thousand rows along each time to
+   * render three charts that need none of them.
+   */
+  async getTagAttributionPeople(c: C) {
+    try {
+      const d = defaultDates();
+      const { startDate = d.startDate, endDate = d.endDate, branchId, tag } = c.req.query();
+      const bId = branchId ? parseInt(branchId) : undefined;
+      let people = await this.repo(c).getTagAttributionPeople(startDate, endDate, bId);
+      // Narrowing to one tag is done here so the caller can hand back exactly
+      // what the operator asked for instead of a file they have to filter.
+      if (tag) people = people.filter((p: any) => p.tag === tag);
+      return c.json({ success: true, people });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
 }

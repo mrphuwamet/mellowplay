@@ -232,4 +232,46 @@ export class ReportRepository {
     `).bind(...params).all();
     return results;
   }
+
+  /**
+   * The people behind the counts, one row per booking.
+   *
+   * Same WHERE clause as the summaries above, deliberately — a name list whose
+   * total does not match the number on the dashboard above it is worse than no
+   * list at all, so the date window, the branch filter and the "not cancelled"
+   * rule all have to stay identical.
+   *
+   * LEFT JOINs on the child/parent side: a guest booking has child_id = 0 and
+   * no account behind it, and dropping those rows would quietly under-report
+   * exactly the walk-in traffic a campaign tag is measuring.
+   */
+  async getTagAttributionPeople(startDate: string, endDate: string, branchId?: number): Promise<any[]> {
+    const branchClause = branchId ? ' AND b.branch_id = ?' : '';
+    const params: any[] = [startDate, endDate];
+    if (branchId) params.push(branchId);
+    const { results } = await this.db.prepare(`
+      SELECT
+        COALESCE(b.sponsor_tag, '(ไม่มี tag)') AS tag,
+        b.id AS booking_id,
+        b.created_at,
+        b.scheduled_at,
+        b.status,
+        co.name AS course_name,
+        br.name AS branch_name,
+        hp.name AS child_name,
+        hp.nickname AS child_nickname,
+        (u.first_name || ' ' || u.last_name) AS parent_name,
+        u.phone AS parent_phone,
+        u.email AS parent_email
+      FROM Bookings b
+      JOIN Courses co ON b.course_id = co.id
+      LEFT JOIN Branches br ON b.branch_id = br.id
+      LEFT JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
+      LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
+      LEFT JOIN Users u ON ch.parent_id = u.id
+      WHERE DATE(b.created_at, '+7 hours') BETWEEN ? AND ? AND b.status != 'cancelled'${branchClause}
+      ORDER BY tag ASC, b.created_at DESC
+    `).bind(...params).all();
+    return results;
+  }
 }

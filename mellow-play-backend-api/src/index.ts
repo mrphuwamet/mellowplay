@@ -835,6 +835,7 @@ app.get('/api/v1/admin/reports/best-sellers',   (c) => reportController.getBestS
 app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusiestDays(c));
 app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
 app.get('/api/v1/admin/reports/tag-attribution', (c) => reportController.getTagAttribution(c));
+app.get('/api/v1/admin/reports/tag-attribution/people', (c) => reportController.getTagAttributionPeople(c));
 
 app.get('/api/v1/admin/registration-forms',      (c) => registrationFormController.listForms(c));
 app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));
