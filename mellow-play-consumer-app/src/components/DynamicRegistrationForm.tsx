@@ -35,6 +35,12 @@ interface Props {
   answers: Record<string, any>;
   onChange: (fieldKey: string, value: any) => void;
   roster: RosterMember[];
+  // Who has already booked this course, and whether booking it twice is
+  // allowed. When a form carries a child picker it REPLACES the wizard's own
+  // child step, so without these the duplicate check that step does simply
+  // did not exist for these forms.
+  childCourseStatus?: Record<number, 'upcoming' | 'completed'>;
+  allowRepeat?: boolean;
   onBack: () => void;
   onNext: () => void;
   lang: 'th' | 'en';
@@ -70,7 +76,7 @@ interface Props {
 // straight into Booking.tsx) since it manages its own page index, separate
 // from the outer wizard's currentStepIndex.
 const DynamicRegistrationForm: React.FC<Props> = ({
-  form, answers, onChange, roster, onBack, onNext, lang,
+  form, answers, onChange, roster, childCourseStatus = {}, allowRepeat = false, onBack, onNext, lang,
   childPickerMode = 'multi', selectedChildIds, onChildSelectionChange, onAddFamilyMember, mainAccount, courseId, scheduledAt,
 }) => {
   // field_key -> { teamLabel -> current count } — only fetched when the
@@ -398,14 +404,30 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                     {list.map(member => {
                       const display = member.nickname || member.name;
                       const selected = isChildPicker ? currentIds.includes(member.id) : value === display;
+                      // Only the child picker gates on this: an adult picker
+                      // names an accompanying parent, who is not the one being
+                      // registered and may legitimately appear twice.
+                      const status = isChildPicker ? childCourseStatus[member.id] : undefined;
+                      const takenLabel = status === 'upcoming'
+                        ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
+                        : status === 'completed'
+                          ? (lang === 'en' ? 'Already attended' : 'เคยเข้าร่วมแล้ว')
+                          : null;
+                      const isTakenDisabled = !allowRepeat && !!status && !selected;
                       return (
-                        <button key={member.id} type="button" onClick={() => handlePick(member)}
-                          className={`p-3 rounded-2xl border text-left flex items-center gap-2 transition-all ${selected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
+                        <button key={member.id} type="button" disabled={isTakenDisabled}
+                          onClick={() => { if (!isTakenDisabled) handlePick(member); }}
+                          className={`p-3 rounded-2xl border text-left flex items-center gap-2 transition-all ${
+                            isTakenDisabled ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                            : selected ? 'bg-white border-mellow-purple ring-2 ring-mellow-purple/10' : 'bg-white border-slate-100'}`}>
                           <ChildAvatar avatarType={member.avatar} className="w-8 h-8 shrink-0" />
                           <div className="min-w-0 flex-1">
                             <span className="text-xs font-black text-slate-700 truncate block">{display}</span>
                             {member.nickname && member.name && member.nickname !== member.name && (
                               <span className="text-[10px] font-bold text-slate-400 truncate block">{member.name}</span>
+                            )}
+                            {takenLabel && (
+                              <span className="text-[10px] font-black text-mellow-purple truncate block">{takenLabel}</span>
                             )}
                           </div>
                           {/* A plain highlighted border wasn't registering as

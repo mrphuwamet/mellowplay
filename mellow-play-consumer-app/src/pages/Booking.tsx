@@ -1245,8 +1245,12 @@ const Booking = () => {
                 {children.map(child => {
                   const isSelected = selectedChildren.some(c => c.id === child.id);
                   const status = childCourseStatus[child.id];
-                  const isNonRepeatableTaken = status === 'completed' && !selectedCourse?.allow_repeat;
-                  const isDisabled = status === 'upcoming' || isNonRepeatableTaken;
+                  // allow_repeat governs BOTH states. An upcoming booking used
+                  // to block the child no matter what, so a course explicitly
+                  // marked repeatable still refused a second round — the label
+                  // stays either way, since "ลงทะเบียนแล้ว" is worth knowing
+                  // even when booking again is allowed.
+                  const isDisabled = !selectedCourse?.allow_repeat && !!status;
                   const statusLabel = status === 'upcoming'
                     ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
                     : status === 'completed'
@@ -1338,6 +1342,8 @@ const Booking = () => {
               answers={formAnswers}
               onChange={(key, value) => setFormAnswers(prev => ({ ...prev, [key]: value }))}
               roster={[...children, ...crmFamilyMembers]}
+              childCourseStatus={childCourseStatus}
+              allowRepeat={!!selectedCourse?.allow_repeat}
               onBack={() => setCurrentStepIndex(currentStepIndex - 1)}
               onNext={() => setCurrentStepIndex(currentStepIndex + 1)}
               lang={lang}
