@@ -31,6 +31,14 @@ const Register = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const redirect = searchParams.get('redirect');
+
+  // Where the family step leads: straight to whatever the person was trying to
+  // do when signup interrupted them, or the summary when they came here on
+  // their own and there is nothing waiting.
+  const finishRegistration = () => {
+    if (redirect) navigate(decodeURIComponent(redirect), { replace: true });
+    else setStep('summary');
+  };
   const { t, lang } = useTranslation();
   const fetchChildren = useChildStore(state => state.fetchChildren);
 
@@ -704,8 +712,12 @@ const Register = () => {
           </button>
 
           <div className="mt-auto pt-6">
-            <button type="button" onClick={() => setStep('summary')} className="w-full mellow-btn-primary">
-              {t.register.nextStep} <ArrowRight size={20} />
+            {/* Someone who arrived here by pressing "ลงทะเบียน" on an activity
+                is mid-task. The summary recaps what they just typed, which is
+                worth showing when signing up for its own sake — but between
+                them and the thing they actually pressed, it is a dead end. */}
+            <button type="button" onClick={finishRegistration} className="w-full mellow-btn-primary">
+              {redirect ? (lang === 'en' ? 'Continue to registration' : 'ไปหน้าลงทะเบียนต่อ') : t.register.nextStep} <ArrowRight size={20} />
             </button>
           </div>
         </div>
@@ -747,7 +759,7 @@ const Register = () => {
           )}
           <button
             type="button"
-            onClick={() => setStep('summary')}
+            onClick={finishRegistration}
             className="w-full text-center text-sm font-bold text-slate-400 hover:text-slate-500"
           >
             {t.register.skip}

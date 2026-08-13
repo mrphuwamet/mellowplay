@@ -534,7 +534,10 @@ const CourseDetail = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/register?redirect=${getCourseDetailPath(course)}`);
+                  // The booking flow, not this page. Coming back to the
+                  // description means pressing Register a second time to get
+                  // where they were already going.
+                  navigate(`/register?redirect=${encodeURIComponent(`/booking?courseId=${course.id}`)}`);
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
@@ -543,7 +546,7 @@ const CourseDetail = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/login?redirect=${getCourseDetailPath(course)}`);
+                  navigate(`/login?redirect=${encodeURIComponent(`/booking?courseId=${course.id}`)}`);
                 }}
                 className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
               >
