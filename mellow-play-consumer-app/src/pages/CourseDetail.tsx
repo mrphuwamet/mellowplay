@@ -267,15 +267,6 @@ const CourseDetail = () => {
             this same action below lg:, so the inline button here is
             lg:-only. */}
         <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-4 lg:sticky lg:top-24 lg:self-start">
-          {/* Detail poster — a separate upload from the Cover banner above
-              (different aspect ratio, portrait), shown only here in the
-              sidebar on desktop; see the lg:hidden twin instance further
-              down for its mobile placement (before the full description). */}
-          {course.detail_poster_url && (
-            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-              <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
-            </div>
-          )}
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
@@ -379,11 +370,23 @@ const CourseDetail = () => {
               </a>
             )}
           </div>
+
+          {/* Detail poster — a separate portrait upload from the cover banner.
+              It sits LAST in the sidebar: at 2:3 it is tall enough that having
+              it first pushed the venue card off the bottom of the screen, so
+              on a desktop the one thing a parent needs before travelling was
+              the one thing they could not see. Price, age and venue come
+              first; the poster is the flourish underneath. */}
+          {course.detail_poster_url && (
+            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+              <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
+            </div>
+          )}
         </div>
 
         {/* Detail poster's mobile placement — desktop shows this same image
-            in the sidebar above the Register button instead (see the
-            hidden lg:block instance up top), so this copy is mobile-only. */}
+            at the foot of the sidebar (see the hidden lg:block instance
+            above), so this copy is mobile-only. */}
         {course.detail_poster_url && (
           <div className="lg:hidden rounded-3xl overflow-hidden shadow-sm border border-slate-100">
             <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />

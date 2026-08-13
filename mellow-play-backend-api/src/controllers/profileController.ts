@@ -301,7 +301,9 @@ export class ProfileController {
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
-          br.name as branch_name
+          br.name as branch_name,
+          c.location as course_location,
+          c.location_link as course_location_link
         FROM Bookings b
         JOIN Children ch ON b.child_id = ch.id
         JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
@@ -336,7 +338,9 @@ export class ProfileController {
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
-          br.name as branch_name
+          br.name as branch_name,
+          c.location as course_location,
+          c.location_link as course_location_link
         FROM Bookings b
         JOIN Children ch ON b.child_id = ch.id
         JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
@@ -371,7 +375,9 @@ export class ProfileController {
           hp.nickname as child_nickname,
           hp.name as child_name,
           ch.avatar as child_avatar,
-          br.name as branch_name
+          br.name as branch_name,
+          c.location as course_location,
+          c.location_link as course_location_link
         FROM Bookings b
         JOIN Children ch ON b.child_id = ch.id
         JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id

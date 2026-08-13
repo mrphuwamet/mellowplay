@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getBookingPlace } from '../utils/bookingPlace';
 import { formatTime24 } from '../utils/dateFormat';
 import { useNavigate } from 'react-router-dom';
 import { X, Clock, MapPin, CheckCircle, CreditCard, ChevronDown, BookOpen, Clock3, MessageCircleHeart, Award, Sparkles } from 'lucide-react';
@@ -110,10 +111,32 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                     {formatFullDate(booking.scheduled_at)} • {formatTime24(booking.scheduled_at, lang)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500">
-                  <MapPin size={14} />
-                  <span className="text-xs font-medium">{booking.branch_name}</span>
-                </div>
+                {/* The activity's own venue, not the branch — an event held at
+                    a mall hall used to tell the parent to go to the branch
+                    instead. getBookingPlace falls back to the branch for
+                    ordinary classes, which leave the venue field empty. */}
+                {(() => {
+                  const place = getBookingPlace(booking);
+                  if (!place) return null;
+                  return (
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <MapPin size={14} className="shrink-0" />
+                      {place.link ? (
+                        <a
+                          href={place.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="text-xs font-medium underline text-mellow-blue"
+                        >
+                          {place.name}
+                        </a>
+                      ) : (
+                        <span className="text-xs font-medium">{place.name}</span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
