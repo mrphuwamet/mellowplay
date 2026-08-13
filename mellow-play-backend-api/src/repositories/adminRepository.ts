@@ -502,22 +502,30 @@ export class AdminRepository {
     return results;
   }
 
+  /**
+   * Replaces a course's per-view framing with exactly what was sent.
+   *
+   * It used to only INSERT-or-UPDATE, which meant a view row outlived the
+   * image it pointed at: swap the cover for a new photo and the banner kept
+   * naming the old URL, delete the photo from the gallery and the row survived
+   * while the file still resolved from R2. Staff saw a banner that would not
+   * change and would not delete. Nothing ever removed these rows, so the only
+   * safe rule is that the form is the whole truth — anything it did not send
+   * is gone.
+   */
   async upsertCourseImageViews(
     courseId: number,
     views: Array<{ viewKey: string; imageUrl: string; focalX: number; focalY: number; zoom: number }>,
   ): Promise<void> {
-    for (const v of views) {
-      await this.db.prepare(`
-        INSERT INTO Course_Image_Views (course_id, view_key, image_url, focal_x, focal_y, zoom, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(course_id, view_key) DO UPDATE SET
-          image_url = excluded.image_url,
-          focal_x = excluded.focal_x,
-          focal_y = excluded.focal_y,
-          zoom = excluded.zoom,
-          updated_at = CURRENT_TIMESTAMP
-      `).bind(courseId, v.viewKey, v.imageUrl, v.focalX, v.focalY, v.zoom).run();
-    }
+    await this.db.batch([
+      this.db.prepare('DELETE FROM Course_Image_Views WHERE course_id = ?').bind(courseId),
+      ...views.map(v =>
+        this.db.prepare(`
+          INSERT INTO Course_Image_Views (course_id, view_key, image_url, focal_x, focal_y, zoom, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(courseId, v.viewKey, v.imageUrl, v.focalX, v.focalY, v.zoom)
+      ),
+    ]);
   }
 
   async getCourseImageFocals(courseId: number): Promise<any[]> {
@@ -527,21 +535,22 @@ export class AdminRepository {
     return results;
   }
 
+  // Replace-all for the same reason as the views above: the form sends a focal
+  // for every image currently in the gallery, so a row it did not send belongs
+  // to an image that is no longer there.
   async upsertCourseImageFocals(
     courseId: number,
     focals: Array<{ imageUrl: string; focalX: number; focalY: number; zoom: number }>,
   ): Promise<void> {
-    for (const f of focals) {
-      await this.db.prepare(`
-        INSERT INTO Course_Image_Focals (course_id, image_url, focal_x, focal_y, zoom, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(course_id, image_url) DO UPDATE SET
-          focal_x = excluded.focal_x,
-          focal_y = excluded.focal_y,
-          zoom = excluded.zoom,
-          updated_at = CURRENT_TIMESTAMP
-      `).bind(courseId, f.imageUrl, f.focalX, f.focalY, f.zoom).run();
-    }
+    await this.db.batch([
+      this.db.prepare('DELETE FROM Course_Image_Focals WHERE course_id = ?').bind(courseId),
+      ...focals.map(f =>
+        this.db.prepare(`
+          INSERT INTO Course_Image_Focals (course_id, image_url, focal_x, focal_y, zoom, updated_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(courseId, f.imageUrl, f.focalX, f.focalY, f.zoom)
+      ),
+    ]);
   }
 
   async getAllCategories(): Promise<any[]> {

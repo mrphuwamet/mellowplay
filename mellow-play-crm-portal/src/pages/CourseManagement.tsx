@@ -619,6 +619,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       }
       return { ...f, images: f.images.filter(img => img !== url) };
     });
+
+    // Framing is stored against the image URL, so deleting the picture has to
+    // take its per-view assignment and its poster focal with it. Leaving them
+    // behind is what made a deleted banner keep showing: the row still named a
+    // file that is still sitting in R2.
+    setCourseImageViews(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (next[key]?.imageUrl === url) delete next[key];
+      }
+      return next;
+    });
+    setImageFocals(prev => {
+      const { [url]: _removed, ...rest } = prev;
+      return rest;
+    });
   };
 
   const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
@@ -678,7 +694,14 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     } catch (e) { console.error('Failed to load course image focals', e); }
   }, []);
 
-  const getViewImageUrl = (viewKey: string) => courseImageViews[viewKey]?.imageUrl || formData.thumbnailUrl || '';
+  // An assignment only counts while its image is still in the gallery. Without
+  // this check a view stayed pinned to a photo that had been replaced or
+  // deleted, so the form kept showing — and kept saving — the old picture.
+  const getViewImageUrl = (viewKey: string) => {
+    const assigned = courseImageViews[viewKey]?.imageUrl;
+    if (assigned && mergedImages.includes(assigned)) return assigned;
+    return formData.thumbnailUrl || '';
+  };
   const getViewFocal = (viewKey: string) => ({
     x: courseImageViews[viewKey]?.focalX ?? 50,
     y: courseImageViews[viewKey]?.focalY ?? 50,
@@ -795,9 +818,13 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       zoom: getImageFocal(img).zoom,
     }));
 
+    // Always sent, including when empty. These endpoints replace the stored
+    // set, so skipping the call on an empty list is exactly the case that has
+    // to reach the server: deleting the last image left the old rows behind
+    // and the banner kept rendering a picture that was no longer there.
     await Promise.all([
-      views.length > 0 ? axios.put(`${API_BASE}/courses/${courseId}/image-views`, { views }) : Promise.resolve(),
-      focals.length > 0 ? axios.put(`${API_BASE}/courses/${courseId}/image-focals`, { focals }) : Promise.resolve(),
+      axios.put(`${API_BASE}/courses/${courseId}/image-views`, { views }),
+      axios.put(`${API_BASE}/courses/${courseId}/image-focals`, { focals }),
     ]);
   };
 
@@ -1484,7 +1511,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   {imageViewDefs.length > 0 && (
                     <Box sx={{ mb: 1.5 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-                        การครอปตามขนาดที่แสดงผล {!formData.id && '(บันทึกคลาสก่อนจึงจะตั้งค่าได้)'}
+                        การครอปตามขนาดที่แสดงผล
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1.5 }}>
                         {imageViewDefs.map(def => {
@@ -1500,7 +1527,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                               zoom={focal.zoom}
                               label={def.label}
                               isFallback={!courseImageViews[def.key]}
-                              onClick={formData.id ? () => { setMediaModalTab('views'); setMediaModalOpen(true); } : undefined}
+                              onClick={() => { setMediaModalTab('views'); setMediaModalOpen(true); }}
                             />
                           );
                         })}
@@ -1515,17 +1542,12 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     >
                       รูปภาพและวิดีโอ
                     </Button>
-                    <Tooltip title={formData.id ? '' : 'บันทึกคลาสก่อน จึงจะตั้งค่าการครอปต่อขนาดได้'}>
-                      <span style={{ width: '100%' }}>
-                        <Button
-                          fullWidth variant="outlined" size="small" startIcon={<CropIcon />}
-                          disabled={!formData.id}
-                          onClick={() => { setMediaModalTab('views'); setMediaModalOpen(true); }}
-                        >
-                          ตั้งค่าการครอป
-                        </Button>
-                      </span>
-                    </Tooltip>
+                    <Button
+                      fullWidth variant="outlined" size="small" startIcon={<CropIcon />}
+                      onClick={() => { setMediaModalTab('views'); setMediaModalOpen(true); }}
+                    >
+                      ตั้งค่าการครอป
+                    </Button>
                   </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -2011,10 +2033,17 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                           it did not exist rather than like it was not ready
                           yet — the framing is keyed on a course id, so there is
                           nothing to attach it to until the first save. */}
-                      <Tooltip title={formData.id ? '' : 'บันทึกคลาสก่อน จึงจะตั้งค่าการครอปต่อขนาดได้'} placement="right">
+                      {/* Framing no longer waits for the first save. The
+                          framing IS keyed on a course id, but nothing needed
+                          the id while editing — saveImageViewsAndFocals already
+                          runs after the create call with the new id, so the
+                          choices made here are simply carried along. Locking
+                          the tab meant the one moment staff most want to frame
+                          a picture, right after uploading it, was the one
+                          moment they could not. */}
+                      <Tooltip title="" placement="right">
                         <ListItemButton
                           selected={mediaModalTab === 'views'}
-                          disabled={!formData.id}
                           onClick={() => setMediaModalTab('views')}
                           sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}
                         >
@@ -2022,7 +2051,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                           <ListItemText primary="มุมมองการแสดงผล" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'views' ? 800 : 600 }} />
                         </ListItemButton>
                       </Tooltip>
-                      {!!formData.id && posterViewDef && (
+                      {posterViewDef && (
                         <ListItemButton selected={mediaModalTab === 'poster'} onClick={() => setMediaModalTab('poster')} sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}>
                           <ListItemIcon sx={{ minWidth: 32 }}><CropIcon fontSize="small" /></ListItemIcon>
                           <ListItemText primary="แกลเลอรีโปสเตอร์" primaryTypographyProps={{ fontSize: 13, fontWeight: mediaModalTab === 'poster' ? 800 : 600 }} />

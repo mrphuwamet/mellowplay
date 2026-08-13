@@ -1298,9 +1298,22 @@ export class AdminController {
         try {
           configuredViews = course.image_views_json ? JSON.parse(course.image_views_json) : [];
         } catch (e) { /* ignore malformed json */ }
+
+        // A view is only honoured while the image it names is still one of the
+        // course's images. Rows used to outlive the picture they pointed at, so
+        // replacing or deleting a photo left the banner showing the old one
+        // forever — the file is still in R2, so it kept resolving. Ignoring a
+        // stale row here heals every course already in that state, without
+        // waiting for someone to open and re-save it.
+        let currentImages: string[] = [];
+        try {
+          currentImages = course.images_json ? JSON.parse(course.images_json) : [];
+        } catch (e) { /* ignore malformed json */ }
+        const liveImages = new Set([course.thumbnail_url, ...currentImages].filter(Boolean));
+
         const imageViews: Record<string, { imageUrl: string; focalX: number; focalY: number; zoom: number }> = {};
         for (const view of IMAGE_VIEWS) {
-          const configured = configuredViews.find(v => v.view_key === view.key);
+          const configured = configuredViews.find(v => v.view_key === view.key && liveImages.has(v.image_url));
           imageViews[view.key] = configured
             ? { imageUrl: formatUrl(configured.image_url) || '', focalX: configured.focal_x, focalY: configured.focal_y, zoom: configured.zoom ?? DEFAULT_FOCAL.zoom }
             : { imageUrl: formatUrl(course.thumbnail_url) || '', focalX: DEFAULT_FOCAL.focalX, focalY: DEFAULT_FOCAL.focalY, zoom: DEFAULT_FOCAL.zoom };
