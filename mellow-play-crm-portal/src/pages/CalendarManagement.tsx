@@ -5,7 +5,7 @@ import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControl, Grid, IconButton,
   InputLabel, MenuItem, Paper, Select, Tab, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Tabs, TextField, Typography,
+  TableContainer, TableHead, TableRow, TableSortLabel, Tabs, TextField, Typography,
   Checkbox, FormControlLabel,
 } from '@mui/material';
 import {
@@ -21,6 +21,15 @@ const COLORS = ['#7c3aed','#0284c7','#059669','#d97706','#dc2626','#db2777','#0d
 
 interface Calendar { id: number; name: string; description: string; color: string; type: string; is_active: number; }
 interface SlotRule { id: number; calendar_id: number; day_of_week: number | null; specific_date: string | null; start_time: string; end_time: string; max_capacity: number; invite_capacity: number; valid_from: string; valid_until: string | null; is_active: number; label: string | null; }
+
+// Slot-rule columns that can be sorted from the header.
+const RULE_COLUMNS: { key: string; label: string; align?: 'center' }[] = [
+  { key: 'day', label: 'วัน/วันที่' },
+  { key: 'time', label: 'เวลา' },
+  { key: 'capacity', label: 'รับได้สูงสุด', align: 'center' },
+  { key: 'from', label: 'ใช้งานตั้งแต่' },
+  { key: 'until', label: 'ถึง' },
+];
 
 const CalendarManagement: React.FC = () => {
   const [tab, setTab] = useState(0);
@@ -57,6 +66,34 @@ const CalendarManagement: React.FC = () => {
   const [holidays, setHolidays] = useState<any[]>([]);
   const [holidayDialogOpen, setHolidayDialogOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ date: '', description: '' });
+
+  // Rules arrive in insert order, which is why the same date appeared above
+  // and below a later one. Sorted by date then start time by default —
+  // reading a schedule out of order is the thing this table is for.
+  const [ruleSort, setRuleSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'day', dir: 'asc' });
+
+  const sortedRules = React.useMemo(() => {
+    const value = (r: SlotRule): string | number => {
+      switch (ruleSort.key) {
+        // A recurring rule has no date; day_of_week orders it inside the week,
+        // and the prefix keeps the two kinds from interleaving arbitrarily.
+        case 'day': return r.specific_date ? `2:${r.specific_date} ${r.start_time}` : `1:${String(r.day_of_week ?? 0).padStart(2, '0')} ${r.start_time}`;
+        case 'time': return `${r.start_time} ${r.end_time}`;
+        case 'capacity': return (r.max_capacity ?? 0) + (r.invite_capacity ?? 0);
+        case 'from': return r.valid_from ?? '';
+        // Open-ended rules sort last ascending rather than first, since 'no
+        // end date' is the furthest-away end date, not the nearest.
+        case 'until': return r.valid_until ?? '9999-12-31';
+        default: return '';
+      }
+    };
+    const dir = ruleSort.dir === 'asc' ? 1 : -1;
+    return [...rules].sort((a, b) => {
+      const av = value(a), bv = value(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [rules, ruleSort]);
 
   const show = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3000); };
 
@@ -321,16 +358,25 @@ const CalendarManagement: React.FC = () => {
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={{ bgcolor: 'grey.50' }}>
-                          <TableCell sx={{ fontWeight: 700 }}>วัน/วันที่</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>เวลา</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }} align="center">รับได้สูงสุด</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>ใช้งานตั้งแต่</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>ถึง</TableCell>
+                          {RULE_COLUMNS.map(col => (
+                            <TableCell key={col.key} sx={{ fontWeight: 700 }} align={col.align}>
+                              <TableSortLabel
+                                active={ruleSort.key === col.key}
+                                direction={ruleSort.key === col.key ? ruleSort.dir : 'asc'}
+                                onClick={() => setRuleSort(prev =>
+                                  prev.key === col.key && prev.dir === 'asc'
+                                    ? { key: col.key, dir: 'desc' }
+                                    : { key: col.key, dir: 'asc' })}
+                              >
+                                {col.label}
+                              </TableSortLabel>
+                            </TableCell>
+                          ))}
                           <TableCell />
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {rules.map((r) => (
+                        {sortedRules.map((r) => (
                           <TableRow key={r.id} hover>
                             <TableCell>
                               {r.day_of_week !== null ? (
