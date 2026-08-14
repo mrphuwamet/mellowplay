@@ -139,7 +139,7 @@ const SurveyFillForm: React.FC<Props> = ({
 
           if (field.type === 'heading') {
             return richLabel
-              ? <div key={field.field_key} className="prose-news text-[15px] font-black text-slate-500 pt-2" dangerouslySetInnerHTML={{ __html: richLabel }} />
+              ? <div key={field.field_key} className="prose-news text-[15px] font-bold text-slate-500 pt-2" dangerouslySetInnerHTML={{ __html: richLabel }} />
               : <h4 key={field.field_key} className="text-[15px] font-black text-slate-500 uppercase tracking-wide pt-2">{field.label}</h4>;
           }
           // Reading passage. whitespace-pre-line is the whole point: the author
@@ -182,7 +182,7 @@ const SurveyFillForm: React.FC<Props> = ({
           const labelEl = richLabel ? (
             <div className="mb-3 flex items-start gap-1">
               <div
-                className="prose-news text-[19px] font-black text-slate-800 leading-snug"
+                className="prose-news text-[19px] font-bold text-slate-800 leading-snug"
                 dangerouslySetInnerHTML={{ __html: richLabel }}
               />
               {!!field.required && <span className="text-mellow-red">*</span>}

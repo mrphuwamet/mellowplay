@@ -133,6 +133,15 @@ b, strong {
   .prose-news ol {
     @apply list-decimal pl-5 mb-3 space-y-1;
   }
+  /* Explicit, not relative. Tailwind preflight gives strong/b font-weight:
+     bolder, which is computed against the parent — inside a container already
+     set to 900 that resolves to 900 and a bolded word looked identical to the
+     rest of the sentence. The containers that hold formatted text are set a
+     step lighter so this has somewhere to go. */
+  .prose-news strong,
+  .prose-news b {
+    font-weight: 900;
+  }
   .prose-news a {
     @apply text-mellow-blue underline;
   }
