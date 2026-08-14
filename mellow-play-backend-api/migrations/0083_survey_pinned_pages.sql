@@ -1,0 +1,14 @@
+-- Pages that keep their place when the "สลับทั้งหน้า" mode reorders the rest.
+--
+-- A one-question-per-page test still has pages that are not questions: the
+-- first one asks who is answering, the last one asks for comments. Shuffling
+-- those into the middle makes the paper nonsense, so each page can be pinned.
+--
+-- Stored as a JSON array of booleans aligned to page order — [true,false,...]
+-- means page 1 is pinned. An array by POSITION rather than a list of page
+-- numbers because the builder edits pages positionally (add appends, delete
+-- splices), so the flags move with their pages instead of drifting onto a
+-- neighbour the moment a page is removed.
+--
+-- NULL means nothing is pinned, which is what every existing form gets.
+ALTER TABLE Survey_Forms ADD COLUMN shuffle_pinned_pages TEXT;

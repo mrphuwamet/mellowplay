@@ -18,7 +18,7 @@ const LEGACY_FORM_KINDS: Record<string, string> = { pretest: 'test', posttest: '
 // Question shuffling used to be a boolean; it is now a mode (migration 0077).
 // A client that still sends the boolean gets the behaviour that flag used to
 // mean, rather than silently losing its setting.
-const SHUFFLE_MODES = ['none', 'within_section', 'sections', 'all'];
+const SHUFFLE_MODES = ['none', 'within_section', 'sections', 'all', 'pages'];
 
 const normalizeShuffleMode = (raw: unknown, legacyFlag?: unknown): string => {
   if (typeof raw === 'string' && SHUFFLE_MODES.includes(raw)) return raw;
@@ -93,6 +93,9 @@ export class SurveyController {
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
         shuffleMode: normalizeShuffleMode(body.shuffleMode, body.shuffleQuestions),
         shuffleOptions: !!body.shuffleOptions,
+        // Only meaningful for the 'pages' mode; stored either way so toggling
+        // the mode off and back on does not lose which pages were pinned.
+        shufflePinnedPages: Array.isArray(body.shufflePinnedPages) ? body.shufflePinnedPages.map(Boolean) : undefined,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true, id });
@@ -118,6 +121,9 @@ export class SurveyController {
         scoreRangesJson: body.scoreRanges ? JSON.stringify(body.scoreRanges) : undefined,
         shuffleMode: normalizeShuffleMode(body.shuffleMode, body.shuffleQuestions),
         shuffleOptions: !!body.shuffleOptions,
+        // Only meaningful for the 'pages' mode; stored either way so toggling
+        // the mode off and back on does not lose which pages were pinned.
+        shufflePinnedPages: Array.isArray(body.shufflePinnedPages) ? body.shufflePinnedPages.map(Boolean) : undefined,
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true });

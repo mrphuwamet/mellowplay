@@ -168,6 +168,9 @@ const SurveyManagement = () => {
   const [shuffleMode, setShuffleMode] = useState('none');
   const [shuffleOptions, setShuffleOptions] = useState(false);
   const [pages, setPages] = useState<FieldDraft[][]>([[]]);
+  // Aligned to `pages` by position, so a pin travels with its page when
+  // another is added or deleted rather than sliding onto its neighbour.
+  const [pinnedPages, setPinnedPages] = useState<boolean[]>([]);
   const [activePage, setActivePage] = useState(0);
   const [scoreRanges, setScoreRanges] = useState<ScoreRange[]>([]);
 
@@ -185,7 +188,7 @@ const SurveyManagement = () => {
   const resetFormState = () => {
     setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
     setShuffleMode('none'); setShuffleOptions(false);
-    setPages([[]]); setActivePage(0); setScoreRanges([]); setSaveError(null);
+    setPages([[]]); setPinnedPages([]); setActivePage(0); setScoreRanges([]); setSaveError(null);
   };
 
   const startCreate = () => {
@@ -210,6 +213,10 @@ const SurveyManagement = () => {
         setIsActive(!!form.is_active);
         setShuffleMode(form.shuffle_mode || (form.shuffle_questions ? 'within_section' : 'none'));
         setShuffleOptions(!!form.shuffle_options);
+        try {
+          const parsedPins = form.shuffle_pinned_pages ? JSON.parse(form.shuffle_pinned_pages) : [];
+          setPinnedPages(Array.isArray(parsedPins) ? parsedPins.map(Boolean) : []);
+        } catch { setPinnedPages([]); }
         try { setScoreRanges(form.score_ranges_json ? JSON.parse(form.score_ranges_json) : []); } catch { setScoreRanges([]); }
 
         const grouped: FieldDraft[][] = [];
@@ -257,7 +264,12 @@ const SurveyManagement = () => {
           : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
           : undefined,
       })));
-      const payload = { name, description, formKind, slug: slug.trim() || undefined, isActive, shuffleMode, shuffleOptions, scoreRanges, fields };
+      const payload = {
+        name, description, formKind, slug: slug.trim() || undefined, isActive,
+        shuffleMode, shuffleOptions,
+        shufflePinnedPages: pages.map((_, i) => !!pinnedPages[i]),
+        scoreRanges, fields,
+      };
       if (editId) {
         await axios.put(`${API_BASE}/survey-forms/${editId}`, payload);
       } else {
@@ -294,10 +306,20 @@ const SurveyManagement = () => {
   };
 
   // ── Page/field editing helpers ──────────────────────────────────────────
-  const addPage = () => { setPages([...pages, []]); setActivePage(pages.length); };
+  const addPage = () => {
+    setPages([...pages, []]);
+    setPinnedPages([...pinnedPages, false]);
+    setActivePage(pages.length);
+  };
+  const togglePagePinned = (pageIdx: number) => {
+    const next = pages.map((_, i) => !!pinnedPages[i]);
+    next[pageIdx] = !next[pageIdx];
+    setPinnedPages(next);
+  };
   const removePage = (pageIdx: number) => {
     const next = pages.filter((_, i) => i !== pageIdx);
     setPages(next.length > 0 ? next : [[]]);
+    setPinnedPages(pages.map((_, i) => !!pinnedPages[i]).filter((_, i) => i !== pageIdx));
     setActivePage(Math.max(0, Math.min(activePage, next.length - 1)));
   };
   const addField = (type: FieldType) => {
@@ -408,6 +430,7 @@ const SurveyManagement = () => {
                     <MenuItem value="within_section">สลับภายใน Section</MenuItem>
                     <MenuItem value="sections">สลับลำดับ Section</MenuItem>
                     <MenuItem value="all">สลับทั้งชุด (ข้ามหัวข้อ)</MenuItem>
+                      <MenuItem value="pages">สลับทั้งหน้า (สำหรับหน้าละข้อ)</MenuItem>
                   </Select>
                 </FormControl>
                 <FormControlLabel
@@ -418,10 +441,11 @@ const SurveyManagement = () => {
               {(shuffleMode !== 'none' || shuffleOptions) && (
                 <Alert severity={shuffleMode === 'all' ? 'warning' : 'info'} sx={{ mt: 2 }}>
                   สุ่มลำดับใหม่ทุกครั้งที่เปิดฟอร์ม เพื่อไม่ให้จำตำแหน่งคำตอบได้ตอนทำรอบสอง ·
-                  คะแนนไม่เพี้ยน เพราะระบบตรวจจากข้อความตัวเลือก ไม่ใช่ลำดับ · ไม่สลับข้ามหน้า
+                  คะแนนไม่เพี้ยน เพราะระบบตรวจจากข้อความตัวเลือก ไม่ใช่ลำดับ{shuffleMode === 'pages' ? '' : ' · ไม่สลับข้ามหน้า'}
                   {shuffleMode === 'within_section' && ' · หัวข้อและรูปภาพอยู่ที่เดิม สลับเฉพาะข้อที่อยู่ใต้หัวข้อเดียวกัน'}
                   {shuffleMode === 'sections' && ' · แต่ละ Section ย้ายไปทั้งก้อนพร้อมหัวข้อ ข้อข้างในเรียงเดิม'}
                   {shuffleMode === 'all' && ' · โหมดนี้ย้ายข้อข้ามหัวข้อได้ เหมาะกับฟอร์มที่ไม่มี Section — ถ้าฟอร์มนี้มีหัวข้อแบ่งเรื่อง ข้อจะไปโผล่ใต้หัวข้อผิดเรื่อง'}
+                  {shuffleMode === 'pages' && ' · สลับลำดับหน้าทั้งหน้า เนื้อหาในแต่ละหน้าเรียงเดิม — ใช้กับฟอร์มที่แยกหน้าละข้อ ซึ่งโหมดอื่นจะไม่สลับอะไรเลย'}
                 </Alert>
               )}
             </Paper>
@@ -439,8 +463,16 @@ const SurveyManagement = () => {
                 {pages.map((_, i) => <Tab key={i} label={`หน้า ${i + 1}`} sx={{ fontWeight: 700, textTransform: 'none' }} />)}
               </Tabs>
 
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
                 <Button size="small" startIcon={<AddIcon />} onClick={addPage}>เพิ่มหน้า</Button>
+                {/* Only offered for the mode it affects — on any other mode a
+                    pinned page would be a switch that quietly does nothing. */}
+                {shuffleMode === 'pages' && (
+                  <FormControlLabel
+                    control={<Switch size="small" checked={!!pinnedPages[activePage]} onChange={() => togglePagePinned(activePage)} />}
+                    label={<Typography variant="caption" sx={{ fontWeight: 700 }}>ไม่สลับหน้านี้ (ตรึงไว้ที่เดิม)</Typography>}
+                  />
+                )}
                 {pages.length > 1 && (
                   <Button size="small" color="error" onClick={() => removePage(activePage)}>ลบหน้านี้</Button>
                 )}

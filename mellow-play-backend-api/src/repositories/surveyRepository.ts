@@ -33,9 +33,18 @@ export class SurveyRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Shuffling never crosses a page: pages are a deliberate pacing decision by
-  // whoever built the form, unlike the order of questions on one screen.
-  private shuffleQuestions(fields: any[], mode: string): any[] {
+  // Every mode except 'pages' shuffles WITHIN a page and never across one:
+  // pages are a deliberate pacing decision by whoever built the form, unlike
+  // the order of questions on one screen.
+  //
+  // 'pages' is the exception, and exists for the one-question-per-page layout
+  // an exam usually wants: there, every other mode is a no-op — a page holding
+  // a single question has nothing to permute — so the whole form came out in
+  // the same order for everyone. It moves each page as an intact block, taking
+  // its heading, its reading passage and its image along with the question
+  // they belong to.
+  private shuffleQuestions(fields: any[], mode: string, pinnedPages: boolean[] = []): any[] {
+    if (mode === 'pages') return this.shufflePages(fields, pinnedPages);
     if (mode !== 'within_section' && mode !== 'sections' && mode !== 'all') return fields;
     const out: any[] = [];
     let i = 0;
@@ -47,6 +56,39 @@ export class SurveyRepository {
       i = j;
     }
     return out;
+  }
+
+  /**
+   * Reorder whole pages, each keeping its own contents in the author's order.
+   *
+   * page_index is rewritten to the new position rather than carried along: the
+   * app groups fields into an array BY page_index, so pages come out in
+   * numeric order no matter what order the rows arrive in. Shuffling the rows
+   * without renumbering would have been silently undone.
+   */
+  private shufflePages(fields: any[], pinnedPages: boolean[] = []): any[] {
+    const byPage = new Map<number, any[]>();
+    for (const f of fields) {
+      const page = f.page_index ?? 0;
+      if (!byPage.has(page)) byPage.set(page, []);
+      byPage.get(page)!.push(f);
+    }
+    const blocks = Array.from(byPage.values());
+    if (blocks.length < 2) return fields;
+
+    // A pinned page keeps its exact position; the rest are permuted among the
+    // positions that are left. A test still has pages that are not questions —
+    // "who is answering" at the front, comments at the back — and dealing
+    // those into the middle makes the paper nonsense.
+    const looseSlots: number[] = [];
+    blocks.forEach((_, i) => { if (!pinnedPages[i]) looseSlots.push(i); });
+    if (looseSlots.length > 1) {
+      const loose = looseSlots.map(i => blocks[i]);
+      shuffleSlice(loose, 0, loose.length);
+      looseSlots.forEach((slot, n) => { blocks[slot] = loose[n]; });
+    }
+
+    return blocks.flatMap((block, newIndex) => block.map(f => ({ ...f, page_index: newIndex })));
   }
 
   private shufflePage(page: any[], mode: string): any[] {
@@ -156,7 +198,12 @@ export class SurveyRepository {
     let presented = fields as any[];
     if (form.shuffle_options) presented = this.shuffleOptions(presented);
     if (form.shuffle_mode && form.shuffle_mode !== 'none') {
-      presented = this.renumberFieldIndex(this.shuffleQuestions(presented, form.shuffle_mode));
+      let pinnedPages: boolean[] = [];
+      try {
+        const parsed = JSON.parse(form.shuffle_pinned_pages || '[]');
+        if (Array.isArray(parsed)) pinnedPages = parsed.map(Boolean);
+      } catch { /* a malformed pin list just means nothing is pinned */ }
+      presented = this.renumberFieldIndex(this.shuffleQuestions(presented, form.shuffle_mode, pinnedPages));
     }
 
     return { ...form, fields: presented };
@@ -165,7 +212,7 @@ export class SurveyRepository {
   async createForm(data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
-    shuffleMode?: string; shuffleOptions?: boolean;
+    shuffleMode?: string; shuffleOptions?: boolean; shufflePinnedPages?: boolean[];
     fields: SurveyFieldInput[];
   }): Promise<number> {
     // has_answer_key is derived, not a separate manual toggle — a form is
@@ -173,13 +220,14 @@ export class SurveyRepository {
     // regardless of whether the others do.
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
-      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_mode, shuffle_options)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_mode, shuffle_options, shuffle_pinned_pages)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
       hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
       hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
       data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0,
+      data.shufflePinnedPages?.some(Boolean) ? JSON.stringify(data.shufflePinnedPages) : null,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -200,19 +248,20 @@ export class SurveyRepository {
   async updateForm(id: number, data: {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
-    shuffleMode?: string; shuffleOptions?: boolean;
+    shuffleMode?: string; shuffleOptions?: boolean; shufflePinnedPages?: boolean[];
     fields: SurveyFieldInput[];
   }): Promise<void> {
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
-        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_mode = ?, shuffle_options = ?
+        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_mode = ?, shuffle_options = ?, shuffle_pinned_pages = ?
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
         hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
         hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
-        data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0, id,
+        data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0,
+        data.shufflePinnedPages?.some(Boolean) ? JSON.stringify(data.shufflePinnedPages) : null, id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>
