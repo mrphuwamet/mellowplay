@@ -65,27 +65,15 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
             <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
           </div>
         )}
-        <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[11px] font-black uppercase ${badgeColorClass} shadow-sm`}>
+        {/* One badge, bottom-left, matching the booking picker and the course
+            list. There used to be two: the category at the top and a
+            กิจกรรม/บริการ/พิเศษ pill at the bottom that repeated it almost
+            word for word on every event card. The colour still carries the
+            kind, so nothing is lost by dropping the second label — and the
+            top of this artwork is where its own title lettering sits. */}
+        <div className={`absolute bottom-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[11px] font-black uppercase ${badgeColorClass} shadow-sm`}>
           {course.category_name}
         </div>
-        {!!course.is_event && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-mellow-purple to-fuchsia-500 rounded-lg text-[11px] font-black uppercase text-white shadow-sm">
-            <PartyPopper size={11} />
-            {lang === 'en' ? 'Event' : 'กิจกรรม'}
-          </div>
-        )}
-        {!course.is_event && !!course.is_service && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-mellow-blue to-cyan-500 rounded-lg text-[11px] font-black uppercase text-white shadow-sm">
-            <ConciergeBell size={11} />
-            {lang === 'en' ? 'Service' : 'บริการ'}
-          </div>
-        )}
-        {!course.is_event && !course.is_service && !!course.is_extraclass && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-lg text-[11px] font-black uppercase text-white shadow-sm">
-            <Star size={11} fill="currentColor" />
-            {lang === 'en' ? 'Extra' : 'พิเศษ'}
-          </div>
-        )}
         {bookingStatus ? (
           <div className={`absolute top-2 right-2 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1 ${isOneTimeBooked ? 'bg-slate-400' : 'bg-emerald-500'}`}>
             <CheckCircle size={9} />

@@ -20,6 +20,7 @@ import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { isPlainText } from '../utils/richText';
+import { scrollToTop } from '../utils/scrollToTop';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import ConfirmationChannelNotice from '../components/ConfirmationChannelNotice';
 import logo from '../assets/ui/logo.svg';
@@ -389,14 +390,7 @@ const Booking = () => {
   // internally from md: up (md:overflow-y-auto) while the window scrolls
   // below it.
   const pageRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'auto' });
-    let node: HTMLElement | null = pageRef.current?.parentElement ?? null;
-    while (node) {
-      if (node.scrollTop > 0) node.scrollTop = 0;
-      node = node.parentElement;
-    }
-  }, [currentStepIndex]);
+  React.useEffect(() => { scrollToTop(pageRef.current); }, [currentStepIndex]);
 
   useEffect(() => {
     if (preSelectedCourseId && isGuest) {

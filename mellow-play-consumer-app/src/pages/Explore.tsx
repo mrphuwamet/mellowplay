@@ -187,7 +187,11 @@ const Explore = () => {
           <button onClick={() => setShowShopSoon(true)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
              <ShoppingBag size={18} className="text-slate-400" />
           </button>
-          <button className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
+          {/* This button had no handler at all — it looked like a control
+              and did nothing. It opens the full catalogue with its search box
+              focused, rather than growing a second search UI here. */}
+          <button onClick={() => navigate('/courses/all?focus=1')}
+            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
              <Search size={20} className="text-slate-400" />
           </button>
           {/* md:+ the left sidebar has its own language toggle at the

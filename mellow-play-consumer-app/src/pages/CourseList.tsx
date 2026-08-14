@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ChevronLeft, Calendar, Search, X } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { formatCalendarSummary, isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
@@ -17,6 +17,17 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
   const type = typeProp ?? typeParam;
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // The list was the whole catalogue with no way through it — for a parent
+  // after one class by name, that is a scroll, not a search. ?q= is in the URL
+  // so a search survives a reload and can be linked to (Explore's search
+  // button lands here).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get('q') || '';
+  const setQuery = (next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next) params.set('q', next); else params.delete('q');
+    setSearchParams(params, { replace: true });
+  };
 
   useEffect(() => {
     apiClient.get('/admin/courses')
@@ -34,6 +45,14 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
       .finally(() => setLoading(false));
   }, [type]);
 
+  // Name and description, both languages, so searching in Thai finds a
+  // class whose title is English and the other way round.
+  const normalised = query.trim().toLowerCase();
+  const visibleCourses = normalised
+    ? courses.filter(c => [c.name, c.name_en, c.description, c.description_en]
+        .some(v => (v || '').toLowerCase().includes(normalised)))
+    : courses;
+
   const title = type === 'extra' ? 'คลาสกิจกรรมพิเศษ' : type === 'regular' ? 'คลาสเรียนทั่วไป' : type === 'event' ? 'กิจกรรม / Events' : type === 'service' ? 'บริการ / Services' : 'คลาสทั้งหมด';
 
   return (
@@ -48,6 +67,30 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
       </header>
 
       <main className="p-5">
+        <div className="relative mb-4">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            autoFocus={searchParams.get('focus') === '1'}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="ค้นหาชื่อคลาสหรือกิจกรรม..."
+            className="w-full h-12 pl-11 pr-11 rounded-2xl bg-white border border-slate-200 text-sm font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-medium outline-none focus:border-mellow-purple transition-colors"
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center active:scale-90 transition-transform">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {!loading && visibleCourses.length === 0 && (
+          <p className="text-center text-sm font-bold text-slate-400 py-12">
+            {normalised ? `ไม่พบรายการที่ตรงกับ "${query}"` : 'ยังไม่มีรายการในหมวดนี้'}
+          </p>
+        )}
+
         {loading ? (
           <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
             {[0, 1, 2, 3].map(i => (
@@ -63,7 +106,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
           </div>
         ) : (
           <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
-            {courses.map(course => {
+            {visibleCourses.map(course => {
               const view = getCourseView(course, 'card');
               const ended = isCourseEnded(course);
               const closed = isRegistrationClosed(course);

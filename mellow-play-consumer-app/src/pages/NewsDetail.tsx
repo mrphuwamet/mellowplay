@@ -7,6 +7,7 @@ import { useTranslation } from '../LanguageContext';
 import { resolveImageUrl } from '../utils/courseImage';
 import { formatCustomDate } from '../utils/dateFormat';
 import { isPlainText } from '../utils/richText';
+import { scrollToTop } from '../utils/scrollToTop';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -28,6 +29,7 @@ const NewsDetail = () => {
   const [item, setItem] = useState<any>(undefined);
   const [suggested, setSuggested] = useState<any[]>([]);
   const carouselRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
@@ -36,6 +38,11 @@ const NewsDetail = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+
+  // Tapping an article in "ข่าวสารถัดไป" swaps the whole page under the
+  // reader while leaving them scrolled to where that list was — i.e. at the
+  // very bottom of an article they have not seen the start of.
+  useEffect(() => { scrollToTop(pageRef.current); }, [id]);
 
   useEffect(() => {
     apiClient.get(`/news-feed/${id}`)
@@ -96,7 +103,7 @@ const NewsDetail = () => {
 
   if (item === undefined) {
     return (
-      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen animate-pulse">
+      <div className="mellow-page-article bg-[#fbfaf7] min-h-screen animate-pulse">
         <div className="h-[64px] px-5 bg-white flex items-center gap-2">
           <div className="w-10 h-10 rounded-full bg-slate-100" />
         </div>
@@ -113,7 +120,7 @@ const NewsDetail = () => {
 
   if (!item) {
     return (
-      <div className="mellow-page-reading bg-[#fbfaf7] min-h-screen">
+      <div className="mellow-page-article bg-[#fbfaf7] min-h-screen">
         <header className="h-[64px] px-5 bg-white flex items-center gap-2">
           <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><ChevronLeft size={24} /></button>
         </header>
@@ -130,7 +137,7 @@ const NewsDetail = () => {
   const videoEmbed = item.video_url ? getVideoEmbed(item.video_url) : null;
 
   return (
-    <div className="mellow-page-reading bg-white min-h-screen pb-10">
+    <div className="mellow-page-article bg-white min-h-screen pb-10" ref={pageRef}>
       <header className="h-[64px] px-5 bg-white/90 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-2">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform">
           <ChevronLeft size={24} className="mr-0.5" />
@@ -184,7 +191,12 @@ const NewsDetail = () => {
         </div>
       )}
 
-      <div className="px-5 pt-5">
+      {/* From lg: the article and the "next up" list sit side by side —
+          below that they stay stacked exactly as before. The reading column
+          is capped inside the grid rather than by the page, so widening the
+          page for the rail does not widen the prose. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8 lg:px-5 lg:items-start">
+      <div className="px-5 pt-5 lg:px-0 lg:col-start-1">
         <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest mb-2">
           {item.type === 'news' ? (lang === 'en' ? 'News' : 'ข่าวสาร') : (lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้')}
           {' · '}
@@ -279,7 +291,7 @@ const NewsDetail = () => {
       </div>
 
       {suggested.length > 0 && (
-        <div className="px-5 pt-8 mt-2 border-t border-slate-100">
+        <div className="px-5 pt-8 mt-2 border-t border-slate-100 lg:px-0 lg:pt-5 lg:mt-0 lg:border-t-0 lg:col-start-2 lg:sticky lg:top-6">
           <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
             {item.type === 'news'
               ? (lang === 'en' ? 'More News' : 'ข่าวสารถัดไป')
@@ -328,6 +340,7 @@ const NewsDetail = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -54,6 +54,14 @@ b, strong {
     background-color: #fbfaf7;
   }
 
+  /* An article page with a side rail: wider than .mellow-page-reading
+     because it carries a second column, while the reading column inside it
+     is capped separately by the grid so the text does not sprawl. */
+  .mellow-page-article {
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[1180px];
+    background-color: #fbfaf7;
+  }
+
   .mellow-flow-page {
     @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[520px];
     background-color: #fbfaf7;
@@ -150,6 +158,9 @@ b, strong {
   .mellow-shell-frame:has(> .mellow-page) {
     max-width: 1100px;
   }
+  .mellow-shell-frame:has(> .mellow-page-article) {
+    max-width: 1180px;
+  }
 }
 
 /* Drill-in pages get the same extra room the tab pages got. They keep a cap
@@ -160,6 +171,12 @@ b, strong {
 @media (min-width: 1280px) {
   .mellow-shell-frame:has(> .mellow-page) {
     max-width: 1280px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .mellow-shell-frame:has(> .mellow-page) {
+    max-width: 1536px;
   }
 }
 
