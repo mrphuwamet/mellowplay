@@ -10,6 +10,7 @@ import {
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ArrowBack as BackIcon,
   Save as SaveIcon, Send as SendIcon, Refresh as RefreshIcon, Cancel as CancelIcon,
+  Visibility as ViewIcon, ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 import RichTextEditor from '../components/RichTextEditor';
 
@@ -51,6 +52,11 @@ const BroadcastManagement = () => {
   const [courseIds, setCourseIds] = useState<number[]>([]);
   const [audiencePreview, setAudiencePreview] = useState<any | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  // A campaign that has left the building cannot be edited — its recipient
+  // rows were frozen at launch and some are already delivered — but it must
+  // still be readable, and copyable. Read-only is how it opens; ทำสำเนา turns
+  // what is on screen into a fresh draft.
+  const [readOnly, setReadOnly] = useState(false);
 
   const fetchAll = () => {
     setLoading(true);
@@ -69,21 +75,25 @@ const BroadcastManagement = () => {
   const resetForm = () => {
     setName(''); setChannel('email'); setSubject(''); setBodyHtml(''); setSmsMessage('');
     setMarketingConsent(true); setAllMembers(false); setCourseIds([]);
-    setAudiencePreview(null); setError(null);
+    setAudiencePreview(null); setError(null); setReadOnly(false);
   };
 
   const audience = () => ({ marketingConsent, allMembers, courseIds });
 
-  const openCreate = () => { resetForm(); setEditId(null); setIsEditing(true); };
+  const openCreate = () => { resetForm(); setEditId(null); setReadOnly(false); setIsEditing(true); };
 
-  const openEdit = async (id: number) => {
+  // 'edit' keeps working on the same row; 'view' opens it locked; 'duplicate'
+  // loads the content but detaches it, so saving writes a new draft and the
+  // original is never touched.
+  const openBroadcast = async (id: number, mode: 'edit' | 'view' | 'duplicate') => {
     resetForm();
-    setEditId(id);
+    setEditId(mode === 'duplicate' ? null : id);
+    setReadOnly(mode === 'view');
     setIsEditing(true);
     const res = await axios.get(`${API_BASE}/broadcasts/${id}`);
     if (res.data.success) {
       const b = res.data.broadcast;
-      setName(b.name || '');
+      setName(mode === 'duplicate' ? `สำเนา — ${b.name || ''}` : (b.name || ''));
       setChannel(b.channel || 'email');
       setSubject(b.subject || '');
       setBodyHtml(b.body_html || '');
@@ -96,6 +106,8 @@ const BroadcastManagement = () => {
       } catch { /* a malformed filter just starts from the defaults */ }
     }
   };
+
+  const openEdit = (id: number) => openBroadcast(id, 'edit');
 
   const checkAudience = async () => {
     setPreviewing(true);
@@ -158,18 +170,40 @@ const BroadcastManagement = () => {
       <Box>
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
           <IconButton onClick={() => setIsEditing(false)} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
-          <Typography variant="h5" sx={{ fontWeight: 800, flex: 1 }}>{editId ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'}</Typography>
-          <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave} disabled={saving}>บันทึกฉบับร่าง</Button>
+          <Typography variant="h5" sx={{ fontWeight: 800, flex: 1 }}>
+            {readOnly ? 'ดูแคมเปญที่ส่งไปแล้ว' : editId ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'}
+          </Typography>
+          {readOnly ? (
+            <Button
+              variant="contained"
+              startIcon={<CopyIcon />}
+              onClick={() => {
+                setReadOnly(false);
+                setEditId(null);
+                setName(prev => prev.startsWith('สำเนา — ') ? prev : `สำเนา — ${prev}`);
+              }}
+            >
+              ทำสำเนาเพื่อแก้ไข
+            </Button>
+          ) : (
+            <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave} disabled={saving}>บันทึกฉบับร่าง</Button>
+          )}
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {readOnly && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            แคมเปญนี้ส่งไปแล้ว จึงแก้ไขไม่ได้ — รายชื่อผู้รับถูกตรึงไว้ตั้งแต่ตอนกดส่ง และบางฉบับถึงมือผู้รับไปแล้ว
+            กด "ทำสำเนาเพื่อแก้ไข" เพื่อสร้างฉบับร่างใหม่จากเนื้อหาชุดนี้
+          </Alert>
+        )}
 
         <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
           <Stack spacing={2}>
-            <TextField fullWidth label="ชื่อแคมเปญ (ใช้ภายใน ผู้รับไม่เห็น)" value={name} onChange={e => setName(e.target.value)} />
+            <TextField fullWidth label="ชื่อแคมเปญ (ใช้ภายใน ผู้รับไม่เห็น)" value={name} disabled={readOnly} onChange={e => setName(e.target.value)} />
             <FormControl fullWidth>
               <InputLabel>ช่องทาง</InputLabel>
-              <Select value={channel} label="ช่องทาง" onChange={e => setChannel(e.target.value as any)}>
+              <Select value={channel} label="ช่องทาง" disabled={readOnly} onChange={e => setChannel(e.target.value as any)}>
                 <MenuItem value="email">อีเมลอย่างเดียว</MenuItem>
                 <MenuItem value="sms">SMS อย่างเดียว</MenuItem>
                 <MenuItem value="both">ทั้งอีเมลและ SMS</MenuItem>
@@ -182,10 +216,10 @@ const BroadcastManagement = () => {
           <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>กลุ่มผู้รับ</Typography>
           <Stack spacing={1.5}>
             <FormControlLabel
-              control={<Switch checked={marketingConsent} disabled={allMembers} onChange={e => setMarketingConsent(e.target.checked)} />}
+              control={<Switch checked={marketingConsent} disabled={allMembers || readOnly} onChange={e => setMarketingConsent(e.target.checked)} />}
               label="คนที่ติ๊กยินยอมรับข้อมูลการตลาดตอนสมัคร"
             />
-            <FormControl fullWidth size="small" disabled={allMembers}>
+            <FormControl fullWidth size="small" disabled={allMembers || readOnly}>
               <InputLabel>คนที่เคยเข้าร่วมกิจกรรม/คอร์ส</InputLabel>
               <Select
                 multiple value={courseIds} label="คนที่เคยเข้าร่วมกิจกรรม/คอร์ส"
@@ -197,7 +231,7 @@ const BroadcastManagement = () => {
             </FormControl>
             <Divider />
             <FormControlLabel
-              control={<Switch checked={allMembers} onChange={e => setAllMembers(e.target.checked)} />}
+              control={<Switch checked={allMembers} disabled={readOnly} onChange={e => setAllMembers(e.target.checked)} />}
               label="ส่งถึงสมาชิกทุกคน (ไม่สนความยินยอม)"
             />
             {allMembers && (
@@ -228,8 +262,20 @@ const BroadcastManagement = () => {
           <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>เนื้อหาอีเมล</Typography>
             <Stack spacing={2}>
-              <TextField fullWidth label="หัวเรื่อง" value={subject} onChange={e => setSubject(e.target.value)} />
-              <RichTextEditor value={bodyHtml} onChange={setBodyHtml} />
+              <TextField fullWidth label="หัวเรื่อง" value={subject} disabled={readOnly} onChange={e => setSubject(e.target.value)} />
+              {readOnly ? (
+                // The body as it was sent, not an editor holding it —
+                // sandboxed, since these bodies are authored HTML.
+                <Box
+                  component="iframe"
+                  title="เนื้อหาอีเมล"
+                  sandbox=""
+                  srcDoc={bodyHtml}
+                  sx={{ width: '100%', minHeight: 320, border: '1px solid #e5e7eb', borderRadius: 2, bgcolor: 'white' }}
+                />
+              ) : (
+                <RichTextEditor value={bodyHtml} onChange={setBodyHtml} />
+              )}
               <Alert severity="info">
                 ใช้ตัวแปร <code>{'{{name}}'}</code> <code>{'{{email}}'}</code> <code>{'{{phone}}'}</code> ได้ ·
                 ระบบจะต่อลิงก์ "ยกเลิกรับข่าวสาร" ท้ายอีเมลให้อัตโนมัติ กดแล้วหยุดส่งทันทีรวมถึงฉบับที่ยังค้างคิวอยู่
@@ -242,7 +288,7 @@ const BroadcastManagement = () => {
           <Paper sx={{ p: 3, borderRadius: 3 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>ข้อความ SMS</Typography>
             <TextField
-              fullWidth multiline minRows={3} value={smsMessage} onChange={e => setSmsMessage(e.target.value)}
+              fullWidth multiline minRows={3} value={smsMessage} disabled={readOnly} onChange={e => setSmsMessage(e.target.value)}
               helperText={`${smsMessage.length} ตัวอักษร · ภาษาไทยคิด 70 ตัวอักษรต่อ 1 ข้อความ`}
             />
           </Paper>
@@ -318,6 +364,13 @@ const BroadcastManagement = () => {
                     {b.status === 'sending' && (
                       <IconButton size="small" color="warning" onClick={() => cancel(b.id)} title="หยุดส่งที่เหลือ"><CancelIcon fontSize="small" /></IconButton>
                     )}
+                    {/* Offered whatever the status: a campaign already sent was
+                        previously unreachable — no way to read back what went
+                        out, let alone start the next one from it. */}
+                    {b.status !== 'draft' && (
+                      <IconButton size="small" onClick={() => openBroadcast(b.id, 'view')} title="ดูเนื้อหา"><ViewIcon fontSize="small" /></IconButton>
+                    )}
+                    <IconButton size="small" onClick={() => openBroadcast(b.id, 'duplicate')} title="ทำสำเนาเป็นฉบับร่างใหม่"><CopyIcon fontSize="small" /></IconButton>
                   </TableCell>
                 </TableRow>
               );
