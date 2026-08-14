@@ -22,7 +22,16 @@ export interface CapacityRound {
   startTime: string;
   endTime: string;
   label: string | null;
+  /** Public seats plus invite-only seats — the real ceiling for the round. */
   capacity: number;
+  /**
+   * The invite-only part of that ceiling (Calendar_Slot_Rules.invite_capacity).
+   * getUpcomingSlots leaves these out unless the viewer holds the matching
+   * invite link, which is right for a booking page and wrong for a capacity
+   * report: a round set up as invite-only has max_capacity 0, so the dashboard
+   * called a completely empty round "เต็มแล้ว".
+   */
+  inviteCapacity: number;
   booked: number;
   remaining: number;
   fillRate: number;
@@ -80,10 +89,18 @@ export class BookingCapacityRepository {
     for (const group of byCalendar.values()) {
       const upcoming = await this.calendars.getUpcomingSlots(group.calendarId, daysAhead);
 
+      // Invite seats keyed by the rule each round came from — getUpcomingSlots
+      // hands back ruleId precisely so a caller can look up what it left out.
+      const { results: ruleRows } = await this.db.prepare(
+        'SELECT id, COALESCE(invite_capacity, 0) AS invite_capacity FROM Calendar_Slot_Rules WHERE calendar_id = ?'
+      ).bind(group.calendarId).all<any>();
+      const inviteByRule = new Map<number, number>((ruleRows as any[]).map(r => [r.id, r.invite_capacity]));
+
       const rounds: CapacityRound[] = [];
       for (const day of upcoming) {
         for (const slot of day.slots) {
-          const capacity = slot.maxCapacity ?? 0;
+          const inviteCapacity = inviteByRule.get(slot.ruleId) ?? 0;
+          const capacity = (slot.maxCapacity ?? 0) + inviteCapacity;
           const booked = slot.booked ?? 0;
           rounds.push({
             date: day.date,
@@ -91,6 +108,7 @@ export class BookingCapacityRepository {
             endTime: slot.endTime,
             label: slot.label ?? day.dayLabel ?? null,
             capacity,
+            inviteCapacity,
             booked,
             remaining: Math.max(0, capacity - booked),
             fillRate: capacity > 0 ? booked / capacity : 0,
@@ -102,10 +120,12 @@ export class BookingCapacityRepository {
       }
 
       const seats = rounds.reduce((n, r) => n + r.capacity, 0);
+      const inviteSeats = rounds.reduce((n, r) => n + r.inviteCapacity, 0);
       const booked = rounds.reduce((n, r) => n + r.booked, 0);
       calendars.push({
         calendarId: group.calendarId,
         calendarName: group.calendarName,
+        inviteSeats,
         courses: group.courses.map(c => ({ id: c.id, name: c.name, isEvent: !!c.is_event, isService: !!c.is_service })),
         seats,
         booked,
@@ -139,6 +159,7 @@ export class BookingCapacityRepository {
       daysAhead,
       totals: {
         seats,
+        inviteSeats: calendars.reduce((n, c) => n + c.inviteSeats, 0),
         booked: bookedTotal,
         remaining: Math.max(0, seats - bookedTotal),
         fillRate: seats > 0 ? bookedTotal / seats : 0,

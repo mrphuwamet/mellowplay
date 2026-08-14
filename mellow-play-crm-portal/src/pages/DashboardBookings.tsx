@@ -38,6 +38,22 @@ const STATUS = {
 };
 
 const fmt = (n: number) => n.toLocaleString('th-TH');
+
+const SeatCount = ({ total, invite }: { total: number; invite?: number }) => (
+  <Stack direction="row" spacing={0.5} alignItems="baseline" justifyContent="flex-end">
+    <span>{fmt(total)}</span>
+    {!!invite && (
+      <Typography
+        component="span"
+        variant="caption"
+        sx={{ fontWeight: 800, color: '#8a6100' }}
+        title={`รวมที่นั่ง VIP/เชิญพิเศษ ${fmt(invite)} ที่`}
+      >
+        (VIP {fmt(invite)})
+      </Typography>
+    )}
+  </Stack>
+);
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 const formatRound = (date: string, start?: string, end?: string) => {
@@ -173,6 +189,7 @@ const DashboardBookings = () => {
         seats: shown.reduce((n: number, c: any) => n + c.seats, 0),
         booked: shown.reduce((n: number, c: any) => n + c.booked, 0),
         remaining: shown.reduce((n: number, c: any) => n + c.remaining, 0),
+        inviteSeats: shown.reduce((n: number, c: any) => n + c.inviteSeats, 0),
         rounds: shown.reduce((n: number, c: any) => n + c.roundCount, 0),
         fullRounds: shown.reduce((n: number, c: any) => n + c.fullRounds, 0),
         calendars: shown.length,
@@ -245,6 +262,7 @@ const DashboardBookings = () => {
                 value={fmt(view.seats)}
                 sub={<Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                   {fmt(view.rounds)} รอบ · {fmt(view.calendars)} ปฏิทิน
+                  {!!view.inviteSeats && ` · รวม VIP ${fmt(view.inviteSeats)} ที่`}
                 </Typography>}
                 icon={<SeatIcon />}
               />
@@ -430,7 +448,7 @@ const DashboardBookings = () => {
                             <Chip size="small" label={`เต็ม ${c.fullRounds}`} sx={{ ml: 0.5, height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
                           )}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(c.seats)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}><SeatCount total={c.seats} invite={c.inviteSeats} /></TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(c.booked)}</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 800 }}>{fmt(c.remaining)}</TableCell>
                         <TableCell><FillMeter booked={c.booked} capacity={c.seats} /></TableCell>
@@ -493,7 +511,7 @@ const DashboardBookings = () => {
                                           )}
                                         </Stack>
                                       </TableCell>
-                                      <TableCell align="right">{fmt(r.capacity)}</TableCell>
+                                      <TableCell align="right"><SeatCount total={r.capacity} invite={r.inviteCapacity} /></TableCell>
                                       <TableCell align="right">{fmt(r.booked)}</TableCell>
                                       <TableCell align="right" sx={{ fontWeight: 800 }}>
                                         {r.remaining === 0
