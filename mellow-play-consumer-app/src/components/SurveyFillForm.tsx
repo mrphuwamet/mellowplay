@@ -144,8 +144,12 @@ const SurveyFillForm: React.FC<Props> = ({
           const value = answers[field.field_key];
           const isInvalid = field.field_key === invalidFieldKey;
           const wrapClass = isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : '';
+          // Bigger and darker than the answers below it. Widening the
+          // options to one per line left them larger than the question they
+          // answered, which reads as a list with a caption over it rather
+          // than a question with its choices.
           const labelEl = (
-            <label className="text-xs font-bold text-slate-600 block mb-1.5">
+            <label className="text-[15px] font-black text-slate-800 block mb-2 leading-snug">
               {field.label}{!!field.required && <span className="text-mellow-red ml-0.5">*</span>}
             </label>
           );
