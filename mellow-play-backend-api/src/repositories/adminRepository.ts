@@ -873,9 +873,65 @@ export class AdminRepository {
     ).run();
   }
 
-  async deleteCourse(id: number): Promise<void> {
-    await this.db.prepare('DELETE FROM Daily_Courses WHERE course_id = ?').bind(id).run();
-    await this.db.prepare('DELETE FROM Bookings WHERE course_id = ?').bind(id).run();
+  // What a course leaves behind that belongs to a person rather than to the
+  // course itself. Deleting these is not "tidying up a class" — it erases a
+  // child's attendance, their journey entries and the stamps they earned — so
+  // the caller is told what is there and has to say so explicitly.
+  async getCourseHistory(id: number): Promise<{ bookings: number; submissions: number; journey: number; stamps: number; reviews: number }> {
+    const row = await this.db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM Bookings WHERE course_id = ?1) AS bookings,
+        (SELECT COUNT(*) FROM Form_Submissions WHERE course_id = ?1) AS submissions,
+        (SELECT COUNT(*) FROM Child_Journey cj JOIN Bookings b ON cj.booking_id = b.id WHERE b.course_id = ?1) AS journey,
+        (SELECT COUNT(*) FROM Stamps WHERE course_id = ?1) AS stamps,
+        (SELECT COUNT(*) FROM Course_Reviews WHERE course_id = ?1) AS reviews
+    `).bind(id).first<{ bookings: number; submissions: number; journey: number; stamps: number; reviews: number }>();
+    return row ?? { bookings: 0, submissions: 0, journey: 0, stamps: 0, reviews: 0 };
+  }
+
+  /**
+   * Deleting a course used to clear Daily_Courses and Bookings and then hope,
+   * which failed on any course anyone had ever opened: fourteen tables carry a
+   * foreign key to Courses and five more to Bookings, nearly all of them
+   * NO ACTION, so SQLite refused the whole statement. The CRM showed nothing
+   * at all — the class simply stayed on screen.
+   *
+   * The rows below are the course's own furniture: layout choices, view
+   * counters, likes, materials, its slots on the calendar. They have no
+   * meaning once the course is gone, so they go with it, and clearing them is
+   * what makes a normal delete work.
+   *
+   * `force` additionally destroys the human history getCourseHistory reports.
+   * It exists because staff do sometimes need a test class gone for good, but
+   * it is never the default and never implicit.
+   */
+  async deleteCourse(id: number, opts: { force?: boolean } = {}): Promise<void> {
+    if (opts.force) {
+      // Deepest first: every one of these is what stops Bookings going.
+      await this.db.prepare('DELETE FROM Child_Journey WHERE booking_id IN (SELECT id FROM Bookings WHERE course_id = ?)').bind(id).run();
+      await this.db.prepare('DELETE FROM Stock_Reservations WHERE booking_id IN (SELECT id FROM Bookings WHERE course_id = ?)').bind(id).run();
+      await this.db.prepare('DELETE FROM Booking_Checkin_Log WHERE booking_id IN (SELECT id FROM Bookings WHERE course_id = ?)').bind(id).run();
+      await this.db.prepare('DELETE FROM Stamps WHERE course_id = ? OR booking_id IN (SELECT id FROM Bookings WHERE course_id = ?)').bind(id, id).run();
+      await this.db.prepare('DELETE FROM Course_Reviews WHERE course_id = ? OR booking_id IN (SELECT id FROM Bookings WHERE course_id = ?)').bind(id, id).run();
+      await this.db.prepare('DELETE FROM Bookings WHERE course_id = ?').bind(id).run();
+      await this.db.prepare('DELETE FROM Form_Submissions WHERE course_id = ?').bind(id).run();
+    }
+
+    // CourseCoupons and Course_Checkin_Actions declare ON DELETE CASCADE and
+    // clear themselves.
+    for (const table of [
+      'Daily_Courses',
+      'Course_Materials',
+      'Course_Image_Views',
+      'Course_Image_Focals',
+      'Course_Views',
+      'Course_Likes',
+      'Course_Comments',
+      'Invite_Access_Links',
+    ]) {
+      await this.db.prepare(`DELETE FROM ${table} WHERE course_id = ?`).bind(id).run();
+    }
+
     await this.db.prepare('DELETE FROM Courses WHERE id = ?').bind(id).run();
   }
 

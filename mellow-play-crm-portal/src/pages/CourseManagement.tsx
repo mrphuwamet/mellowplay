@@ -426,6 +426,8 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const categoryImageRef = useRef<HTMLInputElement>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number | string; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteNeedsForce, setDeleteNeedsForce] = useState(false);
   const [deleteType, setDeleteType] = useState<'course' | 'category'>('course');
   const [copiedLinkId, setCopiedLinkId] = useState<number | null>(null);
 
@@ -1232,15 +1234,30 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     }
   };
 
-  const confirmDelete = async () => {
+  // A failed delete used to go to console.error alone: the dialog closed
+  // nothing, the class stayed on screen, and staff were left to conclude the
+  // button was broken. Whatever the server says now reaches the person who
+  // pressed it.
+  const confirmDelete = async (force = false) => {
     if (!itemToDelete) return;
+    setDeleteError(null);
+    setDeleteNeedsForce(false);
     try {
-      if (deleteType === 'course') await axios.delete(`${API_BASE}/courses/${itemToDelete.id}`);
-      else await axios.delete(`${API_BASE}/categories/${itemToDelete.id}`);
+      if (deleteType === 'course') {
+        await axios.delete(`${API_BASE}/courses/${itemToDelete.id}${force ? '?force=true' : ''}`);
+      } else {
+        await axios.delete(`${API_BASE}/categories/${itemToDelete.id}`);
+      }
       setDeleteDialogOpen(false);
       setItemToDelete(null);
       fetchData();
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      const data = e?.response?.data;
+      // 409 + requiresForce means the class has real attendance behind it —
+      // the server is asking whether to destroy that too, not refusing.
+      setDeleteNeedsForce(!!data?.requiresForce);
+      setDeleteError(data?.message || 'ลบไม่สำเร็จ กรุณาลองใหม่');
+    }
   };
 
   const handleCategoryImageUpload = async (file: File) => {
@@ -2791,14 +2808,30 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       )}
 
       {/* Delete dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+      <Dialog open={deleteDialogOpen} onClose={() => { setDeleteDialogOpen(false); setDeleteError(null); setDeleteNeedsForce(false); }}>
         <DialogTitle sx={{ fontWeight: 800 }}>ยืนยันการลบ</DialogTitle>
         <DialogContent>
           <Typography>ต้องการลบ {deleteType === 'course' ? 'คลาส' : 'หมวดหมู่'} <strong>"{itemToDelete?.name}"</strong> ใช่หรือไม่?</Typography>
+          {deleteError && (
+            <Alert severity={deleteNeedsForce ? 'warning' : 'error'} sx={{ mt: 2, borderRadius: 2, fontWeight: 600 }}>
+              {deleteError}
+            </Alert>
+          )}
+          {deleteNeedsForce && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: 'text.secondary', fontWeight: 600 }}>
+              ถ้าไม่ต้องการลบประวัติ ให้ปิดการมองเห็นคลาสนี้แทน (สวิตช์ "แสดงในแอป" ในหน้าแก้ไขคลาส)
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setDeleteDialogOpen(false)} variant="outlined">ยกเลิก</Button>
-          <Button onClick={confirmDelete} color="error" variant="contained">ลบข้อมูล</Button>
+          <Button onClick={() => { setDeleteDialogOpen(false); setDeleteError(null); setDeleteNeedsForce(false); }} variant="outlined">ยกเลิก</Button>
+          {deleteNeedsForce ? (
+            <Button onClick={() => confirmDelete(true)} color="error" variant="contained">
+              ลบพร้อมประวัติทั้งหมด
+            </Button>
+          ) : (
+            <Button onClick={() => confirmDelete(false)} color="error" variant="contained">ลบข้อมูล</Button>
+          )}
         </DialogActions>
       </Dialog>
 

@@ -436,6 +436,13 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   // instead of returning them.
   { method: 'POST', pattern: /^\/api\/v1\/admin\/courses\/[^/]+\/registered-names$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/registration-forms\/[^/]+\/team-availability$/ },
+  // The QR page a confirmation email links to (consumer /checkin/:token). It
+  // sat behind requireCrmAuth, so a parent following the link got a 401 — and
+  // the app's interceptor reads any 401 as an expired session, so it cleared
+  // their login and sent them to /login. The qr_token IS the credential here,
+  // the same one staff scan; parent contact details are stripped for callers
+  // without a CRM session (see CheckinController.lookup).
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
   { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },

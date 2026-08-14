@@ -1634,7 +1634,31 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
-      await adminRepo.deleteCourse(id);
+      const force = c.req.query('force') === 'true';
+
+      // A class with attendance behind it is not deleted on one click. The
+      // counts go back so the CRM can say what would be destroyed and let
+      // staff decide, rather than either refusing with no reason or quietly
+      // erasing a child's record.
+      const history = await adminRepo.getCourseHistory(id);
+      const total = history.bookings + history.submissions + history.journey + history.stamps + history.reviews;
+      if (total > 0 && !force) {
+        const parts = [
+          history.bookings ? `การจอง ${history.bookings} รายการ` : '',
+          history.submissions ? `ข้อมูลการลงทะเบียน ${history.submissions} ชุด` : '',
+          history.journey ? `บันทึกพัฒนาการ ${history.journey} รายการ` : '',
+          history.stamps ? `แสตมป์ ${history.stamps} ดวง` : '',
+          history.reviews ? `รีวิว ${history.reviews} รายการ` : '',
+        ].filter(Boolean);
+        return c.json({
+          success: false,
+          requiresForce: true,
+          history,
+          message: `คลาสนี้มีประวัติของผู้ใช้อยู่แล้ว: ${parts.join(' · ')} — การลบจะลบข้อมูลเหล่านี้ทิ้งถาวรด้วย`,
+        }, 409);
+      }
+
+      await adminRepo.deleteCourse(id, { force });
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
