@@ -57,6 +57,12 @@ const BroadcastManagement = () => {
   // still be readable, and copyable. Read-only is how it opens; ทำสำเนา turns
   // what is on screen into a fresh draft.
   const [readOnly, setReadOnly] = useState(false);
+  const [hasBooking, setHasBooking] = useState(false);
+  const [hasReport, setHasReport] = useState(false);
+  // 'any' is the default because it is what every campaign saved before this
+  // existed means — switching them all to 'all' would silently shrink an
+  // audience someone already checked.
+  const [matchMode, setMatchMode] = useState<'any' | 'all'>('any');
 
   const fetchAll = () => {
     setLoading(true);
@@ -75,10 +81,11 @@ const BroadcastManagement = () => {
   const resetForm = () => {
     setName(''); setChannel('email'); setSubject(''); setBodyHtml(''); setSmsMessage('');
     setMarketingConsent(true); setAllMembers(false); setCourseIds([]);
+    setHasBooking(false); setHasReport(false); setMatchMode('any');
     setAudiencePreview(null); setError(null); setReadOnly(false);
   };
 
-  const audience = () => ({ marketingConsent, allMembers, courseIds });
+  const audience = () => ({ marketingConsent, allMembers, courseIds, hasBooking, hasReport, matchMode });
 
   const openCreate = () => { resetForm(); setEditId(null); setReadOnly(false); setIsEditing(true); };
 
@@ -103,6 +110,9 @@ const BroadcastManagement = () => {
         setMarketingConsent(!!a.marketingConsent);
         setAllMembers(!!a.allMembers);
         setCourseIds(Array.isArray(a.courseIds) ? a.courseIds : []);
+        setHasBooking(!!a.hasBooking);
+        setHasReport(!!a.hasReport);
+        setMatchMode(a.matchMode === 'all' ? 'all' : 'any');
       } catch { /* a malformed filter just starts from the defaults */ }
     }
   };
@@ -215,6 +225,23 @@ const BroadcastManagement = () => {
         <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2 }}>กลุ่มผู้รับ</Typography>
           <Stack spacing={1.5}>
+            {/* Stated out loud, because the same two switches mean two very
+                different audiences depending on this and there is no way to
+                tell them apart from the count alone. */}
+            {!allMembers && (
+              <FormControl size="small" sx={{ maxWidth: 420 }}>
+                <InputLabel>วิธีรวมเงื่อนไข</InputLabel>
+                <Select
+                  value={matchMode}
+                  label="วิธีรวมเงื่อนไข"
+                  disabled={readOnly}
+                  onChange={e => setMatchMode(e.target.value as 'any' | 'all')}
+                >
+                  <MenuItem value="any">เข้าเงื่อนไขข้อใดข้อหนึ่ง (กว้างกว่า)</MenuItem>
+                  <MenuItem value="all">ต้องเข้าทุกเงื่อนไขที่เปิดไว้ (แคบกว่า)</MenuItem>
+                </Select>
+              </FormControl>
+            )}
             <FormControlLabel
               control={<Switch checked={marketingConsent} disabled={allMembers || readOnly} onChange={e => setMarketingConsent(e.target.checked)} />}
               label="คนที่ติ๊กยินยอมรับข้อมูลการตลาดตอนสมัคร"
@@ -229,6 +256,14 @@ const BroadcastManagement = () => {
                 {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
             </FormControl>
+            <FormControlLabel
+              control={<Switch checked={hasBooking} disabled={allMembers || readOnly} onChange={e => setHasBooking(e.target.checked)} />}
+              label="คนที่เคยจองเข้ามาแล้ว (ไม่นับที่ยกเลิก)"
+            />
+            <FormControlLabel
+              control={<Switch checked={hasReport} disabled={allMembers || readOnly} onChange={e => setHasReport(e.target.checked)} />}
+              label="คนที่กรอกรายงานให้แล้ว"
+            />
             <Divider />
             <FormControlLabel
               control={<Switch checked={allMembers} disabled={readOnly} onChange={e => setAllMembers(e.target.checked)} />}

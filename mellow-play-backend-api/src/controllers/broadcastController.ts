@@ -11,6 +11,11 @@ const CHANNELS = ['email', 'sms', 'both'];
 const parseAudience = (raw: any): AudienceFilter => ({
   marketingConsent: !!raw?.marketingConsent,
   allMembers: !!raw?.allMembers,
+  hasBooking: !!raw?.hasBooking,
+  hasReport: !!raw?.hasReport,
+  // Anything but an explicit 'all' means 'any', so a campaign saved before
+  // this field existed keeps reaching exactly who it reached before.
+  matchMode: raw?.matchMode === 'all' ? 'all' : 'any',
   courseIds: Array.isArray(raw?.courseIds)
     ? raw.courseIds.map((n: any) => parseInt(n)).filter(Number.isInteger)
     : undefined,

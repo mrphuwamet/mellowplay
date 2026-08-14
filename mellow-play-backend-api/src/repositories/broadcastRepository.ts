@@ -5,6 +5,16 @@ export interface AudienceFilter {
   courseIds?: number[];
   /** Every registered account, consent or not — staff-only announcements. */
   allMembers?: boolean;
+  /** Anyone with a booking that was not cancelled — a customer, not just a member. */
+  hasBooking?: boolean;
+  /** Anyone whose class report has been written up. */
+  hasReport?: boolean;
+  /**
+   * How several filters combine. 'any' (the default, and what every campaign
+   * saved before this existed means) reaches a person matching ONE of them;
+   * 'all' reaches only people matching every one.
+   */
+  matchMode?: 'any' | 'all';
 }
 
 export interface AudienceMember {
@@ -30,6 +40,14 @@ export class BroadcastRepository {
    * "attendees of the June camp" and "opted into marketing" overlap heavily and
    * nobody should get the same mail twice.
    */
+  /**
+   * Who a set of filters currently reaches.
+   *
+   * matchMode decides how several filters combine. It defaults to 'any' — what
+   * this has always done — because changing the meaning of a saved campaign's
+   * filters would change who it reaches the next time someone opens it.
+   * 'all' is what "เฉพาะคนที่…" actually means and has to be asked for.
+   */
   async resolveAudience(filter: AudienceFilter): Promise<AudienceMember[]> {
     const clauses: string[] = [];
     const binds: any[] = [];
@@ -47,8 +65,32 @@ export class BroadcastRepository {
         )`);
         binds.push(...filter.courseIds);
       }
+      // Anyone who has actually booked something, whichever class it was —
+      // the difference between a member who signed up and a customer.
+      if (filter.hasBooking) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM Bookings b
+          JOIN Children ch ON b.child_id = ch.id
+          WHERE ch.parent_id = u.id AND b.status != 'cancelled'
+        )`);
+      }
+      // Families whose class report has been written up. Both halves are
+      // checked because they are written at different moments: the booking is
+      // marked 'completed' when staff file the report, and Child_Journey is
+      // the report itself. A row with one and not the other is still a family
+      // whose report exists.
+      if (filter.hasReport) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM Bookings b
+          JOIN Children ch ON b.child_id = ch.id
+          WHERE ch.parent_id = u.id
+            AND (b.status = 'completed' OR EXISTS (SELECT 1 FROM Child_Journey cj WHERE cj.booking_id = b.id))
+        )`);
+      }
     }
     if (clauses.length === 0) return [];
+
+    const joiner = !filter.allMembers && filter.matchMode === 'all' ? ' AND ' : ' OR ';
 
     const { results } = await this.db.prepare(`
       SELECT DISTINCT u.id AS user_id,
@@ -56,7 +98,7 @@ export class BroadcastRepository {
              u.email, u.phone
       FROM Users u
       WHERE COALESCE(u.is_banned, 0) = 0
-        AND (${clauses.join(' OR ')})
+        AND (${clauses.join(joiner)})
       ORDER BY u.id
     `).bind(...binds).all();
 
