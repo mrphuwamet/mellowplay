@@ -522,9 +522,14 @@ const DashboardBookings = () => {
                                                         {fmt(t.booked)}/{fmt(t.capacity)}
                                                       </TableCell>
                                                       <TableCell align="right" sx={{ border: 0, py: 0.5, width: 110, fontWeight: 800 }}>
-                                                        {t.remaining === 0
-                                                          ? <Chip size="small" label="เต็มแล้ว" sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
-                                                          : `เหลือ ${fmt(t.remaining)}`}
+                                                        {/* A team can end up holding more than its cap — a cap
+                                                            edited after people booked, or a booking that got past
+                                                            the check. Calling that "เต็มแล้ว" would hide it. */}
+                                                        {t.booked > t.capacity
+                                                          ? <Chip size="small" label={`เกินโควตา ${fmt(t.booked - t.capacity)}`} sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
+                                                          : t.remaining === 0
+                                                            ? <Chip size="small" label="เต็มแล้ว" sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
+                                                            : `เหลือ ${fmt(t.remaining)}`}
                                                       </TableCell>
                                                       <TableCell sx={{ border: 0, py: 0.5, width: 220 }}>
                                                         <FillMeter booked={t.booked} capacity={t.capacity} />

@@ -117,7 +117,17 @@ export class BookingCapacityRepository {
       });
     }
 
-    const teams = await this.getTeamCapacity(courseRows as any[], today, daysAhead);
+    // Every course inherits the rounds of the calendar it sits on. Passing
+    // them in is what makes a team appear on a round nobody has booked yet —
+    // deriving the round list from submissions instead meant an empty round
+    // had no teams at all, which read as "this round has no teams" rather than
+    // "every team is still open".
+    const roundsByCourse = new Map<number, string[]>();
+    for (const cal of calendars) {
+      const keys = cal.rounds.map((r: CapacityRound) => `${r.date} ${r.startTime}`);
+      for (const course of cal.courses) roundsByCourse.set(course.id, keys);
+    }
+    const teams = await this.getTeamCapacity(courseRows as any[], today, daysAhead, roundsByCourse);
 
     const seats = calendars.reduce((n, c) => n + c.seats, 0);
     const bookedTotal = calendars.reduce((n, c) => n + c.booked, 0);
@@ -174,7 +184,12 @@ export class BookingCapacityRepository {
    * dialog does: a dashboard covering a month of rounds would otherwise fire
    * dozens of requests to render a single card.
    */
-  private async getTeamCapacity(courseRows: any[], today: string, daysAhead: number): Promise<CapacityTeam[]> {
+  private async getTeamCapacity(
+    courseRows: any[],
+    today: string,
+    daysAhead: number,
+    roundsByCourse: Map<number, string[]>,
+  ): Promise<CapacityTeam[]> {
     const withForms = courseRows.filter(c => c.registration_form_id);
     if (withForms.length === 0) return [];
 
@@ -207,13 +222,16 @@ export class BookingCapacityRepository {
       // Keyed by round as well as by team: a team's capacity resets every
       // round, so counting a whole month against one ceiling would report a
       // team as full when it is empty for the round anyone is booking.
+      //
+      // A submission's scheduled_at can carry seconds where the calendar's
+      // round key does not, so both sides are cut to "YYYY-MM-DD HH:MM" before
+      // they are compared — otherwise a round's own bookings would land under
+      // a key nothing else uses and every team would look untouched.
       const counts = new Map<string, number>();
-      const rounds = new Set<string>();
       for (const row of submissions as any[]) {
         let answers: Record<string, any> = {};
         try { answers = JSON.parse(row.answers_json || '{}'); } catch { continue; }
-        const round = row.scheduled_at || '';
-        rounds.add(round);
+        const round = String(row.scheduled_at || '').slice(0, 16);
         for (const f of fields) {
           const chosen = answers[f.field_key];
           if (!chosen) continue;
@@ -222,7 +240,7 @@ export class BookingCapacityRepository {
         }
       }
 
-      for (const round of [...rounds].sort()) {
+      for (const round of roundsByCourse.get(course.id) ?? []) {
         for (const f of fields) {
           let options: { label: string; capacity?: number }[] = [];
           try { options = f.options_json ? JSON.parse(f.options_json) : []; } catch { /* malformed options list just contributes nothing */ }
