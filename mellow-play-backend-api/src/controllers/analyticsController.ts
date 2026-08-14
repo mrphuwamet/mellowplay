@@ -7,6 +7,45 @@ import { BookingCapacityRepository } from '../repositories/bookingCapacityReposi
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
 export class AnalyticsController {
+  // The signed-in staff member's watchlist. Starred rounds are a personal
+  // working list — see migration 0084 for why it is not shared.
+  async getBookingWatchlist(c: any) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const userId = c.get('crmUser')?.userId ?? null;
+      if (!userId) return c.json({ success: true, watchlist: [] });
+      const { results } = await db.prepare(
+        'SELECT kind, target_key FROM Crm_Booking_Watchlist WHERE crm_user_id = ?'
+      ).bind(userId).all<any>();
+      return c.json({ success: true, watchlist: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async toggleBookingWatch(c: any) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const userId = c.get('crmUser')?.userId ?? null;
+      if (!userId) return c.json({ success: false, message: 'ต้องเข้าสู่ระบบ CRM' }, 401);
+      const { kind, targetKey } = await c.req.json();
+      if (kind !== 'round' && kind !== 'calendar') return c.json({ success: false, message: 'kind ไม่ถูกต้อง' }, 400);
+      if (typeof targetKey !== 'string' || !targetKey.trim()) return c.json({ success: false, message: 'targetKey required' }, 400);
+
+      const key = targetKey.trim().slice(0, 120);
+      const existing = await db.prepare(
+        'SELECT id FROM Crm_Booking_Watchlist WHERE crm_user_id = ? AND kind = ? AND target_key = ?'
+      ).bind(userId, kind, key).first<{ id: number }>();
+
+      if (existing) {
+        await db.prepare('DELETE FROM Crm_Booking_Watchlist WHERE id = ?').bind(existing.id).run();
+        return c.json({ success: true, watching: false });
+      }
+      await db.prepare(
+        'INSERT INTO Crm_Booking_Watchlist (crm_user_id, kind, target_key) VALUES (?, ?, ?)'
+      ).bind(userId, kind, key).run();
+      return c.json({ success: true, watching: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // Seat capacity across every upcoming round — the CRM's booking overview.
   // ?days= widens the window; 30 is what the screen opens with.
   async getBookingCapacity(c: any) {
