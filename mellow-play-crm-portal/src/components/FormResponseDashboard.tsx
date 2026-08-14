@@ -45,7 +45,7 @@ const GRID = '#eef0f3';
 const AXIS_INK = '#898781';
 
 // Fields that carry no answer to summarise.
-const NON_QUESTION_TYPES = new Set(['heading', 'image', 'identity']);
+const NON_QUESTION_TYPES = new Set(['heading', 'paragraph', 'image', 'identity']);
 
 const isChoice = (type: string) => type === 'select' || type === 'radio' || type === 'checkbox';
 

@@ -411,10 +411,14 @@ const DynamicRegistrationForm: React.FC<Props> = ({
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
                 className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
-                {list.length === 0 ? (
-                  <p className="text-xs font-bold text-slate-400 mb-2">{lang === 'en' ? 'No family members found' : 'ไม่พบสมาชิกในครอบครัว'}</p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                {/* Always the grid, even with nobody in it: "ไม่พบสมาชิกใน
+                    ครอบครัว" reported a problem where there is none — a new
+                    account simply has not added anyone yet — and the way out
+                    of it was a separate text link below. The add button is a
+                    cell in the same grid now, so it reads as the next choice
+                    after the people already there, and as the only choice when
+                    there is nobody. */}
+                <div className="grid grid-cols-2 gap-2 mb-2">
                     {list.map(member => {
                       const display = member.nickname || member.name;
                       const selected = isChildPicker ? currentIds.includes(member.id) : value === display;
@@ -463,15 +467,14 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                         </button>
                       );
                     })}
-                  </div>
-                )}
-                {onAddFamilyMember && (
-                  <button type="button" onClick={() => onAddFamilyMember(config.role === 'adult' ? 'adult' : 'child')}
-                    className="flex items-center gap-1.5 text-mellow-purple text-xs font-bold active:scale-95 transition-transform">
-                    <div className="w-5 h-5 rounded-full bg-mellow-purple/10 flex items-center justify-center"><Plus size={12} /></div>
-                    {lang === 'en' ? 'Add family member' : 'เพิ่มสมาชิกในครอบครัว'}
-                  </button>
-                )}
+                    {onAddFamilyMember && (
+                      <button type="button" onClick={() => onAddFamilyMember(config.role === 'adult' ? 'adult' : 'child')}
+                        className="p-3 rounded-2xl border border-dashed border-mellow-purple/40 bg-white text-left flex items-center gap-2 text-mellow-purple active:scale-95 transition-transform">
+                        <div className="w-8 h-8 rounded-full bg-mellow-purple/10 flex items-center justify-center shrink-0"><Plus size={16} /></div>
+                        <span className="text-xs font-black">{lang === 'en' ? 'Add' : 'เพิ่ม'}</span>
+                      </button>
+                    )}
+                </div>
               </div>
             );
           }

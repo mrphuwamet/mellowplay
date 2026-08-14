@@ -39,8 +39,13 @@ b, strong {
        only grows to 520px even on a huge monitor. Booking.tsx overrides
        this locally with its own wider cap since its step-wizard grids need
        more room than a plain form. */
+  /* 1100px was the ceiling on any monitor, which left a third of a modern
+     desktop screen empty beside the content. The steps keep going now. Not
+     On 2xl the cap comes off entirely and the page fills whatever the
+     app shell leaves beside the nav rail, which is what "เต็มจอ" means on a
+     wide monitor — the horizontal carousels simply show more cards. */
   .mellow-page {
-    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px];
+    @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1280px] 2xl:max-w-none;
     background-color: #fbfaf7;
   }
 
@@ -97,11 +102,22 @@ b, strong {
    Without this, Tailwind's preflight strips list bullets/heading weight
    entirely, so formatting typed into the CRM editor silently disappears here. */
 @layer components {
+  /* These numbers are not chosen here — they are copied from the CRM
+     editor's own ProseMirror styles (EditorCore.tsx), because what staff
+     arrange in the editor is what they expect readers to see. The old 12px
+     paragraph gap pushed lines that were typed together far apart, and
+     whitespace-pre-wrap on top of that also rendered the newlines BETWEEN
+     the HTML tags, adding a blank line nobody typed. */
   .prose-news h3 {
-    @apply text-lg font-black text-slate-800 mt-4 mb-2;
+    @apply text-lg font-black text-slate-800 my-2;
   }
   .prose-news p {
-    @apply mb-3 whitespace-pre-wrap;
+    @apply my-1;
+  }
+  /* A paragraph left empty on purpose is a blank line the author wanted; with
+     no content it would otherwise collapse to nothing. */
+  .prose-news p:empty {
+    min-height: 1em;
   }
   .prose-news ul {
     @apply list-disc pl-5 mb-3 space-y-1;

@@ -19,6 +19,8 @@ import {
   ArrowUpward as UpIcon,
   ArrowDownward as DownIcon,
   Title as HeadingIcon,
+  Science as TestRunIcon,
+  Article as ParagraphIcon,
   ShortText as TextFieldIcon,
   Notes as TextareaIcon,
   Numbers as NumberIcon,
@@ -39,7 +41,7 @@ import SessionManagement from './SessionManagement';
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image';
 
 interface ScoredOption { label: string; points: number; }
 
@@ -57,6 +59,10 @@ interface ScoreRange { min: number; max: number; resultText: string; imageUrl?: 
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
+  // A passage to READ, not a question: a comprehension text, a scenario, an
+  // instruction sheet. 'heading' renders bold and on one line, which is why
+  // there was nowhere to put more than a title.
+  paragraph: { label: 'เนื้อหาให้อ่าน (หลายบรรทัด)', icon: <ParagraphIcon fontSize="small" /> },
   text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
   textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
   number: { label: 'ตัวเลข', icon: <NumberIcon fontSize="small" /> },
@@ -242,7 +248,11 @@ const SurveyManagement = () => {
         type: f.type,
         label: f.label,
         required: f.required,
-        optionsJson: f.options ? JSON.stringify(f.options) : undefined,
+        // Only for the types that actually have options. A field switched
+        // from Dropdown to ข้อความสั้น keeps its old options in the draft so
+        // switching back restores them, but they must not be saved onto a
+        // type that has no use for them.
+        optionsJson: isChoiceType(f.type) && f.options ? JSON.stringify(f.options) : undefined,
         configJson: isChoiceType(f.type) ? JSON.stringify({ scored: !!f.scored })
           : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
           : undefined,
@@ -274,6 +284,15 @@ const SurveyManagement = () => {
     navigator.clipboard.writeText(url).then(() => setLinkCopied(true)).catch(() => {});
   };
 
+  // Opens the real form, the way a respondent sees it — shuffling, scoring,
+  // result screen and all — with ?test=1 so the answer is stored apart from
+  // the real ones. A preview rendered inside the CRM would be a second
+  // implementation of the form, and the bugs worth catching are exactly the
+  // ones a reimplementation would not reproduce.
+  const openTestRun = (form: any) => {
+    window.open(`${CONSUMER_APP_URL}/survey/${form.slug || form.id}?test=1`, '_blank', 'noopener,noreferrer');
+  };
+
   // ── Page/field editing helpers ──────────────────────────────────────────
   const addPage = () => { setPages([...pages, []]); setActivePage(pages.length); };
   const removePage = (pageIdx: number) => {
@@ -285,6 +304,29 @@ const SurveyManagement = () => {
     const next = pages.map((page, i) => i === activePage ? [...page, emptyField(type)] : page);
     setPages(next);
   };
+  /**
+   * Change an existing field's type in place.
+   *
+   * Dropdown, Radio and ช่องติ๊ก differ only in how the same list of options is
+   * presented, so picking the wrong one meant deleting the field and retyping
+   * every option. The options carry across untouched — including their points —
+   * and are kept even when switching to a type that ignores them, so a wrong
+   * turn costs nothing.
+   *
+   * The label follows only while it is still the untouched default for the old
+   * type; anything the author actually wrote is left alone.
+   */
+  const changeFieldType = (fieldIdx: number, nextType: FieldType) => {
+    const field = pages[activePage]?.[fieldIdx];
+    if (!field || field.type === nextType) return;
+    const patch: Partial<FieldDraft> = { type: nextType };
+    if (field.label === FIELD_TYPE_META[field.type].label) patch.label = FIELD_TYPE_META[nextType].label;
+    if (isChoiceType(nextType) && (!field.options || field.options.length === 0)) {
+      patch.options = [{ label: 'ตัวเลือก 1', points: 0 }];
+    }
+    updateField(fieldIdx, patch);
+  };
+
   const updateField = (fieldIdx: number, patch: Partial<FieldDraft>) => {
     const next = pages.map((page, i) => i === activePage
       ? page.map((f, j) => j === fieldIdx ? { ...f, ...patch } : f)
@@ -416,8 +458,24 @@ const SurveyManagement = () => {
                       <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-                          <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
-                          {field.type !== 'heading' && field.type !== 'image' && (
+                          <FormControl size="small" sx={{ minWidth: 220 }}>
+                            <InputLabel>ชนิดฟิลด์</InputLabel>
+                            <Select
+                              label="ชนิดฟิลด์"
+                              value={field.type}
+                              onChange={e => changeFieldType(idx, e.target.value as FieldType)}
+                            >
+                              {(Object.keys(FIELD_TYPE_META) as FieldType[]).map(t => (
+                                <MenuItem key={t} value={t}>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    {FIELD_TYPE_META[t].icon}
+                                    <span>{FIELD_TYPE_META[t].label}</span>
+                                  </Stack>
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          {field.type !== 'heading' && field.type !== 'paragraph' && field.type !== 'image' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
@@ -431,9 +489,13 @@ const SurveyManagement = () => {
                           )}
                         </Stack>
                         <TextField
-                          fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
+                          fullWidth size="small"
+                          label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : field.type === 'paragraph' ? 'เนื้อหา (ขึ้นบรรทัดใหม่ได้)' : 'ข้อความ/คำถาม'}
                           value={field.label}
                           onChange={e => updateField(idx, { label: e.target.value })}
+                          multiline={field.type === 'paragraph'}
+                          minRows={field.type === 'paragraph' ? 6 : undefined}
+                          helperText={field.type === 'paragraph' ? 'ผู้ทำแบบทดสอบจะเห็นข้อความนี้ตามที่พิมพ์ รวมถึงการเว้นบรรทัด' : undefined}
                         />
                         {field.type === 'image' && (
                           <ImageUploadField label="รูป" url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
@@ -613,6 +675,7 @@ const SurveyManagement = () => {
                 <TableCell align="right">{form.response_count}</TableCell>
                 <TableCell align="right">
                   <IconButton size="small" onClick={() => copyLink(form)} title="คัดลอกลิงก์"><LinkIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" color="warning" onClick={() => openTestRun(form)} title="ทดลองทำแบบทดสอบ (ผลเก็บแยก ไม่นับรวม)"><TestRunIcon fontSize="small" /></IconButton>
                   <IconButton size="small" onClick={() => navigate(`/crm/surveys/${form.id}/responses`)} title="ดูคำตอบ"><ResponsesIcon fontSize="small" /></IconButton>
                   <IconButton size="small" onClick={() => startEdit(form.id)}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="error" onClick={() => setItemToDelete({ id: form.id, name: form.name })}><DeleteIcon fontSize="small" /></IconButton>

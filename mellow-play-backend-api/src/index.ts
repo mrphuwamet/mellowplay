@@ -865,6 +865,7 @@ app.get('/api/v1/admin/survey-forms/:id',       (c) => surveyController.getForm(
 app.put('/api/v1/admin/survey-forms/:id',       (c) => surveyController.updateForm(c));
 app.delete('/api/v1/admin/survey-forms/:id',    (c) => surveyController.deleteForm(c));
 app.get('/api/v1/admin/survey-forms/:id/submissions', (c) => surveyController.listSubmissions(c));
+app.delete('/api/v1/admin/survey-forms/:id/test-submissions', (c) => surveyController.clearTestSubmissions(c));
 app.get('/api/v1/admin/survey-sessions',           (c) => sessionController.list(c));
 app.post('/api/v1/admin/survey-sessions',          (c) => sessionController.create(c));
 app.get('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.get(c));

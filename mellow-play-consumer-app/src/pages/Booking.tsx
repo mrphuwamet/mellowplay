@@ -19,6 +19,7 @@ import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
+import { isPlainText } from '../utils/richText';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import ConfirmationChannelNotice from '../components/ConfirmationChannelNotice';
 import logo from '../assets/ui/logo.svg';
@@ -1724,9 +1725,11 @@ const Booking = () => {
 
                 {selectedCourse.description && (
                   <div>
-                    <h3 className="text-[16px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+                    <h3 className="text-[17px] font-black text-slate-800 pb-2 mb-3 border-b border-slate-100">
+                      {lang === 'en' ? 'Details' : 'รายละเอียด'}
+                    </h3>
                     <div
-                      className="prose-news whitespace-pre-wrap text-sm text-slate-600 leading-relaxed"
+                      className={`prose-news text-sm text-slate-600 leading-relaxed ${isPlainText(selectedCourse.description) ? 'whitespace-pre-wrap' : ''}`}
                       dangerouslySetInnerHTML={{ __html: selectedCourse.description || '' }}
                     />
                   </div>

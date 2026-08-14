@@ -199,11 +199,11 @@ const Explore = () => {
       </header>
 
       <main className="p-5">
-        {/* Categories — fills full width evenly, no ragged trailing space.
-            6 tiles, 2 full rows of 3 at every breakpoint (an icon grid, not
-            a content grid) but caps its own width on wide screens so tiles
-            don't balloon as the page container grows. */}
-        <div className="grid grid-cols-3 gap-2 pb-6 md:max-w-[420px]">
+        {/* Categories — 3 per row on a phone, where six across would be
+            unreadably narrow, and one single row from md up, where two rows
+            of three left a wide band of empty space beside them and made the
+            filters look like a block of content rather than a menu. */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 pb-6">
            {categories.map(cat => {
              const isActive = activeCategory === cat.id;
              return (

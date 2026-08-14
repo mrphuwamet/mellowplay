@@ -10,6 +10,7 @@ import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { getCourseView } from '../utils/courseImage';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
+import { isPlainText } from '../utils/richText';
 import { trackCourseView } from '../utils/analytics';
 import PromotionCountdown from '../components/PromotionCountdown';
 import { useChildStore } from '../store/useChildStore';
@@ -190,7 +191,19 @@ const CourseDetail = () => {
           deleted to make configured banners take effect. A real left/right poster
           slider is planned as its own separate section rather than as an override
           of this one. */}
-      <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden">
+      {/* lg:+ becomes a real 2-column layout — sticky price/info/booking
+          sidebar (col2) alongside the long-form reading content (col1) —
+          instead of just a wider single mobile-style column. Every block
+          below keeps its ORIGINAL flat DOM order (so mobile's stack order
+          is untouched, no lg: grid applies below that breakpoint) and only
+          gets lg:col-start/row-start to place it once the grid activates. */}
+      <main className="px-5 pt-6 pb-4 space-y-4 lg:px-8 lg:pt-8 lg:space-y-0 lg:grid lg:grid-cols-[1fr_360px] lg:gap-x-8 lg:items-start">
+        {/* The cover lives INSIDE the grid so it takes column 1's width on
+            desktop and the sidebar starts level with it, instead of the cover
+            spanning the whole page and pushing register/poster a screenful
+            down. Negative margins undo <main>'s own padding below lg, where
+            the cover is still full-bleed. */}
+        <div className="relative bg-slate-100 rounded-b-[40px] shadow-sm overflow-hidden -mx-5 -mt-6 mb-4 lg:mx-0 lg:mt-0 lg:rounded-3xl lg:col-start-1 lg:row-start-1">
         {/* The boxes below use aspect-[16/9], not a fixed height. h-[340px] with a
             fluid width meant the displayed ratio changed with the viewport —
             roughly 3.2:1 on a ~1100px desktop and 1.15:1 on a ~390px phone — so it
@@ -235,17 +248,10 @@ const CourseDetail = () => {
             {course.category_name}
           </span>
         </div>
-      </div>
+        </div>
 
-      {/* lg:+ becomes a real 2-column layout — sticky price/info/booking
-          sidebar (col2) alongside the long-form reading content (col1) —
-          instead of just a wider single mobile-style column. Every block
-          below keeps its ORIGINAL flat DOM order (so mobile's stack order
-          is untouched, no lg: grid applies below that breakpoint) and only
-          gets lg:col-start/row-start to place it once the grid activates. */}
-      <main className="px-5 pt-6 pb-4 space-y-4 lg:px-8 lg:pt-8 lg:space-y-0 lg:grid lg:grid-cols-[1fr_360px] lg:gap-x-8 lg:items-start">
         {/* Title */}
-        <div className="pt-2 lg:col-start-1 lg:row-start-1 lg:pt-0">
+        <div className="pt-2 lg:col-start-1 lg:row-start-2 lg:pt-0">
           <h1 className="font-black text-3xl text-slate-800 leading-tight mb-3">
             {lang === 'en' && course.name_en ? course.name_en : course.name}
           </h1>
@@ -266,7 +272,7 @@ const CourseDetail = () => {
             column on the left scrolls. The mobile fixed bottom bar covers
             this same action below lg:, so the inline button here is
             lg:-only. */}
-        <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-4 lg:sticky lg:top-24 lg:self-start">
+        <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-5 lg:sticky lg:top-6 lg:self-start">
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
@@ -398,21 +404,30 @@ const CourseDetail = () => {
             rather than plain text. whitespace-pre-wrap on the container
             keeps older plain-text descriptions (saved before this existed,
             with no HTML tags) still readable with their line breaks. */}
-        {course.description && (
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-2 lg:mt-4">
-            <h3 className="text-[17px] font-black text-slate-800 mb-2">{lang === 'en' ? 'Class Description' : 'รายละเอียดคลาส'}</h3>
+        {course.description && (() => {
+          const descriptionHtml = (lang === 'en' && course.description_en ? course.description_en : course.description) || '';
+          return (
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-3 lg:mt-4">
+            {/* "รายละเอียด" for every kind — a service or an event is not a
+                class, and the word was wrong on two thirds of the pages that
+                showed it. A rule under the heading separates it from the
+                summary card above, which used to run straight into it. */}
+            <h3 className="text-[19px] font-black text-slate-800 pb-2 mb-3 border-b border-slate-100">
+              {lang === 'en' ? 'Details' : 'รายละเอียด'}
+            </h3>
             <div
-              className="prose-news whitespace-pre-wrap text-[15px] text-slate-600 leading-relaxed font-medium"
-              dangerouslySetInnerHTML={{ __html: (lang === 'en' && course.description_en ? course.description_en : course.description) || '' }}
+              className={`prose-news text-[15px] text-slate-600 leading-relaxed font-medium ${isPlainText(descriptionHtml) ? 'whitespace-pre-wrap' : ''}`}
+              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
             />
           </div>
-        )}
+          );
+        })()}
 
         {/* Skills — deliberately full, uncollapsed list (unlike the
             short/long description above), and skills only, never the
             internal "indicator" (ตัวชี้วัด) entries from the same library. */}
         {achievementSkills.length > 0 && (
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-3 lg:mt-4">
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-4 lg:mt-4">
             <h3 className="text-[17px] font-black text-slate-800 mb-3">
               {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
             </h3>
@@ -428,7 +443,7 @@ const CourseDetail = () => {
         )}
 
         {/* Schedule */}
-        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-4 lg:mt-4">
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-5 lg:mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-full bg-mellow-green-soft text-mellow-green-dark flex items-center justify-center">
               <CalendarIcon size={16} />

@@ -16,10 +16,11 @@ const isChoiceLike = (type: string): boolean =>
   type === 'select' || type === 'radio' || type === 'checkbox';
 
 // Fields that anchor the ones around them: a heading introduces the questions
-// below it, an image is the thing a question refers to, and the "who's
-// answering" block belongs where the form author put it. Shuffling moves
-// questions around these, never the anchors themselves.
-const ANCHOR_TYPES = new Set(['heading', 'image', 'identity']);
+// below it, a reading passage is what the questions after it are ABOUT, an
+// image is the thing a question refers to, and the "who's answering" block
+// belongs where the form author put it. Shuffling moves questions around
+// these, never the anchors themselves.
+const ANCHOR_TYPES = new Set(['heading', 'paragraph', 'image', 'identity']);
 
 const shuffleSlice = <T>(arr: T[], from: number, to: number): void => {
   for (let i = to - 1; i > from; i--) {
@@ -297,11 +298,11 @@ export class SurveyRepository {
     let prior: { n: number } | null = null;
     if (userId != null) {
       prior = await this.db.prepare(
-        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id = ?'
+        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id = ? AND is_test = 0'
       ).bind(formId, userId).first<{ n: number }>();
     } else if (respondentPhone) {
       prior = await this.db.prepare(
-        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id IS NULL AND respondent_phone = ?'
+        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id IS NULL AND respondent_phone = ? AND is_test = 0'
       ).bind(formId, respondentPhone).first<{ n: number }>();
     }
     return (prior?.n ?? 0) + 1;
@@ -310,7 +311,7 @@ export class SurveyRepository {
   async createSubmission(data: {
     formId: number; userId?: number | null; respondentName?: string | null;
     respondentPhone?: string | null; answers: Record<string, any>; attemptLabel?: string | null;
-    sessionId?: number | null; sessionRunId?: string | null;
+    sessionId?: number | null; sessionRunId?: string | null; isTest?: boolean;
   }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; attemptNo: number; result: { resultText: string; imageUrl?: string } | null }> {
     const form = await this.db.prepare('SELECT has_answer_key, score_ranges_json FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
     let totalScore: number | null = null;
@@ -329,25 +330,51 @@ export class SurveyRepository {
     const attemptNo = await this.nextAttemptNo(data.formId, data.userId, data.respondentPhone);
 
     const inserted = await this.db.prepare(`
-      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id, is_test)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.formId, data.userId ?? null, data.respondentName ?? null, data.respondentPhone ?? null,
       JSON.stringify(data.answers), totalScore, maxScore, attemptNo, data.attemptLabel ?? null,
-      data.sessionId ?? null, data.sessionRunId ?? null,
+      data.sessionId ?? null, data.sessionRunId ?? null, data.isTest ? 1 : 0,
     ).run();
 
     return { id: inserted.meta.last_row_id, totalScore, maxScore, attemptNo, result };
   }
 
-  async listSubmissions(formId: number): Promise<any[]> {
+  /**
+    * Real answers by default. Trial runs (is_test = 1) are a separate world:
+    * they exist so staff can walk the form themselves, and counting them would
+    * quietly move every average and response count the CRM shows.
+    *
+    * 'test' returns only the trial runs, for the "ดูผลทดลอง" view; 'all' is
+    * offered for completeness but is never the default anywhere.
+    */
+  async listSubmissions(formId: number, scope: 'real' | 'test' | 'all' = 'real'): Promise<any[]> {
+    const filter = scope === 'all' ? '' : scope === 'test' ? 'AND s.is_test = 1' : 'AND s.is_test = 0';
     const { results } = await this.db.prepare(`
       SELECT s.*, u.first_name AS user_first_name, u.last_name AS user_last_name
       FROM Survey_Submissions s
       LEFT JOIN Users u ON u.id = s.user_id
-      WHERE s.form_id = ?
+      WHERE s.form_id = ? ${filter}
       ORDER BY s.created_at DESC
     `).bind(formId).all();
     return results;
+  }
+
+  // Both numbers in one round trip so the CRM can show "ผลจริง 12 · ทดลอง 3"
+  // without asking twice for the same table.
+  async countSubmissions(formId: number): Promise<{ real: number; test: number }> {
+    const row = await this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN is_test = 0 THEN 1 ELSE 0 END) AS real_count,
+        SUM(CASE WHEN is_test = 1 THEN 1 ELSE 0 END) AS test_count
+      FROM Survey_Submissions WHERE form_id = ?
+    `).bind(formId).first<{ real_count: number | null; test_count: number | null }>();
+    return { real: row?.real_count ?? 0, test: row?.test_count ?? 0 };
+  }
+
+  async deleteTestSubmissions(formId: number): Promise<number> {
+    const res = await this.db.prepare('DELETE FROM Survey_Submissions WHERE form_id = ? AND is_test = 1').bind(formId).run();
+    return res.meta.changes ?? 0;
   }
 }

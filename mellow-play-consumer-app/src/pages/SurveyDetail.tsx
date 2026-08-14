@@ -13,6 +13,10 @@ const SurveyDetail = () => {
   // actually is gets counted server-side — this is only the label.
   const [searchParams] = useSearchParams();
   const attemptLabel = searchParams.get('attempt') || undefined;
+  // ?test=1 — the link the CRM's "ทดลองทำ" button opens. The answer is stored
+  // like any other but flagged, so staff can walk the whole form (shuffling,
+  // scoring, the result screen) without their run counting as a response.
+  const isTest = searchParams.get('test') === '1';
   const { lang } = useTranslation();
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
@@ -49,6 +53,7 @@ const SurveyDetail = () => {
         respondentName: identity.mode === 'manual' ? identity.name.trim() || undefined : undefined,
         respondentPhone: identity.mode === 'manual' ? identity.phone.trim() || undefined : undefined,
         attemptLabel,
+        isTest,
       });
       if (res.data.success) {
         setResult({ totalScore: res.data.totalScore, maxScore: res.data.maxScore, band: res.data.result });
@@ -75,6 +80,21 @@ const SurveyDetail = () => {
       </header>
 
       <main className="p-5">
+        {/* Said plainly and on every screen of the form, because a trial run
+            that is mistaken for the real thing is the one way this feature
+            can cost someone their answers. */}
+        {isTest && (
+          <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3">
+            <p className="text-sm font-black text-amber-900">
+              {lang === 'en' ? 'Trial run' : 'โหมดทดลองทำ'}
+            </p>
+            <p className="text-xs font-bold text-amber-700 leading-relaxed mt-0.5">
+              {lang === 'en'
+                ? 'This answer is saved separately for staff to review and is not counted in the real results.'
+                : 'คำตอบนี้จะถูกเก็บแยกไว้ให้เจ้าหน้าที่ตรวจสอบ และไม่ถูกนับรวมในผลจริง'}
+            </p>
+          </div>
+        )}
         {form === undefined && (
           <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-mellow-purple" /></div>
         )}

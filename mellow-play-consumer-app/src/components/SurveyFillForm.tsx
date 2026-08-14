@@ -85,7 +85,7 @@ const SurveyFillForm: React.FC<Props> = ({
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
     return v != null && String(v).trim() !== '';
   };
-  const needsAnswer = (f: SurveyField) => f.type !== 'heading' && f.type !== 'image' && !!f.required && !isFieldFilled(f);
+  const needsAnswer = (f: SurveyField) => f.type !== 'heading' && f.type !== 'paragraph' && f.type !== 'image' && !!f.required && !isFieldFilled(f);
 
   const handleNext = () => {
     const firstInvalid = currentFields.find(needsAnswer);
@@ -116,6 +116,17 @@ const SurveyFillForm: React.FC<Props> = ({
         {currentFields.map(field => {
           if (field.type === 'heading') {
             return <h4 key={field.field_key} className="text-base font-black text-slate-700 pt-2">{field.label}</h4>;
+          }
+          // Reading passage. whitespace-pre-line is the whole point: the author
+          // typed the line breaks, and a comprehension text or a scenario is
+          // unreadable once they collapse. Normal weight and a looser line
+          // height, since this is prose to read rather than a label to scan.
+          if (field.type === 'paragraph') {
+            return (
+              <p key={field.field_key} className="text-sm font-medium text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 rounded-2xl p-4">
+                {field.label}
+              </p>
+            );
           }
           if (field.type === 'image') {
             let imageUrl: string | undefined;
@@ -217,10 +228,15 @@ const SurveyFillForm: React.FC<Props> = ({
             return (
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
                 {labelEl}
-                <div className="flex flex-wrap gap-2">
+{/* One option per line. Wrapped pills read as a row of tags and put
+                    two answers side by side, which is fine for "ใช่/ไม่ใช่" and
+                    unreadable for a full sentence — and a test's answers are
+                    usually sentences. A column also gives every option the same
+                    width, so none of them looks more important than the rest. */}
+                <div className="flex flex-col gap-2">
                   {options.map(opt => (
                     <button key={opt.label} type="button" onClick={() => onChange(field.field_key, opt.label)}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${value === opt.label ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
+                      className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all ${value === opt.label ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
                       {opt.label}
                     </button>
                   ))}
@@ -233,13 +249,13 @@ const SurveyFillForm: React.FC<Props> = ({
             return (
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
                 {labelEl}
-                <div className="flex flex-wrap gap-2">
+<div className="flex flex-col gap-2">
                   {options.map(opt => {
                     const checked = arr.includes(opt.label);
                     return (
                       <button key={opt.label} type="button"
                         onClick={() => onChange(field.field_key, checked ? arr.filter(o => o !== opt.label) : [...arr, opt.label])}
-                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all ${checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
                         {opt.label}
                       </button>
                     );

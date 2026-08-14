@@ -6,6 +6,7 @@ import logo from '../assets/ui/logo.svg';
 import { useTranslation } from '../LanguageContext';
 import { resolveImageUrl } from '../utils/courseImage';
 import { formatCustomDate } from '../utils/dateFormat';
+import { isPlainText } from '../utils/richText';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -195,7 +196,7 @@ const NewsDetail = () => {
             include inline images), so it's rendered as markup rather than
             plain text — this is admin-authored content, not user input. */}
         <div
-          className="prose-news whitespace-pre-wrap text-[16px] text-slate-700 leading-relaxed"
+          className={`prose-news text-[16px] text-slate-700 leading-relaxed ${isPlainText(content) ? 'whitespace-pre-wrap' : ''}`}
           dangerouslySetInnerHTML={{ __html: content || (lang === 'en' ? 'No further details.' : 'ไม่มีรายละเอียดเพิ่มเติม') }}
         />
 

@@ -31,6 +31,13 @@ const SurveyResponses = () => {
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState<any | null>(null);
   const [tab, setTab] = useState(0);
+  // Real answers or staff trial runs — never the two added together, which is
+  // the whole reason trial runs are flagged rather than kept in a separate
+  // table. Every tab on this page (summary, per-answer, before/after) reads
+  // whichever set is selected.
+  const [scope, setScope] = useState<'real' | 'test'>('real');
+  const [counts, setCounts] = useState<{ real: number; test: number }>({ real: 0, test: 0 });
+  const [clearingTests, setClearingTests] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,12 +45,25 @@ const SurveyResponses = () => {
     setLoading(true);
     Promise.all([
       axios.get(`${API_BASE}/survey-forms/${id}`),
-      axios.get(`${API_BASE}/survey-forms/${id}/submissions`),
+      axios.get(`${API_BASE}/survey-forms/${id}/submissions`, { params: { scope } }),
     ]).then(([formRes, subsRes]) => {
       if (formRes.data.success) setForm(formRes.data.form);
-      if (subsRes.data.success) setSubmissions(subsRes.data.submissions);
+      if (subsRes.data.success) {
+        setSubmissions(subsRes.data.submissions);
+        if (subsRes.data.counts) setCounts(subsRes.data.counts);
+      }
     }).finally(() => setLoading(false));
-  }, [id]);
+  }, [id, scope]);
+
+  const clearTestSubmissions = async () => {
+    if (!id) return;
+    setClearingTests(true);
+    try {
+      await axios.delete(`${API_BASE}/survey-forms/${id}/test-submissions`);
+      setSubmissions([]);
+      setCounts(c => ({ ...c, test: 0 }));
+    } finally { setClearingTests(false); }
+  };
 
   const fieldsByKey = new Map((form?.fields || []).map((f: any) => [f.field_key, f]));
 
@@ -82,7 +102,7 @@ const SurveyResponses = () => {
   // Built on demand by ExportMenu — one row per submission, one column per
   // question, matching what the table shows.
   const buildCsv = (): CsvPayload => {
-    const questionFields = (form?.fields || []).filter((f: any) => f.type !== 'heading');
+    const questionFields = (form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph');
     return {
       fileName: `${form?.name || 'survey'}-responses`,
       headers: ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', 'รอบ', ...(form?.has_answer_key ? ['คะแนน'] : []), ...questionFields.map((f: any) => f.label)],
@@ -111,7 +131,9 @@ const SurveyResponses = () => {
         <IconButton onClick={() => navigate('/crm/surveys')} sx={{ bgcolor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}><BackIcon /></IconButton>
         <Box sx={{ flex: 1 }}>
           <Typography variant="h5" sx={{ fontWeight: 800 }}>คำตอบ: {form?.name}</Typography>
-          <Typography variant="body2" color="text.secondary">{submissions.length} คำตอบ</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {submissions.length} คำตอบ{scope === 'test' ? ' (ทดลองทำ)' : ''}
+          </Typography>
         </Box>
         <ExportMenu
           disabled={submissions.length === 0}
@@ -124,6 +146,32 @@ const SurveyResponses = () => {
           }}
         />
       </Stack>
+
+      {/* Shown only once a trial run exists, so a form nobody has tested
+          carries no extra control. */}
+      {counts.test > 0 && (
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap' }}>
+          <Chip
+            label={`ผลจริง (${counts.real})`}
+            color={scope === 'real' ? 'primary' : 'default'}
+            variant={scope === 'real' ? 'filled' : 'outlined'}
+            onClick={() => setScope('real')}
+            sx={{ fontWeight: 700 }}
+          />
+          <Chip
+            label={`ทดลองทำ (${counts.test})`}
+            color={scope === 'test' ? 'warning' : 'default'}
+            variant={scope === 'test' ? 'filled' : 'outlined'}
+            onClick={() => setScope('test')}
+            sx={{ fontWeight: 700 }}
+          />
+          {scope === 'test' && (
+            <Button size="small" color="error" onClick={clearTestSubmissions} disabled={clearingTests} sx={{ fontWeight: 700 }}>
+              {clearingTests ? 'กำลังลบ…' : 'ล้างผลทดลองทั้งหมด'}
+            </Button>
+          )}
+        </Stack>
+      )}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid #eef0f3' }}>
         <Tab label="สรุปผล" sx={{ fontWeight: 700 }} />
@@ -197,7 +245,7 @@ const SurveyResponses = () => {
                 {form?.has_answer_key && (
                   <Chip label={`คะแนนรวม: ${viewing.total_score} / ${viewing.max_score}`} color="primary" sx={{ fontWeight: 700, alignSelf: 'flex-start' }} />
                 )}
-                {(form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'identity').map((f: any) => {
+                {(form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph' && f.type !== 'identity').map((f: any) => {
                   const v = answers[f.field_key];
                   const display = Array.isArray(v) ? (v.length ? v.join(', ') : '-') : (v ?? '-');
                   return (

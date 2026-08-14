@@ -132,11 +132,24 @@ export class SurveyController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  // ?scope=real (default) | test | all — see SurveyRepository.listSubmissions
+  // for why trial runs are never mixed into the real numbers by default.
   async listSubmissions(c: C) {
     try {
       const formId = parseInt(c.req.param('id'));
-      const submissions = await this.repo(c).listSubmissions(formId);
-      return c.json({ success: true, submissions });
+      const raw = c.req.query('scope');
+      const scope = raw === 'test' || raw === 'all' ? raw : 'real';
+      const submissions = await this.repo(c).listSubmissions(formId, scope);
+      const counts = await this.repo(c).countSubmissions(formId);
+      return c.json({ success: true, submissions, counts });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async clearTestSubmissions(c: C) {
+    try {
+      const formId = parseInt(c.req.param('id'));
+      const deleted = await this.repo(c).deleteTestSubmissions(formId);
+      return c.json({ success: true, deleted });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -172,7 +185,7 @@ export class SurveyController {
       const form = await this.repo(c).getPublicForm(idOrSlug);
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
 
-      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId } = await c.req.json();
+      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId, isTest } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const userId = await this.getOptionalUserId(c, config);
@@ -212,6 +225,11 @@ export class SurveyController {
         // Cosmetic round name off the link's ?attempt= — capped so a crafted
         // link can't stuff arbitrary text into the CRM's tables.
         attemptLabel: typeof attemptLabel === 'string' ? attemptLabel.trim().slice(0, 40) || null : null,
+        // A trial run started from the CRM's "ทดลองทำ" link. Self-declared, and
+        // that is fine: the only thing it can do is keep an answer OUT of the
+        // real results, so the worst a crafted request achieves is discarding
+        // its own submission.
+        isTest: isTest === true,
       });
 
       return c.json({
