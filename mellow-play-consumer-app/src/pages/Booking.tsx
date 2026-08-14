@@ -218,6 +218,9 @@ const Booking = () => {
   // Kept as one shared constant (not per-bookingType wording) so every
   // mention of the book action stays in sync if this ever changes again.
   const bookActionLabel = lang === 'en' ? 'Register' : 'ลงทะเบียน';
+  // The last button in the flow says what pressing it does — it commits the
+  // booking, unlike the card CTA of the same name that only starts the flow.
+  const confirmActionLabel = lang === 'en' ? 'Confirm Registration' : 'ยืนยันการลงทะเบียน';
 
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
@@ -375,6 +378,25 @@ const Booking = () => {
   // A guest instead stays on step 0 with the gate modal shown on top of it.
   const [currentStepIndex, setCurrentStepIndex] = useState(() => (preSelectedCourseId && !isGuest) ? 1 : 0);
   const currentStep = flowSteps[currentStepIndex];
+
+  // Each step of the wizard is a page of its own, and arriving at one already
+  // scrolled to where the last step's button was means the new step's heading
+  // and often its first question start above the fold — on the long steps
+  // (a registration form, a list of rounds) people simply did not see them.
+  //
+  // Both the window AND the nearest scrolling ancestor are reset because which
+  // one actually moved depends on the breakpoint: AppShell's frame scrolls
+  // internally from md: up (md:overflow-y-auto) while the window scrolls
+  // below it.
+  const pageRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    let node: HTMLElement | null = pageRef.current?.parentElement ?? null;
+    while (node) {
+      if (node.scrollTop > 0) node.scrollTop = 0;
+      node = node.parentElement;
+    }
+  }, [currentStepIndex]);
 
   useEffect(() => {
     if (preSelectedCourseId && isGuest) {
@@ -765,7 +787,7 @@ const Booking = () => {
   // back to its 520px default no matter how wide this div's own classes
   // claim to grow, leaving visible empty gutters on desktop.
   return (
-    <div className="mellow-page pb-32">
+    <div className="mellow-page pb-32" ref={pageRef}>
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center justify-between">
         <button 
           onClick={() => {
@@ -1511,7 +1533,7 @@ const Booking = () => {
                     <p className="text-xs text-green-700 font-bold leading-relaxed">
                       {lang === 'en'
                         ? 'The total amount after discounts is 0 ฿. You can confirm the booking immediately without selecting a payment method.'
-                        : `ยอดชำระเงินทั้งหมดหลังหักส่วนลดคือ 0 ฿ คุณสามารถกดปุ่ม${bookActionLabel}ด้านล่างเพื่อยืนยันการจองได้ทันทีโดยไม่ต้องระบุวิธีชำระเงิน`}
+                        : `ยอดชำระเงินทั้งหมดหลังหักส่วนลดคือ 0 ฿ คุณสามารถกดปุ่ม"${confirmActionLabel}"ด้านล่างเพื่อยืนยันการจองได้ทันทีโดยไม่ต้องระบุวิธีชำระเงิน`}
                     </p>
                   </div>
                 </div>
@@ -1820,7 +1842,7 @@ const Booking = () => {
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
           <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[16px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
              {isFreeBooking
-               ? bookActionLabel
+               ? confirmActionLabel
                : (paymentMethod === 'coupon'
                  ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
                  : (lang === 'en' ? `Pay ${totalPrice.toLocaleString()} ฿` : `ชำระ ${totalPrice.toLocaleString()} บาท`))}
