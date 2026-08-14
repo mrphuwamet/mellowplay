@@ -2,10 +2,25 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { AnalyticsRepository } from '../repositories/analyticsRepository';
+import { BookingCapacityRepository } from '../repositories/bookingCapacityRepository';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
 export class AnalyticsController {
+  // Seat capacity across every upcoming round — the CRM's booking overview.
+  // ?days= widens the window; 30 is what the screen opens with.
+  async getBookingCapacity(c: any) {
+    try {
+      const config = new ConfigService(c.env);
+      const raw = parseInt(c.req.query('days') || '30');
+      const days = Number.isInteger(raw) ? Math.min(Math.max(raw, 1), 180) : 30;
+      const repo = new BookingCapacityRepository(config.db);
+      return c.json({ success: true, ...(await repo.getOverview(days)) });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
   private repo(c: C) { return new AnalyticsRepository(new ConfigService(c.env).db); }
 
   async getDashboardAnalytics(c: C) {

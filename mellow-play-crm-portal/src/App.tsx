@@ -64,6 +64,7 @@ import {
   Campaign as AdsMenuIcon,
   Grade as StampImageMenuIcon,
   TrendingUp as SalesMenuIcon,
+  EventSeat as BookingOverviewMenuIcon,
   Link as TagAttributionMenuIcon,
   Assignment as RegistrationFormMenuIcon,
   Quiz as SurveyMenuIcon,
@@ -76,6 +77,7 @@ import {
 import logo from './assets/logo.svg';
 
 import Dashboard from './pages/Dashboard';
+import DashboardBookings from './pages/DashboardBookings';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
 import UserManagement from './pages/UserManagement';
@@ -146,7 +148,7 @@ const drawerWidth = 280;
 // filtered menuEntries memo below so this doesn't need to be recomputed
 // per-permission-change.
 const GROUP_PATHS: Record<string, string[]> = {
-  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
+  dashboard: ['/crm/dashboard/overview', '/crm/dashboard/bookings', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
   classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/sms-notifications'],
   marketing: ['/crm/broadcasts', '/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
@@ -412,6 +414,7 @@ const AppContent = () => {
         groupKey: 'dashboard',
         children: [
           { text: 'ภาพรวม', icon: <DashboardIcon />, path: '/crm/dashboard/overview', feature: 'dashboard' },
+          { text: 'ภาพรวมการจอง', icon: <BookingOverviewMenuIcon />, path: '/crm/dashboard/bookings', feature: 'dashboard' },
           { text: 'ยอดขายและรายได้', icon: <SalesMenuIcon />, path: '/crm/dashboard/sales', feature: 'dashboard_sales', locked: !hasPermission('dashboard_sales') },
           { text: 'ติดตาม Tag', icon: <TagAttributionMenuIcon />, path: '/crm/dashboard/tag-attribution', feature: 'dashboard_tag_attribution', locked: !hasPermission('dashboard_tag_attribution') },
         ],
@@ -873,6 +876,7 @@ const AppContent = () => {
             {/* CRM Routes */}
             <Route path="/crm" element={protect('dashboard', <Dashboard />)} />
             <Route path="/crm/dashboard/overview" element={protect('dashboard', <Dashboard />)} />
+          <Route path="/crm/dashboard/bookings" element={protect('dashboard', <DashboardBookings />)} />
             <Route
               path="/crm/dashboard/sales"
               element={protect('dashboard_sales', (

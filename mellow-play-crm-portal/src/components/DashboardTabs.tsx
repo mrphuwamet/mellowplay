@@ -6,6 +6,9 @@ import { canAccessFeature, FeatureKey } from '../utils/rolePermissions';
 
 const TABS: { label: string; path: string; feature: FeatureKey }[] = [
   { label: 'ภาพรวม', path: '/crm/dashboard/overview', feature: 'dashboard' },
+  // Seat counts, not money — the same audience as ภาพรวม, so it rides the
+  // plain 'dashboard' permission rather than the revenue one.
+  { label: 'ภาพรวมการจอง', path: '/crm/dashboard/bookings', feature: 'dashboard' },
   { label: 'ยอดขายและรายได้', path: '/crm/dashboard/sales', feature: 'dashboard_sales' },
   { label: 'ติดตาม Tag', path: '/crm/dashboard/tag-attribution', feature: 'dashboard_tag_attribution' },
 ];

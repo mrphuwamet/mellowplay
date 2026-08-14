@@ -665,6 +665,7 @@ app.delete('/api/v1/admin/ads/:id',     (c) => adsController.remove(c));
 // ================= ANALYTICS (Dashboard + course views/reviews) =================
 app.get ('/api/v1/admin/analytics',                (c) => analyticsController.getDashboardAnalytics(c));
 app.get ('/api/v1/admin/analytics/active-users',   (c) => analyticsController.getActiveUsers(c));
+app.get ('/api/v1/admin/analytics/booking-capacity', (c) => analyticsController.getBookingCapacity(c));
 app.post('/api/v1/visits/ping',                    (c) => analyticsController.pingVisit(c));
 app.post('/api/v1/courses/:courseId/view',         (c) => analyticsController.recordCourseView(c));
 app.get ('/api/v1/courses/:courseId/reviews',      (c) => analyticsController.getCourseReviews(c));
