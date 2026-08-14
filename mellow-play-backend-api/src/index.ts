@@ -375,14 +375,23 @@ const requireActiveUser = (config: ConfigService) => async (c: any, next: any) =
   // unexplained server error on every request instead of being told it was
   // suspended, and each one raised an unhandled-error alert.
   let isBanned = false;
+  let isMissing = false;
   const jwtResult = await jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, async () => {
     const payload = c.get('jwtPayload');
     if (payload?.userId) {
       const user = await new UserRepository(config.db).findById(payload.userId);
-      if (user?.is_banned) { isBanned = true; return; }
+      // No row at all means the account was deleted (findById filters those
+      // out) — a token outliving its account must stop working, and checking
+      // only is_banned let a deleted account keep using the session it already
+      // had until the JWT expired 30 days later.
+      if (!user) { isMissing = true; return; }
+      if (user.is_banned) { isBanned = true; return; }
     }
     await next();
   });
+  if (isMissing) {
+    return c.json({ success: false, message: 'ไม่พบบัญชีนี้ในระบบ กรุณาเข้าสู่ระบบใหม่' }, 401);
+  }
   if (isBanned) {
     return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
   }
@@ -542,6 +551,7 @@ app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadU
 app.put('/api/v1/admin/children/:id', (c) => adminController.updateChildProfile(c));
 app.delete('/api/v1/admin/family-members/:id', (c) => adminController.deleteFamilyMember(c));
 app.post('/api/v1/admin/users/:id/reset-password', (c) => adminController.resetUserPassword(c));
+app.delete('/api/v1/admin/users/:id', (c) => adminController.deleteUser(c));
 app.post('/api/v1/admin/users/:id/ban', (c) => adminController.banUser(c));
 app.delete('/api/v1/admin/users/:id/ban', (c) => adminController.unbanUser(c));
 app.get('/api/v1/admin/users/:id/family-roster', (c) => adminController.getUserFamilyRoster(c));

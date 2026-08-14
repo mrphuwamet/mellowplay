@@ -322,6 +322,35 @@ export class AdminController {
     }
   }
 
+  /**
+   * Soft-delete a customer account.
+   *
+   * Super admin only: a ban is reversible from the CRM, this is not — the
+   * account disappears from every screen, so putting it back means a database
+   * statement. The name is echoed back so the CRM can say what it removed
+   * rather than "done".
+   */
+  async deleteUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const crmUser = c.get('crmUser');
+      if (crmUser?.role !== 'super_admin') {
+        return c.json({ success: false, message: 'เฉพาะ Super Admin เท่านั้นที่ลบบัญชีได้' }, 403);
+      }
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      const user = await adminRepo.getUserById(id);
+      if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+      await adminRepo.softDeleteUser(id);
+      return c.json({
+        success: true,
+        name: [user.first_name, user.last_name].filter(Boolean).join(' '),
+      });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async banUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);

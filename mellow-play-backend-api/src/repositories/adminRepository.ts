@@ -33,8 +33,8 @@ export class AdminRepository {
     // batch() an array of Promises instead, which D1 rejects. Run them
     // concurrently with Promise.all instead.
     const [activeMembers, totalChildren, upcomingBookings] = await Promise.all([
-      this.db.prepare('SELECT COUNT(*) as total FROM Users').first<any>(),
-      this.db.prepare('SELECT COUNT(*) as total FROM Children').first<any>(),
+      this.db.prepare('SELECT COUNT(*) as total FROM Users WHERE deleted_at IS NULL').first<any>(),
+      this.db.prepare('SELECT COUNT(*) as total FROM Children ch WHERE EXISTS (SELECT 1 FROM Users u WHERE u.id = ch.parent_id AND u.deleted_at IS NULL)').first<any>(),
       this.db.prepare('SELECT COUNT(*) as total FROM Bookings WHERE scheduled_at >= date("now")').first<any>(),
     ]);
 
@@ -102,6 +102,7 @@ export class AdminRepository {
             AND (ch.membership_expires_at IS NULL OR ch.membership_expires_at > datetime('now'))
         ) as has_premium_child
       FROM Users u
+      WHERE u.deleted_at IS NULL
       ORDER BY u.created_at DESC
     `).all();
     return results;
@@ -109,7 +110,7 @@ export class AdminRepository {
 
   async getUserById(id: number): Promise<any | null> {
     const user = await this.db.prepare(
-      'SELECT * FROM Users WHERE id = ?'
+      'SELECT * FROM Users WHERE id = ? AND deleted_at IS NULL'
     ).bind(id).first();
     if (!user) return null;
 
@@ -486,6 +487,20 @@ export class AdminRepository {
       ORDER BY cat.name ASC, c.name ASC
     `).all();
     return this.enrichCourseSkillIcons(results as any[]);
+  }
+
+  /**
+   * Remove a customer account from the product without destroying it.
+   *
+   * Not a DELETE: Users is referenced by Children, Bookings, Form_Submissions,
+   * Stamps and coupons, so removing the row would take a family's history with
+   * it and a mistake would be unrecoverable. Every read path filters on
+   * deleted_at instead — see migration 0086 for the one statement that brings
+   * an account back.
+   */
+  async softDeleteUser(id: number): Promise<void> {
+    await this.db.prepare("UPDATE Users SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL")
+      .bind(id).run();
   }
 
   async setCourseVisibility(id: number, isVisible: boolean): Promise<void> {

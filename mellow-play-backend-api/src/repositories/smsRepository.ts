@@ -146,6 +146,7 @@ export class SmsRepository {
       SELECT u.id as user_id, (u.first_name || ' ' || u.last_name) as name, u.phone, u.created_at as member_since
       FROM Users u
       WHERE u.is_banned = 0
+        AND u.deleted_at IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM Bookings b
           JOIN Children ch ON b.child_id = ch.id

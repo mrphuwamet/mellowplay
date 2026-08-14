@@ -70,7 +70,7 @@ export class CheckinRepository {
       JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
       JOIN Bookings b ON b.child_id = ch.id
       JOIN Courses c ON b.course_id = c.id
-      WHERE u.phone = ? AND b.qr_token IS NOT NULL
+      WHERE u.phone = ? AND u.deleted_at IS NULL AND b.qr_token IS NOT NULL
       ORDER BY b.scheduled_at ASC
       LIMIT 20
     `).bind(phone.trim()).all();

@@ -19,6 +19,7 @@ import {
   ChildCare as ChildCareIcon,
   CardMembership as MembershipIcon,
   Security as SecurityIcon,
+  DeleteForever as DeleteForeverIcon,
   LockReset as LockResetIcon,
   CameraAlt as CameraAltIcon,
   Add as AddIcon,
@@ -250,6 +251,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [banReason, setBanReason] = useState('');
   const [banSaving, setBanSaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [membershipHistory, setMembershipHistory] = useState<MembershipHistoryEntry[]>([]);
@@ -712,6 +716,31 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       setError(e?.response?.data?.message || 'ไม่สามารถระงับการใช้งานได้');
     } finally {
       setBanSaving(false);
+    }
+  };
+
+  /**
+   * Remove the account from the product.
+   *
+   * Typing the name is the guard rail: a ban can be lifted from this screen,
+   * this cannot — once it is gone the CRM has no view of it at all, and
+   * bringing it back is a database statement. A yes/no dialog is too easy to
+   * click through for something with no undo button.
+   */
+  const confirmDelete = async () => {
+    if (!editUser) return;
+    setDeleteSaving(true);
+    try {
+      const res = await axios.delete(`${API_BASE}/users/${editUser.id}`);
+      setUsers(prev => prev.filter(u => u.id !== editUser.id));
+      setDeleteDialogOpen(false);
+      setDeleteConfirmText('');
+      setEditUser(null);
+      setSuccessMsg(`ลบบัญชี ${res.data.name || ''} ออกจากระบบแล้ว — กู้คืนได้ผ่านฐานข้อมูล`);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ลบบัญชีไม่สำเร็จ');
+    } finally {
+      setDeleteSaving(false);
     }
   };
 
@@ -1237,6 +1266,20 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   )
                 )}
 
+                {/* Kept apart from the ban button and worded as what it is.
+                    Ban and delete look alike in a list of red buttons, and only
+                    one of them can be undone from this screen. */}
+                {!readOnly && (
+                  <Button
+                    variant="text" color="error" fullWidth
+                    startIcon={<DeleteForeverIcon />}
+                    onClick={() => { setDeleteConfirmText(''); setDeleteDialogOpen(true); }}
+                    sx={{ borderRadius: 2, mb: 2, fontWeight: 700 }}
+                  >
+                    ลบบัญชีนี้ออกจากระบบ
+                  </Button>
+                )}
+
                 {editUser?.has_pending_reset && (
                   <Box sx={{ border: '1px solid', borderColor: 'warning.main', borderRadius: 2, p: 1.5, mb: 2, bgcolor: 'rgba(255,152,0,0.06)' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -1591,7 +1634,37 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
         </Dialog>
 
         {/* Ban Account Dialog */}
-        <Dialog open={banDialogOpen} onClose={() => !banSaving && setBanDialogOpen(false)} maxWidth="xs" fullWidth>
+        <Dialog open={deleteDialogOpen} onClose={() => !deleteSaving && setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ลบบัญชีนี้ออกจากระบบ?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+            บัญชีนี้จะหายไปจากทุกหน้าในระบบ ทั้งรายชื่อผู้ใช้ แดชบอร์ด กลุ่มผู้รับข่าวสาร และจะเข้าสู่ระบบไม่ได้อีก
+            — ข้อมูลไม่ได้ถูกลบทิ้งจริง กู้คืนได้จากฐานข้อมูล แต่ทำจากหน้านี้ไม่ได้
+          </Alert>
+          <Typography variant="body2" sx={{ mb: 1.5, fontWeight: 600 }}>
+            พิมพ์ชื่อ <strong>{[editUser?.first_name, editUser?.last_name].filter(Boolean).join(' ')}</strong> เพื่อยืนยัน
+          </Typography>
+          <TextField
+            fullWidth size="small" autoFocus
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+            placeholder={[editUser?.first_name, editUser?.last_name].filter(Boolean).join(' ')}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleteSaving} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
+          <Button
+            variant="contained" color="error"
+            disabled={deleteSaving || deleteConfirmText.trim() !== [editUser?.first_name, editUser?.last_name].filter(Boolean).join(' ')}
+            onClick={confirmDelete}
+            sx={{ borderRadius: 2, fontWeight: 700 }}
+          >
+            {deleteSaving ? 'กำลังลบ…' : 'ลบบัญชี'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={banDialogOpen} onClose={() => !banSaving && setBanDialogOpen(false)} maxWidth="xs" fullWidth>
           <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
             <SecurityIcon color="error" /> ระงับการใช้งานบัญชี
           </DialogTitle>

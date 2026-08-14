@@ -52,7 +52,7 @@ export class AnalyticsRepository {
   }
 
   async getParentStats(): Promise<any> {
-    const totalRow = await this.db.prepare(`SELECT COUNT(*) as total FROM Users`).first<any>();
+    const totalRow = await this.db.prepare(`SELECT COUNT(*) as total FROM Users WHERE deleted_at IS NULL`).first<any>();
     // Membership moved from Users to Children (per-child, not per-account) —
     // this now counts CHILDREN by membership type, not parents. `total`
     // above is unrelated and still counts Users (parent accounts). Values
@@ -92,6 +92,7 @@ export class AnalyticsRepository {
           SELECT relation FROM HD_Profiles WHERE user_id = u.id ORDER BY id LIMIT 1
         ) as primary_relation
         FROM Users u
+        WHERE u.deleted_at IS NULL
       ) t
       GROUP BY relationship
     `).all<any>();

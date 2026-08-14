@@ -23,8 +23,8 @@ export class UserRepository {
     const matches: Array<{ type: 'user' | 'child'; id: number; name: string }> = [];
 
     const userQuery = exclude.userId
-      ? `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?) AND id != ?`
-      : `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?)`;
+      ? `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?) AND id != ? AND deleted_at IS NULL`
+      : `SELECT id, first_name, last_name FROM Users WHERE LOWER(TRIM(first_name) || ' ' || TRIM(last_name)) = LOWER(?) AND deleted_at IS NULL`;
     const userBind = exclude.userId ? [normalized, exclude.userId] : [normalized];
     const { results: userMatches } = await this.db.prepare(userQuery).bind(...userBind).all();
     for (const u of (userMatches || []) as any[]) {
@@ -60,13 +60,17 @@ export class UserRepository {
   }
 
   async findByPhone(phone: string): Promise<any> {
-    return await this.db.prepare('SELECT * FROM Users WHERE phone = ?')
+    // Every lookup that can lead to a session filters deleted accounts out.
+    // Refusing at login would be a second rule to keep in step; not finding
+    // the row is the same answer everywhere, including Google sign-in and the
+    // "is this phone taken" check.
+    return await this.db.prepare('SELECT * FROM Users WHERE phone = ? AND deleted_at IS NULL')
       .bind(phone)
       .first();
   }
 
   async findById(id: number): Promise<any> {
-    return await this.db.prepare('SELECT * FROM Users WHERE id = ?')
+    return await this.db.prepare('SELECT * FROM Users WHERE id = ? AND deleted_at IS NULL')
       .bind(id)
       .first();
   }
@@ -109,19 +113,19 @@ export class UserRepository {
   }
 
   async findByIdentifier(identifier: string): Promise<any> {
-    return await this.db.prepare('SELECT * FROM Users WHERE phone = ? OR email = ?')
+    return await this.db.prepare('SELECT * FROM Users WHERE (phone = ? OR email = ?) AND deleted_at IS NULL')
       .bind(identifier, identifier)
       .first();
   }
 
   async findByGoogleId(googleId: string): Promise<any> {
-    return await this.db.prepare('SELECT * FROM Users WHERE google_id = ?')
+    return await this.db.prepare('SELECT * FROM Users WHERE google_id = ? AND deleted_at IS NULL')
       .bind(googleId)
       .first();
   }
 
   async findByEmail(email: string): Promise<any> {
-    return await this.db.prepare('SELECT * FROM Users WHERE email = ?')
+    return await this.db.prepare('SELECT * FROM Users WHERE email = ? AND deleted_at IS NULL')
       .bind(email)
       .first();
   }

@@ -98,6 +98,7 @@ export class BroadcastRepository {
              u.email, u.phone
       FROM Users u
       WHERE COALESCE(u.is_banned, 0) = 0
+        AND u.deleted_at IS NULL
         AND (${clauses.join(joiner)})
       ORDER BY u.id
     `).bind(...binds).all();
