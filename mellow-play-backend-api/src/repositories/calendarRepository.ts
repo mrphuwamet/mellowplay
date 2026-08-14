@@ -72,7 +72,21 @@ export class CalendarRepository {
   }
 
   // ── Available Slots for a date ─────────────────────────────────────────────
-  private async expirePendingBookings() {
+  /**
+   * Release seats held by abandoned checkouts.
+   *
+   * This is a WRITE, and it used to run at the top of every calendar read —
+   * getAvailableSlots, getUpcomingSlots and getSlotAvailability all called it,
+   * so simply browsing the class list issued an UPDATE. D1 has one writer, and
+   * at a few hundred calendar reads an hour those queued behind each other and
+   * behind the request log until the database reported itself overloaded.
+   *
+   * It runs on the five-minute cron now (see scheduled() in index.ts). The
+   * seat is held up to five minutes longer than before in the worst case,
+   * against a fifteen-minute hold — and nothing depends on it being instant:
+   * the booking path checks capacity itself at submit.
+   */
+  async expirePendingBookings() {
     try {
       // Real cash-payment bookings are created with payment_status
       // 'pending_payment' (see adminController.createBooking), not the bare
@@ -93,8 +107,6 @@ export class CalendarRepository {
   }
 
   async getAvailableSlots(calendarId: number, date: string, courseDurationMin?: number): Promise<any[]> {
-    await this.expirePendingBookings();
-    
     // Check if the requested date is a holiday
     const { results: holidays } = await this.db.prepare('SELECT * FROM Calendar_Holidays WHERE calendar_id=? AND date=?').bind(calendarId, date).all();
     if (holidays && holidays.length > 0) return [];
@@ -150,7 +162,6 @@ export class CalendarRepository {
   // without a valid invite session) only ever sees max_capacity; the extra
   // pool stays invisible unless you're the one holding that exact link.
   async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number, boostRuleId?: number | null): Promise<any[]> {
-    await this.expirePendingBookings();
     
     const today = new Date();
     // Use local time for Thai timezone if needed, but we'll just use standard ISO date 

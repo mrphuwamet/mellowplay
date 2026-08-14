@@ -18,6 +18,7 @@ import { SurveyController } from './controllers/surveyController';
 import { SessionController } from './controllers/sessionController';
 import { BroadcastController } from './controllers/broadcastController';
 import { drainBroadcasts } from './services/broadcastSender';
+import { CalendarRepository } from './repositories/calendarRepository';
 import { SmsController } from './controllers/smsController';
 import { CheckinController } from './controllers/checkinController';
 import { CheckinAccessController } from './controllers/checkinAccessController';
@@ -101,10 +102,16 @@ app.use('*', cors({
 // along with the DB write — runs inside executionCtx.waitUntil() entirely
 // AFTER the response is already on its way to the client, not just the
 // insert. Only the cheap raw-text reads happen inline.
+// Paths deliberately left out of the request log. Image/file reads and the
+// visit heartbeat are a third of all traffic, carry nothing anyone reads back,
+// and each one cost a row — i.e. a WRITE — on a database with a single writer.
+const LOG_EXEMPT = /^\/api\/v1\/(files|visits\/ping)/;
+
 app.use('*', async (c, next) => {
   const start = Date.now();
   const method = c.req.method;
   const path = c.req.path;
+  if (LOG_EXEMPT.test(path)) return next();
 
   let requestBodyText: string | null = null;
   try {
@@ -996,6 +1003,15 @@ const DAILY_CRON = '0 19 * * *';
 
 async function scheduled(event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
   const config = new ConfigService(env);
+
+  // Abandoned checkouts used to be cleared by whoever happened to load a
+  // calendar next; it belongs here, off the request path. Runs on both crons —
+  // the five-minute one does the work, the daily one costs nothing extra.
+  try {
+    await new CalendarRepository(config.db).expirePendingBookings();
+  } catch (err) {
+    console.error('Expiring pending bookings failed:', err);
+  }
 
   if (event.cron === DAILY_CRON) {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
