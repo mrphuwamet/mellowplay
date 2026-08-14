@@ -8,7 +8,7 @@ import {
   IconButton, Paper, Stack, Alert, Switch, FormControlLabel,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tabs, Tab, Snackbar,
+  Tabs, Tab, Snackbar, Menu,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -18,6 +18,7 @@ import {
   Save as SaveIcon,
   ArrowUpward as UpIcon,
   ArrowDownward as DownIcon,
+  DriveFileMoveOutlined as MovePageIcon,
   Title as HeadingIcon,
   Science as TestRunIcon,
   Article as ParagraphIcon,
@@ -172,6 +173,8 @@ const SurveyManagement = () => {
   // another is added or deleted rather than sliding onto its neighbour.
   const [pinnedPages, setPinnedPages] = useState<boolean[]>([]);
   const [activePage, setActivePage] = useState(0);
+  // Which field's "move to page" menu is open, and where to anchor it.
+  const [movePageMenu, setMovePageMenu] = useState<{ anchor: HTMLElement; fieldIdx: number } | null>(null);
   const [scoreRanges, setScoreRanges] = useState<ScoreRange[]>([]);
 
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
@@ -359,6 +362,30 @@ const SurveyManagement = () => {
     const next = pages.map((page, i) => i === activePage ? page.filter((_, j) => j !== fieldIdx) : page);
     setPages(next);
   };
+  /**
+   * Move a field to the end of another page.
+   *
+   * Splitting a form into one question per page used to mean deleting a field
+   * and building it again on the right page, options and points included —
+   * which is also how a question quietly loses its scoring.
+   *
+   * The editor follows the field rather than staying put: the field is gone
+   * from the page still on screen, and watching it vanish is a worse answer to
+   * "did that work?" than seeing where it landed.
+   */
+  const moveFieldToPage = (fieldIdx: number, targetPage: number) => {
+    if (targetPage === activePage || targetPage < 0 || targetPage >= pages.length) return;
+    const field = pages[activePage]?.[fieldIdx];
+    if (!field) return;
+    setPages(pages.map((page, i) => {
+      if (i === activePage) return page.filter((_, j) => j !== fieldIdx);
+      if (i === targetPage) return [...page, field];
+      return page;
+    }));
+    setActivePage(targetPage);
+    setMovePageMenu(null);
+  };
+
   const moveField = (fieldIdx: number, dir: -1 | 1) => {
     const page = pages[activePage];
     const targetIdx = fieldIdx + dir;
@@ -574,6 +601,18 @@ const SurveyManagement = () => {
                       <Stack spacing={0.5}>
                         <IconButton size="small" disabled={idx === 0} onClick={() => moveField(idx, -1)}><UpIcon fontSize="small" /></IconButton>
                         <IconButton size="small" disabled={idx === currentPageFields.length - 1} onClick={() => moveField(idx, 1)}><DownIcon fontSize="small" /></IconButton>
+                        {/* Only worth offering when there is somewhere else to
+                            go — on a single-page form it would open an empty
+                            menu. */}
+                        {pages.length > 1 && (
+                          <IconButton
+                            size="small"
+                            title="ย้ายไปหน้าอื่น"
+                            onClick={e => setMovePageMenu({ anchor: e.currentTarget, fieldIdx: idx })}
+                          >
+                            <MovePageIcon fontSize="small" />
+                          </IconButton>
+                        )}
                         <IconButton size="small" color="error" onClick={() => removeField(idx)}><DeleteIcon fontSize="small" /></IconButton>
                       </Stack>
                     </Stack>
@@ -646,6 +685,24 @@ const SurveyManagement = () => {
             </Button>
           </Grid>
         </Grid>
+
+      {/* One menu for the whole list rather than one per field — the pages
+          it offers are the same either way, and mounting a Menu inside every
+          field card is a lot of hidden markup for a rarely used action. */}
+      <Menu
+        anchorEl={movePageMenu?.anchor}
+        open={!!movePageMenu}
+        onClose={() => setMovePageMenu(null)}
+      >
+        {pages.map((page, i) => (
+          i === activePage ? null : (
+            <MenuItem key={i} onClick={() => movePageMenu && moveFieldToPage(movePageMenu.fieldIdx, i)}>
+              ย้ายไปหน้า {i + 1} ({page.length} ฟิลด์)
+            </MenuItem>
+          )
+        ))}
+      </Menu>
+
       </Box>
     );
   }
