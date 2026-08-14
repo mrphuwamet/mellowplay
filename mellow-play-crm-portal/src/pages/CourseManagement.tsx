@@ -287,7 +287,7 @@ const SORTABLE_COLUMNS: { key: string; label: string; width: number }[] = [
   { key: 'age', label: 'ช่วงอายุ', width: 110 },
   { key: 'price', label: 'ราคาปกติ', width: 110 },
   { key: 'duration', label: 'ระยะเวลา', width: 110 },
-  { key: 'seats', label: 'ยอดสมัคร/ทั้งหมด', width: 150 },
+  { key: 'seats', label: 'ยอดสมัคร', width: 130 },
   { key: 'updated', label: 'วันที่อัปเดต', width: 150 },
 ];
 
@@ -2755,13 +2755,37 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>
                   <TableCell sx={{ width: 56 }}>
-                    <Box sx={{ width: 44, height: 44, borderRadius: 1.5, overflow: 'hidden', bgcolor: '#f8f5ff', border: '1px solid #eee' }}>
-                      {course.thumbnail_url ? (
-                        <img src={getImageUrl(course.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <img src={mellowPlayLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 6, opacity: 0.5 }} />
-                      )}
-                    </Box>
+                    {/* A 44px square is enough to tell two covers apart and not
+                        enough to check one — hovering shows the artwork at a
+                        size where the text on it can actually be read, which is
+                        the reason to look at it at all. Only when there is a
+                        real image: a tooltip of the placeholder logo says
+                        nothing. */}
+                    <Tooltip
+                      arrow
+                      placement="right"
+                      disableHoverListener={!course.thumbnail_url}
+                      componentsProps={{
+                        tooltip: { sx: { p: 0.5, bgcolor: 'white', boxShadow: 4, maxWidth: 'none', border: '1px solid #e5e7eb' } },
+                        arrow: { sx: { color: 'white', '&::before': { border: '1px solid #e5e7eb' } } },
+                      }}
+                      title={course.thumbnail_url
+                        ? <Box
+                            component="img"
+                            src={getImageUrl(course.thumbnail_url)}
+                            alt={course.name}
+                            sx={{ display: 'block', width: 320, maxHeight: 320, objectFit: 'contain', borderRadius: 1 }}
+                          />
+                        : ''}
+                    >
+                      <Box sx={{ width: 44, height: 44, borderRadius: 1.5, overflow: 'hidden', bgcolor: '#f8f5ff', border: '1px solid #eee', cursor: course.thumbnail_url ? 'zoom-in' : 'default' }}>
+                        {course.thumbnail_url ? (
+                          <img src={getImageUrl(course.thumbnail_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <img src={mellowPlayLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 6, opacity: 0.5 }} />
+                        )}
+                      </Box>
+                    </Tooltip>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{course.id}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
