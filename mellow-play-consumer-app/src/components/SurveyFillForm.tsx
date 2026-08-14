@@ -133,7 +133,7 @@ const SurveyFillForm: React.FC<Props> = ({
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all";
 
   return (
-    <div className="space-y-4" ref={formRef}>
+    <div className="space-y-4 font-body-scope" ref={formRef}>
       {totalPages > 1 && (
         <p className="text-xs font-bold text-slate-400">
           {lang === 'en' ? `Page ${shownPage} of ${totalPages}` : `หน้า ${shownPage} จาก ${totalPages}`}

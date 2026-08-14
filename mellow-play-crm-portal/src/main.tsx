@@ -6,6 +6,8 @@ import CssBaseline from '@mui/material/CssBaseline';
 import ErrorBoundary from './components/ErrorBoundary';
 import './utils/axiosSetup';
 
+const DISPLAY_FONT = '"Kanit", "Sarabun", sans-serif';
+
 const theme = createTheme({
   palette: {
     primary: {
@@ -19,14 +21,16 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Prompt", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Sarabun", "Roboto", "Helvetica", "Arial", sans-serif',
     fontSize: 14,
-    h1: { fontWeight: 500 },
-    h2: { fontWeight: 500 },
-    h3: { fontWeight: 500 },
-    h4: { fontWeight: 500 },
-    h5: { fontWeight: 500 },
-    h6: { fontWeight: 500 },
+    // Headings wear the display face; everything read in bulk — tables, form
+    // fields, body copy — stays in Sarabun.
+    h1: { fontWeight: 500, fontFamily: DISPLAY_FONT },
+    h2: { fontWeight: 500, fontFamily: DISPLAY_FONT },
+    h3: { fontWeight: 500, fontFamily: DISPLAY_FONT },
+    h4: { fontWeight: 500, fontFamily: DISPLAY_FONT },
+    h5: { fontWeight: 500, fontFamily: DISPLAY_FONT },
+    h6: { fontWeight: 500, fontFamily: DISPLAY_FONT },
     subtitle1: { fontWeight: 500 },
     subtitle2: { fontWeight: 500 },
     body1: { fontWeight: 300 },

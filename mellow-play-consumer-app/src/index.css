@@ -1,12 +1,46 @@
-@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@100;200;300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800;900&family=Sarabun:wght@100;200;300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Force Prompt on everything */
+/* Two families, one job each.
+   - Sarabun for everything that gets READ: body copy, forms, tables, anything
+     dense or carrying information. Looped Thai terminals and an open aperture
+     are what keep a paragraph legible at small sizes.
+   - Kanit for headings, where a loopless display face reads as a title rather
+     than as more text.
+
+   Sarabun tops out at 800, so a font-black (900) class lands on the 800 face —
+   the heaviest the family has — rather than a synthesised one. Kanit does carry
+   900, so headings keep their full range.
+
+   Both rules are !important so they beat Tailwind's preflight. The heading
+   selector is more specific than the universal one, so it wins between the two
+   even though both are important. */
+:root {
+  --font-body: 'Sarabun', sans-serif;
+  --font-display: 'Kanit', 'Sarabun', sans-serif;
+}
+
 * {
-  font-family: 'Prompt', sans-serif !important;
+  font-family: var(--font-body) !important;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: var(--font-display) !important;
+}
+
+/* A form is for reading and answering, not for display type — surveys and
+   registration forms stay in Sarabun throughout, their headings included. */
+.font-body-scope,
+.font-body-scope h1,
+.font-body-scope h2,
+.font-body-scope h3,
+.font-body-scope h4,
+.font-body-scope h5,
+.font-body-scope h6 {
+  font-family: var(--font-body) !important;
 }
 
 b, strong {
@@ -15,7 +49,7 @@ b, strong {
 
 @layer base {
   html, body, #root {
-    font-family: 'Prompt', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-weight: 300; /* Default to light as per thinnest request */
     background-color: #fbfaf7;
     color: #172038;
@@ -40,10 +74,10 @@ b, strong {
        this locally with its own wider cap since its step-wizard grids need
        more room than a plain form. */
   /* 1100px was the ceiling on any monitor, which left a third of a modern
-     desktop screen empty beside the content. The steps keep going now. Not
-     On 2xl the cap comes off entirely and the page fills whatever the
-     app shell leaves beside the nav rail, which is what "เต็มจอ" means on a
-     wide monitor — the horizontal carousels simply show more cards. */
+     desktop screen empty beside the content. The steps keep going now, and on
+     2xl the cap comes off entirely so the page fills whatever the app shell
+     leaves beside the nav rail — which is what "เต็มจอ" means on a wide
+     monitor. The horizontal carousels simply show more cards. */
   .mellow-page {
     @apply min-h-screen pb-24 max-w-[430px] mx-auto relative md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1280px] 2xl:max-w-none;
     background-color: #fbfaf7;

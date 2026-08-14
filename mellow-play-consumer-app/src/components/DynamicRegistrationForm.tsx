@@ -213,7 +213,7 @@ const DynamicRegistrationForm: React.FC<Props> = ({
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+    <div className="space-y-4 font-body-scope animate-in fade-in slide-in-from-right-4 duration-300">
       <div>
         <h3 className="text-lg font-black text-slate-800">{form.name}</h3>
         {pages.length > 1 && (
