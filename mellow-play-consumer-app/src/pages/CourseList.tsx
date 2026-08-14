@@ -77,7 +77,9 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
                          <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
                       </div>
                     )}
-                    <div className={`absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[11px] font-black uppercase shadow-sm ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
+                    {/* Bottom-left, matching the booking flow's picker: these
+                        covers carry their own title art across the top. */}
+                    <div className={`absolute bottom-2 left-2 px-2 py-1 bg-white/90 backdrop-blur rounded-lg text-[11px] font-black uppercase shadow-sm ${course.is_event ? 'text-mellow-purple' : course.is_service ? 'text-mellow-blue' : course.is_extraclass ? 'text-mellow-yellow-dark' : 'text-mellow-green-dark'}`}>
                       {course.category_name}
                     </div>
                     {(ended || closed) && (

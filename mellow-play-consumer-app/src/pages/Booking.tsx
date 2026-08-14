@@ -1197,7 +1197,10 @@ const Booking = () => {
                             : <div className="w-full h-full flex items-center justify-center text-slate-300 bg-gradient-to-br from-slate-100 to-slate-200"><BookOpen size={28}/></div>
                           }
                           {course.category_name && (
-                            <div className="absolute top-2 left-2 bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm text-mellow-purple">
+                            // Bottom-left: the top of these covers is where the
+                            // artwork puts its own title, and the badge landed
+                            // on top of it.
+                            <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm text-mellow-purple">
                               {course.category_name}
                             </div>
                           )}
