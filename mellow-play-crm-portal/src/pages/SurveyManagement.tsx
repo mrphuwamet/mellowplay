@@ -38,13 +38,38 @@ import {
 } from '@mui/icons-material';
 
 import SessionManagement from './SessionManagement';
+import RichTextEditor from '../components/RichTextEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
 type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image';
 
-interface ScoredOption { label: string; points: number; }
+interface ScoredOption {
+  label: string;
+  points: number;
+  /**
+   * Optional colour for this choice. Purely presentational — scoring and
+   * duplicate checks still key on the label text, so recolouring an option never
+   * touches an answer that was already given.
+   */
+  color?: string;
+}
+
+// A short fixed set rather than a free colour picker: these are what the rest
+// of the app already uses for team and status chips, they read on white, and a
+// list of eight keeps a form from turning into a paint box.
+const OPTION_COLORS = [
+  { label: 'ไม่ระบุสี', value: '' },
+  { label: 'แดง', value: '#d03b3b' },
+  { label: 'ส้ม', value: '#e07a1f' },
+  { label: 'เหลือง', value: '#b58900' },
+  { label: 'เขียว', value: '#0ca30c' },
+  { label: 'ฟ้า', value: '#3987e5' },
+  { label: 'น้ำเงิน', value: '#1c5cab' },
+  { label: 'ม่วง', value: '#7452d6' },
+  { label: 'ชมพู', value: '#d6367f' },
+];
 
 interface FieldDraft {
   fieldKey: string;
@@ -54,6 +79,12 @@ interface FieldDraft {
   options?: ScoredOption[]; // select/radio/checkbox
   scored?: boolean;         // select/radio/checkbox — per-field toggle for whether points count at all
   imageUrl?: string;        // image
+  /**
+   * Formatted version of the label (bold, colour), authored in the rich editor.
+   * The plain label stays as-is and remains what exports, the responses table
+   * and the summary read — a chart axis full of <strong> tags helps nobody.
+   */
+  labelHtml?: string;
 }
 
 interface ScoreRange { min: number; max: number; resultText: string; imageUrl?: string; }
@@ -131,6 +162,12 @@ const FORM_KIND_META: Record<string, { label: string; color: 'default' | 'info' 
 
 const normalizeFormKind = (raw?: string) =>
   raw === 'pretest' || raw === 'posttest' ? 'test' : (raw || 'survey');
+
+// The plain-text twin of a formatted label, kept so a CSV export, the
+// responses table and the summary charts stay readable text.
+const stripHtml = (html: string): string =>
+  html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -236,6 +273,7 @@ const SurveyManagement = () => {
             options: f.options_json ? JSON.parse(f.options_json) : undefined,
             scored: !!config.scored,
             imageUrl: config.imageUrl,
+            labelHtml: config.labelHtml,
           };
         });
         const compacted = grouped.map(page => page.filter(Boolean));
@@ -263,9 +301,13 @@ const SurveyManagement = () => {
         // switching back restores them, but they must not be saved onto a
         // type that has no use for them.
         optionsJson: isChoiceType(f.type) && f.options ? JSON.stringify(f.options) : undefined,
-        configJson: isChoiceType(f.type) ? JSON.stringify({ scored: !!f.scored })
-          : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
-          : undefined,
+        // config_json is rebuilt from scratch on every save, so anything that
+        // lives in it has to be written here or it is silently dropped.
+        configJson: JSON.stringify({
+          ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
+          ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
+          ...(f.labelHtml && stripHtml(f.labelHtml).trim() ? { labelHtml: f.labelHtml } : {}),
+        }),
       })));
       const payload = {
         name, description, formKind, slug: slug.trim() || undefined, isActive,
@@ -547,14 +589,42 @@ const SurveyManagement = () => {
                             />
                           )}
                         </Stack>
-                        <TextField
-                          fullWidth size="small"
-                          label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : field.type === 'paragraph' ? 'เนื้อหา (ขึ้นบรรทัดใหม่ได้)' : 'ข้อความ/คำถาม'}
-                          value={field.label}
-                          onChange={e => updateField(idx, { label: e.target.value })}
-                          multiline={field.type === 'paragraph'}
-                          minRows={field.type === 'paragraph' ? 6 : undefined}
-                          helperText={field.type === 'paragraph' ? 'ผู้ทำแบบทดสอบจะเห็นข้อความนี้ตามที่พิมพ์ รวมถึงการเว้นบรรทัด' : undefined}
+                        {field.labelHtml === undefined ? (
+                          <TextField
+                            fullWidth size="small"
+                            label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : field.type === 'paragraph' ? 'เนื้อหา (ขึ้นบรรทัดใหม่ได้)' : 'ข้อความ/คำถาม'}
+                            value={field.label}
+                            onChange={e => updateField(idx, { label: e.target.value })}
+                            multiline={field.type === 'paragraph'}
+                            minRows={field.type === 'paragraph' ? 6 : undefined}
+                            helperText={field.type === 'paragraph' ? 'ผู้ทำแบบทดสอบจะเห็นข้อความนี้ตามที่พิมพ์ รวมถึงการเว้นบรรทัด' : undefined}
+                          />
+                        ) : (
+                          <Box>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                              ข้อความ/คำถาม (จัดรูปแบบได้)
+                            </Typography>
+                            <RichTextEditor
+                              value={field.labelHtml}
+                              onChange={html => updateField(idx, { labelHtml: html, label: stripHtml(html) })}
+                              uploadFolder="surveys"
+                            />
+                          </Box>
+                        )}
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={field.labelHtml !== undefined}
+                              onChange={e => updateField(idx, e.target.checked
+                                // Seeded from whatever plain text is already
+                                // there, so turning this on never blanks the
+                                // question someone just typed.
+                                ? { labelHtml: field.label ? `<p>${field.label}</p>` : '' }
+                                : { labelHtml: undefined })}
+                            />
+                          }
+                          label={<Typography variant="caption">จัดรูปแบบข้อความ (สี / ตัวหนา)</Typography>}
                         />
                         {field.type === 'image' && (
                           <ImageUploadField label="รูป" url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
@@ -579,6 +649,31 @@ const SurveyManagement = () => {
                                     })}
                                   />
                                 )}
+                                <FormControl size="small" sx={{ width: 130 }}>
+                                  <InputLabel>สี</InputLabel>
+                                  <Select
+                                    label="สี"
+                                    value={opt.color || ''}
+                                    onChange={e => updateField(idx, {
+                                      options: (field.options || []).map((o, i) => i === oIdx ? { ...o, color: e.target.value || undefined } : o),
+                                    })}
+                                    renderValue={v => (
+                                      <Stack direction="row" spacing={0.75} alignItems="center">
+                                        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: v || '#e2e8f0', border: '1px solid #cbd5e1' }} />
+                                        <span>{OPTION_COLORS.find(c => c.value === v)?.label ?? 'ไม่ระบุสี'}</span>
+                                      </Stack>
+                                    )}
+                                  >
+                                    {OPTION_COLORS.map(c => (
+                                      <MenuItem key={c.value || 'none'} value={c.value}>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                          <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: c.value || '#e2e8f0', border: '1px solid #cbd5e1' }} />
+                                          <span>{c.label}</span>
+                                        </Stack>
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
                                 <IconButton
                                   size="small" color="error"
                                   onClick={() => updateField(idx, { options: (field.options || []).filter((_, i) => i !== oIdx) })}

@@ -172,8 +172,11 @@ export class SurveyController {
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
       const sanitizedFields = (form.fields || []).map((f: any) => {
         if (f.type !== 'select' && f.type !== 'radio' && f.type !== 'checkbox') return f;
-        let options: { label: string }[] = [];
-        try { options = (JSON.parse(f.options_json || '[]')).map((o: any) => ({ label: o.label })); } catch { /* malformed options render as empty rather than block the form */ }
+        let options: { label: string; color?: string }[] = [];
+        // label and colour only: colour is how the option is meant to look,
+        // while points are the answer key and must not travel with a blank
+        // form. Anything else the CRM ever adds stays behind by default.
+        try { options = (JSON.parse(f.options_json || '[]')).map((o: any) => ({ label: o.label, ...(o.color ? { color: o.color } : {}) })); } catch { /* malformed options render as empty rather than block the form */ }
         return { ...f, options_json: JSON.stringify(options) };
       });
       // score_ranges_json is the "answer key" for the result screen — a

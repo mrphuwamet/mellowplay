@@ -52,6 +52,17 @@ interface Props {
 // with no roster/team-capacity machinery (surveys aren't scoped to a course)
 // and one new field type, `identity`, for "who's answering" — prefilled from
 // a logged-in account or typed manually for a guest.
+// A question or passage the CRM author formatted (bold, colour) is stored as
+// HTML beside its plain text. It renders as markup here for the same reason
+// course descriptions do: it is staff-authored content, not user input. The
+// plain text is still what exports and the summary charts read.
+const labelHtmlOf = (field: SurveyField): string | null => {
+  try {
+    const html = field.config_json ? JSON.parse(field.config_json).labelHtml : null;
+    return typeof html === 'string' && html.trim() ? html : null;
+  } catch { return null; }
+};
+
 const SurveyFillForm: React.FC<Props> = ({
   form, answers, onChange, identity, onIdentityChange, accountName, accountPhone,
   isLoggedIn, onSubmit, submitting, lang,
@@ -102,6 +113,16 @@ const SurveyFillForm: React.FC<Props> = ({
   };
   const handleBack = () => { if (pageIndex > 0) setPageIndex(pageIndex - 1); };
 
+  // An option with its own colour: outlined when idle so the colour reads as a
+  // label, filled when chosen so the choice is unmistakable. Options with no
+  // colour keep the original slate/purple treatment via Tailwind classes.
+  const optionStyle = (color: string | undefined, active: boolean): React.CSSProperties | undefined => {
+    if (!color) return undefined;
+    return active
+      ? { backgroundColor: color, color: '#ffffff', border: `2px solid ${color}` }
+      : { backgroundColor: '#ffffff', color, border: `2px solid ${color}` };
+  };
+
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all";
 
   return (
@@ -114,15 +135,25 @@ const SurveyFillForm: React.FC<Props> = ({
 
       <div className="space-y-4">
         {currentFields.map(field => {
+          const richLabel = labelHtmlOf(field);
+
           if (field.type === 'heading') {
-            return <h4 key={field.field_key} className="text-[15px] font-black text-slate-500 uppercase tracking-wide pt-2">{field.label}</h4>;
+            return richLabel
+              ? <div key={field.field_key} className="prose-news text-[15px] font-black text-slate-500 pt-2" dangerouslySetInnerHTML={{ __html: richLabel }} />
+              : <h4 key={field.field_key} className="text-[15px] font-black text-slate-500 uppercase tracking-wide pt-2">{field.label}</h4>;
           }
           // Reading passage. whitespace-pre-line is the whole point: the author
           // typed the line breaks, and a comprehension text or a scenario is
           // unreadable once they collapse. Normal weight and a looser line
           // height, since this is prose to read rather than a label to scan.
           if (field.type === 'paragraph') {
-            return (
+            return richLabel ? (
+              <div
+                key={field.field_key}
+                className="prose-news text-sm font-medium text-slate-600 leading-relaxed bg-slate-50 rounded-2xl p-4"
+                dangerouslySetInnerHTML={{ __html: richLabel }}
+              />
+            ) : (
               <p key={field.field_key} className="text-sm font-medium text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 rounded-2xl p-4">
                 {field.label}
               </p>
@@ -140,7 +171,7 @@ const SurveyFillForm: React.FC<Props> = ({
             );
           }
 
-          const options: { label: string }[] = field.options_json ? JSON.parse(field.options_json) : [];
+          const options: { label: string; color?: string }[] = field.options_json ? JSON.parse(field.options_json) : [];
           const value = answers[field.field_key];
           const isInvalid = field.field_key === invalidFieldKey;
           const wrapClass = isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : '';
@@ -148,7 +179,15 @@ const SurveyFillForm: React.FC<Props> = ({
           // options to one per line left them larger than the question they
           // answered, which reads as a list with a caption over it rather
           // than a question with its choices.
-          const labelEl = (
+          const labelEl = richLabel ? (
+            <div className="mb-3 flex items-start gap-1">
+              <div
+                className="prose-news text-[19px] font-black text-slate-800 leading-snug"
+                dangerouslySetInnerHTML={{ __html: richLabel }}
+              />
+              {!!field.required && <span className="text-mellow-red">*</span>}
+            </div>
+          ) : (
             <label className="text-[19px] font-black text-slate-800 block mb-3 leading-snug">
               {field.label}{!!field.required && <span className="text-mellow-red ml-0.5">*</span>}
             </label>
@@ -238,12 +277,23 @@ const SurveyFillForm: React.FC<Props> = ({
                     usually sentences. A column also gives every option the same
                     width, so none of them looks more important than the rest. */}
                 <div className="flex flex-col gap-2">
-                  {options.map(opt => (
-                    <button key={opt.label} type="button" onClick={() => onChange(field.field_key, opt.label)}
-                      className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all ${value === opt.label ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
-                      {opt.label}
-                    </button>
-                  ))}
+                  {options.map(opt => {
+                    const chosen = value === opt.label;
+                    return (
+                      <button key={opt.label} type="button" onClick={() => onChange(field.field_key, opt.label)}
+                        style={optionStyle(opt.color, chosen)}
+                        className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all flex items-center gap-2 ${
+                          opt.color ? '' : chosen ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        {/* A tick, not just a fill: once options carry their own
+                            colours, "which one did I pick" cannot be left to
+                            colour alone. */}
+                        <span className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${chosen ? 'border-current' : 'border-transparent'}`}>
+                          {chosen && <span className="w-2 h-2 rounded-full bg-current" />}
+                        </span>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -259,7 +309,12 @@ const SurveyFillForm: React.FC<Props> = ({
                     return (
                       <button key={opt.label} type="button"
                         onClick={() => onChange(field.field_key, checked ? arr.filter(o => o !== opt.label) : [...arr, opt.label])}
-                        className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all ${checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        style={optionStyle(opt.color, checked)}
+                        className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold leading-relaxed transition-all flex items-center gap-2 ${
+                          opt.color ? '' : checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        <span className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${checked ? 'border-current' : 'border-transparent'}`}>
+                          {checked && <span className="w-2 h-2 rounded-sm bg-current" />}
+                        </span>
                         {opt.label}
                       </button>
                     );
