@@ -125,6 +125,8 @@ function expandFamilyMemberPickerFields(fields: any[]): { field_key: string; lab
 interface Course {
   id: number;
   code: string;
+  /** Set by the server on every save — see migration 0085. */
+  updated_at?: string;
   name: string;
   name_en?: string;
   description?: string;
@@ -274,15 +276,30 @@ const SkillTagInput = ({ label, values, onChange, color = 'primary', onOpenPicke
 
 // Columns that can be sorted and filtered from the header. `type` is only
 // rendered on the class page, matching the row markup below.
-const SORTABLE_COLUMNS: { key: string; label: string }[] = [
-  { key: 'code', label: 'รหัสคลาส' },
-  { key: 'name', label: 'ชื่อคลาส' },
-  { key: 'type', label: 'ประเภท' },
-  { key: 'category', label: 'หมวดหมู่' },
-  { key: 'age', label: 'ช่วงอายุ' },
-  { key: 'price', label: 'ราคาปกติ' },
-  { key: 'duration', label: 'ระยะเวลา' },
+// width is fixed per column so the table can scroll sideways without the
+// browser redistributing space every time a filter changes the longest cell.
+const SORTABLE_COLUMNS: { key: string; label: string; width: number }[] = [
+  { key: 'id', label: 'ID', width: 70 },
+  { key: 'code', label: 'รหัสคลาส', width: 130 },
+  { key: 'name', label: 'ชื่อคลาส', width: 280 },
+  { key: 'type', label: 'ประเภท', width: 120 },
+  { key: 'category', label: 'หมวดหมู่', width: 150 },
+  { key: 'age', label: 'ช่วงอายุ', width: 110 },
+  { key: 'price', label: 'ราคาปกติ', width: 110 },
+  { key: 'duration', label: 'ระยะเวลา', width: 110 },
+  { key: 'seats', label: 'ยอดสมัคร/ทั้งหมด', width: 150 },
+  { key: 'updated', label: 'วันที่อัปเดต', width: 150 },
 ];
+
+const ACTIONS_COLUMN_WIDTH = 210;
+
+const formatUpdatedAt = (raw?: string | null): string => {
+  if (!raw) return '';
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+    + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+};
 
 const SectionLabel = ({ icon, title }: { icon: React.ReactNode; title: string }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
@@ -924,8 +941,30 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // and the sort. Two separate definitions would eventually disagree, and a
   // column that sorts by one thing while filtering on another is worse than
   // neither.
+  // Seats belong to a calendar, and the capacity endpoint is the one place
+  // that knows how to add them up (see BookingCapacityRepository) — reusing it
+  // keeps this column and the booking dashboard from ever disagreeing. Courses
+  // sharing a calendar therefore show that calendar's totals, which is the
+  // truth: they share the seats.
+  const [capacityByCourse, setCapacityByCourse] = useState<Record<number, { booked: number; seats: number }>>({});
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/analytics/booking-capacity`, { params: { days: 90 } })
+      .then(res => {
+        if (!res.data.success) return;
+        const map: Record<number, { booked: number; seats: number }> = {};
+        for (const cal of res.data.calendars ?? []) {
+          for (const course of cal.courses ?? []) map[course.id] = { booked: cal.booked, seats: cal.seats };
+        }
+        setCapacityByCourse(map);
+      })
+      .catch(() => { /* the column just shows a dash — it is not worth failing the page over */ });
+  }, []);
+
+
   const columnText = React.useCallback((course: any, key: string): string => {
     switch (key) {
+      case 'id': return String(course.id ?? '');
       case 'code': return course.code || '';
       case 'name': return course.name || '';
       case 'type': return TYPE_META[getCourseType(course)]?.label || '';
@@ -933,20 +972,31 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       case 'age': return formatAgeRange(course.age_min, course.age_max);
       case 'price': return course.original_price != null ? String(course.original_price) : '';
       case 'duration': return course.duration != null ? String(course.duration) : '';
+      case 'seats': {
+        const cap = capacityByCourse[course.id];
+        return cap ? `${cap.booked}/${cap.seats}` : '';
+      }
+      case 'updated': return formatUpdatedAt(course.updated_at);
       default: return '';
     }
-  }, [categories]);
+  }, [categories, capacityByCourse]);
 
   // Numeric columns sort by value, not by their printed text — otherwise 1000
   // lands before 900.
   const columnSortValue = React.useCallback((course: any, key: string): string | number => {
     switch (key) {
+      // ID and the seat counts are numbers; sorting them as text puts 10
+      // before 2, which is what made "sort by ID" look like it did nothing —
+      // that column was also the class CODE, which is blank on every event.
+      case 'id': return course.id ?? 0;
       case 'age': return course.age_min ?? 0;
       case 'price': return course.original_price ?? 0;
       case 'duration': return course.duration ?? 0;
+      case 'seats': return capacityByCourse[course.id]?.booked ?? -1;
+      case 'updated': return course.updated_at ? Date.parse(course.updated_at.replace(' ', 'T') + 'Z') || 0 : 0;
       default: return columnText(course, key).toLowerCase();
     }
-  }, [columnText]);
+  }, [columnText, capacityByCourse]);
 
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
@@ -2609,13 +2659,29 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         </Grid>
       </Paper>
 
-      <TableContainer component={Paper} sx={{ border: '1px solid #e5e7eb', borderRadius: 3 }}>
-        <Table>
+      {/* Fixed layout + horizontal scroll: the columns keep their widths
+          instead of being squeezed by whichever row happens to hold the
+          longest name, and the manage column is pinned to the left edge so the
+          buttons stay reachable however far the table is scrolled. */}
+      <TableContainer component={Paper} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, overflowX: 'auto' }}>
+        <Table sx={{
+          tableLayout: 'fixed',
+          minWidth: SORTABLE_COLUMNS.reduce((n, c) => n + c.width, 0) + ACTIONS_COLUMN_WIDTH + 56,
+          '& .sticky-actions': {
+            position: 'sticky',
+            left: 0,
+            zIndex: 3,
+            bgcolor: 'white',
+            borderRight: '1px solid #e5e7eb',
+          },
+          '& thead .sticky-actions': { zIndex: 4, bgcolor: '#f9fafb' },
+        }}>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
             <TableRow>
-              <TableCell sx={{ fontWeight: 800 }}>รูป</TableCell>
+              <TableCell className="sticky-actions" align="center" sx={{ fontWeight: 800, width: ACTIONS_COLUMN_WIDTH }}>จัดการ</TableCell>
+              <TableCell sx={{ fontWeight: 800, width: 56 }}>รูป</TableCell>
               {SORTABLE_COLUMNS.filter(col => col.key !== 'type' || courseType === 'class').map(col => (
-                <TableCell key={col.key} sx={{ fontWeight: 800 }}>
+                <TableCell key={col.key} sx={{ fontWeight: 800, width: col.width }}>
                   <TableSortLabel
                     active={sort?.key === col.key}
                     direction={sort?.key === col.key ? sort.dir : 'asc'}
@@ -2628,12 +2694,18 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   </TableSortLabel>
                 </TableCell>
               ))}
-              <TableCell align="center" sx={{ fontWeight: 800 }}>จัดการ</TableCell>
             </TableRow>
             {/* Filter row. One box per column rather than a single search
                 field, because "ชื่อมีคำว่า X และหมวดหมู่คือ Y" is the question
                 staff actually ask and the one search box above cannot express. */}
             <TableRow>
+              <TableCell className="sticky-actions" align="center" sx={{ py: 0.5 }}>
+                {(sort || Object.values(colFilters).some(Boolean)) && (
+                  <Button size="small" onClick={() => { setColFilters({}); setSort(null); setPage(0); }} sx={{ fontSize: 11 }}>
+                    ล้าง
+                  </Button>
+                )}
+              </TableCell>
               <TableCell sx={{ py: 0.5 }} />
               {SORTABLE_COLUMNS.filter(col => col.key !== 'type' || courseType === 'class').map(col => (
                 <TableCell key={col.key} sx={{ py: 0.5 }}>
@@ -2646,13 +2718,6 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   />
                 </TableCell>
               ))}
-              <TableCell align="center" sx={{ py: 0.5 }}>
-                {(sort || Object.values(colFilters).some(Boolean)) && (
-                  <Button size="small" onClick={() => { setColFilters({}); setSort(null); setPage(0); }} sx={{ fontSize: 11 }}>
-                    ล้าง
-                  </Button>
-                )}
-              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -2669,6 +2734,26 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   hover
                   sx={!isCourseVisible(course) ? { opacity: 0.55, '& td:first-of-type': { textDecoration: 'line-through' } } : undefined}
                 >
+                  <TableCell className="sticky-actions" align="center" sx={{ width: ACTIONS_COLUMN_WIDTH, whiteSpace: 'nowrap' }}>
+                    <Tooltip title={copiedLinkId === course.id ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์'}>
+                      <IconButton size="small" onClick={() => copyCourseLink(course)} color={copiedLinkId === course.id ? 'success' : 'default'}><CopyLinkIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    <Tooltip title="ดูความจุคงเหลือ (ที่นั่ง/ทีม)">
+                      <IconButton size="small" onClick={() => openCapacityDialog(course)}><CapacityIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    <Tooltip title={isCourseVisible(course) ? 'กำลังแสดงในแอป — กดเพื่อซ่อน' : 'ซ่อนอยู่ — กดเพื่อแสดงในแอป'}>
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleCourseVisibility(course)}
+                        disabled={visibilityBusyId === course.id}
+                        color={isCourseVisible(course) ? 'success' : 'default'}
+                      >
+                        {isCourseVisible(course) ? <VisibleIcon fontSize="small" /> : <HiddenIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                    <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
+                  </TableCell>
                   <TableCell sx={{ width: 56 }}>
                     <Box sx={{ width: 44, height: 44, borderRadius: 1.5, overflow: 'hidden', bgcolor: '#f8f5ff', border: '1px solid #eee' }}>
                       {course.thumbnail_url ? (
@@ -2678,7 +2763,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{course.code || `#${course.id}`}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{course.id}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                    {course.code || <Typography component="span" variant="caption" color="text.disabled">-</Typography>}
+                  </TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{course.name}</TableCell>
                   {courseType === 'class' && (
                     <TableCell>
@@ -2701,32 +2789,29 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   <TableCell>
                     <Typography variant="body2" color="text.secondary">{formatDuration(course.duration)}</Typography>
                   </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title={copiedLinkId === course.id ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์'}>
-                      <IconButton size="small" onClick={() => copyCourseLink(course)} color={copiedLinkId === course.id ? 'success' : 'default'}><CopyLinkIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title="ดูความจุคงเหลือ (ที่นั่ง/ทีม)">
-                      <IconButton size="small" onClick={() => openCapacityDialog(course)}><CapacityIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title={isCourseVisible(course) ? 'กำลังแสดงในแอป — กดเพื่อซ่อน' : 'ซ่อนอยู่ — กดเพื่อแสดงในแอป'}>
-                      <IconButton
-                        size="small"
-                        onClick={() => toggleCourseVisibility(course)}
-                        disabled={visibilityBusyId === course.id}
-                        color={isCourseVisible(course) ? 'success' : 'default'}
-                      >
-                        {isCourseVisible(course) ? <VisibleIcon fontSize="small" /> : <HiddenIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
+                  <TableCell>
+                    {capacityByCourse[course.id] ? (
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {capacityByCourse[course.id].booked.toLocaleString('th-TH')}
+                        <Typography component="span" variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                          {' / '}{capacityByCourse[course.id].seats.toLocaleString('th-TH')}
+                        </Typography>
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">-</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatUpdatedAt(course.updated_at) || '-'}
+                    </Typography>
                   </TableCell>
                 </TableRow>
               );
             })}
             {filteredCourses.length === 0 && (
               <TableRow>
-                <TableCell colSpan={courseType === 'class' ? 9 : 8} align="center" sx={{ py: 8 }}>
+                <TableCell colSpan={courseType === 'class' ? 12 : 11} align="center" sx={{ py: 8 }}>
                   <Typography variant="body2" color="text.secondary">{pageLabels.empty}</Typography>
                 </TableCell>
               </TableRow>

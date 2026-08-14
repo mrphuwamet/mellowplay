@@ -843,7 +843,11 @@ export class AdminRepository {
         teacher_commission_type = ?, teacher_commission_value = ?,
         sms_success_enabled = ?, sms_success_template = ?, sms_reminder_template = ?,
         email_success_enabled = ?, email_success_subject = ?, email_success_template = ?,
-        confirmation_channel_mode = ?
+        confirmation_channel_mode = ?,
+        -- Stamped here rather than passed in: every edit goes through this one
+        -- statement, so the column cannot drift out of date by someone
+        -- forgetting to set it.
+        updated_at = datetime('now')
       WHERE id = ?
     `).bind(
       data.categoryId, data.calendarId ?? null, data.code ?? null, data.name, data.nameEn ?? null,
