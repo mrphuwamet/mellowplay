@@ -206,7 +206,7 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       prefixMrs: 'Mrs.',
       prefixMiss: 'Miss',
       parentDobLabel: 'Date of Birth',
-      selectTitle: 'Select Title',
+      selectTitle: 'Title',
       optionalSuffix: ' (Optional)',
       dobPlaceholder: 'DD/MM/YYYY',
       phoneCountryCode: '+66',
@@ -694,7 +694,10 @@ By clicking "Accept", you acknowledge that you have read and understood the deta
       prefixMrs: 'นาง',
       prefixMiss: 'นางสาว',
       parentDobLabel: 'วัน/เดือน/ปีเกิด',
-      selectTitle: 'เลือกคำนำหน้า',
+      // The label above the field already says what to do; the placeholder
+      // only has to name the field, and the short version fits the narrow
+      // column beside ชื่อ instead of being clipped mid-word.
+      selectTitle: 'คำนำหน้า',
       optionalSuffix: ' (ไม่บังคับ)',
       dobPlaceholder: 'วว/ดด/ปปปป',
       phoneCountryCode: '+66',
