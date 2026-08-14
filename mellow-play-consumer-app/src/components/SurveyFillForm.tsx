@@ -115,7 +115,7 @@ const SurveyFillForm: React.FC<Props> = ({
       <div className="space-y-4">
         {currentFields.map(field => {
           if (field.type === 'heading') {
-            return <h4 key={field.field_key} className="text-base font-black text-slate-700 pt-2">{field.label}</h4>;
+            return <h4 key={field.field_key} className="text-[15px] font-black text-slate-500 uppercase tracking-wide pt-2">{field.label}</h4>;
           }
           // Reading passage. whitespace-pre-line is the whole point: the author
           // typed the line breaks, and a comprehension text or a scenario is
@@ -149,7 +149,7 @@ const SurveyFillForm: React.FC<Props> = ({
           // answered, which reads as a list with a caption over it rather
           // than a question with its choices.
           const labelEl = (
-            <label className="text-[15px] font-black text-slate-800 block mb-2 leading-snug">
+            <label className="text-[19px] font-black text-slate-800 block mb-3 leading-snug">
               {field.label}{!!field.required && <span className="text-mellow-red ml-0.5">*</span>}
             </label>
           );
