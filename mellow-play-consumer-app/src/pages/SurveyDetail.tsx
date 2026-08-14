@@ -34,7 +34,7 @@ const SurveyDetail = () => {
   const [identity, setIdentity] = useState({ mode: (isLoggedIn ? 'prefill' : 'manual') as 'prefill' | 'manual', name: '', phone: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; imageUrl?: string } | null } | null>(null);
+  const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; resultTextHtml?: string; imageUrl?: string } | null } | null>(null);
 
   useEffect(() => {
     if (!idOrSlug) return;
@@ -125,7 +125,12 @@ const SurveyDetail = () => {
                 {result.band && (
                   <div className="mt-4 text-left bg-slate-50 rounded-2xl p-4 space-y-2">
                     {result.band.imageUrl && <img src={result.band.imageUrl} alt="" className="w-full rounded-xl object-cover" />}
-                    <p className="text-sm font-bold text-slate-700 whitespace-pre-wrap">{result.band.resultText}</p>
+                    {/* Staff-authored, same trust model as a course description.
+                        whitespace-pre-wrap only for the plain version, where the
+                        line breaks are real characters rather than markup. */}
+                    {result.band.resultTextHtml
+                      ? <div className="prose-news text-sm font-bold text-slate-700" dangerouslySetInnerHTML={{ __html: result.band.resultTextHtml }} />
+                      : <p className="text-sm font-bold text-slate-700 whitespace-pre-wrap">{result.band.resultText}</p>}
                   </div>
                 )}
               </div>

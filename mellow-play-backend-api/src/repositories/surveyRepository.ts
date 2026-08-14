@@ -327,12 +327,15 @@ export class SurveyRepository {
   // min/max) — the first match wins, so an admin who accidentally overlaps
   // two ranges gets deterministic (if not necessarily "correct") behavior
   // rather than a runtime error.
-  private matchScoreRange(scoreRangesJson: string | null | undefined, totalScore: number): { resultText: string; imageUrl?: string } | null {
+  // resultTextHtml is the formatted copy of resultText, sent alongside it
+  // rather than instead of it: the plain text is what an SMS, an export or any
+  // future plain-text reader needs, and only the result screen renders markup.
+  private matchScoreRange(scoreRangesJson: string | null | undefined, totalScore: number): { resultText: string; resultTextHtml?: string; imageUrl?: string } | null {
     if (!scoreRangesJson) return null;
     try {
-      const ranges: { min: number; max: number; resultText: string; imageUrl?: string }[] = JSON.parse(scoreRangesJson);
+      const ranges: { min: number; max: number; resultText: string; resultTextHtml?: string; imageUrl?: string }[] = JSON.parse(scoreRangesJson);
       const match = ranges.find(r => totalScore >= r.min && totalScore <= r.max);
-      return match ? { resultText: match.resultText, imageUrl: match.imageUrl } : null;
+      return match ? { resultText: match.resultText, resultTextHtml: match.resultTextHtml, imageUrl: match.imageUrl } : null;
     } catch { return null; }
   }
 

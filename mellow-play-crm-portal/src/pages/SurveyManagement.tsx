@@ -87,7 +87,14 @@ interface FieldDraft {
   labelHtml?: string;
 }
 
-interface ScoreRange { min: number; max: number; resultText: string; imageUrl?: string; }
+interface ScoreRange {
+  min: number;
+  max: number;
+  resultText: string;
+  /** Formatted copy of resultText — see FieldDraft.labelHtml for the pattern. */
+  resultTextHtml?: string;
+  imageUrl?: string;
+}
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
@@ -757,9 +764,34 @@ const SurveyManagement = () => {
                             <DeleteIcon fontSize="small" />
                           </IconButton>
                         </Stack>
-                        <TextField
-                          fullWidth size="small" multiline minRows={2} label="ข้อความผลการประเมิน"
-                          value={range.resultText} onChange={e => updateScoreRange(i, { resultText: e.target.value })}
+                        {range.resultTextHtml === undefined ? (
+                          <TextField
+                            fullWidth size="small" multiline minRows={2} label="ข้อความผลการประเมิน"
+                            value={range.resultText} onChange={e => updateScoreRange(i, { resultText: e.target.value })}
+                          />
+                        ) : (
+                          <Box>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                              ข้อความผลการประเมิน (จัดรูปแบบได้)
+                            </Typography>
+                            <RichTextEditor
+                              value={range.resultTextHtml}
+                              onChange={html => updateScoreRange(i, { resultTextHtml: html, resultText: stripHtml(html) })}
+                              uploadFolder="surveys"
+                            />
+                          </Box>
+                        )}
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={range.resultTextHtml !== undefined}
+                              onChange={e => updateScoreRange(i, e.target.checked
+                                ? { resultTextHtml: range.resultText ? `<p>${range.resultText}</p>` : '' }
+                                : { resultTextHtml: undefined })}
+                            />
+                          }
+                          label={<Typography variant="caption">จัดรูปแบบข้อความ (สี / ตัวหนา)</Typography>}
                         />
                         <ImageUploadField label="รูป" url={range.imageUrl} onChange={imageUrl => updateScoreRange(i, { imageUrl })} />
                       </Stack>

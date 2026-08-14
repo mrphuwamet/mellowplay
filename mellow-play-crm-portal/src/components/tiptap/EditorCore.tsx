@@ -76,6 +76,13 @@ const EditorCore: React.FC<EditorCoreProps> = ({
   const cardInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [colorMenuAnchor, setColorMenuAnchor] = useState<HTMLElement | null>(null);
+  // Held here while the swatch dialog is open instead of being applied on every
+  // change event. A native <input type="color"> fires change continuously as
+  // the pointer moves, and each one used to run editor.chain().focus() and shut
+  // the menu — so choosing a colour by dragging closed the picker on the first
+  // nudge. Nothing reaches the document until ตกลง.
+  const [pendingColor, setPendingColor] = useState('#000000');
+  const [pendingHighlight, setPendingHighlight] = useState('#fff59d');
   const [highlightMenuAnchor, setHighlightMenuAnchor] = useState<HTMLElement | null>(null);
   const [fontSizeMenuAnchor, setFontSizeMenuAnchor] = useState<HTMLElement | null>(null);
   const [imageMenuAnchor, setImageMenuAnchor] = useState<HTMLElement | null>(null);
@@ -306,15 +313,21 @@ const EditorCore: React.FC<EditorCoreProps> = ({
                 />
               ))}
             </Box>
-            <MenuItem dense onClick={e => e.stopPropagation()}>
+            <MenuItem dense disableRipple onClick={e => e.stopPropagation()} sx={{ gap: 1 }}>
               <ListItemIcon><SwatchIcon fontSize="small" /></ListItemIcon>
-              <ListItemText>
-                <input
-                  type="color"
-                  onChange={e => { editor.chain().focus().setColor(e.target.value).run(); setColorMenuAnchor(null); }}
-                  style={{ width: '100%', height: 28, border: 'none', cursor: 'pointer' }}
-                />
-              </ListItemText>
+              <input
+                type="color"
+                value={pendingColor}
+                onChange={e => setPendingColor(e.target.value)}
+                style={{ width: 80, height: 28, border: 'none', cursor: 'pointer', background: 'none' }}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => { editor.chain().focus().setColor(pendingColor).run(); setColorMenuAnchor(null); }}
+              >
+                ตกลง
+              </Button>
             </MenuItem>
             <MenuItem dense onClick={() => { editor.chain().focus().unsetColor().run(); setColorMenuAnchor(null); }}>ล้างสี (ค่าเริ่มต้น)</MenuItem>
           </Menu>
@@ -332,15 +345,21 @@ const EditorCore: React.FC<EditorCoreProps> = ({
                 />
               ))}
             </Box>
-            <MenuItem dense onClick={e => e.stopPropagation()}>
+            <MenuItem dense disableRipple onClick={e => e.stopPropagation()} sx={{ gap: 1 }}>
               <ListItemIcon><SwatchIcon fontSize="small" /></ListItemIcon>
-              <ListItemText>
-                <input
-                  type="color"
-                  onChange={e => { editor.chain().focus().toggleHighlight({ color: e.target.value }).run(); setHighlightMenuAnchor(null); }}
-                  style={{ width: '100%', height: 28, border: 'none', cursor: 'pointer' }}
-                />
-              </ListItemText>
+              <input
+                type="color"
+                value={pendingHighlight}
+                onChange={e => setPendingHighlight(e.target.value)}
+                style={{ width: 80, height: 28, border: 'none', cursor: 'pointer', background: 'none' }}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => { editor.chain().focus().toggleHighlight({ color: pendingHighlight }).run(); setHighlightMenuAnchor(null); }}
+              >
+                ตกลง
+              </Button>
             </MenuItem>
             <MenuItem dense onClick={() => { editor.chain().focus().unsetHighlight().run(); setHighlightMenuAnchor(null); }}>ล้างการเน้น</MenuItem>
           </Menu>
