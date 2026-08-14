@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Share2 } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Share2, Maximize2, X } from 'lucide-react';
 import ShareToLineButton from '../components/ShareToLineButton';
 import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
@@ -38,6 +38,7 @@ const CourseDetail = () => {
   const [fetchError, setFetchError] = useState('');
   const [upcomingSlots, setUpcomingSlots] = useState<any[]>([]);
   const [showAllSlots, setShowAllSlots] = useState(false);
+  const [posterOpen, setPosterOpen] = useState(false);
   const [showGuestModal, setShowGuestModal] = useState(false);
 
   useEffect(() => {
@@ -281,9 +282,19 @@ const CourseDetail = () => {
               poster costs nothing and puts the artwork where the eye lands
               coming off the cover. */}
           {course.detail_poster_url && (
-            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+            <button
+              type="button"
+              onClick={() => setPosterOpen(true)}
+              aria-label={lang === 'en' ? 'Open poster' : 'ขยายโปสเตอร์'}
+              className="hidden lg:block relative w-full rounded-3xl overflow-hidden shadow-sm border border-slate-100 group active:scale-[0.99] transition-transform"
+            >
               <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
-            </div>
+              {/* Always visible, not a hover-only affordance: on a phone there
+                  is no hover, and this is where most of these are read. */}
+              <span className="absolute bottom-3 right-3 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center shadow-lg">
+                <Maximize2 size={16} />
+              </span>
+            </button>
           )}
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
@@ -395,9 +406,19 @@ const CourseDetail = () => {
             at the foot of the sidebar (see the hidden lg:block instance
             above), so this copy is mobile-only. */}
         {course.detail_poster_url && (
-          <div className="lg:hidden rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+          <button
+            type="button"
+            onClick={() => setPosterOpen(true)}
+            aria-label={lang === 'en' ? 'Open poster' : 'ขยายโปสเตอร์'}
+            className="lg:hidden relative w-full rounded-3xl overflow-hidden shadow-sm border border-slate-100 group active:scale-[0.99] transition-transform"
+          >
             <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
-          </div>
+            {/* Always visible, not a hover-only affordance: on a phone there
+                is no hover, and this is where most of these are read. */}
+            <span className="absolute bottom-3 right-3 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center shadow-lg">
+              <Maximize2 size={16} />
+            </span>
+          </button>
         )}
 
         {/* Description — authored via the CRM's rich-text writer tool (same
@@ -467,7 +488,13 @@ const CourseDetail = () => {
                          <h4 className="text-[16px] font-bold text-slate-800">{displayDate}</h4>
                          {day.dayLabel && <ScheduleLabel text={day.dayLabel} color={day.labelColor} />}
                        </div>
-                       <div className="grid grid-cols-1 gap-2">
+                       {/* Two across from lg: up. Each round is a time on the
+                           left and a seat count on the right with a stretch of
+                           nothing between them, so at full width a day with
+                           four rounds took four rows to say very little. The
+                           day heading stays full width, so the grouping still
+                           reads as one day rather than a grid of times. */}
+                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                          {day.slots.map((slot: any, j: number) => {
                            const isFull = slot.available <= 0;
                            return (
@@ -576,6 +603,34 @@ const CourseDetail = () => {
               {lang === 'en' ? 'Back' : 'ย้อนกลับ'}
             </button>
       </ResponsiveModal>
+
+      {/* Poster lightbox — a plain overlay rather than ResponsiveModal, whose
+          padded dialog would shrink the very thing being opened. The backdrop
+          closes it, and object-contain inside a viewport-sized box means a tall
+          2:3 poster fits on a phone in landscape as well as on a monitor. */}
+      {posterOpen && course.detail_poster_url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPosterOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            onClick={() => setPosterOpen(false)}
+            aria-label={lang === 'en' ? 'Close' : 'ปิด'}
+            className="absolute top-4 right-4 w-11 h-11 rounded-full bg-white/15 backdrop-blur-md text-white flex items-center justify-center active:scale-90 transition-transform"
+          >
+            <X size={22} />
+          </button>
+          <img
+            src={course.detail_poster_url}
+            alt={course.name}
+            onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 };
