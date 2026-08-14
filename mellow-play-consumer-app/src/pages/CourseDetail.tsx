@@ -273,6 +273,18 @@ const CourseDetail = () => {
             this same action below lg:, so the inline button here is
             lg:-only. */}
         <div className="space-y-4 mt-4 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-5 lg:sticky lg:top-6 lg:self-start">
+          {/* Detail poster — a separate portrait upload from the cover
+              banner, and the first thing in the sidebar. It used to sit last,
+              below price/age/venue, on the reasoning that a 2:3 image is tall
+              enough to push the venue card off the screen. The sidebar no
+              longer starts a screenful down the page, so leading with the
+              poster costs nothing and puts the artwork where the eye lands
+              coming off the cover. */}
+          {course.detail_poster_url && (
+            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+              <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
+            </div>
+          )}
           <div className="bg-white p-3.5 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
             {discountAmount > 0 && (
               <div className="flex items-center justify-between gap-2 bg-mellow-red/10 px-3 py-1.5 rounded-xl">
@@ -377,17 +389,6 @@ const CourseDetail = () => {
             )}
           </div>
 
-          {/* Detail poster — a separate portrait upload from the cover banner.
-              It sits LAST in the sidebar: at 2:3 it is tall enough that having
-              it first pushed the venue card off the bottom of the screen, so
-              on a desktop the one thing a parent needs before travelling was
-              the one thing they could not see. Price, age and venue come
-              first; the poster is the flourish underneath. */}
-          {course.detail_poster_url && (
-            <div className="hidden lg:block rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-              <img src={course.detail_poster_url} alt={course.name} className="w-full aspect-[2/3] object-cover" />
-            </div>
-          )}
         </div>
 
         {/* Detail poster's mobile placement — desktop shows this same image

@@ -567,7 +567,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           rules in index.css to pick up its own width — that class has to
           stay on this wrapper for those pages, unchanged from before, now
           just sitting next to the sidebar instead of centered alone. */}
-      <div className={`${showBottomNav ? 'max-w-[430px] md:max-w-none' : 'mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full'} md:flex-1 md:min-w-0 mx-auto md:mx-0 min-h-screen md:h-screen bg-[#fbfaf7] relative shadow-2xl md:shadow-none overflow-hidden md:overflow-y-auto`}>
+      <div className={`${showBottomNav ? 'max-w-[430px] md:max-w-none' : 'mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full'} md:flex-1 md:min-w-0 mx-auto md:mx-auto min-h-screen md:h-screen bg-[#fbfaf7] relative shadow-2xl md:shadow-none overflow-hidden md:overflow-y-auto`}>
         {children}
 
         {/* Shared Bottom Navigation — mobile only, and only on the 5 tab

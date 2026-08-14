@@ -152,6 +152,17 @@ b, strong {
   }
 }
 
+/* Drill-in pages get the same extra room the tab pages got. They keep a cap
+   rather than filling edge to edge — a 1920px-wide reading column is worse,
+   not better — and the frame is centred (md:mx-auto on the wrapper) so the
+   leftover space falls evenly on both sides instead of piling up to the
+   right of the content. */
+@media (min-width: 1280px) {
+  .mellow-shell-frame:has(> .mellow-page) {
+    max-width: 1280px;
+  }
+}
+
 /* Login's split view (promo panel + form) only has room from lg: up —
    below that it's identical to any other .mellow-flow-page (matches the
    768px default above). */
