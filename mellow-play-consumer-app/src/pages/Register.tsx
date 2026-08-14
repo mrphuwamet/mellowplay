@@ -66,6 +66,7 @@ const Register = () => {
     prefix?: string; firstName?: string; lastName?: string; phone?: string; email?: string; customRelationship?: string;
   }>({});
   const [phoneAlreadyRegistered, setPhoneAlreadyRegistered] = useState(false);
+  const [showPhoneTakenModal, setShowPhoneTakenModal] = useState(false);
 
   const [prevPhone, setPrevPhone] = useState('');
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -197,6 +198,7 @@ const Register = () => {
           // person just abandoned before adding family members — send them
           // to login instead of leaving them stuck at a dead-end error.
           setPhoneAlreadyRegistered(true);
+          setShowPhoneTakenModal(true);
           document.getElementById('reg-phone')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else if (isEmailIssue) {
           setFieldErrors(prev => ({ ...prev, email: backendMessage }));
@@ -940,6 +942,56 @@ const Register = () => {
           {t.register.cancelRegistration}
         </button>
       </div>
+
+      {/* An already-registered phone is not really an error — it is a fork:
+          this person has an account and either wants back into it or typed the
+          wrong number. Both ways out are offered here rather than leaving them
+          at a red field they have to work out for themselves. */}
+      <ResponsiveModal
+        isOpen={showPhoneTakenModal}
+        onClose={() => setShowPhoneTakenModal(false)}
+        variant="dialog"
+        size="xs"
+        className="text-center"
+      >
+        <div className="w-16 h-16 bg-mellow-purple/10 text-mellow-purple rounded-full flex items-center justify-center mx-auto mb-4">
+          <Phone size={30} />
+        </div>
+        <h3 className="text-xl font-black text-slate-800 mb-2">
+          {lang === 'en' ? 'This number is already a member' : 'เบอร์นี้เคยเป็นสมาชิกแล้ว'}
+        </h3>
+        <p className="text-sm font-bold text-slate-500 mb-6">
+          {lang === 'en'
+            ? 'Sign in to keep using that account, or enter a different number to create a new one.'
+            : 'เข้าสู่ระบบเพื่อใช้บัญชีเดิมต่อ หรือกรอกเบอร์ใหม่เพื่อสมัครบัญชีใหม่'}
+        </p>
+        <div className="flex flex-col gap-2.5">
+          <button
+            onClick={() => navigate(`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''}`)}
+            className="w-full py-[14px] rounded-xl font-black text-white bg-mellow-purple active:scale-95 transition-transform"
+          >
+            {lang === 'en' ? 'Sign in' : 'ลงชื่อเข้าใช้'}
+          </button>
+          <button
+            onClick={() => {
+              // Clears the number and puts the cursor in it, so "กรอกเบอร์ใหม่"
+              // means what it says instead of just closing a box.
+              setShowPhoneTakenModal(false);
+              setPhoneAlreadyRegistered(false);
+              setFormData(prev => ({ ...prev, phone: '' }));
+              setFieldErrors(prev => ({ ...prev, phone: undefined }));
+              setTimeout(() => {
+                const el = document.getElementById('reg-phone');
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                (el as HTMLInputElement | null)?.focus();
+              }, 0);
+            }}
+            className="w-full py-[14px] rounded-xl font-black text-slate-600 bg-slate-100 active:scale-95 transition-transform"
+          >
+            {lang === 'en' ? 'Use a different number' : 'กรอกเบอร์ใหม่'}
+          </button>
+        </div>
+      </ResponsiveModal>
 
       <ResponsiveModal isOpen={showCancelModal} onClose={() => setShowCancelModal(false)} variant="dialog" size="xs" className="text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">

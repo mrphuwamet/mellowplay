@@ -47,6 +47,16 @@ b, strong {
   font-weight: 500 !important;
 }
 
+/* Break lines between whole words where the browser can work out where the
+   words are (Chrome/Safari/Firefox all carry a Thai dictionary, and use it
+   once the document says lang="th" — see LanguageContext). text-wrap: pretty
+   then evens out the last lines; browsers without it just ignore it. */
+p, li, label, h1, h2, h3, h4, h5, h6 {
+  word-break: normal;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
 @layer base {
   html, body, #root {
     font-family: var(--font-body) !important;

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { translations, Language, Translations } from './translations';
 
 interface LanguageContextType {
@@ -13,6 +13,15 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const [lang, setLangState] = useState<Language>(
     (localStorage.getItem('mellow_lang') as Language) || 'th'
   );
+
+  // Kept on <html> because line breaking depends on it. Thai has no spaces
+  // between words, so a browser breaks a line wherever it runs out of room —
+  // mid-word — unless it applies its Thai dictionary, which it only does for
+  // content declared as Thai. Switching to English has to switch this back, or
+  // English text inherits Thai breaking rules.
+  useEffect(() => {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'th';
+  }, [lang]);
 
   const setLang = (newLang: Language) => {
     localStorage.setItem('mellow_lang', newLang);

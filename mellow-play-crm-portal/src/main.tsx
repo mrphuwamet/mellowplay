@@ -3,9 +3,11 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import GlobalStyles from '@mui/material/GlobalStyles';
 import ErrorBoundary from './components/ErrorBoundary';
 import './utils/axiosSetup';
 
+const BODY_FONT = '"Sarabun", "Roboto", "Helvetica", "Arial", sans-serif';
 const DISPLAY_FONT = '"Kanit", "Sarabun", sans-serif';
 
 const theme = createTheme({
@@ -21,7 +23,7 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Sarabun", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: BODY_FONT,
     fontSize: 14,
     // Headings wear the display face; everything read in bulk — tables, form
     // fields, body copy — stays in Sarabun.
@@ -72,6 +74,29 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        {/* The theme only reaches MUI components. Plain markup — the tiptap
+            editor's own content, tables built by hand, anything rendering
+            outside a MUI wrapper — kept whatever the browser chose, so half
+            the screen changed font and half did not. This covers the document
+            itself, with the same split: Sarabun to read, Kanit for headings. */}
+        <GlobalStyles
+          styles={{
+            'html, body, #root': { fontFamily: BODY_FONT },
+            'h1, h2, h3, h4, h5, h6': { fontFamily: DISPLAY_FONT },
+            // A form is answered, not admired — the editor content and any
+            // input keep the reading face even where they contain headings.
+            'input, textarea, select, button, table, .ProseMirror, .ProseMirror h1, .ProseMirror h2, .ProseMirror h3':
+              { fontFamily: BODY_FONT },
+            // Thai has no spaces between words: the browser only breaks
+            // between them once the document says lang="th" (set in
+            // index.html), and this evens out the resulting rag.
+            'p, li, label, h1, h2, h3, h4, h5, h6': {
+              wordBreak: 'normal',
+              overflowWrap: 'break-word',
+              textWrap: 'pretty',
+            },
+          }}
+        />
         <App />
       </ThemeProvider>
     </ErrorBoundary>
