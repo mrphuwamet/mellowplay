@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { jwt } from 'hono/jwt';
+import { HTTPException } from 'hono/http-exception';
 import { swaggerUI } from '@hono/swagger-ui';
 import { Bindings, Variables } from './types/env';
 import { AuthController } from './controllers/authController';
@@ -357,16 +358,28 @@ app.post('/api/v1/auth/unlink-google', (c) => authController.unlinkGoogle(c));
 // this re-checks current DB state on every request so a ban takes effect
 // immediately for someone still signed in, not just on their next login.
 const requireActiveUser = (config: ConfigService) => async (c: any, next: any) => {
-  return jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, async () => {
+  // The 403 is built out here, not inside the callback below.
+  //
+  // hono/jwt calls its `next` and discards whatever comes back — a Next is
+  // expected to return void. Returning c.json(...) from in there meant the
+  // Response was dropped on the floor: nothing ever set c.res, and Hono
+  // answered with "Context is not finalized. Did you forget to return a
+  // Response object or await next()?" as a 500. So a banned account got an
+  // unexplained server error on every request instead of being told it was
+  // suspended, and each one raised an unhandled-error alert.
+  let isBanned = false;
+  const jwtResult = await jwt({ secret: config.jwtSecret, alg: 'HS256' })(c, async () => {
     const payload = c.get('jwtPayload');
     if (payload?.userId) {
       const user = await new UserRepository(config.db).findById(payload.userId);
-      if (user?.is_banned) {
-        return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
-      }
+      if (user?.is_banned) { isBanned = true; return; }
     }
-    return next();
+    await next();
   });
+  if (isBanned) {
+    return c.json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าหน้าที่', banned: true }, 403);
+  }
+  return jwtResult;
 };
 
 app.use('/api/v1/profiles', async (c, next) => {
@@ -949,6 +962,13 @@ app.post('/api/v1/admin/redemptions/:id/claim',    (c) => redemptionController.c
 // never reaches this — see the explicit sendAlert() calls at the known
 // Payment/SMS/booking failure points instead for those).
 app.onError((err, c) => {
+  // An HTTPException is a decision, not a crash. hono/jwt throws one with its
+  // own 401 and response when a token is missing or invalid; flattening that
+  // to 500 made an expired session look like a server fault — the consumer
+  // app only redirects to login on a 401, so people sat on a broken screen
+  // instead — and raised a false alert for every request they made.
+  if (err instanceof HTTPException) return err.getResponse();
+
   console.error('Unhandled error:', err);
   const config = new ConfigService(c.env);
   sendAlert(config.db, 'Unhandled API Error', {

@@ -1119,6 +1119,60 @@ const Booking = () => {
                     { key: 'custom', label_th: 'กำหนดเอง', label_en: 'Custom' }
                   ].map((filter) => {
                     const active = courseAgeFilter === filter.key;
+
+                    // Selected "กำหนดเอง" grows into the inputs rather than
+                    // opening a panel below the row. The panel read as a
+                    // separate thing that had appeared, with no visible tie to
+                    // the chip that summoned it; as one pill it is plainly the
+                    // same control, just opened.
+                    if (filter.key === 'custom' && active) {
+                      const numberField = (
+                        label: string,
+                        value: number | '',
+                        onValue: (v: number | '') => void,
+                        placeholder: string,
+                      ) => (
+                        <label className="flex items-center gap-1 bg-white/20 rounded-lg pl-2 pr-1 py-0.5 focus-within:bg-white/30 transition-colors">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-white/70">{label}</span>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            max="99"
+                            value={value}
+                            onChange={e => onValue(e.target.value === '' ? '' : Number(e.target.value))}
+                            placeholder={placeholder}
+                            className="w-8 bg-transparent text-[13px] font-black text-white text-center placeholder:text-white/50 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                        </label>
+                      );
+                      return (
+                        <div
+                          key={filter.key}
+                          className="flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-xl bg-mellow-purple text-white shadow-sm shrink-0 animate-in fade-in slide-in-from-left-2 duration-200"
+                        >
+                          <span className="text-[12px] font-black whitespace-nowrap">
+                            {lang === 'en' ? filter.label_en : filter.label_th}
+                          </span>
+                          {numberField(lang === 'en' ? 'Min' : 'ต่ำสุด', customAgeMin, setCustomAgeMin, '0')}
+                          <span className="text-white/60 font-black text-[13px]">–</span>
+                          {numberField(lang === 'en' ? 'Max' : 'สูงสุด', customAgeMax, setCustomAgeMax, '99')}
+                          <span className="text-[11px] font-bold text-white/70 pr-0.5">{lang === 'en' ? 'yrs' : 'ปี'}</span>
+                          {/* Closing it clears the range too — leaving numbers
+                              behind that no longer filter anything is how a
+                              parent ends up sure the list is wrong. */}
+                          <button
+                            type="button"
+                            aria-label={lang === 'en' ? 'Clear age range' : 'ล้างช่วงอายุ'}
+                            onClick={() => { setCourseAgeFilter('all' as any); setCustomAgeMin(''); setCustomAgeMax(''); }}
+                            className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center active:scale-90 transition-all"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      );
+                    }
+
                     return (
                       <button
                         key={filter.key}
@@ -1135,37 +1189,6 @@ const Booking = () => {
                   })}
                 </div>
 
-                {/* Custom Age Range Inputs */}
-                {courseAgeFilter === 'custom' && (
-                  <div className="flex items-center justify-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl animate-in slide-in-from-top-2 duration-200">
-                    <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0">Min</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="99"
-                        value={customAgeMin}
-                        onChange={(e) => setCustomAgeMin(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="0"
-                        className="w-10 text-xs font-black text-slate-800 text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                    </div>
-                    <span className="text-slate-300 font-black">–</span>
-                    <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:border-mellow-purple transition-colors">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0">Max</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="99"
-                        value={customAgeMax}
-                        onChange={(e) => setCustomAgeMax(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="99"
-                        className="w-10 text-xs font-black text-slate-800 text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                    </div>
-                    <span className="text-slate-500 text-xs font-bold shrink-0">{lang === 'en' ? 'yrs' : 'ปี'}</span>
-                  </div>
-                )}
               </div>
 
               {isLoading ? (
