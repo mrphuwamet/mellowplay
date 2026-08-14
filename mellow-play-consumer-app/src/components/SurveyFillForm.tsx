@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { scrollToTop } from '../utils/scrollToTop';
 
 interface SurveyField {
   id: number;
@@ -113,6 +114,12 @@ const SurveyFillForm: React.FC<Props> = ({
   };
   const handleBack = () => { if (pageIndex > 0) setPageIndex(pageIndex - 1); };
 
+  // Same reason the booking wizard does it: a page change swaps the whole
+  // question under the reader while leaving them scrolled where the buttons
+  // were, so going back could look like nothing happened at all.
+  const formRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollToTop(formRef.current); }, [pageIndex]);
+
   // An option with its own colour: outlined when idle so the colour reads as a
   // label, filled when chosen so the choice is unmistakable. Options with no
   // colour keep the original slate/purple treatment via Tailwind classes.
@@ -126,7 +133,7 @@ const SurveyFillForm: React.FC<Props> = ({
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={formRef}>
       {totalPages > 1 && (
         <p className="text-xs font-bold text-slate-400">
           {lang === 'en' ? `Page ${shownPage} of ${totalPages}` : `หน้า ${shownPage} จาก ${totalPages}`}
