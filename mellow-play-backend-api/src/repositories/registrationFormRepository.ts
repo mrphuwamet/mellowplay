@@ -174,10 +174,23 @@ export class RegistrationFormRepository {
     // Same "only count it if still actively booked" guard as
     // findDuplicateSubmission — a cancelled or hard-deleted booking must
     // free its team spot back up, not hold it forever.
+    //
+    // Which round a submission belongs to is derived from its LIVE bookings'
+    // scheduled_at, not fs.scheduled_at: the submission's own copy is frozen
+    // at creation (rescheduling only updates Bookings), so counting against
+    // it put a moved booking's team spot in the old round forever. Both
+    // sides are truncated to minute precision because callers pass
+    // "YYYY-MM-DD HH:MM" (consumer flow) or "...HH:MM:SS" (CRM, which reads
+    // Bookings.scheduled_at back) — an exact string compare made every CRM
+    // lookup miss entirely, so every team showed its full capacity as free.
     const { results } = await this.db.prepare(`
       SELECT answers_json FROM Form_Submissions fs
-      WHERE fs.form_id = ? AND fs.course_id = ? AND fs.scheduled_at = ?
-        AND EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
+      WHERE fs.form_id = ? AND fs.course_id = ?
+        AND EXISTS (
+          SELECT 1 FROM Bookings b
+          WHERE b.form_submission_id = fs.id AND b.status != 'cancelled'
+            AND SUBSTR(b.scheduled_at, 1, 16) = SUBSTR(?, 1, 16)
+        )
     `).bind(formId, courseId, scheduledAt).all();
     const counts: Record<string, number> = {};
     for (const row of results as any[]) {

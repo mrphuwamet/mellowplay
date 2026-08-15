@@ -1975,26 +1975,38 @@ const BookingManagement = () => {
         fields.forEach(f => { initial[f.fieldKey] = f.value ?? (f.type === 'checkbox' ? [] : ''); });
         setEditFormAnswers(initial);
 
-        // Roster/team capacity only when a field of that type actually
-        // exists — same lazy rule the detail dialog's editor used.
+        // Roster only when a field of that type actually exists — same lazy
+        // rule the detail dialog's editor used. (Team capacity is fetched in
+        // its own effect below, keyed to whichever round is selected.)
         if (booking.parent_user_id && fields.some(f => f.type === 'family_member_picker')) {
           axios.get(`${API_BASE}/users/${booking.parent_user_id}/family-roster`)
             .then(r => setEditFamilyRoster(r.data.success ? r.data.roster : []))
             .catch(() => setEditFamilyRoster([]));
-        }
-        const formId = courses.find(c => c.id === booking.course_id)?.registration_form_id;
-        if (formId && fields.some(f => f.type === 'team_select')) {
-          axios.get(`${API_BASE}/registration-forms/${formId}/team-availability`, {
-            params: { courseId: booking.course_id, scheduledAt: booking.scheduled_at },
-          })
-            .then(r => setEditTeamCounts(r.data.success ? r.data.counts : {}))
-            .catch(() => setEditTeamCounts({}));
         }
       })
       .catch(() => setEditFormFields([]))
       .finally(() => setEditFormLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceStatusBooking?.id, forceStatusBooking?.form_submission_id]);
+
+  // Team capacity follows the ROUND currently picked in the reschedule
+  // chips, not the booking's original round — moving a booking to a new
+  // round must show that round's team availability, or staff would pick a
+  // team based on counts from the round they're leaving.
+  useEffect(() => {
+    if (!forceStatusBooking || !editFormFields?.some(f => f.type === 'team_select')) return;
+    const formId = courses.find(c => c.id === forceStatusBooking.course_id)?.registration_form_id;
+    if (!formId) return;
+    const scheduledAt = usesReschedulePicker && rescheduleSelectedDate && rescheduleSelectedSlot
+      ? `${rescheduleSelectedDate.date} ${rescheduleSelectedSlot.startTime}`
+      : forceStatusBooking.scheduled_at;
+    axios.get(`${API_BASE}/registration-forms/${formId}/team-availability`, {
+      params: { courseId: forceStatusBooking.course_id, scheduledAt },
+    })
+      .then(r => setEditTeamCounts(r.data.success ? r.data.counts : {}))
+      .catch(() => setEditTeamCounts({}));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceStatusBooking?.id, editFormFields, rescheduleSelectedDate?.date, rescheduleSelectedSlot?.startTime]);
 
   // Super Admin hard-delete — requires typing "ยืนยัน" verbatim before the
   // delete button enables at all, since this permanently removes the row
