@@ -8,6 +8,8 @@ import { resolveImageUrl } from '../utils/courseImage';
 import { formatCustomDate } from '../utils/dateFormat';
 import { isPlainText } from '../utils/richText';
 import { scrollToTop } from '../utils/scrollToTop';
+import { useChildStore } from '../store/useChildStore';
+import { isChildRole } from '../utils/familyRoles';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -33,6 +35,11 @@ const NewsDetail = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
+
+  // Same child-profile gate as the community feed: an active child profile
+  // (relation ลูก/บุตร) reads but doesn't comment.
+  const { children: familyMembers, activeProfile } = useChildStore();
+  const activeIsChild = activeProfile !== 'main' && isChildRole(familyMembers.find(m => m.id === activeProfile)?.relation);
 
   const [comments, setComments] = useState<any[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -268,25 +275,31 @@ const NewsDetail = () => {
             </div>
           ))}
 
-          <div className="flex items-center gap-2 pt-2">
-            <input
-              type="text"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              placeholder={isLoggedIn ? (lang === 'en' ? 'Add a comment...' : 'แสดงความคิดเห็น...') : (lang === 'en' ? 'Log in to comment' : 'เข้าสู่ระบบเพื่อคอมเมนท์')}
-              disabled={!isLoggedIn}
-              maxLength={500}
-              className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-full text-sm font-medium focus:outline-none disabled:opacity-50"
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitComment(); }}
-            />
-            <button
-              onClick={handleSubmitComment}
-              disabled={commentSubmitting || !commentText.trim() || !isLoggedIn}
-              className="w-10 h-10 rounded-full bg-mellow-purple text-white flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0"
-            >
-              <Send size={16} />
-            </button>
-          </div>
+          {activeIsChild ? (
+            <p className="text-center text-slate-400 text-[13px] font-bold pt-2">
+              {lang === 'en' ? 'Switch to a parent profile to comment' : 'สลับเป็นโปรไฟล์ผู้ปกครองเพื่อแสดงความคิดเห็น'}
+            </p>
+          ) : (
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder={isLoggedIn ? (lang === 'en' ? 'Add a comment...' : 'แสดงความคิดเห็น...') : (lang === 'en' ? 'Log in to comment' : 'เข้าสู่ระบบเพื่อคอมเมนท์')}
+                disabled={!isLoggedIn}
+                maxLength={500}
+                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-full text-sm font-medium focus:outline-none disabled:opacity-50"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitComment(); }}
+              />
+              <button
+                onClick={handleSubmitComment}
+                disabled={commentSubmitting || !commentText.trim() || !isLoggedIn}
+                className="w-10 h-10 rounded-full bg-mellow-purple text-white flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

@@ -25,13 +25,23 @@ interface Child {
   membershipExpiresAt?: string;
 }
 
+// Which identity the home page currently presents — the account holder
+// themselves ('main') or one family member from the roster (a child id).
+// This sits alongside selectedChildId rather than replacing it: switching to
+// a family member also updates selectedChildId (so Booking/Journey follow),
+// but switching to 'main' leaves selectedChildId untouched — those flows
+// always operate on a child regardless of whose face the home page shows.
+export type ActiveProfile = 'main' | number;
+
 interface ChildStore {
   children: Child[];
   selectedChildId: number | null;
+  activeProfile: ActiveProfile;
   isLoading: boolean;
   error: string | null;
   fetchChildren: (userId: number | string) => Promise<void>;
   selectChild: (id: number) => void;
+  setActiveProfile: (profile: ActiveProfile) => void;
   getSelectedChild: () => Child | null;
   updateAvatar: (childId: number, avatar: string) => Promise<void>;
   setCustomPhotoUrl: (childId: number, url: string) => void;
@@ -40,10 +50,19 @@ interface ChildStore {
 }
 
 const SELECTED_CHILD_KEY = 'mellow_selected_child_id';
+const ACTIVE_PROFILE_KEY = 'mellow_active_profile';
+
+const loadActiveProfile = (): ActiveProfile => {
+  const saved = localStorage.getItem(ACTIVE_PROFILE_KEY);
+  if (!saved || saved === 'main') return 'main';
+  const id = parseInt(saved);
+  return isNaN(id) ? 'main' : id;
+};
 
 export const useChildStore = create<ChildStore>((set, get) => ({
   children: [],
   selectedChildId: null,
+  activeProfile: loadActiveProfile(),
   isLoading: false,
   error: null,
 
@@ -84,10 +103,17 @@ export const useChildStore = create<ChildStore>((set, get) => ({
           ? savedChild.id
           : (mappedChildren.length > 0 ? mappedChildren[0].id : null);
 
-        set({ 
-          children: mappedChildren, 
+        // A stored active profile pointing at a member that no longer
+        // exists (removed from the family, other device) falls back to the
+        // account holder rather than showing a stale identity.
+        const active = get().activeProfile;
+        const activeStillValid = active === 'main' || mappedChildren.some((c: any) => c.id === active);
+
+        set({
+          children: mappedChildren,
           selectedChildId: resolvedId,
-          isLoading: false 
+          activeProfile: activeStillValid ? active : 'main',
+          isLoading: false
         });
       }
     } catch (err: any) {
@@ -98,6 +124,19 @@ export const useChildStore = create<ChildStore>((set, get) => ({
   selectChild: (id) => {
     localStorage.setItem(SELECTED_CHILD_KEY, String(id));
     set({ selectedChildId: id });
+  },
+
+  setActiveProfile: (profile) => {
+    localStorage.setItem(ACTIVE_PROFILE_KEY, String(profile));
+    if (profile === 'main') {
+      set({ activeProfile: profile });
+    } else {
+      // Switching to a family member also makes them the selected child, so
+      // the child-scoped pages (Journey, Booking's default, coupons) follow
+      // the same person the home page now shows.
+      localStorage.setItem(SELECTED_CHILD_KEY, String(profile));
+      set({ activeProfile: profile, selectedChildId: profile });
+    }
   },
 
   getSelectedChild: () => {

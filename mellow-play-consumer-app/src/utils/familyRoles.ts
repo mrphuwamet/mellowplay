@@ -46,6 +46,15 @@ export const PARENT_ROLE_OPTIONS: FamilyRoleOption[] = FAMILY_ROLE_OPTIONS.filte
 
 export const OTHER_FAMILY_ROLE = 'other';
 
+// Whether a roster member's relation marks them as an actual child (ลูก/บุตร)
+// as opposed to an adult family member. Case-insensitive because legacy rows
+// store 'Child' (the consumer app's old registration flow) while today's
+// options store 'child'. Used to gate child profiles out of posting and
+// commenting — kids can browse as themselves but not speak as the family.
+export function isChildRole(rawValue: string | null | undefined): boolean {
+  return (rawValue || '').trim().toLowerCase() === 'child';
+}
+
 export function getFamilyRoleLabel(value: string, lang: 'th' | 'en'): string {
   const option = FAMILY_ROLE_OPTIONS.find(o => o.value === value);
   if (!option) return value;

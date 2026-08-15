@@ -104,24 +104,27 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     );
   }
 
-  // Explore sits above Feed per request (purely a display-order change —
-  // '/' still renders Home/Feed), then the QuickAccess shortcuts not
-  // already covered further down (Rewards/Journey/Album would just be
-  // duplicates there), then the rest of the main tabs.
-  // Booking is rendered separately below (a Book Class / Book Service /
-  // Book Event sub-menu at lg:, a plain link at md:) instead of living in
-  // this array.
-  const beforeBookingItems: { to: string; Icon: typeof HomeIcon; label: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
+  // Ordered per request so the mobile menu grid reads, 4 tiles per row:
+  //   row 1: สำรวจ > ฟีดข่าว > รู้จักลูกของฉัน > เส้นทาง
+  //   row 2: คลาส > กิจกรรม > บริการอื่นๆ > กิจกรรมที่จะมาถึง
+  //   row 3: อัลบั้ม > รางวัล > คูปองของฉัน > ติดต่อเรา
+  // The desktop sidebar renders these same two arrays vertically (with the
+  // booking trio between them), so both surfaces stay in one order.
+  // Booking is rendered separately below (a คลาส / กิจกรรม / บริการอื่นๆ
+  // sub-menu at lg:, a plain link at md:) instead of living in this array.
+  // `menuLabel` is a mobile-grid-only override — the one place a label needs
+  // its own line-break (กิจกรรม\nที่จะมาถึง); the sidebar keeps `label`.
+  const beforeBookingItems: { to: string; Icon: typeof HomeIcon; label: string; menuLabel?: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
     { to: '/explore', Icon: Compass, label: t.nav.explore, color: 'text-mellow-yellow', guarded: false },
     { to: '/', Icon: HomeIcon, label: t.nav.home, color: 'text-mellow-red', guarded: false },
-  ];
-  const afterBookingItems: { to: string; Icon: typeof HomeIcon; label: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
     { to: '/know-my-child', Icon: Heart, label: t.home.quickAccess.knowMyChild, color: 'text-mellow-red', guarded: false, comingSoon: true },
-    { to: '/upcoming', Icon: CalendarDays, label: lang === 'en' ? 'Upcoming' : 'กิจกรรมที่จะมาถึง', color: 'text-orange-500', guarded: true },
-    { to: '/my-coupons', Icon: Ticket, label: t.home.quickAccess.myCoupons, color: 'text-pink-500', guarded: true },
     { to: '/journey', Icon: Map, label: t.nav.journey, color: 'text-mellow-purple', guarded: true },
+  ];
+  const afterBookingItems: { to: string; Icon: typeof HomeIcon; label: string; menuLabel?: string; color: string; guarded: boolean; comingSoon?: boolean }[] = [
+    { to: '/upcoming', Icon: CalendarDays, label: lang === 'en' ? 'Upcoming' : 'กิจกรรมที่จะมาถึง', menuLabel: lang === 'en' ? 'Upcoming' : 'กิจกรรม\nที่จะมาถึง', color: 'text-orange-500', guarded: true },
     { to: '/album', Icon: Camera, label: t.nav.album, color: 'text-mellow-blue', guarded: true },
     { to: '/rewards', Icon: Star, label: t.nav.rewards, color: 'text-mellow-green', guarded: true },
+    { to: '/my-coupons', Icon: Ticket, label: t.home.quickAccess.myCoupons, color: 'text-pink-500', guarded: true },
     { to: '/contact', Icon: MessageCircle, label: t.home.quickAccess.contactUs, color: 'text-teal-500', guarded: false },
   ];
 
@@ -257,13 +260,13 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
   const mobileMenuTiles: (typeof beforeBookingItems[number])[] = [
     ...beforeBookingItems,
-    { to: '/booking', Icon: Calendar, label: lang === 'en' ? 'Book Class' : 'จองคลาส', color: 'text-orange-500', guarded: false },
-    { to: '/booking?type=service', Icon: Calendar, label: lang === 'en' ? 'Book Service' : 'จองบริการ', color: 'text-orange-500', guarded: false },
-    { to: '/booking?type=event', Icon: Calendar, label: lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม', color: 'text-orange-500', guarded: false },
+    { to: '/booking', Icon: Calendar, label: lang === 'en' ? 'Classes' : 'คลาส', color: 'text-orange-500', guarded: false },
+    { to: '/booking?type=event', Icon: Calendar, label: lang === 'en' ? 'Events' : 'กิจกรรม', color: 'text-orange-500', guarded: false },
+    { to: '/booking?type=service', Icon: Calendar, label: lang === 'en' ? 'Other Services' : 'บริการอื่นๆ', color: 'text-orange-500', guarded: false },
     ...afterBookingItems,
   ];
 
-  const renderMobileMenuTile = ({ to, Icon, label, color, guarded, comingSoon }: typeof mobileMenuTiles[number]) => {
+  const renderMobileMenuTile = ({ to, Icon, label, menuLabel, color, guarded, comingSoon }: typeof mobileMenuTiles[number]) => {
     const active = !comingSoon && location.pathname === to;
     return (
       <Link
@@ -286,7 +289,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             </div>
           )}
         </div>
-        <span className="text-[12px] font-black tracking-tight text-center leading-tight px-1">{label}</span>
+        <span className="text-[12px] font-black tracking-tight text-center leading-tight px-1 whitespace-pre-line">{menuLabel ?? label}</span>
       </Link>
     );
   };
@@ -497,21 +500,21 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={() => setIsBookingMenuOpen(false)}
                 className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
-                {lang === 'en' ? 'Book Class' : 'จองคลาส'}
-              </Link>
-              <Link
-                to="/booking?type=service"
-                onClick={() => setIsBookingMenuOpen(false)}
-                className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
-              >
-                {lang === 'en' ? 'Book Service' : 'จองบริการ'}
+                {lang === 'en' ? 'Classes' : 'คลาส'}
               </Link>
               <Link
                 to="/booking?type=event"
                 onClick={() => setIsBookingMenuOpen(false)}
                 className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
               >
-                {lang === 'en' ? 'Register for Event' : 'ลงทะเบียนกิจกรรม'}
+                {lang === 'en' ? 'Events' : 'กิจกรรม'}
+              </Link>
+              <Link
+                to="/booking?type=service"
+                onClick={() => setIsBookingMenuOpen(false)}
+                className="px-3 py-2 rounded-xl text-[14px] font-bold text-slate-500 hover:bg-black/[0.03] hover:text-slate-700 transition-colors"
+              >
+                {lang === 'en' ? 'Other Services' : 'บริการอื่นๆ'}
               </Link>
             </div>
           )}

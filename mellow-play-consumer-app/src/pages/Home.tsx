@@ -1,8 +1,8 @@
 import React from 'react';
 import { FEED_MEDIA_BOX } from '../utils/feedLayout';
-import { formatTime24 } from '../utils/dateFormat';
+import { formatTime24, formatCustomDate } from '../utils/dateFormat';
 import { useChildStore } from '../store/useChildStore';
-import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil, Heart } from 'lucide-react';
+import { ChevronRight, FileText, Lock, Medal, Ticket, Calendar, MessageCircle, Facebook, User, AlertCircle, Loader2, MapPin, Clock, Crown, ArrowRightLeft, Cake, Pencil, Heart, BadgeCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import AnimatedClouds from '../components/AnimatedClouds';
@@ -25,6 +25,7 @@ import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { getBookingPlace } from '../utils/bookingPlace';
 import { resolveImageUrl, getCourseView } from '../utils/courseImage';
+import { isChildRole } from '../utils/familyRoles';
 import { isPremiumChild } from '../utils/membership';
 import { stripHtml } from '../utils/stripHtml';
 import { trackCourseView } from '../utils/analytics';
@@ -32,7 +33,7 @@ import { trackCourseView } from '../utils/analytics';
 const COMMUNITY_PAGE_SIZE = 10;
 
 const Home = () => {
-  const { children, selectedChildId, isLoading: isStoreLoading, selectChild } = useChildStore();
+  const { children, selectedChildId, isLoading: isStoreLoading, activeProfile, setActiveProfile } = useChildStore();
   const navigate = useNavigate();
   const { t, lang, setLang } = useTranslation();
   const couponTypes = useCouponTypes();
@@ -144,6 +145,13 @@ const Home = () => {
 
   const currentChild = isGuest ? guestChild : selectedChild;
   const isPremium = isPremiumChild(currentChild);
+
+  // Every family member — the account holder included — is a same-level
+  // profile now; the home page presents whichever one is active. A child
+  // (relation ลูก/บุตร) can be the active profile for browsing, but must not
+  // speak as the family: the composer and comment inputs are gated on this.
+  const activeMember = activeProfile === 'main' ? null : children.find(c => c.id === activeProfile);
+  const activeIsChild = !!activeMember && isChildRole(activeMember.relation);
   const { statusMap: courseBookingStatus, isLoading: isBookingStatusLoading } = useCourseBookingStatus(user?.id, currentChild?.id);
 
   // A one-time (non-repeatable) course the child already took/booked has
@@ -310,34 +318,31 @@ const Home = () => {
     return () => clearInterval(id);
   }, [ads.length]);
 
-  // Feed inserts — mobile no longer has fixed Upcoming/Recommended/History
-  // sections above the feed; their content instead blends into the feed
-  // itself alongside Explore/news suggestions, matching how a real social
-  // feed mixes content instead of stacking separate labeled sections.
-  const feedInserts = React.useMemo(() => {
-    const courseItems = visibleRecommendedCourses.slice(0, 6).map((c: any) => ({
-      kind: 'course' as const, id: c.id, title: c.name, image: c.thumbnail_url, course: c,
-    }));
-    const newsAsItems = newsItems.slice(0, 10).map((n: any) => ({
-      kind: 'news' as const, id: n.id, title: (lang === 'en' && n.title_en) ? n.title_en : n.title, image: n.image_url, newsType: n.type,
-    }));
-    const historyItems = recentHistory.slice(0, 3).map((b: any) => ({
-      kind: 'history' as const, id: b.id, title: b.course_name || (lang === 'en' ? 'Class' : 'คลาสเรียน'), image: undefined, booking: b,
-    }));
-    const adItems = ads.map((a: any) => ({
-      kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
-      adTargetType: a.targetType, adTargetId: a.targetId,
-    }));
-    // 'upcoming' bookings no longer get randomly mixed in here — they're
-    // now always pinned first (mobile: renderUpcomingClassesMobile, desktop:
-    // the sidebar), so including them here too would just show the same
-    // booking twice.
-    const combined = [...courseItems, ...historyItems, ...newsAsItems, ...adItems];
-    return [...combined].sort(() => Math.random() - 0.5).slice(0, 6);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRecommendedCourses, newsItems.length, upcomingClasses.length, recentHistory.length, ads.length, lang]);
+  // The feed reads as a news page now: EVERY published news item appears
+  // (no random sampling), each stamped with its post date/time, and the
+  // whole feed — news and community posts merged — always runs newest
+  // first. The old random inserts (recommended courses, recent history)
+  // are gone from the feed; that content still lives in the desktop
+  // sidebar and the Explore page.
+  const newsFeedItems = React.useMemo(() =>
+    [...newsItems]
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .map((n: any) => ({
+        kind: 'news' as const, id: n.id, title: (lang === 'en' && n.title_en) ? n.title_en : n.title,
+        image: n.image_url, newsType: n.type, createdAt: n.created_at,
+      })),
+  [newsItems, lang]);
 
-  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any }) => {
+  // CRM-pushed promos are the one non-chronological thing left in the feed —
+  // they're interleaved every few entries, clearly labeled โฆษณา, instead of
+  // competing for a slot in the date ordering (they have no post date of
+  // their own that would place them honestly).
+  const adInserts = React.useMemo(() => ads.map((a: any) => ({
+    kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
+    adTargetType: a.targetType, adTargetId: a.targetId,
+  })), [ads]);
+
+  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; createdAt?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any }) => {
     const isBookingCard = item.kind === 'upcoming' || item.kind === 'history';
     const handleClick = () => {
       if (isBookingCard) { setSelectedBooking(item.booking); return; }
@@ -361,7 +366,7 @@ const Home = () => {
       : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Activity' : 'กิจกรรมที่กำลังจะมาถึง')
       : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
       : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
-      : (lang === 'en' ? 'From Explore' : 'จากหน้าสำรวจ');
+      : (lang === 'en' ? 'News' : 'ข่าวสาร');
     const ctaLabel = item.kind === 'course' ? (lang === 'en' ? 'View class' : 'ดูรายละเอียดคลาส')
       : item.kind === 'ad' ? (lang === 'en' ? 'Learn more' : 'ดูเพิ่มเติม')
       : isBookingCard ? (lang === 'en' ? 'View booking' : 'ดูรายละเอียดการจอง')
@@ -411,7 +416,16 @@ const Home = () => {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[15px] font-black text-slate-800 leading-tight truncate">Mellow Play</p>
-            <p className="text-[12px] text-mellow-purple font-black uppercase tracking-widest">{eyebrow}</p>
+            <p className="text-[12px] text-mellow-purple font-black uppercase tracking-widest">
+              {eyebrow}
+              {/* When it was posted — a news page isn't a news page without
+                  the date on every story. */}
+              {item.createdAt && (
+                <span className="normal-case tracking-normal text-slate-400 font-bold">
+                  {' · '}{formatCustomDate(item.createdAt, lang, 'short')} {formatTime24(item.createdAt, lang)}
+                </span>
+              )}
+            </p>
           </div>
           {statusMeta && (
             <span className={`shrink-0 px-2 py-1 rounded-full text-[11px] font-black ${statusMeta.bg} ${statusMeta.fg}`}>
@@ -645,11 +659,35 @@ const Home = () => {
     <ResponsiveModal isOpen={isProfileSwitcherOpen} onClose={() => setIsProfileSwitcherOpen(false)} variant="dialog" size="xs">
         <h3 className="text-lg font-black text-slate-800 text-center mb-4 uppercase tracking-wider">{lang === 'en' ? 'Switch Profile' : 'สลับโปรไฟล์'}</h3>
         <div className="flex flex-col gap-3">
+          {/* The account holder — a same-level, switchable profile like
+              everyone else in the family; only the badge marks them as the
+              main account. */}
+          <button
+            onClick={() => { setActiveProfile('main'); setIsProfileSwitcherOpen(false); }}
+            className={`flex items-center gap-4 p-3 rounded-2xl transition-all ${activeProfile === 'main' ? 'bg-mellow-purple/10 border border-mellow-purple/30' : 'hover:bg-slate-50 border border-transparent'}`}
+          >
+            <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center flex-shrink-0">
+              {user?.avatarUrl ? (
+                <img src={resolveImageUrl(user.avatarUrl)} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User size={20} className="text-slate-400" />
+              )}
+            </div>
+            <div className="flex flex-col items-start text-left min-w-0">
+              <span className="text-[17px] font-bold text-slate-700 leading-tight truncate">
+                {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[12px] font-black text-mellow-purple">
+                <BadgeCheck size={13} strokeWidth={2.5} />
+                {lang === 'en' ? 'Main Account' : 'บัญชีหลัก'}
+              </span>
+            </div>
+          </button>
           {children.map(child => (
             <button
               key={child.id}
-              onClick={() => { selectChild(child.id); setIsProfileSwitcherOpen(false); }}
-              className={`flex items-center gap-4 p-3 rounded-2xl transition-all ${selectedChildId === child.id ? 'bg-mellow-purple/10 border border-mellow-purple/30' : 'hover:bg-slate-50 border border-transparent'}`}
+              onClick={() => { setActiveProfile(child.id); setIsProfileSwitcherOpen(false); }}
+              className={`flex items-center gap-4 p-3 rounded-2xl transition-all ${activeProfile === child.id ? 'bg-mellow-purple/10 border border-mellow-purple/30' : 'hover:bg-slate-50 border border-transparent'}`}
             >
               <ChildAvatar avatarType={child.avatar} className="w-12 h-12 flex-shrink-0" />
               <div className="flex flex-col items-start text-left">
@@ -1068,7 +1106,7 @@ const Home = () => {
                 className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-slate-100 text-orange-500 shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)] border border-slate-200 active:scale-95 transition-all"
               >
                 <Calendar size={16} />
-                <span className="text-[14px] font-black whitespace-nowrap">{lang === 'en' ? 'Book Class' : 'จองคลาส'}</span>
+                <span className="text-[14px] font-black whitespace-nowrap">{lang === 'en' ? 'Classes/Events' : 'คลาส/กิจกรรม'}</span>
               </button>
               <LanguageToggle />
             </div>
@@ -1101,7 +1139,7 @@ const Home = () => {
                 {t.common.guestMode}
               </div>
             ) : (
-              children.length > 1 && (
+              children.length > 0 && (
                 <button
                   onClick={() => setIsProfileSwitcherOpen(true)}
                   className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all active:scale-95"
@@ -1112,17 +1150,28 @@ const Home = () => {
             )}
           </div>
 
-          {/* Parent-centric: the parent's own identity is primary here
-              (avatar + name, tapping goes to their profile settings); the
-              currently-selected child is a secondary chip underneath —
-              tapping it opens the switcher (or Add Child if there isn't
-              one yet), same as the old avatar button used to. */}
+          {/* One identity at a time: whichever family profile is active is
+              THE identity here — the account holder and every member sit at
+              the same level, switched via the ArrowRightLeft button above.
+              Only the "บัญชีหลัก" badge singles out the account holder. */}
           <div className="relative z-10 flex items-center gap-4 mt-2">
             <div className="flex-shrink-0">
               {isGuest ? (
                 <div className="w-20 h-20 rounded-[28px] bg-slate-200 flex items-center justify-center shadow-lg ring-4 ring-white/60 overflow-hidden">
                   <img src={defaultAvatar} alt="Guest" className="w-12 h-12 opacity-60 grayscale brightness-50" />
                 </div>
+              ) : activeMember ? (
+                <button
+                  onClick={() => setIsAvatarPickerOpen(true)}
+                  className="relative block transition-transform active:scale-95"
+                >
+                  <div className="w-20 h-20 rounded-[28px] overflow-hidden shadow-lg ring-4 ring-white/60 bg-white flex items-center justify-center">
+                    <ChildAvatar avatarType={activeMember.avatar} className="w-full h-full" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-400">
+                    <Pencil size={11} strokeWidth={2.5} />
+                  </div>
+                </button>
               ) : (
                 <button
                   onClick={() => navigate('/settings/profile')}
@@ -1150,44 +1199,20 @@ const Home = () => {
               ) : (
                 <div className="flex flex-col gap-1.5">
                   <span className="block text-[18px] leading-tight font-black text-slate-800 truncate">
-                    {user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง')}
+                    {activeMember
+                      ? (activeMember.nickname || activeMember.name)
+                      : (user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Parent' : 'ผู้ปกครอง'))}
                   </span>
 
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => currentChild ? setIsProfileSwitcherOpen(true) : setIsAddChildOpen(true)}
-                      className="flex items-center gap-1.5 self-start active:opacity-70 transition-opacity"
-                    >
-                      {currentChild ? (
-                        <>
-                          <ChildAvatar avatarType={currentChild.avatar} className="w-6 h-6" />
-                          <span className="text-[14px] font-bold text-slate-500">{currentChild.nickname || currentChild.name}</span>
-                        </>
-                      ) : (
-                        <span className="text-[14px] font-black text-mellow-purple underline decoration-2 underline-offset-2">
-                          {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
-                        </span>
-                      )}
-                    </button>
-                    {currentChild && (
-                      <button
-                        onClick={() => setIsAvatarPickerOpen(true)}
-                        className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
-                      >
-                        <Pencil size={10} strokeWidth={2.5} />
-                      </button>
-                    )}
-                  </div>
-
-                  {currentChild && (
+                  {activeMember ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      {currentChild.dob && (
+                      {activeMember.dob && (
                         <button
                           onClick={() => setIsBirthdayModalOpen(true)}
                           className="inline-flex items-center gap-1 text-[12px] font-black bg-sky-100 text-sky-600 px-2.5 py-1 rounded-full shadow-sm active:scale-95 transition-transform"
                         >
                           <Cake size={12} strokeWidth={2.5} />
-                          {calculateAge(currentChild.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(currentChild.dob)) < 15 ? 'ขวบ' : 'ปี')}
+                          {calculateAge(activeMember.dob)} {lang === 'en' ? 'yrs' : (Number(calculateAge(activeMember.dob)) < 15 ? 'ขวบ' : 'ปี')}
                         </button>
                       )}
                       <span className={`inline-flex items-center gap-1 text-[12px] font-black px-2.5 py-1 rounded-full shadow-sm ${
@@ -1198,6 +1223,21 @@ const Home = () => {
                         {isPremium ? <Crown size={12} strokeWidth={2.5} /> : <Medal size={12} strokeWidth={2.5} />}
                         {isPremium ? 'Premium' : 'Regular'}
                       </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 text-[12px] font-black bg-mellow-purple/10 text-mellow-purple px-2.5 py-1 rounded-full shadow-sm">
+                        <BadgeCheck size={12} strokeWidth={2.5} />
+                        {lang === 'en' ? 'Main Account' : 'บัญชีหลัก'}
+                      </span>
+                      {children.length === 0 && (
+                        <button
+                          onClick={() => setIsAddChildOpen(true)}
+                          className="text-[13px] font-black text-mellow-purple underline decoration-2 underline-offset-2 active:opacity-70 transition-opacity"
+                        >
+                          {lang === 'th' ? '+ เพิ่มข้อมูลเด็ก' : '+ Add My Child'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1259,6 +1299,20 @@ const Home = () => {
                 </button>
               </div>
             </div>
+          ) : activeIsChild ? (
+            /* A child profile can browse the feed as themselves but can't
+               speak as the family — no composer, and the comment inputs on
+               each post are gated the same way (CommunityPostCard). */
+            <div className="mellow-card bg-white/85 border border-white p-4 flex items-center gap-3 shadow-sm">
+              <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                <Lock size={15} className="text-slate-400" />
+              </div>
+              <p className="text-[13px] font-bold text-slate-500 leading-snug">
+                {lang === 'en'
+                  ? 'Switch to a parent profile to post and comment'
+                  : 'สลับเป็นโปรไฟล์ผู้ปกครองเพื่อโพสต์และแสดงความคิดเห็น'}
+              </p>
+            </div>
           ) : (
             <>
               {/* Compact bar — zero-height/invisible until the full composer
@@ -1319,31 +1373,40 @@ const Home = () => {
                   <div className="h-3 w-2/3 bg-slate-100 rounded-full" />
                 </div>
               ))
-            ) : communityPosts.length === 0 ? (
-              <>
-                {feedInserts.map(renderFeedInsertCard)}
-              </>
             ) : (
               (() => {
-                // A blended insert (upcoming/recommended/history/explore)
-                // every 2 real posts so the feed never reads as dead, and so
-                // that content the old fixed sections used to carry still
-                // surfaces without crowding out actual posts.
+                // One chronological stream: every news item and every
+                // community post, merged and sorted newest-first by their
+                // post time — the feed reads like a news page, never a
+                // random shuffle. Sponsored cards (no honest post date of
+                // their own) are interleaved every 4 entries instead of
+                // occupying a date slot.
+                const chrono = [
+                  ...communityPosts.map(post => ({
+                    at: post.created_at,
+                    node: (
+                      <CommunityPostCard
+                        key={`post-${post.id}`}
+                        post={post}
+                        onUpdate={handleCommunityPostUpdate}
+                        onDeleted={handleCommunityPostDeleted}
+                      />
+                    ),
+                  })),
+                  ...newsFeedItems.map(n => ({ at: n.createdAt, node: renderFeedInsertCard(n) })),
+                ].sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+
                 const items: React.ReactNode[] = [];
-                let insertIdx = 0;
-                communityPosts.forEach((post, i) => {
-                  items.push(
-                    <CommunityPostCard
-                      key={post.id}
-                      post={post}
-                      onUpdate={handleCommunityPostUpdate}
-                      onDeleted={handleCommunityPostDeleted}
-                    />
-                  );
-                  if ((i + 1) % 2 === 0 && insertIdx < feedInserts.length) {
-                    items.push(renderFeedInsertCard(feedInserts[insertIdx++]));
+                let adIdx = 0;
+                chrono.forEach((entry, i) => {
+                  items.push(entry.node);
+                  if ((i + 1) % 4 === 0 && adIdx < adInserts.length) {
+                    items.push(renderFeedInsertCard(adInserts[adIdx++]));
                   }
                 });
+                // Nothing chronological at all yet — at least surface the
+                // promos rather than a fully blank feed.
+                if (chrono.length === 0) adInserts.forEach(a => items.push(renderFeedInsertCard(a)));
                 return items;
               })()
             )}

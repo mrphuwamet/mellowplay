@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Send, Trash2, MapPin, Check, AlertCircle, Flag } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
+import { useChildStore } from '../store/useChildStore';
+import { isChildRole } from '../utils/familyRoles';
 import { resolveImageUrl } from '../utils/courseImage';
 import { formatCustomDate } from '../utils/dateFormat';
 import { extractYouTubeEmbedUrl } from '../utils/youtubeEmbed';
@@ -25,6 +27,13 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
   const userJson = localStorage.getItem('mellow_user');
   const currentUserId = userJson ? JSON.parse(userJson)?.id : null;
   const isAuthor = isLoggedIn && currentUserId === post.user_id;
+
+  // When the family switched the app to a child's profile (relation
+  // ลูก/บุตร), the child can read the feed but must not speak as the
+  // family — the comment input below is swapped for a note. Same gate the
+  // home page applies to the post composer.
+  const { children: familyMembers, activeProfile } = useChildStore();
+  const activeIsChild = activeProfile !== 'main' && isChildRole(familyMembers.find(m => m.id === activeProfile)?.relation);
 
   const [commentsOpen, setCommentsOpen] = React.useState(false);
   const [comments, setComments] = React.useState<any[] | null>(null);
@@ -273,25 +282,31 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onUpdate, o
             </div>
           ))}
 
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="text"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              placeholder={isLoggedIn ? (lang === 'en' ? 'Add a comment...' : 'แสดงความคิดเห็น...') : (lang === 'en' ? 'Log in to comment' : 'เข้าสู่ระบบเพื่อคอมเมนท์')}
-              disabled={!isLoggedIn}
-              maxLength={500}
-              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-100 rounded-full text-[14px] font-medium focus:outline-none disabled:opacity-50"
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitComment(); }}
-            />
-            <button
-              onClick={handleSubmitComment}
-              disabled={commentSubmitting || !commentText.trim() || !isLoggedIn}
-              className="w-9 h-9 rounded-full bg-mellow-purple text-white flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0"
-            >
-              <Send size={14} />
-            </button>
-          </div>
+          {activeIsChild ? (
+            <p className="text-center text-slate-400 text-[12px] font-bold pt-1">
+              {lang === 'en' ? 'Switch to a parent profile to comment' : 'สลับเป็นโปรไฟล์ผู้ปกครองเพื่อแสดงความคิดเห็น'}
+            </p>
+          ) : (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder={isLoggedIn ? (lang === 'en' ? 'Add a comment...' : 'แสดงความคิดเห็น...') : (lang === 'en' ? 'Log in to comment' : 'เข้าสู่ระบบเพื่อคอมเมนท์')}
+                disabled={!isLoggedIn}
+                maxLength={500}
+                className="flex-1 px-4 py-2 bg-slate-50 border border-slate-100 rounded-full text-[14px] font-medium focus:outline-none disabled:opacity-50"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitComment(); }}
+              />
+              <button
+                onClick={handleSubmitComment}
+                disabled={commentSubmitting || !commentText.trim() || !isLoggedIn}
+                className="w-9 h-9 rounded-full bg-mellow-purple text-white flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0"
+              >
+                <Send size={14} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
