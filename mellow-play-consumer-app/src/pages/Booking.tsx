@@ -32,7 +32,7 @@ import { useCouponTypes, getPrimaryCouponRequirement } from '../hooks/useCouponT
 import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
 
 interface Branch { id: number; name: string; location: string; address?: string; }
-interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; registration_close_at?: string | null; }
+interface Course { id: number; name: string; description: string; is_little_junior_enabled: number; is_junior_enabled: number; thumbnail_url?: string; image_views?: CourseImageViews; poster_images?: PosterImage[]; is_extraclass?: number; is_event?: number; is_service?: number; original_price?: number; calendar_id?: number; age_min?: number; age_max?: number; category_name?: string; location?: string; location_link?: string; branch_ids?: string; active_campaign_discount_amount?: number; active_campaign_label?: string; allow_repeat?: number; registration_form_id?: number | null; registration_close_at?: string | null; }
 interface TimeSlot { ruleId: number; label?: string | null; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 
@@ -430,11 +430,24 @@ const Booking = () => {
     setIsAddChildOpen(true);
   };
 
-  // Auto skip branch
+  // Auto skip branch: an event/extraclass isn't tied to wherever it happens
+  // to sort first among ALL branches — it's tied to whichever branch(es) the
+  // admin actually assigned it to in branch_ids. Fall back to branches[0]
+  // only when the course has none configured, since Bookings.branch_id is
+  // NOT NULL and still needs some value.
   useEffect(() => {
     if (selectedCourse && branches.length > 0) {
       if (!hasBranch && !selectedBranch) {
-        setSelectedBranch(branches[0]);
+        let assignedBranch: Branch | undefined;
+        if (selectedCourse.is_event || selectedCourse.is_extraclass) {
+          try {
+            // CourseManagement.tsx stores this as an array of stringified
+            // ids (the <Select multiple> option values), not numbers.
+            const courseBranchIds: string[] = JSON.parse(selectedCourse.branch_ids || '[]');
+            assignedBranch = branches.find(b => courseBranchIds.includes(String(b.id)));
+          } catch { /* malformed branch_ids falls through to the default below */ }
+        }
+        setSelectedBranch(assignedBranch || branches[0]);
       }
     }
   }, [selectedCourse, branches, hasBranch]);
