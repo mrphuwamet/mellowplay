@@ -47,22 +47,18 @@ const getLiff = async () => {
 // NOT do that redirect, so it's safe to call eagerly there.
 export const isInLineApp = (): boolean => /\bLine\//.test(navigator.userAgent);
 
-// Feature-detects rather than assuming "not in LINE = never available" —
-// LIFF's shareTargetPicker can work from an external browser too (LINE
-// hands off to its own app/QR flow), which is why this must still exist
-// alongside isInLineApp: outside LINE, this eager check is safe and is the
-// only way to know whether to show the button at all.
-export const isLineShareAvailable = async (): Promise<boolean> => {
-  try {
-    const liff = await getLiff();
-    if (!liff) return false;
-    return liff.isApiAvailable('shareTargetPicker');
-  } catch {
-    return false;
-  }
-};
-
 export type ShareResult = { status: 'sent' | 'cancelled' | 'unavailable' | 'error'; message?: string };
+
+// LIFF's shareTargetPicker gates on liff.isLoggedIn() (an actual LINE access
+// token) — see @liff/is-api-available's shareTargetPicker validator, which
+// refuses with "Need access_token for api call, Please login first" whenever
+// that's missing. This app never signs a visitor into LINE (it has its own
+// login), so outside the LINE app there is normally no such token, and the
+// button either silently fails to ever become available or throws on every
+// click depending on stale/cached tokens. line.me's own share deep link needs
+// neither LIFF nor a LINE login — it just opens LINE (app or web) with the
+// text prefilled — so it's the reliable path for a normal external browser.
+const getLineShareUrl = (text: string): string => `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
 
 // The very first liff.init() call in a fresh LINE in-app-browser session can
 // still trigger the redirect-bootstrap described above even when it's
@@ -79,6 +75,15 @@ const PENDING_SHARE_KEY = 'mellow_pending_line_share';
 // `undefined` when the user closes the picker without sending; that's a
 // normal cancel, not a failure.
 export const shareToLine = async (text: string): Promise<ShareResult> => {
+  // Opened directly in a normal browser (as opposed to LINE's in-app
+  // browser): skip LIFF/shareTargetPicker — see getLineShareUrl's comment —
+  // and hand off to LINE's own share deep link instead. This must be a
+  // direct, synchronous window.open() call (no prior await) so browsers
+  // don't treat it as an unsolicited popup and block it.
+  if (!isInLineApp()) {
+    const opened = window.open(getLineShareUrl(text), '_blank', 'noopener,noreferrer');
+    return opened ? { status: 'sent' } : { status: 'error', message: 'popup blocked' };
+  }
   try {
     sessionStorage.setItem(PENDING_SHARE_KEY, text);
     const liff = await getLiff();
