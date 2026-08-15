@@ -16,7 +16,7 @@ export class ReportController {
 
   async getTransactions(c: C) {
     try {
-      const { startDate, endDate, type, branchId, search, limit, offset } = c.req.query();
+      const { startDate, endDate, type, branchId, search, limit, offset, includeNonMonetary } = c.req.query();
       const d = defaultDates();
       const result = await this.repo(c).getTransactions({
         startDate: startDate || d.startDate,
@@ -26,6 +26,9 @@ export class ReportController {
         search: search || undefined,
         limit:  limit  ? parseInt(limit)  : 100,
         offset: offset ? parseInt(offset) : 0,
+        // Opt back in for anyone auditing coupon movements; the sales screen
+        // never asks for it.
+        moneyOnly: includeNonMonetary !== '1',
       });
       return c.json({ success: true, ...result });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }

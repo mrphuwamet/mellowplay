@@ -6,9 +6,16 @@ export class ReportRepository {
   async getTransactions(opts: {
     startDate?: string; endDate?: string;
     type?: string; branchId?: number; search?: string; limit?: number; offset?: number;
+    /** Money only. See the clause below for why this is the default. */
+    moneyOnly?: boolean;
   }): Promise<{ rows: any[]; total: number }> {
-    const { startDate, endDate, type, branchId, search, limit = 100, offset = 0 } = opts;
+    const { startDate, endDate, type, branchId, search, limit = 100, offset = 0, moneyOnly = true } = opts;
     let where = 'WHERE 1=1';
+    // Cancelling a booking that was paid with a coupon writes a refund_booking
+    // row for 0 baht: the coupon went back, no money moved. Sixteen of the
+    // twenty-one rows on this screen were those, burying the four actual sales
+    // under a list of zeroes on a page titled ยอดขายและรายได้.
+    if (moneyOnly) where += ' AND COALESCE(t.amount, 0) <> 0';
     const params: any[] = [];
     if (startDate) { where += ' AND DATE(t.created_at)>=?'; params.push(startDate); }
     if (endDate)   { where += ' AND DATE(t.created_at)<=?'; params.push(endDate); }

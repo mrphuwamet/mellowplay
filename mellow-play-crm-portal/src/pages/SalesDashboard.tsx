@@ -338,7 +338,7 @@ const SalesDashboard = () => {
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <SectionPaper
-              title="รายการธุรกรรม"
+              title="รายการธุรกรรม (เฉพาะที่มีเงินเข้า-ออก)"
               action={(
                 <TextField
                   size="small" placeholder="ค้นหา (ลูกค้า / สินค้า / เลขที่)" value={search}
