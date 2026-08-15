@@ -13,8 +13,6 @@ import {
 import {
   ChevronLeft, ChevronRight,
   ExpandMore as ExpandMoreIcon,
-  UnfoldMore as ExpandAllIcon,
-  UnfoldLess as CollapseAllIcon,
   Add as AddIcon,
   Search as SearchIcon,
   HistoryEdu as ReportIcon,
@@ -517,26 +515,10 @@ const getGroupValue = (b: Booking, field: string, submissionsMap?: SubmissionsMa
   }
 };
 
-interface GroupNode { key: string; items: Booking[]; children?: GroupNode[]; }
 
 // Recursive so any number of group-by conditions can be layered — pick
 // course + date and you get one course-level group per date sub-group,
 // not just a single flat dimension.
-const buildGroups = (items: Booking[], fields: string[], submissionsMap?: SubmissionsMap): GroupNode[] => {
-  if (fields.length === 0) return [{ key: '', items }];
-  const [field, ...rest] = fields;
-  const map = new Map<string, Booking[]>();
-  for (const b of items) {
-    const key = getGroupValue(b, field, submissionsMap);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(b);
-  }
-  return Array.from(map.entries()).map(([key, groupItems]) => ({
-    key,
-    items: groupItems,
-    children: rest.length > 0 ? buildGroups(groupItems, rest, submissionsMap) : undefined,
-  }));
-};
 
 const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
   const arr = [...items];
@@ -968,25 +950,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>;
 }) => {
   const [search, setSearch] = useState('');
-  const [groupByFields, setGroupByFields] = useState<string[]>([]);
-  // Keyed by the group's full path ("parentKey>childKey>...") rather than
-  // just its own key, since e.g. a "confirmed" status group appears once
-  // per date when grouped by date+status — a bare key would collapse every
-  // one of those at once instead of just the one the admin actually clicked.
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const toggleGroupCollapsed = (path: string) => setCollapsedGroups(prev => {
-    const next = new Set(prev);
-    if (next.has(path)) next.delete(path); else next.add(path);
-    return next;
-  });
-  // Every path currently present in `grouped` — used by "expand/collapse
-  // all" so they act on what's actually on screen right now, not on stale
-  // paths left over from a previous grouping choice.
-  const collectGroupPaths = (nodes: GroupNode[], parentPath: string): string[] =>
-    nodes.flatMap(n => {
-      const path = parentPath ? `${parentPath}>${n.key}` : n.key;
-      return n.children ? [path, ...collectGroupPaths(n.children, path)] : [path];
-    });
+  // Which fields are being filtered on, and to which values. Grouping was
+  // removed in favour of this: a group tells you how the list divides, a
+  // filter answers "show me only these", which is what staff open this page
+  // to do. Both read the same per-field value (getGroupValue), so a filter is
+  // available on every field grouping used to offer — including the ones that
+  // come from the course's own registration form.
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>({});
+  const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
   const [sortKey, setSortKey] = useState('scheduled_asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -1069,9 +1040,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   };
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return bookings;
+    // Every active field filter must match — narrowing, not widening. The
+    // search box then applies on top of whatever survives.
+    const byField = activeFilterFields.length === 0
+      ? bookings
+      : bookings.filter(b => activeFilterFields.every(key =>
+          fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
+    if (!search.trim()) return byField;
     const q = search.toLowerCase();
-    return bookings.filter(b =>
+    return byField.filter(b =>
       b.child_name?.toLowerCase().includes(q) ||
       b.child_nickname?.toLowerCase().includes(q) ||
       b.parent_name?.toLowerCase().includes(q) ||
@@ -1082,7 +1059,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       b.branch_name?.toLowerCase().includes(q) ||
       String(b.id).includes(q)
     );
-  }, [bookings, search]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
@@ -1103,7 +1080,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, groupByFields, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -1114,8 +1091,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // Grouping shows the FULL filtered/sorted set (pagination and grouping
   // don't compose cleanly — see the note rendered near the pagination
   // control below), pagination only applies to the flat, ungrouped view.
-  const itemsToRender = groupByFields.length > 0 ? sorted : paginated;
-  const grouped = useMemo(() => buildGroups(itemsToRender, groupByFields, submissionsMap), [itemsToRender, groupByFields, submissionsMap]);
+  const itemsToRender = paginated;
 
   const courseMap = useMemo(() => new Map(courses.map(c => [c.id, c])), [courses]);
 
@@ -1135,10 +1111,25 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     return Array.from(map.values());
   }, [submissionsMap]);
 
-  const groupOptionsAll = useMemo(() => [
+  const filterOptionsAll = useMemo(() => [
     ...GROUP_OPTIONS.map(o => ({ ...o, section: 'booking' as const })),
     ...dynamicFieldOptions,
   ], [dynamicFieldOptions]);
+
+  // The values actually present, per field, with how many rows carry each —
+  // an option list built from the data cannot offer a choice that returns
+  // nothing. Counted against everything the other filters allow, so the
+  // numbers beside each option describe what picking it would really show.
+  const valueOptionsFor = (fieldKey: string) => {
+    const counts = new Map<string, number>();
+    for (const b of bookings) {
+      const value = getGroupValue(b, fieldKey, submissionsMap);
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], 'th'))
+      .map(([value, count]) => ({ value, count }));
+  };
 
   // Defaults to the full filtered set (the toolbar button), but also reused
   // by the selection bar's "Export CSV ที่เลือก" to dump just the checked rows.
@@ -1450,31 +1441,6 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     );
   };
 
-  const renderGroup = (node: GroupNode, depth: number, parentPath: string): React.ReactNode => {
-    const path = parentPath ? `${parentPath}>${node.key}` : node.key;
-    const isCollapsed = collapsedGroups.has(path);
-    return (
-      <Box key={`${depth}-${node.key}`} sx={{ pl: depth * 2.5 }}>
-        {node.key && (
-          <Box
-            onClick={() => toggleGroupCollapsed(path)}
-            sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, mt: depth > 0 ? 2.5 : 0, cursor: 'pointer', userSelect: 'none', width: 'fit-content' }}
-          >
-            <ExpandMoreIcon sx={{ fontSize: 20, color: 'text.secondary', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(-90deg)' : 'none' }} />
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary', fontSize: depth === 0 ? '15px' : '13.5px' }}>{node.key}</Typography>
-            <Chip label={`${node.items.length} รายการ`} size="small" sx={{ fontWeight: 700, fontSize: '12px', bgcolor: '#eef1f5' }} />
-          </Box>
-        )}
-        {!isCollapsed && (
-          node.children ? (
-            <Stack spacing={2}>{node.children.map(child => renderGroup(child, depth + 1, path))}</Stack>
-          ) : (
-            <Stack spacing={1.25}>{node.items.map(renderBookingCard)}</Stack>
-          )
-        )}
-      </Box>
-    );
-  };
 
   return (
     <Box>
@@ -1491,20 +1457,24 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
             sx={{ flex: '1 1 220px', '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 600 } }}
           />
-          {/* Autocomplete (not a plain Select) so staff can type to search
-              by field name once dynamic registration-form fields (Team,
-              any other select/radio/checkbox) join the fixed booking-column
-              options below — groupBy renders them as separate labeled
-              sections in the dropdown. */}
+          {/* Autocomplete rather than a plain Select so a field can be found
+              by typing: the list grows with every select/radio/checkbox on a
+              course's registration form, and groupBy separates those from the
+              fixed booking columns. */}
           <Autocomplete
             multiple
             size="small"
-            options={groupOptionsAll}
+            options={filterOptionsAll}
             groupBy={(option) => option.section === 'booking' ? 'ข้อมูลการจอง' : 'ฟิลด์จากฟอร์มลงทะเบียน'}
             getOptionLabel={(option) => option.label}
             isOptionEqualToValue={(option, value) => option.key === value.key}
-            value={groupOptionsAll.filter(o => groupByFields.includes(o.key))}
-            onChange={(_, newValue) => setGroupByFields(newValue.map(o => o.key))}
+            value={filterOptionsAll.filter(o => o.key in fieldFilters)}
+            onChange={(_, newValue) => {
+              const keys = newValue.map(o => o.key);
+              // Keep whatever values were already chosen for fields that
+              // survive, so removing one field does not reset the others.
+              setFieldFilters(prev => Object.fromEntries(keys.map(k => [k, prev[k] ?? []])));
+            }}
             disableCloseOnSelect
             sx={{ minWidth: 240, flex: '1 1 240px' }}
             renderOption={(props, option, { selected }) => (
@@ -1515,31 +1485,20 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             )}
             renderTags={(selected) => (
               <Typography variant="body2" noWrap sx={{ fontWeight: 700, ml: 1 }}>
-                {selected.map(o => o.label).join(' › ')}
+                {selected.map(o => o.label).join(', ')}
               </Typography>
             )}
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="จัดกลุ่มตาม"
-                placeholder={groupByFields.length === 0 ? 'ไม่จัดกลุ่ม' : undefined}
+                label="กรองตามฟิลด์"
+                placeholder={Object.keys(fieldFilters).length === 0 ? 'ไม่กรอง' : undefined}
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 700 } }}
               />
             )}
           />
-          {groupByFields.length > 0 && (
-            <Stack direction="row" spacing={0.5}>
-              <Tooltip title="ขยายทั้งหมด">
-                <IconButton size="small" onClick={() => setCollapsedGroups(new Set())}>
-                  <ExpandAllIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="ยุบทั้งหมด">
-                <IconButton size="small" onClick={() => setCollapsedGroups(new Set(collectGroupPaths(grouped, '')))}>
-                  <CollapseAllIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
+          {activeFilterFields.length > 0 && (
+            <Button size="small" onClick={() => setFieldFilters({})} sx={{ fontWeight: 700 }}>ล้างตัวกรอง</Button>
           )}
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
             <InputLabel sx={{ fontWeight: 700 }}>เรียงลำดับ</InputLabel>
@@ -1558,6 +1517,40 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           </Button>
         </Stack>
       </Paper>
+
+      {/* One select per chosen field. Options come from the data, with a count
+          beside each, so a value that would return nothing is never offered. */}
+      {Object.keys(fieldFilters).length > 0 && (
+        <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: 'wrap', gap: 1.5 }}>
+          {Object.keys(fieldFilters).map(key => {
+            const label = filterOptionsAll.find(o => o.key === key)?.label ?? key;
+            const options = valueOptionsFor(key);
+            return (
+              <FormControl key={key} size="small" sx={{ minWidth: 220 }}>
+                <InputLabel sx={{ fontWeight: 700 }}>{label}</InputLabel>
+                <Select
+                  multiple
+                  label={label}
+                  value={fieldFilters[key]}
+                  onChange={e => setFieldFilters(prev => ({ ...prev, [key]: e.target.value as string[] }))}
+                  renderValue={sel => (sel as string[]).length === 0 ? 'ทั้งหมด' : (sel as string[]).join(', ')}
+                  sx={{ fontWeight: 700, borderRadius: 2 }}
+                >
+                  {options.map(o => (
+                    <MenuItem key={o.value} value={o.value} sx={{ fontWeight: 600 }}>
+                      <Checkbox size="small" checked={fieldFilters[key].includes(o.value)} sx={{ p: 0.5, mr: 0.5 }} />
+                      {o.value}
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 'auto', pl: 1 }}>
+                        {o.count}
+                      </Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            );
+          })}
+        </Stack>
+      )}
 
       {/* Selection bar — "all" + per-row checkboxes drive bulk actions:
           mark-attended, report-filing, cancel (confirm required), CSV export
@@ -1711,14 +1704,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       ) : (
         <>
           <Stack spacing={2.5}>
-            {grouped.map(node => renderGroup(node, 0, ''))}
+            {itemsToRender.map(renderBookingCard)}
           </Stack>
 
-          {/* Pagination — only meaningful against the flat, ungrouped list;
-              grouping shows every matching row across all groups instead
-              (see the note below), so the two features don't compose. */}
-          {groupByFields.length === 0 ? (
-            <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mt: 2.5 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mt: 2.5 }}>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                 แสดง {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, sorted.length)} จาก {sorted.length} รายการ
               </Typography>
@@ -1730,12 +1719,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 </FormControl>
                 <Pagination count={pageCount} page={page} onChange={(_, p) => setPage(p)} color="primary" shape="rounded" size="small" />
               </Stack>
-            </Stack>
-          ) : (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, fontWeight: 600 }}>
-              แสดงทั้งหมด {sorted.length} รายการ (การแบ่งหน้าใช้ไม่ได้ขณะจัดกลุ่ม)
-            </Typography>
-          )}
+          </Stack>
         </>
       )}
 
