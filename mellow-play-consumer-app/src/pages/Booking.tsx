@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, ArrowRight, ClipboardList } from 'lucide-react';
+import { Loader2, ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, ArrowRight, ClipboardList } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
@@ -1071,7 +1071,7 @@ const Booking = () => {
                     type="text"
                     value={courseSearch}
                     onChange={(e) => setCourseSearch(e.target.value)}
-                    placeholder={lang === 'en' ? 'Search class name...' : 'ค้นหาชื่อคลาสเรียน...'}
+                    placeholder={lang === 'en' ? 'Search by name...' : 'ค้นหาชื่อคลาสหรือกิจกรรม...'}
                     className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all"
                   />
                   <div className="absolute left-3.5 top-3.5 text-slate-400">
@@ -1857,7 +1857,12 @@ const Booking = () => {
       {!successBooking && currentStep === 'payment' && (
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
           <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[16px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
-             {isFreeBooking
+             {isSubmitting ? (
+               <>
+                 <Loader2 size={20} className="animate-spin" />
+                 {lang === 'en' ? 'Confirming…' : 'กำลังยืนยัน…'}
+               </>
+             ) : isFreeBooking
                ? confirmActionLabel
                : (paymentMethod === 'coupon'
                  ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
@@ -1992,7 +1997,7 @@ const Booking = () => {
                 ? (lang === 'en' ? 'Limit Exceeded' : 'ไม่สามารถจองได้')
                 : duplicateError?.error_code === 'DUPLICATE_FAMILY_BOOKING'
                   ? (lang === 'en' ? 'Already Registered (Family)' : 'ครอบครัวนี้ลงทะเบียนไปแล้ว')
-                  : (lang === 'en' ? 'Already Registered' : 'จองคลาสนี้ไปแล้ว')}
+                  : (lang === 'en' ? 'Already Registered' : 'ลงทะเบียนรายการนี้ไปแล้ว')}
             </h3>
             <p className="text-[16px] font-medium text-slate-500 text-center mb-6 leading-relaxed">
               {duplicateError?.message}

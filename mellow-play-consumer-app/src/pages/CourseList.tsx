@@ -6,6 +6,7 @@ import logo from '../assets/ui/logo.svg';
 import { formatCalendarSummary, isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { getCourseView } from '../utils/courseImage';
 import { getCourseDetailPath } from '../utils/courseLinks';
+import { stripHtml } from '../utils/stripHtml';
 
 // Mounted two ways: /courses/:type (type comes from the URL, e.g. "extra"/
 // "regular") and /event (a dedicated top-level route — events aren't a class
@@ -92,7 +93,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
         )}
 
         {loading ? (
-          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             {[0, 1, 2, 3].map(i => (
               <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full md:flex-col">
                 <div className="w-40 h-40 md:w-full md:h-40 bg-slate-200 shrink-0" />
@@ -105,9 +106,10 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             {visibleCourses.map(course => {
               const view = getCourseView(course, 'card');
+              const shortDescription = (course.short_description || stripHtml(course.description || '')).trim();
               const ended = isCourseEnded(course);
               const closed = isRegistrationClosed(course);
               return (
@@ -132,8 +134,16 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
                     )}
                  </div>
                  <div className="flex-1 min-w-0 p-4 flex flex-col">
-                    <h4 className="font-black text-[17px] text-slate-800 leading-tight">{course.name}</h4>
+                    {/* Clamped so a two-line name does not make its card taller
+                        than the rest of the row — that uneven bottom edge was
+                        the "padding" that looked wrong. */}
+                    <h4 className="font-black text-[16px] text-slate-800 leading-tight line-clamp-2 min-h-[2.5rem]">{course.name}</h4>
                     {course.name_en && <p className="text-[13px] text-slate-400 font-bold truncate">{course.name_en}</p>}
+                    {/* The one-line pitch the card was missing: a name and a
+                        price say what it costs but not what it is. */}
+                    {shortDescription && (
+                      <p className="text-[13px] text-slate-500 leading-snug mt-1.5 line-clamp-2">{shortDescription}</p>
+                    )}
 
                     <div className="flex flex-wrap gap-2 mt-3 mb-1">
                        {course.age_min && course.age_max && (

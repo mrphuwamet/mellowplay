@@ -1112,7 +1112,18 @@ export class AdminController {
       // asynchronously via the Beam webhook (see webhookController.ts,
       // which sends its own notification once that actually happens).
       if (shouldBypassPayment) {
-        try {
+        // Everything in this block is after-the-fact: a Discord notification,
+        // an SMS and an email. None of it changes whether the booking exists,
+        // and all of it talks to something outside this worker — which is what
+        // the person tapping ยืนยัน was waiting on, watching a button do
+        // nothing while two providers were called in turn.
+        //
+        // waitUntil hands the work to the runtime to finish after the response
+        // has gone out. A failure still lands in the same logs it always did;
+        // it just no longer costs the customer several seconds of staring at a
+        // screen that has already succeeded.
+        const notifyAfterResponse = async () => {
+          try {
           const realChildIds = parsedChildIds.filter((id: number) => id > 0);
           let childNames = 'ผู้เยี่ยมชม (Guest)';
           if (realChildIds.length > 0) {
@@ -1132,9 +1143,16 @@ export class AdminController {
             'เวลาชำระ': new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
             'รหัสจอง': bookingIds.join(', '),
           });
-        } catch { /* notification must never block a successful booking */ }
+          } catch { /* notification must never block a successful booking */ }
 
-        await sendBookingSuccessNotifications(config.db, config, bookingIds);
+          await sendBookingSuccessNotifications(config.db, config, bookingIds);
+        };
+
+        // executionCtx is absent in some test harnesses; awaiting inline there
+        // keeps behaviour identical rather than dropping the messages.
+        const ctx = (c as any).executionCtx;
+        if (ctx?.waitUntil) ctx.waitUntil(notifyAfterResponse());
+        else await notifyAfterResponse();
       }
 
       return c.json({ success: true, id: firstId, bookingIds, qrTokens, paymentUrl: beamPaymentUrl });

@@ -14,6 +14,7 @@ import AvatarPickerModal from '../components/AvatarPickerModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
 import { getCourseDetailPath } from '../utils/courseLinks';
+import { formatCalendarSummary } from '../utils/calendarUtils';
 import BirthdayModal from '../components/BirthdayModal';
 import CommunityPostComposer from '../components/CommunityPostComposer';
 import CommunityPostCard from '../components/CommunityPostCard';
@@ -397,7 +398,7 @@ const Home = () => {
       : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
       : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
       : (lang === 'en' ? 'News' : 'ข่าวสาร');
-    const ctaLabel = item.kind === 'course' ? (lang === 'en' ? 'View class' : 'ดูรายละเอียดคลาส')
+    const ctaLabel = item.kind === 'course' ? (lang === 'en' ? 'View details' : 'ดูรายละเอียด')
       : item.kind === 'ad' ? (lang === 'en' ? 'Learn more' : 'ดูเพิ่มเติม')
       : isBookingCard ? (lang === 'en' ? 'View booking' : 'ดูรายละเอียดการจอง')
       : (lang === 'en' ? 'Read more' : 'อ่านต่อ');
@@ -473,6 +474,12 @@ const Home = () => {
         </div>
 
         <h4 className="text-[16px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
+        {item.kind === 'course' && item.course?.calendar_summary_json && (
+          <p className="text-[13px] font-bold text-slate-500 mt-1.5 flex items-center gap-1.5">
+            <Calendar size={14} className="text-slate-400 shrink-0" />
+            {formatCalendarSummary(item.course.calendar_summary_json)}
+          </p>
+        )}
         {excerptText && (
           <p className="text-[14px] text-slate-500 leading-relaxed mt-1.5">
             {excerptText}
