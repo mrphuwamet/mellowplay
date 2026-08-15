@@ -92,7 +92,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
         )}
 
         {loading ? (
-          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
+          <div className="flex flex-col gap-4 animate-pulse md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {[0, 1, 2, 3].map(i => (
               <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex w-full md:flex-col">
                 <div className="w-40 h-40 md:w-full md:h-40 bg-slate-200 shrink-0" />
@@ -105,7 +105,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3">
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {visibleCourses.map(course => {
               const view = getCourseView(course, 'card');
               const ended = isCourseEnded(course);
@@ -135,7 +135,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
                     <h4 className="font-black text-[17px] text-slate-800 leading-tight">{course.name}</h4>
                     {course.name_en && <p className="text-[13px] text-slate-400 font-bold truncate">{course.name_en}</p>}
 
-                    <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="flex flex-wrap gap-2 mt-3 mb-1">
                        {course.age_min && course.age_max && (
                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[12px] font-bold">
                            {course.age_min}-{course.age_max} ปี
@@ -146,7 +146,7 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
                        </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[13px] font-bold text-slate-500 border-t border-slate-100 mt-auto pt-2">
+                    <div className="flex items-center gap-1.5 text-[13px] font-bold text-slate-500 border-t border-slate-100 mt-auto pt-3">
                        <Calendar size={14} className="text-slate-400 shrink-0" />
                        <span className="truncate">{ended ? 'จบแล้ว' : formatCalendarSummary(course.calendar_summary_json)}</span>
                     </div>

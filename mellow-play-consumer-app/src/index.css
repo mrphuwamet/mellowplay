@@ -227,9 +227,14 @@ p, li, label, h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* No cap at all on a very wide screen: the page already fills the area
+   beside the nav rail, and a capped frame left the in-page header stopping
+   short of the edge with a strip of background beyond it. Cards get denser
+   here rather than wider (see CourseList's 2xl:grid-cols-5), so the extra
+   room buys more per row instead of longer lines. */
 @media (min-width: 1536px) {
   .mellow-shell-frame:has(> .mellow-page) {
-    max-width: 1536px;
+    max-width: none;
   }
 }
 

@@ -42,6 +42,10 @@ const Home = () => {
   const [isProfileSwitcherOpen, setIsProfileSwitcherOpen] = React.useState(false);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = React.useState(false);
   const [recommendedCourses, setRecommendedCourses] = React.useState<any[]>([]);
+  // Everything published, for the feed. recommendedCourses stays a filtered
+  // subset for the sidebar, which is a different job: a short curated strip,
+  // not a chronological stream.
+  const [allCourses, setAllCourses] = React.useState<any[]>([]);
   const [recentHistory, setRecentHistory] = React.useState<any[]>([]);
   const [pendingBookings, setPendingBookings] = React.useState<any[]>([]);
   const [upcomingClasses, setUpcomingClasses] = React.useState<any[]>([]);
@@ -249,6 +253,7 @@ const Home = () => {
           );
           const sortedRecommended = [...recommended].sort((a: any, b: any) => Number(takenIds.has(a.id)) - Number(takenIds.has(b.id)));
           setRecommendedCourses(sortedRecommended);
+          setAllCourses(coursesRes.data.courses || []);
         }
 
         if (historyRes.data.success) {
@@ -329,9 +334,29 @@ const Home = () => {
       .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .map((n: any) => ({
         kind: 'news' as const, id: n.id, title: (lang === 'en' && n.title_en) ? n.title_en : n.title,
+        // The story itself, so the card can show a few lines rather than a
+        // headline and a picture. It is authored HTML, so the tags come off
+        // before it is measured or cut.
+        excerpt: stripHtml((lang === 'en' && n.content_en ? n.content_en : n.content) || ''),
         image: n.image_url, newsType: n.type, createdAt: n.created_at,
       })),
   [newsItems, lang]);
+
+  // Classes, events and services in the feed, dated by when they were last
+  // edited (updated_at, migration 0085) and falling back to when they were
+  // created. Editing a class is a real event for a parent — a new round, a
+  // changed price — so it earns its place back at the top the same way a
+  // reposted story would.
+  const courseFeedItems = React.useMemo(() =>
+    allCourses.map((c: any) => ({
+      kind: 'course' as const,
+      id: c.id,
+      title: (lang === 'en' && c.name_en) ? c.name_en : c.name,
+      image: c.thumbnail_url,
+      createdAt: c.updated_at || c.created_at,
+      course: c,
+    })),
+  [allCourses, lang]);
 
   // CRM-pushed promos are the one non-chronological thing left in the feed —
   // they're interleaved every few entries, clearly labeled โฆษณา, instead of
@@ -342,7 +367,7 @@ const Home = () => {
     adTargetType: a.targetType, adTargetId: a.targetId,
   })), [ads]);
 
-  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; createdAt?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any }) => {
+  const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; createdAt?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any; excerpt?: string }) => {
     const isBookingCard = item.kind === 'upcoming' || item.kind === 'history';
     const handleClick = () => {
       if (isBookingCard) { setSelectedBooking(item.booking); return; }
@@ -362,7 +387,12 @@ const Home = () => {
           : `/news/${item.id}`,
       );
     };
-    const eyebrow = item.kind === 'course' ? (lang === 'en' ? 'Suggested Class' : 'คลาสแนะนำ')
+    const eyebrow = item.kind === 'course'
+      ? (item.course?.is_event
+          ? (lang === 'en' ? 'Activity' : 'กิจกรรม')
+          : item.course?.is_service
+            ? (lang === 'en' ? 'Service' : 'บริการ')
+            : (lang === 'en' ? 'Class' : 'คลาสเรียน'))
       : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Activity' : 'กิจกรรมที่กำลังจะมาถึง')
       : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
       : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
@@ -384,7 +414,15 @@ const Home = () => {
     const courseView = item.kind === 'course' && course ? getCourseView(course, 'card') : null;
     const shortDescription = item.kind === 'course' && course
       ? (course.short_description || stripHtml(course.description || ''))
-      : undefined;
+      : item.excerpt || undefined;
+
+    // Cut in JS rather than with line-clamp so "ดูเพิ่มเติม" can sit at the end
+    // of the text itself, where someone reading stops — CSS can clamp the
+    // lines but cannot put anything at the point where it cut them. 180
+    // characters is about three to four lines at this width.
+    const EXCERPT_LIMIT = 180;
+    const excerptIsCut = !!shortDescription && shortDescription.length > EXCERPT_LIMIT;
+    const excerptText = excerptIsCut ? `${shortDescription!.slice(0, EXCERPT_LIMIT).trimEnd()}…` : shortDescription;
     const bookingStatus = item.kind === 'course' && course ? courseBookingStatus[course.id] : undefined;
     const isOneTimeBooked = !!bookingStatus && !course?.allow_repeat;
     const bookLabel = isOneTimeBooked
@@ -435,8 +473,18 @@ const Home = () => {
         </div>
 
         <h4 className="text-[16px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
-        {shortDescription && (
-          <p className="text-[14px] text-slate-500 leading-snug mt-1 line-clamp-2">{shortDescription}</p>
+        {excerptText && (
+          <p className="text-[14px] text-slate-500 leading-relaxed mt-1.5">
+            {excerptText}
+            {excerptIsCut && (
+              <span
+                onClick={handleClick}
+                className="text-mellow-purple font-black ml-1 hover:underline"
+              >
+                {lang === 'en' ? 'See more' : 'ดูเพิ่มเติม'}
+              </span>
+            )}
+          </p>
         )}
         {isBookingCard && item.booking?.scheduled_at && (
           <p className="text-[13px] text-slate-400 font-bold mt-0.5">
@@ -1394,6 +1442,7 @@ const Home = () => {
                     ),
                   })),
                   ...newsFeedItems.map(n => ({ at: n.createdAt, node: renderFeedInsertCard(n) })),
+                  ...courseFeedItems.map(c => ({ at: c.createdAt, node: renderFeedInsertCard(c) })),
                 ].sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
 
                 const items: React.ReactNode[] = [];
