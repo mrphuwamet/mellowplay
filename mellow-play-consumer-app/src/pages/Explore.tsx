@@ -15,6 +15,7 @@ import { CarouselNudgeButtons, useHorizontalCarousel } from '../components/Carou
 import ResponsiveModal from '../components/ResponsiveModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
+import { getBookingPlace } from '../utils/bookingPlace';
 
 type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
 const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
@@ -278,8 +279,8 @@ const Explore = () => {
                       {' · '}
                       {formatTime24(booking.scheduled_at, lang)}
                     </p>
-                    {booking.branch_name && (
-                      <p className="text-[11px] font-medium text-slate-500 truncate mt-auto pt-2">{booking.branch_name}</p>
+                    {getBookingPlace(booking) && (
+                      <p className="text-[11px] font-medium text-slate-500 truncate mt-auto pt-2">{getBookingPlace(booking)!.name}</p>
                     )}
                   </div>
                 ))}

@@ -23,6 +23,7 @@ import defaultAvatar from '../assets/ui/default-avatar.svg';
 import apiClient from '../utils/apiClient';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
+import { getBookingPlace } from '../utils/bookingPlace';
 import { resolveImageUrl, getCourseView } from '../utils/courseImage';
 import { isPremiumChild } from '../utils/membership';
 import { stripHtml } from '../utils/stripHtml';
@@ -752,7 +753,7 @@ const Home = () => {
               </p>
               <div className="flex items-center gap-1 mt-auto pt-2">
                 <MapPin size={11} className="text-mellow-purple shrink-0" />
-                <span className="text-[11px] font-medium text-slate-500 truncate">{booking.branch_name}</span>
+                <span className="text-[11px] font-medium text-slate-500 truncate">{getBookingPlace(booking)?.name}</span>
               </div>
             </div>
           ))}
@@ -882,7 +883,7 @@ const Home = () => {
                         {lang === 'en' ? BOOKING_STATUS_META[item.status].en : BOOKING_STATUS_META[item.status].th}
                       </span>
                     )}
-                    <p className="text-[11px] text-slate-500 font-bold mt-auto pt-2 truncate">{item.branch_name}</p>
+                    <p className="text-[11px] text-slate-500 font-bold mt-auto pt-2 truncate">{getBookingPlace(item)?.name}</p>
                   </button>
                 );
               })}

@@ -13,6 +13,7 @@ import { getCourseDetailPath } from '../utils/courseLinks';
 import { trackCourseView } from '../utils/analytics';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { stripHtml } from '../utils/stripHtml';
+import { getBookingPlace } from '../utils/bookingPlace';
 
 const Roadmap = () => {
   const navigate = useNavigate();
@@ -265,7 +266,7 @@ const Roadmap = () => {
                           </div>
                           <div className="flex items-center gap-1 text-slate-500 mt-0.5">
                             <MapPin size={11} className={isPast ? "text-slate-400" : "text-mellow-blue"} />
-                            <span className="text-[12px] font-medium truncate">{booking.branch_name}</span>
+                            <span className="text-[12px] font-medium truncate">{getBookingPlace(booking)?.name}</span>
                           </div>
                         </div>
 

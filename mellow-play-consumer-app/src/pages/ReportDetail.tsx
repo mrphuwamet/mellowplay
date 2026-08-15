@@ -5,6 +5,7 @@ import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import { resolveImageUrl } from '../utils/courseImage';
 import { formatCustomDate } from '../utils/dateFormat';
+import { getBookingPlace } from '../utils/bookingPlace';
 
 const ReportDetail = () => {
   const navigate = useNavigate();
@@ -100,10 +101,10 @@ const ReportDetail = () => {
                 <Calendar size={14} />
                 <span className="text-xs font-medium">{formatCustomDate(bookingFromState.scheduled_at, lang, 'full')}</span>
               </div>
-              {bookingFromState.branch_name && (
+              {getBookingPlace(bookingFromState) && (
                 <div className="flex items-center gap-2 text-slate-500">
                   <MapPin size={14} />
-                  <span className="text-xs font-medium">{bookingFromState.branch_name}</span>
+                  <span className="text-xs font-medium">{getBookingPlace(bookingFromState)!.name}</span>
                 </div>
               )}
             </div>
