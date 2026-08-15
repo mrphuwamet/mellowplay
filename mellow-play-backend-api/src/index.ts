@@ -547,6 +547,7 @@ app.get('/api/v1/admin/users', (c) => adminController.getUsers(c));
 app.get('/api/v1/admin/children-directory', (c) => adminController.getChildrenDirectory(c));
 app.get('/api/v1/admin/users/:id', (c) => adminController.getUserById(c));
 app.put('/api/v1/admin/users/:id', (c) => adminController.updateUser(c));
+app.post('/api/v1/admin/users/:id/children', (c) => adminController.addUserChild(c));
 app.post('/api/v1/admin/users/:id/upload-avatar', (c) => adminController.uploadUserAvatar(c));
 app.put('/api/v1/admin/children/:id', (c) => adminController.updateChildProfile(c));
 app.delete('/api/v1/admin/family-members/:id', (c) => adminController.deleteFamilyMember(c));

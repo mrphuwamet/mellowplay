@@ -53,17 +53,26 @@ export class AdminController {
       const userRepository = new UserRepository(config.db);
       const passwordHash = await AuthService.hashPassword(password);
 
-      const duplicateMatches = await userRepository.checkDuplicateFullName(`${firstName} ${lastName}`);
+      // The duplicate-name lookup is a soft, non-blocking warning (see its
+      // own doc comment) — it must never add its latency to account
+      // creation itself. Run it alongside the insert instead of before it:
+      // sequentially, three unindexed full-table scans (Users/HD_Profiles/
+      // User_CRM_Children) plus the insert could together exceed the
+      // Worker's edge timeout, so the client saw a failure and a refresh
+      // showed the row anyway — the insert had actually gone through.
+      const [duplicateMatches, userId] = await Promise.all([
+        userRepository.checkDuplicateFullName(`${firstName} ${lastName}`).catch(() => []),
+        userRepository.createWithChildren(
+          phone, passwordHash, firstName, lastName, [],
+          email || undefined, lineId || undefined,
+          true, false, address || undefined, prefix || undefined, dob || undefined,
+          firstNameEn || undefined, lastNameEn || undefined
+        ),
+      ]);
       const duplicateWarning = duplicateMatches.length > 0
         ? `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`
         : undefined;
 
-      const userId = await userRepository.createWithChildren(
-        phone, passwordHash, firstName, lastName, [],
-        email || undefined, lineId || undefined,
-        true, false, address || undefined, prefix || undefined, dob || undefined,
-        firstNameEn || undefined, lastNameEn || undefined
-      );
       return c.json({ success: true, userId, duplicateWarning });
     } catch (error: any) {
       let message = error.message;
@@ -73,6 +82,49 @@ export class AdminController {
         message = 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว (Phone number is already registered)';
       }
       return c.json({ success: false, message }, 500);
+    }
+  }
+
+  // A real, bookable child for an existing customer — a staff-driven
+  // equivalent of the consumer app's own POST /profiles/children (which
+  // that route can't serve here since it authenticates via the consumer's
+  // own JWT, not a CRM staff session). Creates HD_Profiles + Children rows
+  // via the exact same UserRepository.addSingleChild() the consumer app
+  // uses, unlike the "add family member" path on PUT /admin/users/:id,
+  // which only writes to User_CRM_Children — fine for a walk-in adult
+  // filling a registration-form field, but that record has no HD chart and
+  // can never be picked as an actual class attendee.
+  async addUserChild(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      if (!c.get('crmUser')) {
+        return c.json({ success: false, message: 'Forbidden' }, 403);
+      }
+      const userId = parseInt(c.req.param('id'));
+      const { firstName, lastName, firstNameEn, lastNameEn, nickname, gender, dob, relation } = await c.req.json();
+
+      if (!firstName || !lastName || !nickname || !gender || !dob) {
+        return c.json({ success: false, message: 'firstName, lastName, nickname, gender, dob required' }, 400);
+      }
+
+      const config = new ConfigService(c.env);
+      const userRepository = new UserRepository(config.db);
+      const name = `${firstName} ${lastName}`.trim();
+      const nameEn = firstNameEn || lastNameEn ? `${firstNameEn || ''} ${lastNameEn || ''}`.trim() : undefined;
+
+      // Same non-blocking-check-alongside-the-write pattern as createUser
+      // above, for the same reason: the duplicate-name warning must never
+      // add its latency to whether the child actually gets created.
+      const [duplicateMatches, childId] = await Promise.all([
+        userRepository.checkDuplicateFullName(name).catch(() => []),
+        userRepository.addSingleChild(userId, { name, nameEn, dob, relation: relation || 'child', nickname, gender }),
+      ]);
+      const duplicateWarning = duplicateMatches.length > 0
+        ? `พบชื่อ-นามสกุลนี้ในระบบแล้ว: ${[...new Set(duplicateMatches.map(m => m.name))].join(', ')}`
+        : undefined;
+
+      return c.json({ success: true, childId, duplicateWarning });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
     }
   }
 

@@ -153,6 +153,11 @@ const emptyChild: Child = {
   relation: '',
 };
 
+const emptyBookableChild = {
+  firstName: '', lastName: '', firstNameEn: '', lastNameEn: '',
+  nickname: '', gender: '', dob: '', relation: 'child',
+};
+
 // Consumer app's own registration flow (Register.tsx) stores these exact
 // capitalized strings on HD_Profiles.gender/.relation — matching them here
 // isn't a style choice, it's required for a real customer's child data to
@@ -229,6 +234,17 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [warnMsg, setWarnMsg] = useState<string | null>(null);
+
+  // A separate dialog+form from the plain "add family member" flow above:
+  // that one only ever writes to User_CRM_Children (see the Child interface's
+  // is_hd doc comment), which has no HD chart and can never be booked into a
+  // class. This one calls POST /admin/users/:id/children — the same
+  // HD_Profiles+Children creation the consumer app's own registration uses —
+  // so a child added here can actually be booked afterward.
+  const [bookableChildOpen, setBookableChildOpen] = useState(false);
+  const [bookableChildForm, setBookableChildForm] = useState(emptyBookableChild);
+  const [bookableChildSaving, setBookableChildSaving] = useState(false);
+  const [bookableChildError, setBookableChildError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
@@ -456,6 +472,47 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   };
 
   const addChild = () => setChildren(prev => [...prev, { ...emptyChild }]);
+
+  const openBookableChild = () => {
+    setBookableChildForm(emptyBookableChild);
+    setBookableChildError(null);
+    setBookableChildOpen(true);
+  };
+  const closeBookableChild = () => {
+    if (bookableChildSaving) return;
+    setBookableChildOpen(false);
+  };
+  const handleSaveBookableChild = async () => {
+    if (!editUser) return;
+    const f = bookableChildForm;
+    if (!f.firstName.trim() || !f.lastName.trim() || !f.nickname.trim() || !f.gender || !f.dob) {
+      setBookableChildError('กรุณากรอกชื่อ นามสกุล ชื่อเล่น เพศ และวันเกิดให้ครบถ้วน');
+      return;
+    }
+    setBookableChildSaving(true);
+    setBookableChildError(null);
+    try {
+      const { data } = await axios.post(`${API_BASE}/users/${editUser.id}/children`, f);
+      setChildren(prev => [...prev, {
+        id: data.childId,
+        full_name: `${f.firstName} ${f.lastName}`.trim(),
+        full_name_en: f.firstNameEn || f.lastNameEn ? `${f.firstNameEn} ${f.lastNameEn}`.trim() : '',
+        nickname: f.nickname,
+        gender: f.gender,
+        date_of_birth: f.dob,
+        relation: f.relation,
+        is_hd: true,
+        membership_type: 'standard',
+      }]);
+      setBookableChildOpen(false);
+      if (data.duplicateWarning) setWarnMsg(data.duplicateWarning);
+      else setSuccessMsg('เพิ่มลูกที่ลงทะเบียนเรียนได้สำเร็จ');
+    } catch (e: any) {
+      setBookableChildError(e?.response?.data?.message || 'เพิ่มไม่สำเร็จ กรุณาลองใหม่');
+    } finally {
+      setBookableChildSaving(false);
+    }
+  };
   // A CRM-created ("walk-in") child is fully replaced on save (see handleSave's
   // DELETE+reinsert of User_CRM_Children), so just dropping it from local
   // state is enough. An HD-registered child (a real customer's own kid) isn't
@@ -862,9 +919,14 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     </Typography>
                   </Box>
                   {!readOnly && (
-                    <Button size="small" startIcon={<AddIcon />} onClick={addChild} variant="outlined" sx={{ borderRadius: 2 }}>
-                      เพิ่มสมาชิกครอบครัว
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button size="small" startIcon={<AddIcon />} onClick={openBookableChild} variant="contained" sx={{ borderRadius: 2 }}>
+                        เพิ่มลูกที่ลงทะเบียนเรียน
+                      </Button>
+                      <Button size="small" startIcon={<AddIcon />} onClick={addChild} variant="outlined" sx={{ borderRadius: 2 }}>
+                        เพิ่มสมาชิกครอบครัว
+                      </Button>
+                    </Box>
                   )}
                 </Box>
 
@@ -872,7 +934,7 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                   <Box sx={{ border: '2px dashed', borderColor: 'divider', borderRadius: 2, py: 5, textAlign: 'center' }}>
                     <ChildCareIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
                     <Typography variant="body2" color="text.disabled">
-                      {readOnly ? 'ไม่มีข้อมูลสมาชิกครอบครัว' : 'กดปุ่ม "เพิ่มสมาชิกครอบครัว" เพื่อเริ่มต้น'}
+                      {readOnly ? 'ไม่มีข้อมูลสมาชิกครอบครัว' : 'กดปุ่มด้านบนเพื่อเริ่มต้น'}
                     </Typography>
                   </Box>
                 ) : (
@@ -1603,6 +1665,93 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           </DialogContent>
           <DialogActions sx={{ p: 2 }}>
             <Button onClick={() => setHistoryDialogOpen(false)} variant="outlined">ปิด</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Add Bookable Child Dialog — creates a real HD_Profiles+Children
+            row (see openBookableChild/handleSaveBookableChild), distinct
+            from the plain "add family member" flow which only ever writes
+            to User_CRM_Children. */}
+        <Dialog open={bookableChildOpen} onClose={closeBookableChild} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ChildCareIcon color="primary" /> เพิ่มลูกที่ลงทะเบียนเรียน
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              เด็กที่เพิ่มด้วยวิธีนี้จะมีโปรไฟล์ HD และสามารถนำไปลงทะเบียนเรียนคลาส/อีเวนต์ได้ทันที
+            </Typography>
+            {bookableChildError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setBookableChildError(null)}>{bookableChildError}</Alert>}
+            <Grid container spacing={1.5}>
+              <Grid item xs={6}>
+                <TextField
+                  label="ชื่อ *" fullWidth size="small" value={bookableChildForm.firstName}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, firstName: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="นามสกุล *" fullWidth size="small" value={bookableChildForm.lastName}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, lastName: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="First Name (EN)" fullWidth size="small" value={bookableChildForm.firstNameEn}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, firstNameEn: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Last Name (EN)" fullWidth size="small" value={bookableChildForm.lastNameEn}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, lastNameEn: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="ชื่อเล่น *" fullWidth size="small" value={bookableChildForm.nickname}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, nickname: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>เพศ *</InputLabel>
+                  <Select
+                    value={bookableChildForm.gender} label="เพศ *"
+                    onChange={e => setBookableChildForm(prev => ({ ...prev, gender: e.target.value }))}
+                  >
+                    {GENDERS.map(g => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="วัน/เดือน/ปีเกิด *" fullWidth size="small" type="date"
+                  value={bookableChildForm.dob}
+                  onChange={e => setBookableChildForm(prev => ({ ...prev, dob: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>คุณคือ...</InputLabel>
+                  <Select
+                    value={bookableChildForm.relation} label="คุณคือ..."
+                    onChange={e => setBookableChildForm(prev => ({ ...prev, relation: e.target.value }))}
+                  >
+                    {FAMILY_ROLE_OPTIONS.map(r => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={closeBookableChild} variant="outlined" disabled={bookableChildSaving}>ยกเลิก</Button>
+            <Button
+              onClick={handleSaveBookableChild} variant="contained" disabled={bookableChildSaving}
+              startIcon={bookableChildSaving ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+            >
+              {bookableChildSaving ? 'กำลังบันทึก...' : 'เพิ่ม'}
+            </Button>
           </DialogActions>
         </Dialog>
 
