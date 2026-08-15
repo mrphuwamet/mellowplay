@@ -437,15 +437,19 @@ const Home = () => {
     // placement (CourseCard, Explore) uses — without this the feed showed
     // the raw thumbnail's center crop instead of whatever staff configured.
     const courseView = (item.kind === 'course' || isPromoted) && course ? getCourseView(course, 'card') : null;
+    const curatedPitch = (course?.short_description || '').trim();
+    const fullDescription = stripHtml(course?.description || '').trim();
     const shortDescription = course
-      ? (course.short_description || stripHtml(course.description || ''))
+      ? (curatedPitch.length >= 140 ? curatedPitch : (fullDescription || curatedPitch))
       : item.excerpt || undefined;
 
     // Cut in JS rather than with line-clamp so "ดูเพิ่มเติม" can sit at the end
     // of the text itself, where someone reading stops — CSS can clamp the
     // lines but cannot put anything at the point where it cut them. 180
     // characters is about three to four lines at this width.
-    const EXCERPT_LIMIT = 180;
+    // ~4-5 lines at this width. Long enough to be worth reading, short enough
+    // that the picture below it is still on screen.
+    const EXCERPT_LIMIT = 320;
     const excerptIsCut = !!shortDescription && shortDescription.length > EXCERPT_LIMIT;
     const excerptText = excerptIsCut ? `${shortDescription!.slice(0, EXCERPT_LIMIT).trimEnd()}…` : shortDescription;
     const bookingStatus = item.kind === 'course' && course ? courseBookingStatus[course.id] : undefined;
@@ -1034,7 +1038,7 @@ const Home = () => {
   const renderRecommendedClassesSidebar = () => (
     (isDataLoading || isBookingStatusLoading) ? (
       <div>
-        <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
+        <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">{lang === 'en' ? 'Recommended' : 'กิจกรรมแนะนำ'}</h3>
         <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
           {[0, 1].map(i => (
             <div key={i} className="flex-shrink-0 w-[240px] bg-white p-3 rounded-3xl shadow-sm border border-slate-100 animate-pulse">
@@ -1048,7 +1052,7 @@ const Home = () => {
     ) : visibleRecommendedCourses.length > 0 ? (
       <div>
         <div className="flex justify-between items-center mb-3 gap-2">
-          <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">{lang === 'en' ? 'Recommended Classes' : 'คลาสแนะนำ'}</h3>
+          <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">{lang === 'en' ? 'Recommended' : 'กิจกรรมแนะนำ'}</h3>
           <div className="flex items-center gap-2 shrink-0">
             {visibleRecommendedCourses.length > 1 && (
               <div className="flex items-center gap-1">
@@ -1107,7 +1111,7 @@ const Home = () => {
     return (
       <div>
         <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
-          {lang === 'en' ? 'Featured' : 'แนะนำสำหรับคุณ'}
+          {lang === 'en' ? 'Sponsored' : 'ได้รับการสนับสนุน'}
         </h3>
         <div
           onClick={handleAdClick}
