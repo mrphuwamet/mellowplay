@@ -6,6 +6,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Stack, Divider, RadioGroup, Radio, FormControlLabel, FormLabel, Alert,
   InputAdornment, CircularProgress, Checkbox,
+  Switch,
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
@@ -378,7 +379,11 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
 
   const selectedCourse = courses.find(c => String(c.id) === courseId);
-  const usesSlotPicker = !!selectedCourse?.calendar_id;
+  // Off by default: the picker is right for a normal booking because it shows
+  // what is actually open. It is useless for re-entering a registration that
+  // was lost, since that round has already happened and cannot be picked.
+  const [manualDateTime, setManualDateTime] = useState(false);
+  const usesSlotPicker = !!selectedCourse?.calendar_id && !manualDateTime;
   const scheduledAt = usesSlotPicker
     ? (selectedDateObj && selectedSlot ? `${selectedDateObj.date} ${selectedSlot.startTime}:00` : undefined)
     : (bookingDate && bookingTime ? `${bookingDate} ${bookingTime}:00` : undefined);
@@ -512,16 +517,31 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
     setError('');
     try {
       const res = await axios.post(`${API_BASE}/bookings`, {
+        // Tells the server this is a staff entry for a round the picker cannot
+        // offer — see createBooking, which honours it only for a CRM token.
+        overrideSlotCheck: manualDateTime,
         isGuest: customerType === 'guest',
         childIds: customerType === 'member' ? selectedChildIds : [0],
         courseId: parseInt(courseId),
         branchId: parseInt(String(branchId)),
         scheduledAt,
-        ...(usesSlotPicker && {
-          calendarId: selectedCourse!.calendar_id,
-          slotDate: selectedDateObj!.date,
-          slotStartTime: selectedSlot!.startTime,
-        }),
+        // The slot fields are sent either way when the course has a
+        // calendar: a manually entered booking should be as complete as one
+        // made through the picker, and it still counts toward that round's
+        // seats. Only the capacity CHECK is waived, by overrideSlotCheck above.
+        ...(usesSlotPicker
+          ? {
+              calendarId: selectedCourse!.calendar_id,
+              slotDate: selectedDateObj!.date,
+              slotStartTime: selectedSlot!.startTime,
+            }
+          : selectedCourse?.calendar_id
+            ? {
+                calendarId: selectedCourse.calendar_id,
+                slotDate: bookingDate,
+                slotStartTime: bookingTime,
+              }
+            : {}),
         status: paymentStatus,
         paymentStatus,
         ...(customerType === 'member' && useCoupon && { paymentMethod: 'coupon', couponTypeId: parseInt(couponTypeId) }),
@@ -686,6 +706,23 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
               <Box sx={{ flex: 1 }}><TimeField24 label="เวลา" required size="small" fullWidth value={bookingTime} onChange={setBookingTime} /></Box>
             </Stack>
           ) : null}
+
+          {/* Only offered where there is a picker to override. A course with no
+              calendar already asks for the date and time outright. */}
+          {courseId && selectedCourse?.calendar_id && (
+            <Box>
+              <FormControlLabel
+                control={<Switch size="small" checked={manualDateTime} onChange={e => setManualDateTime(e.target.checked)} />}
+                label={<Typography variant="caption" sx={{ fontWeight: 700 }}>ระบุวันและเวลาเอง (สำหรับบันทึกย้อนหลัง)</Typography>}
+              />
+              {manualDateTime && (
+                <Alert severity="info" sx={{ py: 0.5, mt: 0.5 }}>
+                  ใส่วันเวลาได้อิสระ รวมถึงรอบที่ผ่านไปแล้วหรือรอบที่เต็ม — ระบบจะไม่ตรวจที่นั่งคงเหลือให้
+                  ใช้สำหรับกู้ข้อมูลที่หายไป ไม่ใช่การจองปกติ
+                </Alert>
+              )}
+            </Box>
+          )}
 
           {/* The course's own registration form — same fields a customer
               would see registering themselves. */}

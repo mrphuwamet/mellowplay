@@ -566,7 +566,7 @@ export class AdminController {
       const adminRepo = new AdminRepository(config.db);
       const { childId, childIds, courseId, branchId, scheduledAt, isGuest, status,
               calendarId, slotDate, slotStartTime, paymentStatus, paymentMethod, notes, ageGroup, couponTypeId, promoCode, sponsorTag,
-              formId, formAnswers, inviteSessionToken } = await c.req.json();
+              formId, formAnswers, inviteSessionToken, overrideSlotCheck: overrideSlotCheckRequested } = await c.req.json();
       
       if (!courseId || !scheduledAt)
         return c.json({ success: false, message: 'courseId, scheduledAt required' }, 400);
@@ -766,7 +766,21 @@ export class AdminController {
       // slots, but that's UI-only. A stale page, two parents racing for the
       // last seat, or a direct API call could all still overbook a slot
       // past its max_capacity with nothing server-side to stop it.
-      if (calendarId && slotDate && slotStartTime) {
+      // Staff restoring a registration that was lost need the round it
+      // actually happened on — which is usually in the past, and may be full.
+      // The capacity rule is for customers booking themselves; it must not
+      // stop the CRM recording something that already took place. Verified
+      // against a real CRM token rather than trusted from the body, because
+      // this route is public (ADMIN_PUBLIC_ROUTES) and serves the app too.
+      let overrideSlotCheck = false;
+      if (overrideSlotCheckRequested === true) {
+        const authHeader = c.req.header('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+        overrideSlotCheck = payload?.type === 'admin';
+      }
+
+      if (calendarId && slotDate && slotStartTime && !overrideSlotCheck) {
         const calendarRepo = new CalendarRepository(db);
         // An invite-link session lets this specific booking dip into that
         // round's invite_capacity — re-resolved independently here (not
