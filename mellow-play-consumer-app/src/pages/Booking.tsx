@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, Share2, ArrowRight, ClipboardList } from 'lucide-react';
-import ShareToLineButton from '../components/ShareToLineButton';
+import { ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, ArrowRight, ClipboardList } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
@@ -917,19 +916,6 @@ const Booking = () => {
           <p className="text-[12px] font-bold text-slate-400 text-center mb-8 px-4 leading-relaxed">
             📸 {lang === 'en' ? 'Please screenshot this screen for easy reference.' : 'โปรดแคปหน้าจอนี้ไว้เพื่อดูข้อมูลอย่างง่าย'}
           </p>
-          <ShareToLineButton
-            text={
-              lang === 'en'
-                ? `Booked ${successBooking.courseName} for ${successBooking.childName} on ${successBooking.date} ${successBooking.time}. Booking #BK-${successBooking.id}`
-                : `${bookActionLabel} ${successBooking.courseName} ให้ ${successBooking.childName} วันที่ ${successBooking.date} เวลา ${successBooking.time} น. เรียบร้อยแล้ว รหัสการจอง #BK-${successBooking.id}`
-            }
-            label={
-              <span className="flex items-center justify-center gap-2">
-                <Share2 size={16} /> {lang === 'en' ? 'Share to LINE' : 'แชร์ไป LINE'}
-              </span>
-            }
-            className="w-full py-3.5 mb-3 bg-[#06C755]/10 text-[#06C755] rounded-2xl text-sm font-black uppercase tracking-wider active:scale-95 transition-transform"
-          />
           <button onClick={() => navigate('/')} className="w-full py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg shadow-mellow-purple/20 active:scale-95 transition-transform">
             {t.booking?.backToHome || 'กลับสู่หน้าหลัก'}
           </button>

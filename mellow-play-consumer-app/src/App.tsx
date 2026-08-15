@@ -33,7 +33,6 @@ import { LanguageProvider } from './LanguageContext';
 import AppShell from './components/AppShell';
 import { pingVisit } from './utils/visitTracker';
 import { captureTagFromUrl } from './utils/tagAttribution';
-import { retryPendingLineShare } from './utils/lineShare';
 import apiClient from './utils/apiClient';
 import { getCourseDetailPath } from './utils/courseLinks';
 
@@ -79,29 +78,6 @@ const AppContent = () => {
   // components read `mellow_guest` straight from localStorage on every render,
   // so they need this component to re-render for the change to show up.
   const [, forceGuestRerender] = React.useState(0);
-
-  // LINE's in-app browser bootstraps a LIFF session the first time any page
-  // calls liff.init() (e.g. the LINE-share button on Course Detail) — that
-  // bootstrap is a real page redirect through LINE's own domain, and it
-  // lands back on this app's registered root URL, dropping whatever deep
-  // path (like /course/5) the user actually opened. LINE preserves that
-  // original path in a `liff.state` query param on the return redirect
-  // specifically so apps can restore it — without this, every deep link
-  // opened inside LINE would silently bounce to Home instead.
-  React.useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const liffState = params.get('liff.state');
-    if (liffState) {
-      navigate(liffState.startsWith('/') ? liffState : `/${liffState}`, { replace: true });
-    }
-
-    // The same redirect can interrupt a share button tap mid-flight (the
-    // click's own liff.init() call triggers it) — the tab visibly flickers
-    // and the share never opens. If shareToLine() left a pending share
-    // behind because it got torn down before finishing, retry it now; LIFF
-    // is actually initialized this time, so it goes through normally.
-    retryPendingLineShare();
-  }, []);
 
   React.useEffect(() => {
     const token = localStorage.getItem('mellow_token');

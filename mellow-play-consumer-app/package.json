@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@line/liff": "^2.29.1",
     "axios": "^1.6.7",
     "country-flag-icons": "^1.6.20",
     "libphonenumber-js": "^1.13.8",

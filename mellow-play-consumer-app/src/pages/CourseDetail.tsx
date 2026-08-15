@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Share2, Maximize2, X } from 'lucide-react';
-import ShareToLineButton from '../components/ShareToLineButton';
+import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Maximize2, X } from 'lucide-react';
 import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { getCourseView } from '../utils/courseImage';
-import { getCourseDetailPath } from '../utils/courseLinks';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { isPlainText } from '../utils/richText';
 import { trackCourseView } from '../utils/analytics';
@@ -233,11 +231,6 @@ const CourseDetail = () => {
           </div>
 
           <div className="relative flex items-center gap-2">
-            <ShareToLineButton
-              text={`${lang === 'en' && course.name_en ? course.name_en : course.name}\n${window.location.origin}${getCourseDetailPath(course)}`}
-              label={<Share2 size={18} />}
-              className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-90 transition-transform"
-            />
             {/* Quick Lang Switch */}
             <LanguageToggle />
           </div>
