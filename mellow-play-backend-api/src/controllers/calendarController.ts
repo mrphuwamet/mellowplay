@@ -81,11 +81,17 @@ export class CalendarController {
         inviteSessionToken, courseId ? parseInt(courseId) : undefined, config.db, config.jwtSecret
       );
 
+      // The CRM's edit-booking dialog passes the booking being edited so its
+      // own seat doesn't count against the rounds shown (see the repository
+      // comment). Display-only — booking creation still checks capacity.
+      const excludeBookingIdRaw = c.req.query('excludeBookingId');
+      const excludeBookingId = excludeBookingIdRaw && !isNaN(parseInt(excludeBookingIdRaw)) ? parseInt(excludeBookingIdRaw) : undefined;
+
       // 90 days (not 30) so an infrequent course (e.g. weekly) still has
       // enough runway to surface up to the ~10 upcoming rounds the consumer
       // app displays, instead of coming up short just because they're spread
       // out further than a month.
-      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 90, branchId ? parseInt(branchId) : undefined, boostRuleId);
+      const upcoming = await this.repo(c).getUpcomingSlots(parseInt(calendarId), 90, branchId ? parseInt(branchId) : undefined, boostRuleId, excludeBookingId);
       return c.json({ success: true, upcoming });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

@@ -647,22 +647,14 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
 }) => {
   const [formFields, setFormFields] = useState<FormAnswerField[] | null>(null);
   const [formLoading, setFormLoading] = useState(false);
-  const [isEditingForm, setIsEditingForm] = useState(false);
-  const [editedAnswers, setEditedAnswers] = useState<Record<string, any>>({});
-  const [savingForm, setSavingForm] = useState(false);
-  const [saveFormError, setSaveFormError] = useState('');
-  const [familyRoster, setFamilyRoster] = useState<FamilyRosterMember[]>([]);
-  // Keyed by team_select field_key -> team label -> how many are already in
-  // that team for this exact round — lets the edit dropdown show remaining/
-  // total capacity instead of just the flat capacity number.
-  const [teamCounts, setTeamCounts] = useState<Record<string, Record<string, number>>>({});
 
   // Once a registration form is attached, its answers replace the generic
   // เด็กผู้เรียน/ผู้ปกครอง blocks entirely — fetched eagerly (not behind a
   // toggle) since it's now the primary identity shown for this booking.
+  // Strictly read-only: corrections happen in the แก้ไขการลงทะเบียน dialog,
+  // which edits the whole registration (status, round, form answers) in one
+  // place instead of splitting edits across two dialogs.
   useEffect(() => {
-    setIsEditingForm(false);
-    setSaveFormError('');
     if (!booking?.form_submission_id) { setFormFields(null); return; }
     setFormLoading(true);
     axios.get(`${API_BASE}/bookings/${booking.id}/form-answers`)
@@ -670,50 +662,6 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
       .catch(() => setFormFields([]))
       .finally(() => setFormLoading(false));
   }, [booking?.id, booking?.form_submission_id]);
-
-  const startEditForm = () => {
-    const initial: Record<string, any> = {};
-    (formFields || []).forEach(f => { initial[f.fieldKey] = f.value ?? (f.type === 'checkbox' ? [] : ''); });
-    setEditedAnswers(initial);
-    setSaveFormError('');
-    setIsEditingForm(true);
-
-    // Only fetched here (not eagerly with the form answers) since it's only
-    // ever needed once editing actually starts, and only if there's a
-    // family_member_picker field to edit at all.
-    if (booking?.parent_user_id && (formFields || []).some(f => f.type === 'family_member_picker')) {
-      axios.get(`${API_BASE}/users/${booking.parent_user_id}/family-roster`)
-        .then(res => setFamilyRoster(res.data.success ? res.data.roster : []))
-        .catch(() => setFamilyRoster([]));
-    }
-
-    // Same "only if actually needed" rule for team capacity — only fetched
-    // when there's a team_select field to edit, and only if we know which
-    // form/round to check counts against.
-    if (booking && course?.registration_form_id && (formFields || []).some(f => f.type === 'team_select')) {
-      axios.get(`${API_BASE}/registration-forms/${course.registration_form_id}/team-availability`, {
-        params: { courseId: booking.course_id, scheduledAt: booking.scheduled_at },
-      })
-        .then(res => setTeamCounts(res.data.success ? res.data.counts : {}))
-        .catch(() => setTeamCounts({}));
-    }
-  };
-
-  const saveEditForm = async () => {
-    if (!booking) return;
-    setSavingForm(true);
-    setSaveFormError('');
-    try {
-      const res = await axios.put(`${API_BASE}/bookings/${booking.id}/form-answers`, { answers: editedAnswers });
-      if (!res.data.success) { setSaveFormError(res.data.message || 'บันทึกไม่สำเร็จ'); return; }
-      setFormFields((formFields || []).map(f => ({ ...f, value: editedAnswers[f.fieldKey] })));
-      setIsEditingForm(false);
-    } catch (err: any) {
-      setSaveFormError(err.response?.data?.message || 'บันทึกไม่สำเร็จ');
-    } finally {
-      setSavingForm(false);
-    }
-  };
 
   if (!booking) return null;
   const si = getStatusInfo(booking.status);
@@ -759,26 +707,6 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
             <Box>
               {formLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
-              ) : isEditingForm ? (
-                <Stack spacing={1.5}>
-                  {saveFormError && <Alert severity="error" sx={{ py: 0.5 }}>{saveFormError}</Alert>}
-                  {(formFields || []).map(f => (
-                    <FormAnswerFieldEditor
-                      key={f.fieldKey}
-                      field={f}
-                      value={editedAnswers[f.fieldKey]}
-                      onChange={v => setEditedAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
-                      roster={familyRoster}
-                      teamCounts={teamCounts[f.fieldKey]}
-                    />
-                  ))}
-                  <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Button size="small" onClick={() => setIsEditingForm(false)} disabled={savingForm}>ยกเลิก</Button>
-                    <Button size="small" variant="contained" onClick={saveEditForm} disabled={savingForm}>
-                      {savingForm ? <CircularProgress size={16} color="inherit" /> : 'บันทึก'}
-                    </Button>
-                  </Stack>
-                </Stack>
               ) : formFields && formFields.length > 0 ? (
                 <Stack spacing={1.5}>
                   {/* Ground-truth identity from the child's own profile —
@@ -842,7 +770,6 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                       ))}
                     </Stack>
                   )}
-                  <Button size="small" onClick={startEditForm} sx={{ fontWeight: 700, px: 0, alignSelf: 'flex-start' }}>แก้ไขข้อมูล</Button>
                 </Stack>
               ) : (
                 <Typography variant="body2" color="text.secondary">ไม่มีข้อมูลที่กรอกไว้</Typography>
@@ -1993,7 +1920,11 @@ const BookingManagement = () => {
     if (!forceStatusBooking || !rescheduleCourse?.calendar_id) return;
     setRescheduleLoading(true);
     axios.get(`${API_BASE}/calendar-slots/upcoming`, {
-      params: { calendarId: rescheduleCourse.calendar_id, branchId: forceStatusBooking.branch_id },
+      // excludeBookingId: without it, this booking's own seat counts against
+      // every round it's in — its current round always read one short, and
+      // at capacity rendered "(เต็ม)"/disabled so staff couldn't re-select
+      // the round the booking already occupies.
+      params: { calendarId: rescheduleCourse.calendar_id, branchId: forceStatusBooking.branch_id, excludeBookingId: forceStatusBooking.id },
     }).then(res => {
       if (!res.data.success) return;
       const formatted: UpcomingSlotDate[] = res.data.upcoming.map((ud: any) => ({
@@ -2013,6 +1944,57 @@ const BookingManagement = () => {
       }
     }).catch(() => {}).finally(() => setRescheduleLoading(false));
   }, [forceStatusBooking?.id, rescheduleCourse?.calendar_id]);
+
+  // Registration-form answers, editable right inside this dialog — the one
+  // "แก้ไขการลงทะเบียน" place edits everything about a registration,
+  // including what the family typed into the course's registration form.
+  // (The ดูรายละเอียด dialog is read-only; its inline form editing moved
+  // here.) Loaded whenever the opened booking actually has a submission.
+  const [editFormFields, setEditFormFields] = useState<FormAnswerField[] | null>(null);
+  const [editFormLoading, setEditFormLoading] = useState(false);
+  const [editFormAnswers, setEditFormAnswers] = useState<Record<string, any>>({});
+  const [editFamilyRoster, setEditFamilyRoster] = useState<FamilyRosterMember[]>([]);
+  // team_select field_key -> team label -> taken count for this round, so the
+  // dropdown can show remaining/total instead of the flat capacity.
+  const [editTeamCounts, setEditTeamCounts] = useState<Record<string, Record<string, number>>>({});
+
+  useEffect(() => {
+    setEditFormFields(null);
+    setEditFormAnswers({});
+    setEditFamilyRoster([]);
+    setEditTeamCounts({});
+    if (!forceStatusBooking?.form_submission_id) return;
+    const booking = forceStatusBooking;
+    setEditFormLoading(true);
+    axios.get(`${API_BASE}/bookings/${booking.id}/form-answers`)
+      .then(res => {
+        if (!res.data.success) { setEditFormFields([]); return; }
+        const fields: FormAnswerField[] = res.data.fields;
+        setEditFormFields(fields);
+        const initial: Record<string, any> = {};
+        fields.forEach(f => { initial[f.fieldKey] = f.value ?? (f.type === 'checkbox' ? [] : ''); });
+        setEditFormAnswers(initial);
+
+        // Roster/team capacity only when a field of that type actually
+        // exists — same lazy rule the detail dialog's editor used.
+        if (booking.parent_user_id && fields.some(f => f.type === 'family_member_picker')) {
+          axios.get(`${API_BASE}/users/${booking.parent_user_id}/family-roster`)
+            .then(r => setEditFamilyRoster(r.data.success ? r.data.roster : []))
+            .catch(() => setEditFamilyRoster([]));
+        }
+        const formId = courses.find(c => c.id === booking.course_id)?.registration_form_id;
+        if (formId && fields.some(f => f.type === 'team_select')) {
+          axios.get(`${API_BASE}/registration-forms/${formId}/team-availability`, {
+            params: { courseId: booking.course_id, scheduledAt: booking.scheduled_at },
+          })
+            .then(r => setEditTeamCounts(r.data.success ? r.data.counts : {}))
+            .catch(() => setEditTeamCounts({}));
+        }
+      })
+      .catch(() => setEditFormFields([]))
+      .finally(() => setEditFormLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceStatusBooking?.id, forceStatusBooking?.form_submission_id]);
 
   // Super Admin hard-delete — requires typing "ยืนยัน" verbatim before the
   // delete button enables at all, since this permanently removes the row
@@ -2061,6 +2043,17 @@ const BookingManagement = () => {
         }),
         paidAt: forcePaidAt ? fromDatetimeLocalValue(forcePaidAt) : undefined,
       });
+      // Form answers ride along in the same บันทึก — saved after the status/
+      // round patch so a failure here leaves the dialog open with the error
+      // while the (already applied) reschedule stays visible on retry.
+      if (editFormFields && editFormFields.length > 0) {
+        const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: editFormAnswers });
+        if (!formRes.data.success) {
+          setForceStatusError(formRes.data.message || 'บันทึกข้อมูลฟอร์มไม่สำเร็จ');
+          fetchBookings();
+          return;
+        }
+      }
       setForceStatusBooking(null);
       setForceStatusSuccess(true);
       // If the current status tab no longer matches the new status, the
@@ -2397,7 +2390,7 @@ const BookingManagement = () => {
           role gets just a reschedule field (change to a different
           class round/time) plus a simple "mark complete" toggle, replacing
           what used to be a separate one-click Complete button. */}
-      <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth={usesReschedulePicker ? 'sm' : 'xs'} fullWidth>
+      <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth={usesReschedulePicker || forceStatusBooking?.form_submission_id ? 'sm' : 'xs'} fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการลงทะเบียน (Super Admin)' : 'แก้ไขการลงทะเบียน'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -2443,7 +2436,7 @@ const BookingManagement = () => {
               {rescheduleLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
               ) : rescheduleDates.length === 0 ? (
-                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้ลงทะเบียนในคลาสนี้ช่วง 30 วันข้างหน้า</Alert>
+                <Alert severity="warning" sx={{ py: 0.5 }}>ไม่พบรอบเวลาที่เปิดให้ลงทะเบียนในคลาสนี้ช่วง 90 วันข้างหน้า</Alert>
               ) : (
                 <>
                   <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
@@ -2513,6 +2506,36 @@ const BookingManagement = () => {
               value={forcePaidAt}
               onChange={e => setForcePaidAt(e.target.value)}
             />
+          )}
+          {/* Registration-form answers — the same fields the family filled
+              in when registering for this activity, editable here so this
+              dialog covers the whole registration. Saved together with the
+              บันทึก button below. */}
+          {forceStatusBooking?.form_submission_id && (
+            <Box sx={{ mt: 2 }}>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                ข้อมูลที่กรอกไว้ตอนลงทะเบียน
+              </Typography>
+              {editFormLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+              ) : editFormFields && editFormFields.length > 0 ? (
+                <Stack spacing={1.5}>
+                  {editFormFields.map(f => (
+                    <FormAnswerFieldEditor
+                      key={f.fieldKey}
+                      field={f}
+                      value={editFormAnswers[f.fieldKey]}
+                      onChange={v => setEditFormAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
+                      roster={editFamilyRoster}
+                      teamCounts={editTeamCounts[f.fieldKey]}
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">ไม่มีข้อมูลที่กรอกไว้</Typography>
+              )}
+            </Box>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

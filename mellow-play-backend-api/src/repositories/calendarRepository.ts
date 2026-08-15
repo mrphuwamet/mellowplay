@@ -161,22 +161,28 @@ export class CalendarRepository {
   // for whichever slots came from it. Every other rule (and every visitor
   // without a valid invite session) only ever sees max_capacity; the extra
   // pool stays invisible unless you're the one holding that exact link.
-  async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number, boostRuleId?: number | null): Promise<any[]> {
-    
+  // excludeBookingId: when the CRM is EDITING an existing booking, that
+  // booking's own seat must not count against the rounds shown — otherwise
+  // its current round always reads one seat short, and at capacity renders
+  // "(เต็ม)"/disabled so staff can't even re-select the round the booking is
+  // already in. Display-only: createBooking's getSlotAvailability check is
+  // unaffected, so this can't be abused to overbook.
+  async getUpcomingSlots(calendarId: number, daysAhead: number = 30, branchId?: number, boostRuleId?: number | null, excludeBookingId?: number): Promise<any[]> {
+
     const today = new Date();
-    // Use local time for Thai timezone if needed, but we'll just use standard ISO date 
+    // Use local time for Thai timezone if needed, but we'll just use standard ISO date
     // Mellow Play operates in Thailand, so let's adjust by +7 hours to get the local date
     const localNow = new Date(today.getTime() + 7 * 60 * 60 * 1000);
     const startDateStr = localNow.toISOString().split('T')[0];
-    
+
     const endDate = new Date(localNow.getTime() + daysAhead * 24 * 60 * 60 * 1000);
     const endDateStr = endDate.toISOString().split('T')[0];
 
     const bookingsQuery = `
-        SELECT SUBSTR(b.scheduled_at, 1, 10) as slot_date, SUBSTR(b.scheduled_at, 12, 5) as slot_start_time, COUNT(*) as cnt 
+        SELECT SUBSTR(b.scheduled_at, 1, 10) as slot_date, SUBSTR(b.scheduled_at, 12, 5) as slot_start_time, COUNT(*) as cnt
         FROM Bookings b
         JOIN Courses c ON b.course_id = c.id
-        WHERE c.calendar_id=? ${branchId ? `AND b.branch_id=${branchId}` : ''}
+        WHERE c.calendar_id=? ${branchId ? `AND b.branch_id=${branchId}` : ''} ${excludeBookingId ? `AND b.id != ${excludeBookingId}` : ''}
           AND SUBSTR(b.scheduled_at, 1, 10) >= ? AND SUBSTR(b.scheduled_at, 1, 10) <= ?
           AND ${OCCUPIES_SEAT_SQL}
         GROUP BY SUBSTR(b.scheduled_at, 1, 10), SUBSTR(b.scheduled_at, 12, 5)
