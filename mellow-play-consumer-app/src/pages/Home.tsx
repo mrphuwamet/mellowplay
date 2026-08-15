@@ -308,7 +308,7 @@ const Home = () => {
 
   // CRM-authored promo cards (a class/news article the business wants to
   // push) — mixed into the feed the same way as course/news suggestions,
-  // just labeled "โฆษณา" instead of "คลาสแนะนำ"/"จากหน้าสำรวจ". Also shown as
+  // shown as a lifted card rather than a labelled one. Also shown as
   // a separate rotating widget in the right sidebar (renderAdsSidebar below)
   // — an additional placement, not a replacement for the feed one.
   React.useEffect(() => {
@@ -360,13 +360,28 @@ const Home = () => {
   [allCourses, lang]);
 
   // CRM-pushed promos are the one non-chronological thing left in the feed —
-  // they're interleaved every few entries, clearly labeled โฆษณา, instead of
-  // competing for a slot in the date ordering (they have no post date of
-  // their own that would place them honestly).
-  const adInserts = React.useMemo(() => ads.map((a: any) => ({
-    kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
-    adTargetType: a.targetType, adTargetId: a.targetId,
-  })), [ads]);
+  // they're interleaved every few entries instead of competing for a slot in
+  // the date ordering (they have no post date of their own that would place
+  // them honestly). They carry the promoted item's own details and stand out
+  // by a quiet ring and shadow rather than by a badge.
+  const adInserts = React.useMemo(() => ads.map((a: any) => {
+    const target = a.targetType === 'course'
+      ? allCourses.find((c: any) => c.id === a.targetId)
+      : undefined;
+    const targetNews = a.targetType === 'news'
+      ? newsItems.find((n: any) => n.id === a.targetId)
+      : undefined;
+    return {
+      kind: 'ad' as const, id: a.id, title: a.caption || a.targetTitle || a.title, image: a.imageUrl,
+      adTargetType: a.targetType, adTargetId: a.targetId,
+      // The promoted thing itself, so the card can show what it is rather
+      // than a picture and a name.
+      course: target,
+      excerpt: targetNews
+        ? stripHtml((lang === 'en' && targetNews.content_en ? targetNews.content_en : targetNews.content) || '')
+        : undefined,
+    };
+  }), [ads, allCourses, newsItems, lang]);
 
   const renderFeedInsertCard = (item: { kind: 'course' | 'news' | 'upcoming' | 'history' | 'ad'; id: number; title: string; image?: string; newsType?: string; createdAt?: string; booking?: any; adTargetType?: 'course' | 'news'; adTargetId?: number; course?: any; excerpt?: string }) => {
     const isBookingCard = item.kind === 'upcoming' || item.kind === 'history';
@@ -376,7 +391,9 @@ const Home = () => {
         apiClient.post(`/ads/${item.id}/click`).catch(() => {});
         // Only an id is known here, so /course/:id resolves the right path —
         // an ad can point at an event just as easily as a class.
-        navigate(item.adTargetType === 'course' ? `/course/${item.adTargetId}` : `/news/${item.adTargetId}`);
+        navigate(item.adTargetType === 'course'
+          ? (item.course ? getCourseDetailPath(item.course) : `/course/${item.adTargetId}`)
+          : `/news/${item.adTargetId}`);
         return;
       }
       // getCourseDetailPath rather than a hardcoded /class/: the feed carries
@@ -396,7 +413,11 @@ const Home = () => {
             : (lang === 'en' ? 'Class' : 'คลาสเรียน'))
       : item.kind === 'upcoming' ? (lang === 'en' ? 'Upcoming Activity' : 'กิจกรรมที่กำลังจะมาถึง')
       : item.kind === 'history' ? (lang === 'en' ? 'Recent Class' : 'ประวัติการเรียน')
-      : item.kind === 'ad' ? (lang === 'en' ? 'Sponsored' : 'โฆษณา')
+      : item.kind === 'ad'
+        ? (item.course?.is_event ? (lang === 'en' ? 'Activity' : 'กิจกรรม')
+          : item.course?.is_service ? (lang === 'en' ? 'Service' : 'บริการ')
+          : item.course ? (lang === 'en' ? 'Class' : 'คลาสเรียน')
+          : (lang === 'en' ? 'Featured' : 'แนะนำ'))
       : (lang === 'en' ? 'News' : 'ข่าวสาร');
     const ctaLabel = item.kind === 'course' ? (lang === 'en' ? 'View details' : 'ดูรายละเอียด')
       : item.kind === 'ad' ? (lang === 'en' ? 'Learn more' : 'ดูเพิ่มเติม')
@@ -408,12 +429,15 @@ const Home = () => {
     // course card gets a real "จองเลย" button, so it has to respect the same
     // "already taken and non-repeatable" gate they do instead of always
     // linking to a booking flow that would just reject it.
+    // A promo for a class is still a class: same booking button, same
+    // already-booked rules.
     const course = item.course;
+    const isPromoted = item.kind === 'ad';
     // The 'card' view is the same curated focal point/zoom every other card
     // placement (CourseCard, Explore) uses — without this the feed showed
     // the raw thumbnail's center crop instead of whatever staff configured.
-    const courseView = item.kind === 'course' && course ? getCourseView(course, 'card') : null;
-    const shortDescription = item.kind === 'course' && course
+    const courseView = (item.kind === 'course' || isPromoted) && course ? getCourseView(course, 'card') : null;
+    const shortDescription = course
       ? (course.short_description || stripHtml(course.description || ''))
       : item.excerpt || undefined;
 
@@ -447,7 +471,11 @@ const Home = () => {
       <div
         key={`insert-${item.kind}-${item.id}`}
         onClick={handleClick}
-        className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 cursor-pointer active:scale-[0.98] transition-transform"
+        className={`rounded-3xl p-5 cursor-pointer active:scale-[0.98] transition-all ${
+          isPromoted
+            ? 'bg-white ring-1 ring-mellow-purple/20 shadow-[0_8px_30px_-12px_rgba(116,82,214,0.35)] hover:shadow-[0_12px_40px_-12px_rgba(116,82,214,0.45)]'
+            : 'bg-white shadow-sm border border-slate-100'
+        }`}
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-mellow-purple/10 flex items-center justify-center shrink-0 overflow-hidden">
@@ -474,7 +502,7 @@ const Home = () => {
         </div>
 
         <h4 className="text-[16px] font-black text-slate-800 leading-snug mt-3 line-clamp-2">{item.title}</h4>
-        {item.kind === 'course' && item.course?.calendar_summary_json && (
+        {item.course?.calendar_summary_json && (
           <p className="text-[13px] font-bold text-slate-500 mt-1.5 flex items-center gap-1.5">
             <Calendar size={14} className="text-slate-400 shrink-0" />
             {formatCalendarSummary(item.course.calendar_summary_json)}
@@ -521,7 +549,7 @@ const Home = () => {
             <span className="text-sm font-black">{ctaLabel}</span>
             <ChevronRight size={16} />
           </button>
-          {item.kind === 'course' && (
+          {course && (
             <button
               onClick={handleBook}
               disabled={isOneTimeBooked}
@@ -1079,7 +1107,7 @@ const Home = () => {
     return (
       <div>
         <h3 className="text-sm font-black text-slate-700 mb-3 uppercase tracking-widest">
-          {lang === 'en' ? 'Sponsored' : 'โฆษณา'}
+          {lang === 'en' ? 'Featured' : 'แนะนำสำหรับคุณ'}
         </h3>
         <div
           onClick={handleAdClick}
