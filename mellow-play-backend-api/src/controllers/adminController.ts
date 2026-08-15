@@ -526,7 +526,9 @@ export class AdminController {
       const fields = submission.fields
         .filter((f: any) => f.type !== 'heading')
         .map((f: any) => ({
-          fieldKey: f.field_key, label: f.label, type: f.type, optionsJson: f.options_json,
+          // config_json carries the picker role (adult/child) — the CRM editor
+          // needs it to offer the right half of the family, same as the app.
+          fieldKey: f.field_key, label: f.label, type: f.type, optionsJson: f.options_json, config_json: f.config_json,
           value: submission.answers[f.field_key],
           ...(f.type === 'family_member_picker' ? {
             realName: submission.answers[`${f.field_key}__realname`],

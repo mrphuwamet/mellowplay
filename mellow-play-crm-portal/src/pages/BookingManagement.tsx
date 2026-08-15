@@ -537,8 +537,8 @@ const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
   return arr;
 };
 
-interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; value: any; }
-interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; }
+interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; config_json?: string | null; value: any; }
+interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; relation?: string | null }
 
 // One input per registration-form field type, mirroring what the consumer
 // app's DynamicRegistrationForm renders at submit time — lets staff correct
@@ -613,26 +613,49 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: {
     );
   }
   if (field.type === 'family_member_picker') {
-    if (roster && roster.length > 0) {
+    // The field says whose name it wants — the adult who came along, or the
+    // child attending — and the consumer app has always split the roster that
+    // way. This editor was offering the whole family for both, so an adult
+    // field listed the children too. Same rule as DynamicRegistrationForm:
+    // anything with a relation other than "child" is an adult, and a member
+    // with no relation recorded is a child.
+    let pickerRole: string | undefined;
+    try { pickerRole = field.config_json ? JSON.parse(field.config_json).role : undefined; } catch { /* an unreadable config just means no role filter */ }
+    const rosterForRole = (roster ?? []).filter(m =>
+      pickerRole === 'adult'
+        ? !!(m.relation && m.relation !== 'child')
+        : pickerRole === 'child'
+          ? (!m.relation || m.relation === 'child')
+          : true);
+
+    if (rosterForRole.length > 0) {
       // The stored answer is already the resolved display text (nickname ||
       // name), same as the consumer app writes — if it doesn't match any
       // current roster member (renamed, removed, or never matched to begin
       // with), keep it selectable as a one-off extra option instead of
       // silently discarding it.
-      const currentMatches = roster.some(m => m.display === value);
+      const currentMatches = rosterForRole.some(m => m.display === value);
       return (
         <FormControl fullWidth size="small">
           <InputLabel>{field.label}</InputLabel>
           <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
             <MenuItem value=""><em>ไม่ระบุ</em></MenuItem>
-            {!currentMatches && value && <MenuItem value={value}>{value} (เดิม)</MenuItem>}
-            {roster.map(m => <MenuItem key={m.id} value={m.display}>{m.display}{m.name !== m.display ? ` (${m.name})` : ''}</MenuItem>)}
+            {/* The answer that was actually submitted, kept selectable even
+                though it matches nobody in the family list now — renamed,
+                removed, or typed before pickers existed. Without it, opening
+                this dialog and saving would quietly replace their answer. */}
+            {!currentMatches && value && <MenuItem value={value}>{value} — ชื่อที่บันทึกไว้เดิม (ไม่พบในรายชื่อครอบครัวแล้ว)</MenuItem>}
+            {rosterForRole.map(m => <MenuItem key={m.id} value={m.display}>{m.display}{m.name !== m.display ? ` (${m.name})` : ''}</MenuItem>)}
           </Select>
         </FormControl>
       );
     }
     return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}
-      helperText="ไม่พบข้อมูลสมาชิกในครอบครัวของบัญชีนี้ — แก้ไขเป็นข้อความได้ตามปกติ" />;
+      helperText={pickerRole === 'adult'
+        ? 'ไม่พบผู้ใหญ่ในครอบครัวของบัญชีนี้ — แก้ไขเป็นข้อความได้ตามปกติ'
+        : pickerRole === 'child'
+          ? 'ไม่พบเด็กในครอบครัวของบัญชีนี้ — แก้ไขเป็นข้อความได้ตามปกติ'
+          : 'ไม่พบข้อมูลสมาชิกในครอบครัวของบัญชีนี้ — แก้ไขเป็นข้อความได้ตามปกติ'} />;
   }
   return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
 };

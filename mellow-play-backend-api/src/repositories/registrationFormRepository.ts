@@ -149,7 +149,7 @@ export class RegistrationFormRepository {
     const submission = await this.db.prepare('SELECT form_id, answers_json FROM Form_Submissions WHERE id = ?').bind(submissionId).first() as any;
     if (!submission) return null;
     const { results: fields } = await this.db.prepare(`
-      SELECT field_key, type, label, options_json FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC
+      SELECT field_key, type, label, options_json, config_json FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC
     `).bind(submission.form_id).all();
     let answers: Record<string, any> = {};
     try { answers = JSON.parse(submission.answers_json || '{}'); } catch { /* malformed shouldn't block display */ }
