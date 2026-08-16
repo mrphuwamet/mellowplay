@@ -6,7 +6,7 @@ import {
   TextField, MenuItem, Select, FormControl, InputLabel,
   Stack, CircularProgress, Divider, List, ListItem, ListItemButton, ListItemText, ListItemAvatar,
   Avatar, Card, CardContent, Switch, FormControlLabel, Alert,
-  ToggleButton, ToggleButtonGroup,
+  ToggleButton, ToggleButtonGroup, Slider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -23,7 +23,7 @@ import axios from 'axios';
 import RichTextEditor from '../components/RichTextEditor';
 import { uploadEditorImage } from '../utils/imageUpload';
 import {
-  EmailTheme, DEFAULT_EMAIL_THEME, themeFromSettings, themeToSettings, wrapEmailHtml,
+  EmailTheme, DEFAULT_EMAIL_THEME, themeFromSettings, themeToSettings, wrapEmailHtml, clampHeaderWidth,
 } from '../utils/emailFrame';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -456,10 +456,20 @@ const SystemSettings = () => {
                       onChange={e => patchTheme({ headerImage: e.target.value })}
                     />
                     {emailTheme.headerImage && (
-                      <Box
-                        component="img" src={emailTheme.headerImage} alt=""
-                        sx={{ mt: 1.5, maxWidth: '100%', maxHeight: 90, display: 'block', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
-                      />
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block' }}>
+                          ความกว้างรูปหัวกระดาษ: {emailTheme.headerWidth}px {emailTheme.headerWidth >= 600 ? '(เต็มความกว้างอีเมล)' : ''}
+                        </Typography>
+                        {/* The card is 600px wide, so the slider stops there —
+                            anything wider is a broken layout, not a bigger logo. */}
+                        <Slider
+                          size="small" min={60} max={600} step={10} disabled={!isBranded}
+                          value={emailTheme.headerWidth}
+                          onChange={(_, v) => patchTheme({ headerWidth: clampHeaderWidth(v as number) })}
+                          valueLabelDisplay="auto"
+                          marks={[{ value: 240, label: 'ปกติ' }, { value: 600, label: 'เต็ม' }]}
+                        />
+                      </Box>
                     )}
                   </Box>
 

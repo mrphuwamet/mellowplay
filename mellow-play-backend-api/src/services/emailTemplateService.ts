@@ -109,6 +109,8 @@ export function renderEmailSubject(template: string, variables: Record<string, s
 export interface EmailTheme {
   mode: 'plain' | 'branded';
   headerImage: string;
+  /** Header image width in px. The card is 600 wide, so 600 is edge to edge. */
+  headerWidth: number;
   headerBg: string;
   pageBg: string;
   cardBg: string;
@@ -120,6 +122,7 @@ export interface EmailTheme {
 export const DEFAULT_EMAIL_THEME: EmailTheme = {
   mode: 'plain',
   headerImage: '',
+  headerWidth: 240,
   headerBg: '#ffffff',
   pageBg: '#f4f5f7',
   cardBg: '#ffffff',
@@ -134,11 +137,20 @@ export const DEFAULT_EMAIL_THEME: EmailTheme = {
  * Defaults to the plain frame on anything missing or unreadable: an email that
  * looks unstyled still gets read, an email that fails to render does not.
  */
+// A width outside the card is not a width — it is a broken layout in every
+// client that honours it. Anything unparseable falls back to the default.
+function clampHeaderWidth(raw: string | null): number {
+  const n = parseInt(raw || '', 10);
+  if (!Number.isFinite(n)) return DEFAULT_EMAIL_THEME.headerWidth;
+  return Math.min(600, Math.max(60, n));
+}
+
 export async function loadEmailTheme(settings: { getSetting(key: string): Promise<string | null> }): Promise<EmailTheme> {
   try {
-    const [mode, headerImage, headerBg, pageBg, cardBg, textColor, footerHtml, footerBg] = await Promise.all([
+    const [mode, headerImage, headerWidth, headerBg, pageBg, cardBg, textColor, footerHtml, footerBg] = await Promise.all([
       settings.getSetting('email_template_mode'),
       settings.getSetting('email_header_image'),
+      settings.getSetting('email_header_width'),
       settings.getSetting('email_header_bg'),
       settings.getSetting('email_page_bg'),
       settings.getSetting('email_card_bg'),
@@ -149,6 +161,7 @@ export async function loadEmailTheme(settings: { getSetting(key: string): Promis
     return {
       mode: mode === 'branded' ? 'branded' : 'plain',
       headerImage: headerImage || DEFAULT_EMAIL_THEME.headerImage,
+      headerWidth: clampHeaderWidth(headerWidth),
       headerBg: headerBg || DEFAULT_EMAIL_THEME.headerBg,
       pageBg: pageBg || DEFAULT_EMAIL_THEME.pageBg,
       cardBg: cardBg || DEFAULT_EMAIL_THEME.cardBg,
@@ -169,7 +182,7 @@ export function wrapEmailHtml(bodyHtml: string, theme: EmailTheme = DEFAULT_EMAI
   // the plain card rather than an empty band of colour.
   const header = theme.mode === 'branded' && theme.headerImage
     ? `<tr><td align="center" style="background-color:${theme.headerBg};padding:20px 24px;border-radius:12px 12px 0 0;">
-<img src="${theme.headerImage}" alt="" width="240" style="display:block;max-width:100%;height:auto;border:0;" />
+<img src="${theme.headerImage}" alt="" width="${theme.headerWidth}" style="display:block;width:${theme.headerWidth}px;max-width:100%;height:auto;border:0;" />
 </td></tr>`
     : '';
 

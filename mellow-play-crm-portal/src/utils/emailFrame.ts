@@ -13,6 +13,8 @@ import { API_URL } from '../config';
 export interface EmailTheme {
   mode: 'plain' | 'branded';
   headerImage: string;
+  /** Header image width in px. The card is 600 wide, so 600 is edge to edge. */
+  headerWidth: number;
   headerBg: string;
   pageBg: string;
   cardBg: string;
@@ -24,6 +26,7 @@ export interface EmailTheme {
 export const DEFAULT_EMAIL_THEME: EmailTheme = {
   mode: 'plain',
   headerImage: '',
+  headerWidth: 240,
   headerBg: '#ffffff',
   pageBg: '#f4f5f7',
   cardBg: '#ffffff',
@@ -32,11 +35,20 @@ export const DEFAULT_EMAIL_THEME: EmailTheme = {
   footerBg: '#f8fafc',
 };
 
+// Mirrors the backend clamp: a width wider than the 600px card is a broken
+// layout in every client that honours it.
+export function clampHeaderWidth(raw: string | number | undefined | null): number {
+  const n = typeof raw === 'number' ? raw : parseInt(raw || '', 10);
+  if (!Number.isFinite(n)) return DEFAULT_EMAIL_THEME.headerWidth;
+  return Math.min(600, Math.max(60, n));
+}
+
 /** Maps a System_Settings key/value map onto a theme, defaults filling the gaps. */
 export function themeFromSettings(map: Record<string, string>): EmailTheme {
   return {
     mode: map['email_template_mode'] === 'branded' ? 'branded' : 'plain',
     headerImage: map['email_header_image'] || DEFAULT_EMAIL_THEME.headerImage,
+    headerWidth: clampHeaderWidth(map['email_header_width']),
     headerBg: map['email_header_bg'] || DEFAULT_EMAIL_THEME.headerBg,
     pageBg: map['email_page_bg'] || DEFAULT_EMAIL_THEME.pageBg,
     cardBg: map['email_card_bg'] || DEFAULT_EMAIL_THEME.cardBg,
@@ -48,13 +60,14 @@ export function themeFromSettings(map: Record<string, string>): EmailTheme {
 
 export const EMAIL_THEME_KEYS = [
   'email_template_mode', 'email_header_image', 'email_header_bg', 'email_page_bg',
-  'email_card_bg', 'email_text_color', 'email_footer_html', 'email_footer_bg',
+  'email_header_width', 'email_card_bg', 'email_text_color', 'email_footer_html', 'email_footer_bg',
 ] as const;
 
 export function themeToSettings(theme: EmailTheme): Record<string, string> {
   return {
     email_template_mode: theme.mode,
     email_header_image: theme.headerImage,
+    email_header_width: String(theme.headerWidth),
     email_header_bg: theme.headerBg,
     email_page_bg: theme.pageBg,
     email_card_bg: theme.cardBg,
@@ -72,7 +85,7 @@ export function wrapEmailHtml(bodyHtml: string, theme: EmailTheme = DEFAULT_EMAI
   // the plain card rather than an empty band of colour.
   const header = theme.mode === 'branded' && theme.headerImage
     ? `<tr><td align="center" style="background-color:${theme.headerBg};padding:20px 24px;border-radius:12px 12px 0 0;">`
-      + `<img src="${theme.headerImage}" alt="" width="240" style="display:block;max-width:100%;height:auto;border:0;" />`
+      + `<img src="${theme.headerImage}" alt="" width="${theme.headerWidth}" style="display:block;width:${theme.headerWidth}px;max-width:100%;height:auto;border:0;" />`
       + `</td></tr>`
     : '';
 
