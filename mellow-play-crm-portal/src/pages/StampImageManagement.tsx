@@ -18,11 +18,15 @@ import {
   TextField,
   Alert,
   CircularProgress,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import { Add, Edit, Delete, CloudUpload } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL } from '../config';
 import LoadingOverlay from '../components/LoadingOverlay';
+import StampDesignsTab from '../components/stamps/StampDesignsTab';
+import BadgeDesignsTab from '../components/stamps/BadgeDesignsTab';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -40,6 +44,7 @@ interface StampPageBackground {
 }
 
 const StampImageManagement = () => {
+  const [tab, setTab] = useState(0);
   const [ranges, setRanges] = useState<StampImageRange[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<StampImageRange | null>(null);
@@ -188,11 +193,33 @@ const StampImageManagement = () => {
 
   return (
     <Box>
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h5" fontWeight="bold">แสตมป์ & เหรียญรางวัล</Typography>
+        <Typography variant="body2" color="text.secondary">
+          แสตมป์ = บันทึกว่ามาร่วมกิจกรรมไหน (รูปตามกิจกรรม/รอบ) · เหรียญ = อันดับ 1 · 2 · 3 ที่สะสมข้ามกิจกรรม ·
+          แต้มสำหรับแลกของรางวัลแยกจากแสตมป์ แลกของแล้วคอลเลกชันไม่หาย
+        </Typography>
+      </Box>
+
+      <Tabs
+        value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+        variant="scrollable" scrollButtons="auto"
+      >
+        <Tab label="คลังดีไซน์แสตมป์" />
+        <Tab label="เหรียญรางวัล" />
+        <Tab label="พื้นหลังหน้าสะสม" />
+        <Tab label="ลำดับดวง (แบบเดิม)" />
+      </Tabs>
+
+      {tab === 0 && <StampDesignsTab />}
+      {tab === 1 && <BadgeDesignsTab />}
+
+      <Box sx={{ display: tab === 3 ? 'block' : 'none' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h5" fontWeight="bold">จัดการรูปแสตมป์</Typography>
+          <Typography variant="h6" fontWeight="bold">รูปตามลำดับดวง (ของเดิม)</Typography>
           <Typography variant="body2" color="text.secondary">
-            กำหนดว่ารูปแสตมป์ใดใช้กับแสตมป์ลำดับที่เท่าไหร่ (นับตามลำดับที่ลูกค้าได้รับ)
+            ใช้เป็นตัวสำรองเท่านั้น — เมื่อกิจกรรมนั้นยังไม่ได้ผูกดีไซน์ไว้ แสตมป์จะใช้รูปตามลำดับที่ได้รับตามตารางนี้
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<Add />} onClick={() => handleOpen()}>เพิ่มช่วงรูปแสตมป์</Button>
@@ -227,9 +254,12 @@ const StampImageManagement = () => {
         </Table>
       </TableContainer>
 
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 5, mb: 3 }}>
+      </Box>
+
+      <Box sx={{ display: tab === 2 ? 'block' : 'none' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h5" fontWeight="bold">พื้นหลังการ์ดแสตมป์</Typography>
+          <Typography variant="h6" fontWeight="bold">พื้นหลังการ์ดแสตมป์</Typography>
           <Typography variant="body2" color="text.secondary">
             กำหนดรูปพื้นหลังของการ์ดแสตมป์แต่ละหน้า (ตามหมายเลขหน้าที่แสดงในแอป เช่น "2 / 3")
           </Typography>
@@ -265,6 +295,8 @@ const StampImageManagement = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      </Box>
 
       <Dialog open={bgOpen} onClose={() => setBgOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{bgEditing ? 'แก้ไขพื้นหลัง' : 'เพิ่มพื้นหลัง'}</DialogTitle>

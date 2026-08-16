@@ -613,6 +613,7 @@ app.put('/api/v1/admin/rewards/:id', (c) => rewardsController.updateReward(c));
 app.delete('/api/v1/admin/rewards/:id', (c) => rewardsController.deleteReward(c));
 
 app.get('/api/v1/children/:childId/stamps', (c) => rewardsController.getChildStamps(c));
+app.get('/api/v1/children/:childId/badges', (c) => rewardsController.getChildBadges(c));
 app.get('/api/v1/stamp-page-backgrounds', (c) => rewardsController.getStampPageBackgrounds(c));
 
 app.get   ('/api/v1/admin/stamp-image-ranges',     (c) => rewardsController.getStampImageRanges(c));
@@ -624,6 +625,27 @@ app.get   ('/api/v1/admin/stamp-page-backgrounds',     (c) => rewardsController.
 app.post  ('/api/v1/admin/stamp-page-backgrounds',     (c) => rewardsController.createStampPageBackground(c));
 app.put   ('/api/v1/admin/stamp-page-backgrounds/:id', (c) => rewardsController.updateStampPageBackground(c));
 app.delete('/api/v1/admin/stamp-page-backgrounds/:id', (c) => rewardsController.deleteStampPageBackground(c));
+
+// Stamp artwork: a library of designs, and which item/calendar/round uses each.
+app.get   ('/api/v1/admin/stamp-designs',          (c) => rewardsController.getStampDesigns(c));
+app.post  ('/api/v1/admin/stamp-designs',          (c) => rewardsController.createStampDesign(c));
+app.put   ('/api/v1/admin/stamp-designs/:id',      (c) => rewardsController.updateStampDesign(c));
+app.delete('/api/v1/admin/stamp-designs/:id',      (c) => rewardsController.deleteStampDesign(c));
+app.put   ('/api/v1/admin/stamp-design-bindings',  (c) => rewardsController.setStampDesignBinding(c));
+app.get   ('/api/v1/admin/courses/:courseId/reward-settings', (c) => rewardsController.getCourseRewardSettings(c));
+app.put   ('/api/v1/admin/courses/:courseId/reward-settings', (c) => rewardsController.setCourseRewardSettings(c));
+
+// Medals: the artwork, and handing them out per booking.
+app.get   ('/api/v1/admin/badge-designs',     (c) => rewardsController.getBadgeDesigns(c));
+app.put   ('/api/v1/admin/badge-designs',     (c) => rewardsController.upsertBadgeDesign(c));
+app.delete('/api/v1/admin/badge-designs/:id', (c) => rewardsController.deleteBadgeDesign(c));
+
+app.get   ('/api/v1/admin/bookings/:bookingId/awards',      (c) => rewardsController.getBookingAwards(c));
+app.post  ('/api/v1/admin/bookings/:bookingId/stamp',       (c) => rewardsController.grantBookingStamp(c));
+app.delete('/api/v1/admin/bookings/:bookingId/stamp',       (c) => rewardsController.revokeBookingStamp(c));
+app.post  ('/api/v1/admin/bookings/:bookingId/badge',       (c) => rewardsController.grantBookingBadge(c));
+app.delete('/api/v1/admin/bookings/:bookingId/badge/:tier', (c) => rewardsController.revokeBookingBadge(c));
+app.post  ('/api/v1/admin/children/:childId/points',        (c) => rewardsController.adjustPoints(c));
 
 // ================= NEWS FEED (ข่าวสาร / สื่อความรู้) =================
 app.get('/api/v1/news-feed', (c) => newsFeedController.getPublished(c));

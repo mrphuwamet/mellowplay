@@ -453,7 +453,7 @@ const AppContent = () => {
       { text: 'จัดการแคมเปญลดราคา', icon: <CampaignMenuIcon />, path: '/crm/sale-campaigns', feature: 'packages' },
       { text: 'จัดการของรางวัล', icon: <GiftMenuIcon />, path: '/crm/rewards', feature: 'bookings' },
       { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
-      { text: 'จัดการรูปแสตมป์', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
+      { text: 'แสตมป์ & เหรียญรางวัล', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
       { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
       { text: 'ตรวจสอบโพสต์ชุมชน', icon: <CommunityModerationMenuIcon />, path: '/crm/community-moderation', feature: 'news_feed' },
       { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },

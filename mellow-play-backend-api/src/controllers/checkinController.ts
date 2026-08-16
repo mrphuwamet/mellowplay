@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { CheckinRepository } from '../repositories/checkinRepository';
 import { AuthService } from '../services/authService';
+import { awardParticipation, revokeParticipation } from '../services/stampService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -85,6 +86,22 @@ export class CheckinController {
       const actionId = parseInt(c.req.param('actionId'));
       const checkedByCrmUserId = c.get('crmUser')?.userId ?? null;
       const checked = await this.repo(c).toggleAction(bookingId, actionId, checkedByCrmUserId);
+
+      // Turning up is what earns the stamp, and the first ticked item at the
+      // door is the moment we know they turned up. Unticking the last one undoes
+      // it — a mis-scan should not leave a memento behind. A stamp granted by
+      // hand or at "class finished" is left alone (see revokeParticipation).
+      const db = new ConfigService(c.env).db;
+      const remaining = await db.prepare(
+        'SELECT COUNT(*) AS n FROM Booking_Checkin_Log WHERE booking_id = ?'
+      ).bind(bookingId).first<any>();
+
+      if (checked) {
+        await awardParticipation(db, { bookingId, source: 'checkin', actorId: checkedByCrmUserId });
+      } else if ((remaining?.n ?? 0) === 0) {
+        await revokeParticipation(db, { bookingId, actorId: checkedByCrmUserId, source: 'checkin' });
+      }
+
       return c.json({ success: true, checked });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

@@ -32,7 +32,9 @@ import {
   Payments as PaymentsIcon,
   EventAvailable as BookedAtIcon,
   ForwardToInbox as ResendIcon,
+  LocalActivity as StampIcon,
 } from '@mui/icons-material';
+import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -912,6 +914,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [manageMenu, setManageMenu] = useState<{ anchor: HTMLElement; booking: Booking } | null>(null);
+  const [awardsBooking, setAwardsBooking] = useState<Booking | null>(null);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
@@ -1698,6 +1701,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             ส่งข้อความยืนยันอีกครั้ง
           </MenuItem>
         )}
+        {manageMenu && manageMenu.booking.status !== 'cancelled' && (
+          <MenuItem
+            onClick={() => {
+              setAwardsBooking(manageMenu.booking);
+              closeManageMenu();
+            }}
+            sx={{ gap: 1.25, fontWeight: 600 }}
+          >
+            <StampIcon fontSize="small" color="primary" />
+            แสตมป์ & เหรียญรางวัล
+          </MenuItem>
+        )}
         {manageMenu && ['confirmed', 'confirmed_paid'].includes(manageMenu.booking.status) && (
           <MenuItem onClick={() => { onCancel(manageMenu.booking.id); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600, color: 'error.main' }}>
             <CancelIcon fontSize="small" color="error" />
@@ -1705,6 +1720,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           </MenuItem>
         )}
       </Menu>
+
+      {/* Granting a medal after a competition, and putting back a stamp for a
+          day that was never recorded. */}
+      <BookingAwardsDialog
+        bookingId={awardsBooking?.id ?? null}
+        childName={awardsBooking?.child_name}
+        courseName={awardsBooking ? courseMap.get(awardsBooking.course_id)?.name : undefined}
+        onClose={() => setAwardsBooking(null)}
+      />
 
       <BookingDetailDialog
         booking={detailBooking}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Gift, AlertCircle, Star, ChevronLeft as ArrowLeft, ChevronRight as ArrowRight, History, X } from 'lucide-react';
+import { ChevronLeft, Gift, AlertCircle, Star, History, X, Check, Lock } from 'lucide-react';
+import { getCourseDetailPath } from '../utils/courseLinks';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
@@ -19,10 +20,25 @@ interface Reward {
 interface Stamp {
   id: number;
   position: number;
-  status: 'available' | 'used' | 'expired';
   image_url: string | null;
-  expires_at: string | null;
+  accent_color: string | null;
+  earned_at: string;
+  course_id: number | null;
   course_name?: string;
+  visit_number: number | null;
+  show_visit_number: boolean;
+  design_name?: string | null;
+}
+
+interface BadgeTier {
+  tier: number;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  accent_color: string | null;
+  count: number;
+  unlocked: boolean;
+  awards: { id: number; course_name?: string; awarded_at: string; note?: string | null }[];
 }
 
 interface Redemption {
@@ -34,7 +50,11 @@ interface Redemption {
   created_at: string;
 }
 
-const PAGE_SIZE = 12; // 3 rows x 4 cols
+// Medal colours used until someone uploads artwork: gold, silver, bronze.
+const TIER_FALLBACK: Record<number, string> = { 1: '#f2b418', 2: '#a8b3c1', 3: '#c98a5e' };
+// How many items the child has not joined yet are shown as empty slots. Enough
+// to read as "there is more to collect", few enough not to bury what they have.
+const SUGGESTION_LIMIT = 6;
 // Brand CI colors, cycled by stamp position when no custom stamp image is set.
 const STAMP_CI_COLORS = ['#7452d6', '#2273d9', '#21a45b', '#f7aa16', '#ef4f55', '#f6a800'];
 // Wavy "stamp seal" outline (12-petal ring) shared by the clip-path (real
@@ -55,10 +75,13 @@ const Rewards = () => {
   const [successMsg, setSuccessMsg] = useState('');
 
   const [stamps, setStamps] = useState<Stamp[]>([]);
+  const [badgeTiers, setBadgeTiers] = useState<BadgeTier[]>([]);
+  const [openCourses, setOpenCourses] = useState<any[]>([]);
+  // Points are what rewards cost. Kept apart from the stamp collection on
+  // purpose: redeeming spends points, and the stamps stay lit.
   const [availableCount, setAvailableCount] = useState(0);
   const [expiringSoonCount, setExpiringSoonCount] = useState(0);
   const [nearestExpiryDate, setNearestExpiryDate] = useState<string | null>(null);
-  const [pageIndex, setPageIndex] = useState(0); // 0 = latest page
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Redemption[]>([]);
@@ -70,14 +93,17 @@ const Rewards = () => {
   const fetchStamps = async () => {
     if (!selectedChild?.id) return;
     try {
-      const res = await apiClient.get(`/children/${selectedChild.id}/stamps`);
+      const [res, badgeRes] = await Promise.all([
+        apiClient.get(`/children/${selectedChild.id}/stamps`),
+        apiClient.get(`/children/${selectedChild.id}/badges`).catch(() => null),
+      ]);
       if (res.data.success) {
         setStamps(res.data.stamps);
-        setAvailableCount(res.data.availableCount);
+        setAvailableCount(res.data.pointsBalance ?? res.data.availableCount);
         setExpiringSoonCount(res.data.expiringSoonCount);
         setNearestExpiryDate(res.data.nearestExpiryDate);
-        setPageIndex(0);
       }
+      if (badgeRes?.data?.success) setBadgeTiers(badgeRes.data.tiers);
     } catch (err) {
       console.error('Failed to fetch stamps:', err);
     }
@@ -99,6 +125,10 @@ const Rewards = () => {
 
   useEffect(() => {
     fetchRewards();
+    // Used for the "not collected yet" slots — the reason to come back.
+    apiClient.get('/admin/courses')
+      .then(res => { if (res.data.success) setOpenCourses(res.data.courses || []); })
+      .catch(() => {});
     apiClient.get('/stamp-page-backgrounds')
       .then(res => { if (res.data.success) setPageBackgrounds(res.data.backgrounds); })
       .catch(() => {});
@@ -128,7 +158,7 @@ const Rewards = () => {
   const promptRedeem = (reward: Reward) => {
     if (!selectedChild?.id) return;
     if (availableCount < reward.stamp_cost) {
-      setErrorMsg(lang === 'en' ? 'Not enough stamps for this reward' : 'ยอดแสตมป์สะสมไม่เพียงพอสำหรับการแลกรางวัลนี้');
+      setErrorMsg(lang === 'en' ? 'Not enough points for this reward' : 'แต้มสะสมไม่พอสำหรับการแลกรางวัลนี้');
       return;
     }
     setConfirmReward(reward);
@@ -160,76 +190,103 @@ const Rewards = () => {
   };
 
   const totalCount = stamps.length;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const currentPageCells = useMemo(() => {
-    const endIdx = totalCount - pageIndex * PAGE_SIZE;
-    const startIdx = Math.max(0, endIdx - PAGE_SIZE);
-    const real = stamps.slice(startIdx, endIdx);
-    const padCount = PAGE_SIZE - real.length;
-    // Real stamps read left-to-right, top-to-bottom like a normal stamp
-    // card; empty slots trail at the end instead of leading.
-    return [...real, ...Array(padCount).fill(null)];
-  }, [stamps, pageIndex, totalCount]);
+  // Items this child has never joined. They are the point of showing a
+  // collection at all: an empty slot with a name on it is an invitation, where
+  // a page of grey circles was just padding.
+  const suggestions = useMemo(() => {
+    const joined = new Set(stamps.map(st => st.course_id).filter(Boolean));
+    return openCourses
+      .filter((c: any) => !joined.has(c.id))
+      .slice(0, SUGGESTION_LIMIT);
+  }, [stamps, openCourses]);
 
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString(lang === 'en' ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  const renderStampCell = (stamp: Stamp | null, i: number) => {
-    if (!stamp) {
-      return (
-        // Same two-level wrapper (outer auto-size flex + inner fixed
-        // w-16 h-16) as a real stamp cell below, so every cell in the row
-        // has an identical bounding box and lines up exactly regardless of
-        // which cells are empty vs. filled.
-        <div key={`empty-${i}`} className="flex items-center justify-center">
-          <div className="relative w-16 h-16 flex items-center justify-center">
-            {/* A plain CSS border can't follow clip-path, so the dashed
-                "future stamp" outline is drawn as an actual stroked path
-                instead, tracing the same wavy shape as real stamps. */}
-            <svg viewBox="0 0 1 1" className="w-14 h-14">
-              <path d={STAMP_SCALLOP_PATH} fill="none" stroke="#cbd5e1" strokeWidth="0.025" strokeDasharray="0.035 0.03" strokeLinecap="round" />
-            </svg>
-          </div>
+  // One earned stamp: the item's own artwork, its name underneath, and "#2"
+  // when the design says to show which visit it was.
+  const renderStampCell = (stamp: Stamp) => (
+    <div key={stamp.id} className="flex flex-col items-center text-center">
+      <div className="relative w-16 h-16">
+        <div
+          className="w-16 h-16 flex items-center justify-center shadow-sm overflow-hidden"
+          style={{
+            backgroundColor: stamp.image_url ? 'transparent' : (stamp.accent_color || STAMP_CI_COLORS[(stamp.position - 1) % STAMP_CI_COLORS.length]),
+            clipPath: 'url(#stampScallop)',
+          }}
+        >
+          {stamp.image_url
+            ? <img src={stamp.image_url} alt="" className="w-full h-full object-cover" />
+            : <Star size={28} className="text-white" fill="currentColor" />}
         </div>
-      );
-    }
-
-    const isMasked = stamp.status !== 'available';
-    const ciColor = STAMP_CI_COLORS[(stamp.position - 1) % STAMP_CI_COLORS.length];
-    return (
-      <div key={stamp.id} className="flex items-center justify-center">
-        <div className="relative w-16 h-16">
-          <div className={`w-16 h-16 flex items-center justify-center shadow-sm overflow-hidden ${isMasked ? 'grayscale' : ''}`}
-            style={{ backgroundColor: stamp.image_url ? 'transparent' : ciColor, clipPath: 'url(#stampScallop)' }}
-          >
-            {stamp.image_url ? (
-              <img src={stamp.image_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <Star size={28} className="text-white" fill="currentColor" />
-            )}
-          </div>
-          {/* "Used"/"Expired" reads as an ink stamp mark punched directly
-              onto the stamp itself, instead of a caption underneath. */}
-          {isMasked && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <span
-                className="text-[10px] font-black text-white border-[1.5px] border-white px-1.5 py-0.5 rounded-sm uppercase tracking-wider bg-black/50"
-                style={{ transform: 'rotate(-16deg)' }}
-              >
-                {stamp.status === 'used' ? (lang === 'en' ? 'Used' : 'ใช้แล้ว') : (lang === 'en' ? 'Expired' : 'หมดอายุ')}
-              </span>
-            </div>
-          )}
-          {/* Sits on a non-clipped sibling so the round parent's
-              overflow-hidden doesn't cut the corner off this badge. */}
-          <span className="absolute -bottom-1.5 -right-1.5 min-w-[26px] h-[26px] px-[5px] rounded-full bg-white text-mellow-ink text-[15px] font-black flex items-center justify-center shadow-md border border-slate-100 leading-none">
-            {stamp.position}
+        {/* Sits on a non-clipped sibling so the round parent's
+            overflow-hidden doesn't cut the corner off this badge. */}
+        {stamp.show_visit_number && stamp.visit_number ? (
+          <span className="absolute -bottom-1.5 -right-1.5 min-w-[26px] h-[26px] px-[5px] rounded-full bg-white text-mellow-ink text-[13px] font-black flex items-center justify-center shadow-md border border-slate-100 leading-none">
+            #{stamp.visit_number}
           </span>
-        </div>
+        ) : (
+          <span className="absolute -bottom-1.5 -right-1.5 w-[22px] h-[22px] rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md border-2 border-white">
+            <Check size={12} strokeWidth={4} />
+          </span>
+        )}
       </div>
-    );
-  };
+      <p className="mt-2 text-[11px] font-bold text-slate-600 leading-tight line-clamp-2 w-[84px]">
+        {stamp.course_name || stamp.design_name || ''}
+      </p>
+    </div>
+  );
+
+  // An item not joined yet. Tapping it goes to the item, which is the whole
+  // reason these slots are here.
+  const renderEmptySlot = (course: any) => (
+    <div
+      key={`open-${course.id}`}
+      onClick={() => navigate(getCourseDetailPath(course))}
+      className="flex flex-col items-center text-center cursor-pointer active:scale-95 transition-transform"
+    >
+      <div className="relative w-16 h-16 flex items-center justify-center">
+        {/* A plain CSS border can't follow clip-path, so the dashed
+            "future stamp" outline is drawn as an actual stroked path
+            instead, tracing the same wavy shape as real stamps. */}
+        <svg viewBox="0 0 1 1" className="w-14 h-14">
+          <path d={STAMP_SCALLOP_PATH} fill="none" stroke="#cbd5e1" strokeWidth="0.025" strokeDasharray="0.035 0.03" strokeLinecap="round" />
+        </svg>
+        <Lock size={16} className="absolute text-slate-300" />
+      </div>
+      <p className="mt-2 text-[11px] font-bold text-slate-400 leading-tight line-clamp-2 w-[84px]">{course.name}</p>
+    </div>
+  );
+
+  const renderBadge = (t: BadgeTier) => (
+    <div key={t.tier} className="flex flex-col items-center text-center">
+      <div
+        className={`w-[76px] h-[76px] rounded-full flex items-center justify-center overflow-hidden shadow-sm relative ${t.unlocked ? '' : 'bg-slate-100'}`}
+        style={t.unlocked && !t.image_url ? { backgroundColor: t.accent_color || TIER_FALLBACK[t.tier] } : undefined}
+      >
+        {t.unlocked && t.image_url
+          ? <img src={t.image_url} alt="" className="w-full h-full object-cover" />
+          : t.unlocked
+            ? <span className="text-white text-3xl font-black">{t.tier}</span>
+            : <>
+                <span className="text-slate-300 text-3xl font-black">{t.tier}</span>
+                <span className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <Lock size={11} className="text-slate-400" />
+                </span>
+              </>}
+        {t.unlocked && t.count > 1 && (
+          <span className="absolute -top-0 -right-0 min-w-[22px] h-[22px] px-1 rounded-full bg-mellow-ink text-white text-[11px] font-black flex items-center justify-center border-2 border-white">
+            {t.count}
+          </span>
+        )}
+      </div>
+      <p className={`mt-2 text-[12px] font-black ${t.unlocked ? 'text-slate-700' : 'text-slate-400'}`}>{t.name}</p>
+      {t.unlocked && t.awards[0]?.course_name && (
+        <p className="text-[10px] font-bold text-slate-400 leading-tight line-clamp-2 w-[92px]">{t.awards[0].course_name}</p>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
@@ -284,8 +341,8 @@ const Rewards = () => {
                {!isPremium && nearestExpiryDate && expiringSoonCount > 0 && (
                  <p className="mt-1 text-[12px] font-bold text-slate-400">
                    {lang === 'en'
-                     ? `${expiringSoonCount} ${expiringSoonCount === 1 ? 'stamp' : 'stamps'} expiring on ${formatDate(nearestExpiryDate)}`
-                     : `มีแสตมป์ ${expiringSoonCount} ดวง จะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
+                     ? `${expiringSoonCount} ${expiringSoonCount === 1 ? 'point' : 'points'} expiring on ${formatDate(nearestExpiryDate)}`
+                     : `มีแต้ม ${expiringSoonCount} แต้ม จะหมดอายุวันที่ ${formatDate(nearestExpiryDate)}`}
                  </p>
                )}
              </div>
@@ -305,47 +362,77 @@ const Rewards = () => {
                  {availableCount}
                </span>
                <span className={`text-[10px] font-black uppercase tracking-widest ${isPremium ? 'text-white/90' : 'text-emerald-600'}`}>
-                 {lang === 'en' ? 'stamps' : 'แสตมป์'}
+                 {lang === 'en' ? 'points' : 'แต้ม'}
                </span>
              </div>
           </div>
         </div>
 
-        {/* Stamps Grid — page_number matches the "N / total" label shown
-            below, so a CRM-uploaded background swaps in per page. */}
+        {/* A — the collection. Grouped by what the child joined rather than by
+            position, because "which events have I been to" is the thing worth
+            showing; a page of numbered circles said nothing about any of them.
+            The CRM-uploaded page background still backs the card. */}
         {(() => {
-          const currentPageNumber = pageCount - pageIndex;
-          const pageBg = pageBackgrounds.find(b => b.page_number === currentPageNumber);
+          const pageBg = pageBackgrounds.find(b => b.page_number === 1);
           return (
             <div
-              className={`rounded-3xl p-5 shadow-sm mb-6 md:max-w-sm md:mx-auto ${pageBg ? 'bg-cover bg-center' : 'bg-white'}`}
+              className={`rounded-3xl p-5 shadow-sm mb-6 ${pageBg ? 'bg-cover bg-center' : 'bg-white'}`}
               style={pageBg ? { backgroundImage: `url(${pageBg.image_url})` } : undefined}
             >
-              <div className="flex items-center justify-between mb-3">
-                <button
-                  onClick={() => setPageIndex(p => Math.min(pageCount - 1, p + 1))}
-                  disabled={pageIndex >= pageCount - 1}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform ${pageBg ? 'bg-white/80 backdrop-blur-sm' : 'bg-slate-100'}`}
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <span className={`text-[12px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${pageBg ? 'bg-white/80 backdrop-blur-sm text-slate-500' : 'text-slate-400'}`}>
-                  {totalCount === 0 ? (lang === 'en' ? 'No stamps yet' : 'ยังไม่มีแสตมป์') : `${currentPageNumber} / ${pageCount}`}
+              <div className="flex items-baseline justify-between mb-4">
+                <h3 className="text-[15px] font-black text-slate-800">
+                  {lang === 'en' ? 'My Stamp Collection' : 'แสตมป์ที่สะสมไว้'}
+                </h3>
+                <span className="text-[12px] font-black text-slate-400">
+                  {totalCount} {lang === 'en' ? 'stamps' : 'ดวง'}
                 </span>
-                <button
-                  onClick={() => setPageIndex(p => Math.max(0, p - 1))}
-                  disabled={pageIndex <= 0}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-20 active:scale-90 transition-transform ${pageBg ? 'bg-white/80 backdrop-blur-sm' : 'bg-slate-100'}`}
-                >
-                  <ArrowRight size={16} />
-                </button>
               </div>
-              <div className="grid grid-cols-4 gap-y-5 gap-x-3">
-                {currentPageCells.map((s, i) => renderStampCell(s, i))}
-              </div>
+
+              {totalCount === 0 && suggestions.length === 0 ? (
+                <p className="text-center text-sm font-bold text-slate-400 py-6">
+                  {lang === 'en' ? 'No stamps yet — join an activity to start collecting' : 'ยังไม่มีแสตมป์ — ไปร่วมกิจกรรมแล้วเก็บดวงแรกกันเลย'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-y-5 gap-x-3">
+                  {stamps.map(st => renderStampCell(st))}
+                  {suggestions.map(course => renderEmptySlot(course))}
+                </div>
+              )}
+
+              {suggestions.length > 0 && (
+                <p className="mt-4 text-[11px] font-bold text-slate-400 text-center">
+                  {lang === 'en'
+                    ? 'Greyed slots are activities you have not joined yet — tap one to see it'
+                    : 'ช่องจางๆ คือกิจกรรมที่ยังไม่ได้ไป กดดูรายละเอียดได้เลย'}
+                </p>
+              )}
             </div>
           );
         })()}
+
+        {/* B — medals. Always all three, because the locked ones are what make
+            the unlocked one mean something. */}
+        <div className="bg-white rounded-3xl p-5 shadow-sm mb-6">
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-[15px] font-black text-slate-800">
+              {lang === 'en' ? 'Winner Badges' : 'เหรียญรางวัล'}
+            </h3>
+            <span className="text-[12px] font-black text-slate-400">
+              {badgeTiers.reduce((n, t) => n + t.count, 0)} {lang === 'en' ? 'earned' : 'เหรียญ'}
+            </span>
+          </div>
+          <div className="flex items-start justify-center gap-6">
+            {(badgeTiers.length > 0 ? badgeTiers : [1, 2, 3].map(tier => ({
+              tier, name: `อันดับ ${tier}`, description: null, image_url: null,
+              accent_color: null, count: 0, unlocked: false, awards: [],
+            }))).map(t => renderBadge(t as BadgeTier))}
+          </div>
+          <p className="mt-4 text-[11px] font-bold text-slate-400 text-center leading-relaxed">
+            {lang === 'en'
+              ? 'Everyone who joins earns a stamp · winners take badge 1 · 2 · 3'
+              : 'ผู้เข้าร่วมทุกคนได้รับแสตมป์ · ผู้ชนะได้รับเหรียญอันดับ 1 · 2 · 3'}
+          </p>
+        </div>
 
         {errorMsg && (
           <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-3 text-sm font-bold border border-red-100">
@@ -365,7 +452,14 @@ const Rewards = () => {
         {/* Rewards Catalog — a content-card grid (photo + name + price +
             button), so unlike the icon-tile grids above it scales up to
             more columns as the page container widens. */}
-        <h3 className="text-lg font-black text-slate-800 mb-4 px-2">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
+        <div className="px-2 mb-4">
+          <h3 className="text-lg font-black text-slate-800">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
+          <p className="text-[12px] font-bold text-slate-400 mt-0.5">
+            {lang === 'en'
+              ? 'Redeeming spends points — your stamp collection stays'
+              : 'แลกของใช้แต้ม แสตมป์ที่สะสมไว้ยังอยู่ครบ'}
+          </p>
+        </div>
 
         {loading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
@@ -394,7 +488,7 @@ const Rewards = () => {
                 <div className="mt-auto pt-2 border-t border-slate-50 flex items-center justify-between">
                   <div className="flex items-center gap-1 text-mellow-purple font-black">
                     <span className="text-sm">{reward.stamp_cost}</span>
-                    <span className="text-[11px]">ดวง</span>
+                    <span className="text-[11px]">{lang === 'en' ? 'pts' : 'แต้ม'}</span>
                   </div>
                   <button
                     onClick={() => promptRedeem(reward)}
@@ -426,8 +520,8 @@ const Rewards = () => {
             </h3>
             <p className="text-sm font-bold text-slate-500 leading-relaxed mb-1">
               {lang === 'en'
-                ? `Use ${confirmReward.stamp_cost} stamps to redeem:`
-                : `ใช้ ${confirmReward.stamp_cost} แสตมป์ เพื่อแลก:`}
+                ? `Use ${confirmReward.stamp_cost} points to redeem:`
+                : `ใช้ ${confirmReward.stamp_cost} แต้ม เพื่อแลก:`}
             </p>
             <p className="text-base font-black text-slate-800 mb-6">{confirmReward.name}</p>
             <div className="flex gap-3">

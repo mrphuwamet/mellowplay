@@ -341,6 +341,15 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [visibilityBusyId, setVisibilityBusyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Stamp artwork and the participation medal. Held apart from formData
+  // because they are saved through their own endpoint — the course
+  // insert/update already carries ~60 parameters and does not need two more.
+  const [stampDesigns, setStampDesigns] = useState<any[]>([]);
+  const [rewardSettings, setRewardSettings] = useState<{ design_id: number | null; participation_badge_tier: number | null }>({
+    design_id: null, participation_badge_tier: null,
+  });
+  const [rewardRounds, setRewardRounds] = useState<any[]>([]);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [categoryFormDialogOpen, setCategoryFormDialogOpen] = useState(false);
@@ -1036,15 +1045,49 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     });
   }, [courses, filters, courseType, colFilters, sort, columnText, columnSortValue]);
 
+  // Day names for the per-round stamp list, Sunday first as JS numbers them.
+  const DAY_LABELS: Record<number, string> = {
+    0: 'อาทิตย์', 1: 'จันทร์', 2: 'อังคาร', 3: 'พุธ', 4: 'พฤหัสบดี', 5: 'ศุกร์', 6: 'เสาร์',
+  };
+
+  // A round's override is saved the moment it is picked: the rounds already
+  // exist in the calendar, so there is nothing to create alongside the course.
+  const setRoundDesign = async (ruleId: number, designId: number | null) => {
+    setRewardRounds(rs => rs.map(r => r.id === ruleId ? { ...r, design_id: designId } : r));
+    try {
+      await axios.put(`${API_BASE}/stamp-design-bindings`, { scope: 'slot_rule', ref_id: ruleId, design_id: designId });
+    } catch (e) {
+      console.error('Failed to bind round stamp design', e);
+    }
+  };
+
   const handleEditOpen = async (course: Course | null = null) => {
     setSaveError(null);
     setPageTab(0);
     setCourseImageViews({});
     setImageFocals({});
     setPosterModalImage(null);
+    // The design library is needed by both branches; the item's own settings
+    // only exist once it does.
+    axios.get(`${API_BASE}/stamp-designs`)
+      .then(({ data }) => { if (data.success) setStampDesigns(data.designs); })
+      .catch(() => setStampDesigns([]));
+    setRewardSettings({ design_id: null, participation_badge_tier: null });
+    setRewardRounds([]);
+
     if (course) {
       loadCourseImageViews(course.id);
       loadCourseImageFocals(course.id);
+      axios.get(`${API_BASE}/courses/${course.id}/reward-settings`)
+        .then(({ data }) => {
+          if (!data.success) return;
+          setRewardSettings({
+            design_id: data.design_id ?? null,
+            participation_badge_tier: data.participation_badge_tier ?? null,
+          });
+          setRewardRounds(data.rounds || []);
+        })
+        .catch(() => { /* leave the defaults */ });
       let reqs: CouponRequirement[] = [];
       try {
         const { data } = await axios.get(`${API_BASE}/courses/${course.id}/coupons`);
@@ -1274,6 +1317,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         await axios.put(`${API_BASE}/courses/${courseId}/checkin-actions`, {
           actions: formData.checkinActions.filter(label => label.trim()).map(label => ({ label: label.trim() })),
         });
+        await axios.put(`${API_BASE}/courses/${courseId}/reward-settings`, rewardSettings);
       }
 
       setIsEditing(false);
@@ -1580,25 +1624,89 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
 
                 <Grid item xs={12} sm={6}>
                   <TextField
-                    label="แสตมป์ที่ได้รับ (หลังเรียนจบ)"
+                    label="แต้มที่ได้รับเมื่อเข้าร่วม"
                     type="number"
                     fullWidth
                     inputProps={{ min: 0 }}
                     value={formData.stampsOnCompletion}
                     onChange={e => setFormData({ ...formData, stampsOnCompletion: Math.max(0, parseInt(e.target.value) || 0) })}
+                    helperText="แต้มไว้แลกของรางวัล (คนละส่วนกับดวงแสตมป์สะสม ซึ่งได้ 1 ดวงต่อการมา 1 ครั้ง)"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
-                    label="ระยะเวลาหมดอายุแสตมป์ (เดือน)"
+                    label="ระยะเวลาหมดอายุแต้ม (เดือน)"
                     type="number"
                     fullWidth
                     inputProps={{ min: 1 }}
                     value={formData.stampExpiryMonths}
                     onChange={e => setFormData({ ...formData, stampExpiryMonths: Math.max(1, parseInt(e.target.value) || 12) })}
-                    helperText="วันหมดอายุจริงจะปัดขึ้นเป็นสิ้นเดือน 6 หรือสิ้นปี"
+                    helperText="วันหมดอายุจริงจะปัดขึ้นเป็นสิ้นเดือน 6 หรือสิ้นปี · ดวงแสตมป์ไม่มีวันหมดอายุ"
                   />
                 </Grid>
+
+                {/* Which stamp this item gives, and whether turning up earns a
+                    medal. Saved through its own endpoint on submit, so the
+                    ~60-parameter course update is left alone. */}
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>ดีไซน์แสตมป์ของกิจกรรมนี้</InputLabel>
+                    <Select
+                      label="ดีไซน์แสตมป์ของกิจกรรมนี้"
+                      value={rewardSettings.design_id ?? ''}
+                      onChange={e => setRewardSettings(s => ({ ...s, design_id: e.target.value === '' ? null : Number(e.target.value) }))}
+                    >
+                      <MenuItem value="">ใช้รูปตามลำดับดวง (แบบเดิม)</MenuItem>
+                      {stampDesigns.filter((d: any) => d.is_active).map((d: any) => (
+                        <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>เข้าร่วมแล้วได้เหรียญ</InputLabel>
+                    <Select
+                      label="เข้าร่วมแล้วได้เหรียญ"
+                      value={rewardSettings.participation_badge_tier ?? ''}
+                      onChange={e => setRewardSettings(s => ({ ...s, participation_badge_tier: e.target.value === '' ? null : Number(e.target.value) }))}
+                    >
+                      <MenuItem value="">ไม่ให้อัตโนมัติ (มอบเองหลังแข่ง)</MenuItem>
+                      <MenuItem value={3}>อันดับ 3 — ผู้เข้าร่วมทุกคน</MenuItem>
+                      <MenuItem value={2}>อันดับ 2</MenuItem>
+                      <MenuItem value={1}>อันดับ 1</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {rewardRounds.length > 0 && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                      แสตมป์รายรอบ (ถ้าไม่ตั้ง จะใช้ดีไซน์ของกิจกรรมด้านบน)
+                    </Typography>
+                    <Stack spacing={1}>
+                      {rewardRounds.map((r: any) => (
+                        <Box key={r.id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                          <Typography variant="body2" sx={{ minWidth: 190 }}>
+                            {r.specific_date ? r.specific_date : `ทุก${DAY_LABELS[r.day_of_week] || ''}`} · {String(r.start_time).slice(0, 5)}
+                          </Typography>
+                          <FormControl size="small" sx={{ minWidth: 240 }}>
+                            <Select
+                              value={r.design_id ?? ''}
+                              onChange={e => setRoundDesign(r.id, e.target.value === '' ? null : Number(e.target.value))}
+                              displayEmpty
+                            >
+                              <MenuItem value="">ตามกิจกรรม</MenuItem>
+                              {stampDesigns.filter((d: any) => d.is_active).map((d: any) => (
+                                <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Grid>
+                )}
 
                 {/* Media + Teacher Guide — moved here from a separate right
                     sidebar column to reclaim horizontal width; the full
