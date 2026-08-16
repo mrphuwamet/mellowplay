@@ -101,8 +101,87 @@ export function renderEmailSubject(template: string, variables: Record<string, s
 // CSS and no flex/grid, because Outlook's Word-based renderer supports
 // neither. `wrapEmailHtml` is idempotent-ish: a body that already looks like a
 // full document is passed through so a hand-written HTML template still works.
-export function wrapEmailHtml(bodyHtml: string): string {
+/**
+ * How the frame around an email looks. Loaded from System_Settings by
+ * loadEmailTheme below; every field has a default so a missing row renders
+ * the plain frame rather than nothing.
+ */
+export interface EmailTheme {
+  mode: 'plain' | 'branded';
+  headerImage: string;
+  headerBg: string;
+  pageBg: string;
+  cardBg: string;
+  textColor: string;
+  footerHtml: string;
+  footerBg: string;
+}
+
+export const DEFAULT_EMAIL_THEME: EmailTheme = {
+  mode: 'plain',
+  headerImage: '',
+  headerBg: '#ffffff',
+  pageBg: '#f4f5f7',
+  cardBg: '#ffffff',
+  textColor: '#1f2937',
+  footerHtml: '',
+  footerBg: '#f8fafc',
+};
+
+/**
+ * Reads the theme a super admin configured in the CRM.
+ *
+ * Defaults to the plain frame on anything missing or unreadable: an email that
+ * looks unstyled still gets read, an email that fails to render does not.
+ */
+export async function loadEmailTheme(settings: { getSetting(key: string): Promise<string | null> }): Promise<EmailTheme> {
+  try {
+    const [mode, headerImage, headerBg, pageBg, cardBg, textColor, footerHtml, footerBg] = await Promise.all([
+      settings.getSetting('email_template_mode'),
+      settings.getSetting('email_header_image'),
+      settings.getSetting('email_header_bg'),
+      settings.getSetting('email_page_bg'),
+      settings.getSetting('email_card_bg'),
+      settings.getSetting('email_text_color'),
+      settings.getSetting('email_footer_html'),
+      settings.getSetting('email_footer_bg'),
+    ]);
+    return {
+      mode: mode === 'branded' ? 'branded' : 'plain',
+      headerImage: headerImage || DEFAULT_EMAIL_THEME.headerImage,
+      headerBg: headerBg || DEFAULT_EMAIL_THEME.headerBg,
+      pageBg: pageBg || DEFAULT_EMAIL_THEME.pageBg,
+      cardBg: cardBg || DEFAULT_EMAIL_THEME.cardBg,
+      textColor: textColor || DEFAULT_EMAIL_THEME.textColor,
+      footerHtml: footerHtml || DEFAULT_EMAIL_THEME.footerHtml,
+      footerBg: footerBg || DEFAULT_EMAIL_THEME.footerBg,
+    };
+  } catch {
+    return DEFAULT_EMAIL_THEME;
+  }
+}
+
+export function wrapEmailHtml(bodyHtml: string, theme: EmailTheme = DEFAULT_EMAIL_THEME): string {
   if (/<html[\s>]/i.test(bodyHtml)) return bodyHtml;
+
+  // Header and footer exist only in branded mode, and only when there is
+  // something to put in them — a branded email with no header configured gets
+  // the plain card rather than an empty band of colour.
+  const header = theme.mode === 'branded' && theme.headerImage
+    ? `<tr><td align="center" style="background-color:${theme.headerBg};padding:20px 24px;border-radius:12px 12px 0 0;">
+<img src="${theme.headerImage}" alt="" width="240" style="display:block;max-width:100%;height:auto;border:0;" />
+</td></tr>`
+    : '';
+
+  const footer = theme.mode === 'branded' && theme.footerHtml
+    ? `<tr><td style="background-color:${theme.footerBg};padding:20px 28px;border-radius:0 0 12px 12px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;line-height:1.7;color:#64748b;">
+${theme.footerHtml}
+</td></tr>`
+    : '';
+
+  const pageBg = theme.mode === 'branded' ? theme.pageBg : DEFAULT_EMAIL_THEME.pageBg;
+  const cardBg = theme.mode === 'branded' ? theme.cardBg : DEFAULT_EMAIL_THEME.cardBg;
+  const textColor = theme.mode === 'branded' ? theme.textColor : DEFAULT_EMAIL_THEME.textColor;
 
   return `<!DOCTYPE html>
 <html lang="th">
@@ -110,16 +189,18 @@ export function wrapEmailHtml(bodyHtml: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body style="margin:0;padding:0;background-color:#f4f5f7;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7;">
+<body style="margin:0;padding:0;background-color:${pageBg};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${pageBg};">
 <tr>
 <td align="center" style="padding:24px 12px;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:${cardBg};border-radius:12px;">
+${header}
 <tr>
-<td style="padding:32px 28px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1f2937;">
+<td style="padding:32px 28px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:15px;line-height:1.7;color:${textColor};">
 ${bodyHtml}
 </td>
 </tr>
+${footer}
 </table>
 </td>
 </tr>

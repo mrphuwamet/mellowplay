@@ -58,17 +58,8 @@ const SAMPLE_QR_BLOCK = `<table role="presentation" cellpadding="0" cellspacing=
   + `<tr><td style="padding:4px 0;"><a href="#" style="display:inline-block;background:#7c3aed;color:#ffffff;font-weight:800;font-size:14px;padding:12px 24px;border-radius:999px;text-decoration:none;">QR เช็คอินของ น้องปลื้ม</a></td></tr>`
   + `</table>`;
 
-function wrapEmailHtmlLocal(bodyHtml: string): string {
-  if (/<html[\s>]/i.test(bodyHtml)) return bodyHtml;
-  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>`
-    + `<body style="margin:0;padding:0;background-color:#f4f5f7;">`
-    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7;"><tr>`
-    + `<td align="center" style="padding:24px 12px;">`
-    + `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:12px;"><tr>`
-    + `<td style="padding:32px 28px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1f2937;">`
-    + bodyHtml
-    + `</td></tr></table></td></tr></table></body></html>`;
-}
+
+import { wrapEmailHtml, useEmailTheme } from '../utils/emailFrame';
 
 const DEFAULT_SUBJECT = 'ยืนยันการลงทะเบียน {{course_name}}';
 
@@ -98,6 +89,8 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
   value, onChange, builtins, formFields, courseName,
 }) => {
   const [smsPreviewField, setSmsPreviewField] = useState<'smsSuccessTemplate' | 'smsReminderTemplate' | null>(null);
+  // Whatever frame the system is configured to send in — plain or branded.
+  const emailTheme = useEmailTheme();
   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
   const [emailBodyTab, setEmailBodyTab] = useState<'wysiwyg' | 'html'>('wysiwyg');
   // Bumping the seed reshuffles every sample value. Held in state rather than
@@ -169,8 +162,9 @@ const CourseNotificationsTab: React.FC<CourseNotificationsTabProps> = ({
   };
 
 
-  const previewHtml = wrapEmailHtmlLocal(
+  const previewHtml = wrapEmailHtml(
     renderEmailTemplateLocal(value.emailSuccessTemplate, sampleVariables, { qr_code: SAMPLE_QR_BLOCK }),
+    emailTheme,
   );
   const previewSubject = renderSmsTemplateLocal(value.emailSuccessSubject || DEFAULT_SUBJECT, sampleVariables);
 

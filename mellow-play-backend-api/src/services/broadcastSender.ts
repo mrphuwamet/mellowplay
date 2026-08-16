@@ -4,7 +4,7 @@ import { EmailService } from './emailService';
 import { SmsService } from './smsService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { BroadcastRepository } from '../repositories/broadcastRepository';
-import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml, escapeHtml } from './emailTemplateService';
+import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml, loadEmailTheme, escapeHtml } from './emailTemplateService';
 import { renderSmsTemplate } from './smsTemplateService';
 
 /**
@@ -21,6 +21,9 @@ import { renderSmsTemplate } from './smsTemplateService';
 export async function drainBroadcasts(db: D1Database, config: ConfigService): Promise<{ processed: number }> {
   const repo = new BroadcastRepository(db);
   const settings = new SettingsRepository(db);
+  // Loaded once for the whole drain rather than per recipient — every message
+  // in a broadcast wears the same frame.
+  const emailTheme = await loadEmailTheme(settings);
 
   const batchSize = parseInt(await settings.getOverridable('broadcast_batch_size', '40')) || 40;
   const pending = await repo.nextPending(batchSize);
@@ -64,7 +67,7 @@ export async function drainBroadcasts(db: D1Database, config: ConfigService): Pr
 <p style="font-size:12px;color:#888">ไม่ต้องการรับข่าวสารจาก Mellow Play อีก? <a href="${escapeHtml(url)}">ยกเลิกรับข่าวสาร</a></p>`;
         }
 
-        const bodyHtml = wrapEmailHtml(renderEmailTemplate(r.body_html, variables) + footer);
+        const bodyHtml = wrapEmailHtml(renderEmailTemplate(r.body_html, variables) + footer, emailTheme);
         const result = email.isConfigured
           ? await email.sendMessage(r.email, subject, bodyHtml)
           : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };

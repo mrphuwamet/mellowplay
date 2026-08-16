@@ -2,7 +2,7 @@ import { ConfigService } from './configService';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
-import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml } from './emailTemplateService';
+import { renderEmailTemplate, renderEmailSubject, wrapEmailHtml, loadEmailTheme } from './emailTemplateService';
 
 /**
  * The one-off "your account is ready" mail, sent when an account is created.
@@ -39,7 +39,7 @@ export async function sendWelcomeEmail(
     };
 
     const subject = renderEmailSubject(subjectTemplate, variables);
-    const bodyHtml = wrapEmailHtml(renderEmailTemplate(bodyTemplate, variables));
+    const bodyHtml = wrapEmailHtml(renderEmailTemplate(bodyTemplate, variables), await loadEmailTheme(settings));
 
     const fromAddress = await settings.getOverridable('email_from_address', 'contact@mellowplay.co');
     const fromName = await settings.getOverridable('email_from_name', 'Mellow Play');

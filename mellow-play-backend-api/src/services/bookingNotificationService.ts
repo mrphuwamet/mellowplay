@@ -6,7 +6,7 @@ import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from './smsTemplateService';
 import {
-  renderEmailTemplate, renderEmailSubject, wrapEmailHtml,
+  renderEmailTemplate, renderEmailSubject, wrapEmailHtml, loadEmailTheme,
   buildCheckinQrBlock, buildCheckinQrLink,
 } from './emailTemplateService';
 
@@ -190,6 +190,7 @@ export async function sendBookingSuccessNotifications(
         variables.qr_link = buildCheckinQrLink(baseUrl, bookingRows.map(r => r.qr_token));
         const bodyHtml = wrapEmailHtml(
           renderEmailTemplate(first.email_success_template, variables, { qr_code: qrBlock }),
+          await loadEmailTheme(settingsRepo),
         );
         const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
         const fromName = await settingsRepo.getOverridable('email_from_name', 'Mellow Play');

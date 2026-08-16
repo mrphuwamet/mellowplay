@@ -6,6 +6,7 @@ import {
   TextField, MenuItem, Select, FormControl, InputLabel,
   Stack, CircularProgress, Divider, List, ListItem, ListItemButton, ListItemText, ListItemAvatar,
   Avatar, Card, CardContent, Switch, FormControlLabel, Alert,
+  ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -19,8 +20,22 @@ import {
   Error as ErrorIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import RichTextEditor from '../components/RichTextEditor';
+import { uploadEditorImage } from '../utils/imageUpload';
+import {
+  EmailTheme, DEFAULT_EMAIL_THEME, themeFromSettings, themeToSettings, wrapEmailHtml,
+} from '../utils/emailFrame';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
+
+// Stands in for a real message in the theme preview. Deliberately ordinary —
+// what is being previewed is the frame, not the copy.
+const EMAIL_PREVIEW_BODY = [
+  '<p>สวัสดีค่ะ คุณผู้ปกครอง</p>',
+  '<p>นี่คือตัวอย่างอีเมลที่ระบบจะส่งออกไป เนื้อหาส่วนนี้มาจากเครื่องมือเขียนข้อความของแต่ละกิจกรรม',
+  'ส่วนพื้นหลัง หัวกระดาษ และท้ายกระดาษมาจากการตั้งค่าทางซ้าย</p>',
+  '<p style="margin:0;"><a href="#" style="display:inline-block;background:#7c3aed;color:#ffffff;font-weight:800;font-size:14px;padding:12px 24px;border-radius:999px;text-decoration:none;">ดูรายละเอียด</a></p>',
+].join(' ');
 
 interface Branch {
   id: string;
@@ -87,6 +102,13 @@ const SystemSettings = () => {
   const [welcomeBody, setWelcomeBody] = useState('');
   const [savingWelcome, setSavingWelcome] = useState(false);
 
+  // The frame around every outgoing email (plain vs custom). Edited as a draft
+  // and saved on a button — the preview beside it renders the draft, so the
+  // effect is visible before anything reaches a real inbox.
+  const [emailTheme, setEmailTheme] = useState<EmailTheme>(DEFAULT_EMAIL_THEME);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+
   // Beam/SMS credentials — super_admin only. GET returns a masked preview
   // only; typing into a field stages a NEW value, an untouched field is
   // never sent back so the masked placeholder can't overwrite the real secret.
@@ -143,6 +165,7 @@ const SystemSettings = () => {
         setSystemSettings(settingsMap);
         setWelcomeSubject(settingsMap['welcome_email_subject'] || '');
         setWelcomeBody(settingsMap['welcome_email_template'] || '');
+        setEmailTheme(themeFromSettings(settingsMap));
       }
       if (isSuperAdmin) {
         const keysRes = await axios.get(`${API_BASE}/integration-keys`);
@@ -250,6 +273,61 @@ const SystemSettings = () => {
     }
   };
 
+  const patchTheme = (patch: Partial<EmailTheme>) => setEmailTheme(prev => ({ ...prev, ...patch }));
+
+  const uploadHeaderImage = async (file: File) => {
+    setUploadingHeader(true);
+    try {
+      const { url } = await uploadEditorImage(file, 'email-theme');
+      patchTheme({ headerImage: url });
+    } catch (e: any) {
+      alert('อัปโหลดรูปไม่สำเร็จ: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setUploadingHeader(false);
+    }
+  };
+
+  const saveEmailTheme = async () => {
+    setSavingTheme(true);
+    try {
+      const map = themeToSettings(emailTheme);
+      // Sequential, not Promise.all: eight writes into the same table and D1
+      // takes one writer at a time.
+      for (const [key, value] of Object.entries(map)) {
+        await axios.put(`${API_BASE}/system/settings`, { key, value });
+      }
+      setSystemSettings(prev => ({ ...prev, ...map }));
+    } catch (e: any) {
+      alert('บันทึกไม่สำเร็จ: ' + e.message);
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const isBranded = emailTheme.mode === 'branded';
+
+  // One colour control: a swatch to pick with, and a hex field to paste a
+  // brand colour into.
+  const colorField = (label: string, key: 'headerBg' | 'pageBg' | 'cardBg' | 'textColor' | 'footerBg') => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <Box
+        component="input" type="color" disabled={!isBranded}
+        value={emailTheme[key] || '#ffffff'}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => patchTheme({ [key]: e.target.value })}
+        sx={{
+          width: 44, height: 44, p: 0, flexShrink: 0, borderRadius: 1.5,
+          border: '1px solid', borderColor: 'divider', bgcolor: 'transparent',
+          cursor: isBranded ? 'pointer' : 'not-allowed', opacity: isBranded ? 1 : 0.5,
+        }}
+      />
+      <TextField
+        size="small" label={label} disabled={!isBranded} fullWidth
+        value={emailTheme[key] || ''}
+        onChange={e => patchTheme({ [key]: e.target.value })}
+      />
+    </Box>
+  );
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>;
 
   return (
@@ -326,6 +404,107 @@ const SystemSettings = () => {
                 </Button>
               </Box>
             </Stack>
+          </Paper>
+
+          {/* The frame every outgoing email is wrapped in — booking
+              confirmations, broadcasts and the welcome mail alike. The body of
+              each message still comes from its own editor; this decides what
+              surrounds it. */}
+          <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <SettingsIcon color="primary" /> รูปแบบอีเมล (Template)
+            </Typography>
+
+            <ToggleButtonGroup
+              exclusive size="small" color="primary" value={emailTheme.mode} sx={{ mb: 2 }}
+              onChange={(_, v) => v && patchTheme({ mode: v })}
+            >
+              <ToggleButton value="plain" sx={{ px: 2.5, fontWeight: 700 }}>แบบปกติ</ToggleButton>
+              <ToggleButton value="branded" sx={{ px: 2.5, fontWeight: 700 }}>แบบกำหนดเอง</ToggleButton>
+            </ToggleButtonGroup>
+
+            <Alert severity="info" sx={{ mb: 2 }}>
+              แบบปกติ = การ์ดขาวบนพื้นเทา ไม่มีหัว/ท้ายกระดาษ (ค่าเริ่มต้นเดิม) ·
+              แบบกำหนดเองจะใช้ค่าด้านล่างกับอีเมลทุกฉบับที่ระบบส่ง ·
+              ค่าที่ตั้งไว้จะไม่ถูกลบเมื่อสลับกลับไปแบบปกติ
+            </Alert>
+
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Stack spacing={2}>
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                      หัวกระดาษ (โลโก้/แบนเนอร์) — ไม่ใส่ = ไม่มีแถบหัว
+                    </Typography>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+                      <Button component="label" variant="outlined" size="small" disabled={!isBranded || uploadingHeader}>
+                        {uploadingHeader ? 'กำลังอัปโหลด...' : 'อัปโหลดรูป'}
+                        <input
+                          hidden type="file" accept="image/*"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadHeaderImage(f); e.target.value = ''; }}
+                        />
+                      </Button>
+                      {emailTheme.headerImage && (
+                        <Button size="small" color="error" disabled={!isBranded} onClick={() => patchTheme({ headerImage: '' })}>
+                          เอารูปออก
+                        </Button>
+                      )}
+                    </Stack>
+                    <TextField
+                      fullWidth size="small" label="URL รูปหัวกระดาษ" disabled={!isBranded}
+                      value={emailTheme.headerImage}
+                      onChange={e => patchTheme({ headerImage: e.target.value })}
+                    />
+                    {emailTheme.headerImage && (
+                      <Box
+                        component="img" src={emailTheme.headerImage} alt=""
+                        sx={{ mt: 1.5, maxWidth: '100%', maxHeight: 90, display: 'block', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
+                      />
+                    )}
+                  </Box>
+
+                  {colorField('พื้นหลังแถบหัว', 'headerBg')}
+                  {colorField('พื้นหลังอีเมล (นอกการ์ด)', 'pageBg')}
+                  {colorField('พื้นหลังการ์ดเนื้อหา', 'cardBg')}
+                  {colorField('สีตัวอักษร', 'textColor')}
+
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                      ท้ายกระดาษ (ที่อยู่ ช่องทางติดต่อ ฯลฯ) — ปล่อยว่าง = ไม่มีแถบท้าย
+                    </Typography>
+                    {/* Same editor as everywhere else in the CRM, so a footer
+                        can carry a logo, links and formatting without anyone
+                        writing HTML. */}
+                    <Box sx={{ opacity: isBranded ? 1 : 0.5, pointerEvents: isBranded ? 'auto' : 'none' }}>
+                      <RichTextEditor
+                        value={emailTheme.footerHtml}
+                        onChange={html => patchTheme({ footerHtml: html })}
+                        uploadFolder="email-theme"
+                        placeholder="เช่น Mellow Play · โทร 09x-xxx-xxxx · ยกเลิกรับข่าวสารได้ที่..."
+                      />
+                    </Box>
+                  </Box>
+                  {colorField('พื้นหลังแถบท้าย', 'footerBg')}
+
+                  <Box>
+                    <Button variant="contained" onClick={saveEmailTheme} disabled={savingTheme}>
+                      {savingTheme ? 'กำลังบันทึก...' : 'บันทึกรูปแบบอีเมล'}
+                    </Button>
+                  </Box>
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                  ตัวอย่าง (อัปเดตทันทีตามที่แก้ ยังไม่ต้องกดบันทึก)
+                </Typography>
+                <Box
+                  component="iframe" title="email-preview"
+                  srcDoc={wrapEmailHtml(EMAIL_PREVIEW_BODY, emailTheme)}
+                  sx={{ width: '100%', height: 520, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#fff' }}
+                />
+              </Grid>
+            </Grid>
           </Paper>
 
           {isSuperAdmin && (
