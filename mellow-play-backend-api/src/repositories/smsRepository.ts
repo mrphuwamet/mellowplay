@@ -15,7 +15,8 @@ const BOOKING_RECIPIENT_SELECT = `
     u.id as parent_user_id,
     u.phone as phone,
     co.name as course_name,
-    br.name as branch_name
+    co.location as course_location, co.location_link as course_location_link,
+    br.name as branch_name, br.address as branch_address
   FROM Bookings b
   JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
   JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id

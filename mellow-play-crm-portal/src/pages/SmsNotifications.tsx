@@ -21,6 +21,8 @@ const BUILTIN_SMS_VARIABLES: { key: string; label: string; tagLabel: string }[] 
   { key: 'parent_nickname', label: 'ชื่อเล่นผู้ปกครอง', tagLabel: 'ชื่อเล่นผู้ปกครอง' },
   { key: 'course_name', label: 'ชื่อคอร์ส/กิจกรรม', tagLabel: 'ชื่อคอร์ส/กิจกรรม' },
   { key: 'branch_name', label: 'สาขา', tagLabel: 'สาขา' },
+  { key: 'location', label: 'สถานที่จัดกิจกรรม (ถ้าไม่ได้กรอกจะใช้ที่อยู่สาขา)', tagLabel: 'สถานที่' },
+  { key: 'location_link', label: 'ลิงก์แผนที่สถานที่', tagLabel: 'ลิงก์แผนที่' },
   { key: 'scheduled_at', label: 'วันเวลานัดหมาย', tagLabel: 'วันเวลานัดหมาย' },
 ];
 

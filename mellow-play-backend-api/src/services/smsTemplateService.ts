@@ -39,3 +39,24 @@ export function buildNameVariables(row: {
     parent_nickname: row.parent_nickname || row.parent_real_name || '',
   };
 }
+
+/**
+ * Where to go, for the confirmation and the reminder.
+ *
+ * Falls back to the branch address when the item does not name its own venue:
+ * most classes happen at the branch, and only the ones held elsewhere bother
+ * filling the field in. An empty {{location}} in a message that promises an
+ * address is worse than the branch's.
+ */
+export function buildLocationVariables(row: {
+  course_location?: string | null; course_location_link?: string | null;
+  branch_address?: string | null; branch_name?: string | null;
+}): Record<string, string> {
+  const location = (row.course_location || '').trim()
+    || (row.branch_address || '').trim()
+    || (row.branch_name || '').trim();
+  return {
+    location,
+    location_link: (row.course_location_link || '').trim(),
+  };
+}

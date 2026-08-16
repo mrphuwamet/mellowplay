@@ -17,6 +17,11 @@ const CHILD_NAMES = ['ธนกร ศรีสุข', 'ปัณณธร ว�
 const PARENT_NAMES = ['สมชาย ศรีสุข', 'วราภรณ์ วงศ์ทอง', 'ณัฐพงษ์ แสงเพ็ชร', 'กมลชนก ใจดี', 'ธีรเดช รักไทย', 'อรพรรณ อารีย์'];
 const PARENT_NICKNAMES = ['พี่หนึ่ง', 'คุณแม่เมย์', 'คุณพ่อโอ๊ต', 'พี่นก', 'คุณแม่ปุ้ย', 'คุณพ่อเบิร์ด'];
 const BRANCHES = ['Central Chidlom', 'CentralWorld', 'Central ลาดพร้าว', 'Mega Bangna'];
+const LOCATIONS = [
+  'ชั้น 5 โซน Kids Zone ตรงข้ามร้านหนังสือ',
+  'ห้อง Studio B ชั้น 3 อาคารจอดรถฝั่งเหนือ',
+  'ลานกิจกรรมหน้าโถงกลาง ชั้น G',
+];
 const TIMES = ['10:00', '11:30', '13:00', '14:30', '16:00', '17:30'];
 
 const THAI_MONTHS_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -90,6 +95,8 @@ export function buildSampleVariables(
     parent_nickname: parentNickname,
     course_name: courseName || 'คอร์สตัวอย่าง',
     branch_name: pick(BRANCHES),
+    location: pick(LOCATIONS),
+    location_link: 'https://maps.google.com/?q=13.7466,100.5347',
     scheduled_at: formatThaiDateTime(2026, Math.floor(rand() * 12) + 1, Math.floor(rand() * 28) + 1, pick(TIMES)),
   };
 

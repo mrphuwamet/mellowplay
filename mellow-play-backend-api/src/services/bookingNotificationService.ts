@@ -4,7 +4,7 @@ import { SmsService } from './smsService';
 import { SmsRepository } from '../repositories/smsRepository';
 import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
-import { renderSmsTemplate, buildNameVariables, formatThaiDateTime } from './smsTemplateService';
+import { renderSmsTemplate, buildNameVariables, buildLocationVariables, formatThaiDateTime } from './smsTemplateService';
 import {
   renderEmailTemplate, renderEmailSubject, wrapEmailHtml, loadEmailTheme,
   buildCheckinQrBlock, buildCheckinQrLink,
@@ -45,10 +45,11 @@ export async function sendBookingSuccessNotifications(
         (u.first_name || ' ' || u.last_name) as parent_real_name, u.nickname as parent_nickname,
         u.phone as phone, u.email as parent_email,
         co.name as course_name,
+        co.location as course_location, co.location_link as course_location_link,
         co.sms_success_enabled, co.sms_success_template,
         co.email_success_enabled, co.email_success_subject, co.email_success_template,
         co.confirmation_channel_mode,
-        br.name as branch_name
+        br.name as branch_name, br.address as branch_address
       FROM Bookings b
       JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
       JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
@@ -87,6 +88,7 @@ export async function sendBookingSuccessNotifications(
       child_nickname: joinField('child_nickname') || joinField('child_real_name'),
       course_name: first.course_name ?? '',
       branch_name: first.branch_name ?? '',
+      ...buildLocationVariables(first),
       scheduled_at: formatThaiDateTime(first.scheduled_at),
     };
 
