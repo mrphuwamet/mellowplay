@@ -1,11 +1,11 @@
 import { API_URL } from '../config';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Box, Typography, Paper, Grid, Button, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Stack, CircularProgress, Divider, List, ListItem, ListItemButton, ListItemText, ListItemAvatar,
-  Avatar, Card, CardContent, Switch, FormControlLabel, Alert,
+  Avatar, Card, CardContent, Switch, FormControlLabel, Alert, Chip,
   ToggleButton, ToggleButtonGroup, Slider,
 } from '@mui/material';
 import {
@@ -36,6 +36,20 @@ const EMAIL_PREVIEW_BODY = [
   'ส่วนพื้นหลัง หัวกระดาษ และท้ายกระดาษมาจากการตั้งค่าทางซ้าย</p>',
   '<p style="margin:0;"><a href="#" style="display:inline-block;background:#7c3aed;color:#ffffff;font-weight:800;font-size:14px;padding:12px 24px;border-radius:999px;text-decoration:none;">ดูรายละเอียด</a></p>',
 ].join(' ');
+
+// Everything sendWelcomeEmail knows about the person who just signed up —
+// there is nothing else to offer, so the list is the whole set.
+const WELCOME_VARIABLES: { key: string; label: string }[] = [
+  { key: 'name', label: 'ชื่อผู้สมัคร' },
+  { key: 'email', label: 'อีเมล' },
+  { key: 'phone', label: 'เบอร์โทร' },
+];
+
+const WELCOME_SAMPLE: Record<string, string> = {
+  name: 'คุณสมชาย ศรีสุข',
+  email: 'somchai.s@example.com',
+  phone: '081-234-5678',
+};
 
 interface Branch {
   id: string;
@@ -101,6 +115,13 @@ const SystemSettings = () => {
   const [welcomeSubject, setWelcomeSubject] = useState('');
   const [welcomeBody, setWelcomeBody] = useState('');
   const [savingWelcome, setSavingWelcome] = useState(false);
+  const [welcomeBodyTab, setWelcomeBodyTab] = useState<'wysiwyg' | 'html'>('wysiwyg');
+  // Which field a variable chip should land in. Tracked on focus because the
+  // chip itself steals focus the moment it is clicked.
+  const [welcomeFocus, setWelcomeFocus] = useState<'subject' | 'body'>('body');
+  const welcomeSubjectRef = useRef<HTMLInputElement | null>(null);
+  const welcomeBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const welcomeEditorRef = useRef<any>(null);
 
   // The frame around every outgoing email (plain vs custom). Edited as a draft
   // and saved on a button — the preview beside it renders the draft, so the
@@ -273,6 +294,43 @@ const SystemSettings = () => {
     }
   };
 
+  // Inserts at the cursor of whichever field was last focused, falling back to
+  // appending — a chip that silently does nothing is worse than one that puts
+  // the token somewhere obvious.
+  const insertWelcomeVariable = (key: string) => {
+    const token = `{{${key}}}`;
+
+    if (welcomeFocus === 'subject') {
+      const el = welcomeSubjectRef.current;
+      const at = el?.selectionStart ?? welcomeSubject.length;
+      setWelcomeSubject(welcomeSubject.slice(0, at) + token + welcomeSubject.slice(at));
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(at + token.length, at + token.length);
+      });
+      return;
+    }
+
+    if (welcomeBodyTab === 'html') {
+      const el = welcomeBodyRef.current;
+      const at = el?.selectionStart ?? welcomeBody.length;
+      setWelcomeBody(welcomeBody.slice(0, at) + token + welcomeBody.slice(at));
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(at + token.length, at + token.length);
+      });
+      return;
+    }
+
+    const editor = welcomeEditorRef.current;
+    if (editor) editor.chain().focus().insertContent(token).run();
+    else setWelcomeBody(welcomeBody + token);
+  };
+
+  // Sample values for the preview, matching what sendWelcomeEmail fills in.
+  const renderWelcomePreview = (template: string) =>
+    template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => WELCOME_SAMPLE[key] ?? match);
+
   const patchTheme = (patch: Partial<EmailTheme>) => setEmailTheme(prev => ({ ...prev, ...patch }));
 
   const uploadHeaderImage = async (file: File) => {
@@ -386,18 +444,84 @@ const SystemSettings = () => {
               />
               <Alert severity="info">
                 ส่งเฉพาะคนที่กรอกอีเมลตอนสมัคร (อีเมลไม่บังคับ) · เปิดแล้วจะเริ่มส่งทันทีกับคนที่สมัครใหม่
-                แนะนำให้เขียนเนื้อหาและกดบันทึกก่อนค่อยเปิด · ใช้ตัวแปร <code>{'{{name}}'}</code> <code>{'{{email}}'}</code> <code>{'{{phone}}'}</code>
+                แนะนำให้เขียนเนื้อหาและกดบันทึกก่อนค่อยเปิด · เนื้อหานี้จะถูกวางในกรอบตาม "รูปแบบอีเมล" ด้านล่าง
               </Alert>
               <TextField
                 fullWidth label="หัวเรื่อง"
                 value={welcomeSubject}
                 onChange={(e) => setWelcomeSubject(e.target.value)}
+                inputRef={welcomeSubjectRef}
+                onFocus={() => setWelcomeFocus('subject')}
               />
-              <TextField
-                fullWidth multiline minRows={6} label="เนื้อหา (HTML)"
-                value={welcomeBody}
-                onChange={(e) => setWelcomeBody(e.target.value)}
-              />
+
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexWrap: 'wrap', gap: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>เนื้อหาอีเมล</Typography>
+                  {/* Two views over one field, same as the course notification
+                      editor: the visual one covers everyone, the raw one is for
+                      a body pasted in from a designed template. */}
+                  <ToggleButtonGroup
+                    exclusive size="small" value={welcomeBodyTab}
+                    onChange={(_, v) => v && setWelcomeBodyTab(v)}
+                  >
+                    <ToggleButton value="wysiwyg" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>แก้แบบเห็นภาพ</ToggleButton>
+                    <ToggleButton value="html" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>HTML</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+
+                {welcomeBodyTab === 'wysiwyg' ? (
+                  <Box onFocus={() => setWelcomeFocus('body')}>
+                    <RichTextEditor
+                      value={welcomeBody}
+                      onChange={html => setWelcomeBody(html)}
+                      uploadFolder="welcome-email"
+                      placeholder="เช่น สวัสดีคุณ {{name}} ยินดีต้อนรับสู่ Mellow Play"
+                      onEditorReady={editor => { welcomeEditorRef.current = editor; }}
+                    />
+                  </Box>
+                ) : (
+                  <TextField
+                    fullWidth multiline minRows={8}
+                    value={welcomeBody}
+                    onChange={(e) => setWelcomeBody(e.target.value)}
+                    inputRef={welcomeBodyRef}
+                    onFocus={() => setWelcomeFocus('body')}
+                    placeholder="<p>สวัสดีคุณ {{name}}</p>"
+                    InputProps={{ sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 } }}
+                  />
+                )}
+
+                {/* Click to insert, rather than a sentence telling people what to
+                    type: the variable names are exact strings and retyping one
+                    is how a template silently ships with {{ name }} that never
+                    resolves. */}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.25, mb: 0.5 }}>
+                  กดเพื่อแทรกตัวแปร (ใส่ได้ทั้งหัวเรื่องและเนื้อหา — คลิกช่องที่ต้องการก่อน)
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {WELCOME_VARIABLES.map(v => (
+                    <Chip
+                      key={v.key} size="small" label={v.label} onClick={() => insertWelcomeVariable(v.key)}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                  ตัวอย่างที่ผู้สมัครจะได้รับ (กรอบมาจากรูปแบบอีเมลที่บันทึกไว้)
+                </Typography>
+                <Box
+                  component="iframe" title="welcome-preview"
+                  srcDoc={wrapEmailHtml(renderWelcomePreview(welcomeBody), emailTheme)}
+                  sx={{ width: '100%', height: 360, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#fff' }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  หัวเรื่อง: {renderWelcomePreview(welcomeSubject) || '(ยังไม่ได้ตั้ง)'}
+                </Typography>
+              </Box>
+
               <Box>
                 <Button variant="contained" onClick={saveWelcomeEmail} disabled={savingWelcome}>
                   {savingWelcome ? 'กำลังบันทึก...' : 'บันทึกอีเมลต้อนรับ'}

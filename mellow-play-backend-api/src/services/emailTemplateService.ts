@@ -174,8 +174,24 @@ export async function loadEmailTheme(settings: { getSetting(key: string): Promis
   }
 }
 
-export function wrapEmailHtml(bodyHtml: string, theme: EmailTheme = DEFAULT_EMAIL_THEME): string {
-  if (/<html[\s>]/i.test(bodyHtml)) return bodyHtml;
+// A body typed as plain text is kept as typed.
+//
+// The HTML tab accepts anything, and someone writing two short paragraphs by
+// hand reasonably types two lines rather than two <p> tags — in HTML those
+// newlines collapse and the mail arrives as one run-on blob. When the body has
+// no tags at all, its line breaks are the only structure it has, so they are
+// the structure it gets.
+function normaliseBody(bodyHtml: string): string {
+  if (/<[a-z][\s\S]*>/i.test(bodyHtml)) return bodyHtml;
+  return bodyHtml
+    .split(/\n{2,}/)
+    .map(block => `<p style="margin:0 0 12px;">${block.split('\n').join('<br />')}</p>`)
+    .join('');
+}
+
+export function wrapEmailHtml(rawBody: string, theme: EmailTheme = DEFAULT_EMAIL_THEME): string {
+  if (/<html[\s>]/i.test(rawBody)) return rawBody;
+  const bodyHtml = normaliseBody(rawBody);
 
   // Header and footer exist only in branded mode, and only when there is
   // something to put in them — a branded email with no header configured gets

@@ -77,8 +77,19 @@ export function themeToSettings(theme: EmailTheme): Record<string, string> {
   };
 }
 
-export function wrapEmailHtml(bodyHtml: string, theme: EmailTheme = DEFAULT_EMAIL_THEME): string {
-  if (/<html[\s>]/i.test(bodyHtml)) return bodyHtml;
+// A body typed as plain text is kept as typed — see the backend's copy of this
+// for why. Mirrored here so the preview shows the same thing that gets sent.
+function normaliseBody(bodyHtml: string): string {
+  if (/<[a-z][\s\S]*>/i.test(bodyHtml)) return bodyHtml;
+  return bodyHtml
+    .split(/\n{2,}/)
+    .map(block => `<p style="margin:0 0 12px;">${block.split('\n').join('<br />')}</p>`)
+    .join('');
+}
+
+export function wrapEmailHtml(rawBody: string, theme: EmailTheme = DEFAULT_EMAIL_THEME): string {
+  if (/<html[\s>]/i.test(rawBody)) return rawBody;
+  const bodyHtml = normaliseBody(rawBody);
 
   // Header and footer exist only in branded mode, and only when there is
   // something to put in them — a branded email with no header configured gets
