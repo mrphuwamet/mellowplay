@@ -975,17 +975,26 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
     if (!search.trim()) return byField;
     const q = search.toLowerCase();
-    return byField.filter(b =>
-      b.child_name?.toLowerCase().includes(q) ||
-      b.child_nickname?.toLowerCase().includes(q) ||
-      b.parent_name?.toLowerCase().includes(q) ||
-      b.parent_name_en?.toLowerCase().includes(q) ||
-      b.parent_phone?.toLowerCase().includes(q) ||
-      b.parent_email?.toLowerCase().includes(q) ||
-      b.course_name?.toLowerCase().includes(q) ||
-      b.branch_name?.toLowerCase().includes(q) ||
-      String(b.id).includes(q)
-    );
+    return byField.filter(b => {
+      if (
+        b.child_name?.toLowerCase().includes(q) ||
+        b.child_nickname?.toLowerCase().includes(q) ||
+        b.parent_name?.toLowerCase().includes(q) ||
+        b.parent_name_en?.toLowerCase().includes(q) ||
+        b.parent_phone?.toLowerCase().includes(q) ||
+        b.parent_email?.toLowerCase().includes(q) ||
+        b.course_name?.toLowerCase().includes(q) ||
+        b.branch_name?.toLowerCase().includes(q) ||
+        String(b.id).includes(q)
+      ) return true;
+      // The card now leads with the registration form's own answers (the
+      // people actually participating), so those names must be findable
+      // here too — staff search for whoever they SEE on the card.
+      const sub = b.form_submission_id ? submissionsMap[b.form_submission_id] : undefined;
+      if (!sub) return false;
+      return Object.values(sub.answers || {}).some(v =>
+        String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
+    });
   }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
@@ -1225,17 +1234,23 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Typography>
             </Box>
 
-            {/* Nickname/name/phone (system truth) always shows — a
-                registration form's own answers (all family_member_picker
-                fields + team) are added on top when there's one, not a
-                replacement for it. */}
+            {/* Who this booking is for. When a registration form named the
+                actual participants (family_member_picker answers), THOSE
+                lead — they're what the family filled in, they update when
+                staff edit the form, and they're what staff look for. The
+                account member the seat is technically booked under
+                (Bookings.child_id — unchanged by form edits, still drives
+                QR check-in/reports) demotes to a "จองในระบบ" caption. A
+                form-less booking keeps the original child-led layout. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
               <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={0.75} alignItems="center">
                   <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                    {b.child_nickname || b.child_name || '-'}
+                    {personLabels.length > 0
+                      ? personLabels.map(f => f.value).join(' · ')
+                      : (b.child_nickname || b.child_name || '-')}
                   </Typography>
-                  {b.child_birth_date && (
+                  {personLabels.length === 0 && b.child_birth_date && (
                     <Chip
                       icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
                       label={calculateAge(b.child_birth_date)}
@@ -1243,7 +1258,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                       sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
                     />
                   )}
-                  {b.child_gender && (
+                  {personLabels.length === 0 && b.child_gender && (
                     <Chip
                       label={getGenderLabel(b.child_gender)}
                       size="small"
@@ -1258,10 +1273,25 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                     />
                   )}
                 </Stack>
-                {hasRealName && (
-                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
-                  </Typography>
+                {personLabels.length > 0 ? (
+                  <>
+                    {personLabels.map((f, i) => (
+                      <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                        {f.label}: {f.value}
+                      </Typography>
+                    ))}
+                    {(b.child_nickname || b.child_name) && (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled', fontWeight: 600 }} noWrap>
+                        จองในระบบ: {b.child_nickname || b.child_name}{hasRealName ? ` (${b.child_name})` : ''}
+                      </Typography>
+                    )}
+                  </>
+                ) : (
+                  hasRealName && (
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
+                      {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
+                    </Typography>
+                  )
                 )}
                 {/* Phone leads — it's the reliable way to actually reach
                     this family; parent name trails as secondary context. */}
@@ -1276,11 +1306,6 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                     {b.parent_name}
                   </Typography>
                 )}
-                {personLabels.map((f, i) => (
-                  <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {f.label}: {f.value}
-                  </Typography>
-                ))}
               </Box>
             </Box>
 
