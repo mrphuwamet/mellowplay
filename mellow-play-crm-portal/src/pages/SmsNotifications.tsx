@@ -696,7 +696,7 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
             <FormControl fullWidth size="small">
               <InputLabel>คอร์ส/กิจกรรม/บริการ</InputLabel>
               <Select value={courseId} label="คอร์ส/กิจกรรม/บริการ" onChange={e => setCourseId(Number(e.target.value))}>
-                <MenuItem value={0}>ทั้งหมด (ที่เปิดใช้ SMS)</MenuItem>
+                <MenuItem value={0}>ทั้งหมด (ที่เปิดใช้แจ้งเตือน)</MenuItem>
                 {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
             </FormControl>

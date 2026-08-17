@@ -115,17 +115,28 @@ export class SmsRepository {
     return results;
   }
 
-  // A booking qualifies as "unsent" when its course has the automatic SMS
-  // turned on but no Sms_Logs row for it ever recorded a successful send —
-  // covers both "never attempted" (no row at all) and "attempted and
-  // failed" (a row exists, just never one with status='sent').
+  // A booking qualifies as "unsent" when its course is configured to confirm
+  // on some channel, and no channel ever succeeded — no successful Sms_Logs row
+  // and no successful Email_Logs row. Covers both "never attempted" (no row at
+  // all) and "attempted and failed" (rows exist, just never a 'sent' one).
+  //
+  // Both channels are checked because either can be the one that was turned on:
+  // an email-only course has no SMS log by design, and looking only at SMS
+  // listed every one of its bookings as unsent forever.
   async getUnsentConfirmations(filters: {
     courseId?: number; dateFrom?: string; dateTo?: string;
   }): Promise<any[]> {
     let query = BOOKING_RECIPIENT_SELECT + `
-      AND co.sms_success_enabled = 1
+      AND (
+        co.sms_success_enabled = 1
+        OR co.email_success_enabled = 1
+        OR (co.confirmation_channel_mode IS NOT NULL AND co.confirmation_channel_mode != 'off')
+      )
       AND NOT EXISTS (
         SELECT 1 FROM Sms_Logs sl WHERE sl.booking_id = b.id AND sl.type = 'booking_success' AND sl.status = 'sent'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM Email_Logs el WHERE el.booking_id = b.id AND el.type = 'booking_success' AND el.status = 'sent'
       )
     `;
     const params: any[] = [];
