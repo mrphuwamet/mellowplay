@@ -85,16 +85,17 @@ const StatTile = ({ label, value, sub, icon }: {
 /**
  * A row's seats, read either way.
  *
- * Invite seats are extra: a round of 24 with an allowance of 18 seats 42 people
- * in total, and the 18 never appear in public availability. Counting them as
- * registered therefore adds to both sides — the room is bigger by the seats
- * being held and fuller by the same number.
+ * The seat count already includes the invite allowance — the server adds
+ * max_capacity and invite_capacity together (see bookingCapacityRepository), so
+ * a round showing 24 seats with "VIP 18" holds 24 people, 18 of whose places
+ * are spoken for by invitation. Only "booked" changes, then: the held places
+ * move from empty to taken, and the total stays exactly where it was.
  *
- * The catch is that some of that allowance may already have been used. A family
- * who booked through the invite link is in `booked` already, and adding the
- * whole allowance on top counts them twice — which showed up as a round more
- * than full, with a meter past 100%. Only the part of the allowance nobody has
- * taken yet is added, so the two readings stay arithmetic.
+ * Capped at the seat count because a booking made through an invite link is
+ * already in `booked` and cannot be told apart from a public one here. The cap
+ * means a round can never read as more than full; the cost is that a round with
+ * some invitations already redeemed reads as slightly fuller than it is, which
+ * is the safe direction for a screen used to decide whether to sell more.
  */
 const readSeats = (
   row: { seats?: number; capacity?: number; booked: number; remaining: number; inviteSeats?: number; inviteCapacity?: number },
@@ -104,13 +105,8 @@ const readSeats = (
   const invite = row.inviteSeats ?? row.inviteCapacity ?? 0;
   if (!vipAsBooked || invite === 0) return { seats, booked: row.booked, remaining: row.remaining, invite };
 
-  // Anything booked past the public capacity can only have come through an
-  // invite link, since that is the one path allowed to exceed it.
-  const inviteUsed = Math.min(invite, Math.max(0, row.booked - seats));
-  const stillHeld = invite - inviteUsed;
-  const total = seats + invite;
-  const booked = row.booked + stillHeld;
-  return { seats: total, booked, remaining: Math.max(0, total - booked), invite };
+  const booked = Math.min(seats, row.booked + invite);
+  return { seats, booked, remaining: Math.max(0, seats - booked), invite };
 };
 
 const FillMeter = ({ booked, capacity }: { booked: number; capacity: number }) => {
@@ -142,9 +138,9 @@ const DashboardBookings = () => {
   // open the screen on an empty dashboard, which reads as broken rather than
   // as unfiltered.
   const [selectedCourseIds, setSelectedCourseIds] = useState<number[]>([]);
-  // Invite seats are held for people who have been asked but have not booked
-  // yet. Off, the numbers answer "what can still be sold"; on, they answer
-  // "how full is the room going to be" — the question staff have on the day.
+  // Invite seats are part of the seat count already, just not part of the
+  // booked count. Off, the numbers answer "what can still be sold"; on, they
+  // answer "how much of the room is spoken for" — the question on the day.
   const [vipAsBooked, setVipAsBooked] = useStickyState('dashboardBookings.vipAsBooked', false);
   // Starred rounds and calendars, keyed the same way the server stores them.
   // Kept as a Set of "kind:key" so a lookup while rendering a table row is a
@@ -290,9 +286,9 @@ const DashboardBookings = () => {
         control={<Checkbox checked={vipAsBooked} onChange={e => setVipAsBooked(e.target.checked)} />}
         label={
           <Box>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>มุมมองรวมผู้ถูกเชิญ (นับที่นั่ง VIP เป็นลงทะเบียนแล้ว)</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>มุมมองรวมผู้ถูกเชิญ — นับที่นั่ง VIP เป็นยอดจอง</Typography>
             <Typography variant="caption" color="text.secondary">
-              เปิดไว้เพื่อดูว่าห้องจะเต็มแค่ไหนจริงๆ · ปิดไว้เพื่อดูว่ายังเปิดขายได้อีกเท่าไหร่
+              เปิด: ที่นั่งที่สำรองไว้ให้ผู้ถูกเชิญจะถูกนับรวมในยอดจอง ใช้ดูอัตราการใช้ที่นั่งจริง · ปิด: แสดงเฉพาะยอดจองที่เกิดขึ้นแล้ว ใช้ดูจำนวนที่ยังเปิดรับได้
             </Typography>
           </Box>
         }
@@ -311,7 +307,7 @@ const DashboardBookings = () => {
                 value={fmt(readSeats(view, vipAsBooked).seats)}
                 sub={<Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                   {fmt(view.rounds)} รอบ · {fmt(view.calendars)} ปฏิทิน
-                  {!!view.inviteSeats && ` · ${vipAsBooked ? 'นับ' : 'รวม'} VIP ${fmt(view.inviteSeats)} ที่`}
+                  {!!view.inviteSeats && ` · รวม VIP ${fmt(view.inviteSeats)} ที่${vipAsBooked ? ' (นับเป็นจองแล้ว)' : ''}`}
                 </Typography>}
                 icon={<SeatIcon />}
               />
@@ -498,7 +494,7 @@ const DashboardBookings = () => {
                           )}
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          <SeatCount total={readSeats(c, vipAsBooked).seats} invite={vipAsBooked ? 0 : c.inviteSeats} />
+                          <SeatCount total={readSeats(c, vipAsBooked).seats} invite={c.inviteSeats} />
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(readSeats(c, vipAsBooked).booked)}</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 800 }}>{fmt(readSeats(c, vipAsBooked).remaining)}</TableCell>
@@ -563,7 +559,7 @@ const DashboardBookings = () => {
                                         </Stack>
                                       </TableCell>
                                       <TableCell align="right">
-                                        <SeatCount total={readSeats(r, vipAsBooked).seats} invite={vipAsBooked ? 0 : r.inviteCapacity} />
+                                        <SeatCount total={readSeats(r, vipAsBooked).seats} invite={r.inviteCapacity} />
                                       </TableCell>
                                       <TableCell align="right">{fmt(readSeats(r, vipAsBooked).booked)}</TableCell>
                                       <TableCell align="right" sx={{ fontWeight: 800 }}>
