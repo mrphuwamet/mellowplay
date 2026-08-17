@@ -98,6 +98,8 @@ interface Course {
   category_name: string;
   calendar_id?: number;
   registration_form_id?: number | null;
+  location?: string | null;
+  location_link?: string | null;
 }
 
 interface TimeSlot { ruleId: number; label?: string | null; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
@@ -489,6 +491,18 @@ type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { f
 // fresh UUID per field instance, so it's already unique across every course's
 // form without needing to also track which form it came from.
 /**
+ * Where this booking takes place.
+ *
+ * The item's own venue when it has one, and the branch only as a fallback. A
+ * branch is where an event is filed for accounting; an off-site event is filed
+ * under one too, and showing that was telling staff the wrong address.
+ */
+const venueOf = (b: Booking, courseMap?: Map<number, Course>): string => {
+  const courseVenue = (courseMap?.get(b.course_id)?.location || '').trim();
+  return courseVenue || b.branch_name || '-';
+};
+
+/**
  * Every full name a booking carries: the child on the account, and whoever the
  * registration form named.
  *
@@ -779,7 +793,12 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                 </Button>
               )}
             </Stack>
-            <Typography variant="body2" color="text.secondary">{booking.branch_name || '-'}</Typography>
+            {/* The venue, not the branch it is filed under — an off-site event
+                still belongs to a branch for accounting, and reading that here
+                sends a family to the wrong address. */}
+            <Typography variant="body2" color="text.secondary">
+              {(course?.location || '').trim() || booking.branch_name || '-'}
+            </Typography>
           </Box>
           <Divider />
           <Box>
@@ -1446,7 +1465,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 {b.course_name || '-'}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                #{b.id} · {b.branch_name || '-'}
+                #{b.id} · {venueOf(b, courseMap)}
               </Typography>
               {/* Registered twice for this event under the same full name.
                   Says which booking it clashes with, because the next question
@@ -1592,6 +1611,12 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontWeight: 700 } }}
               />
             )}
+          />
+          <Chip
+            label={`พบ ${filtered.length} รายการ`}
+            color={filtered.length === 0 ? 'default' : 'primary'}
+            variant="outlined"
+            sx={{ fontWeight: 800 }}
           />
           {activeFilterFields.length > 0 && (
             <Button
