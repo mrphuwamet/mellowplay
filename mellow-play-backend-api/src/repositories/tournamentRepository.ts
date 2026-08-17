@@ -253,14 +253,18 @@ export class TournamentRepository {
     ).run();
   }
 
-  // Moving between stages has to carry the stage with it, or the "no racing
-  // twice in one round" index would be checking the wrong round.
+  // Moving carries the stage AND the bracket with it. The stage because the "no
+  // racing twice in one round" index would otherwise check the wrong round; the
+  // bracket because winners of separate brackets meet each other, and that
+  // meeting is an entry moving from one bracket's heat into another's.
   async moveEntry(entryId: number, heatId: number): Promise<void> {
     await this.db.prepare(`
       UPDATE Tournament_Entries
-      SET heat_id = ?, stage_index = COALESCE((SELECT stage_index FROM Tournament_Heats WHERE id = ?), stage_index)
+      SET heat_id = ?,
+          stage_index = COALESCE((SELECT stage_index FROM Tournament_Heats WHERE id = ?), stage_index),
+          tournament_id = COALESCE((SELECT tournament_id FROM Tournament_Heats WHERE id = ?), tournament_id)
       WHERE id = ?
-    `).bind(heatId, heatId, entryId).run();
+    `).bind(heatId, heatId, heatId, entryId).run();
   }
 
   async setEntryResult(entryId: number, rank: number | null, note: string | null): Promise<void> {

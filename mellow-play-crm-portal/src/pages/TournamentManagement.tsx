@@ -85,6 +85,31 @@ const TYPE_ICON: Record<EntryType, React.ReactNode> = {
 
 const RANK_COLOR: Record<number, string> = { 1: '#f2b418', 2: '#a8b3c1', 3: '#c98a5e' };
 
+interface Stage {
+  index: number;
+  heats: Heat[];
+  label: string;
+  isFinal: boolean;
+}
+
+// The bracket, one column per round. The last column is the final whether or
+// not anyone labelled it that — it is simply the round nothing follows.
+const computeStages = (heats: Heat[]): Stage[] => {
+  const byStage = new Map<number, Heat[]>();
+  for (const h of heats) {
+    const idx = h.stage_index ?? 0;
+    if (!byStage.has(idx)) byStage.set(idx, []);
+    byStage.get(idx)!.push(h);
+  }
+  const indexes = Array.from(byStage.keys()).sort((a, b) => a - b);
+  return indexes.map((index, i) => ({
+    index,
+    heats: byStage.get(index)!,
+    label: byStage.get(index)![0]?.stage_label || (indexes.length === 1 ? 'รอบแข่ง' : `รอบที่ ${index + 1}`),
+    isFinal: i === indexes.length - 1,
+  }));
+};
+
 // HD_Profiles stores whatever the signup form recorded; anything unexpected is
 // shown as-is rather than dropped, because a start list should not silently
 // lose a category it does not recognise.
@@ -114,9 +139,14 @@ const TournamentManagement: React.FC = () => {
   // A course can run several brackets — age bands, or a parents' draw beside
   // the children's — so the page tracks the list and which one is open.
   const [tournaments, setTournaments] = useState<any[]>([]);
+  // Every bracket with its own heats and entries. Winners of separate brackets
+  // meet each other, which cannot be planned one bracket at a time.
+  const [brackets, setBrackets] = useState<{ tournament: any; heats: Heat[]; entries: Entry[] }[]>([]);
   const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<any>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [genTarget, setGenTarget] = useState<number | null>(null);
   // Deleting anything on this page goes through one dialog: a browser confirm()
   // gives no room to say what is about to be lost.
   const [confirmAction, setConfirmAction] = useState<{ title: string; body: string; run: () => Promise<void> } | null>(null);
@@ -135,7 +165,7 @@ const TournamentManagement: React.FC = () => {
   const [targetHeat, setTargetHeat] = useState<number | ''>('');
   const [roundFilter, setRoundFilter] = useState<string>('all');
 
-  const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null }>({ open: false, editing: null });
+  const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null; tournamentId: number | null }>({ open: false, editing: null, tournamentId: null });
   const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '' });
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
@@ -146,19 +176,20 @@ const TournamentManagement: React.FC = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportForm, setExportForm] = useState<{ template: ExportTemplate; format: ExportFormat }>({ template: 'start_list', format: 'pdf' });
+  const [exportTarget, setExportTarget] = useState<number | null>(null);
 
   // Picking entrants straight into one heat, rather than via the pool on the
   // left — which is how staff work once the bracket exists and they are filling
   // it in one box at a time.
-  const [pickerHeat, setPickerHeat] = useState<Heat | null>(null);
+  const [pickerHeat, setPickerHeat] = useState<{ heat: Heat; tournamentId: number } | null>(null);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerPicked, setPickerPicked] = useState<Set<string>>(new Set());
 
   // The tree's connector lines are drawn from where the boxes actually landed,
   // so they stay right whatever the heat names and counts do.
-  const bracketRef = useRef<HTMLDivElement | null>(null);
+  const bracketRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const heatRefs = useRef<Record<number, HTMLDivElement | null>>({});
-  const [links, setLinks] = useState<{ id: string; d: string }[]>([]);
+  const [links, setLinks] = useState<Record<number, { id: string; d: string }[]>>({});
 
   useEffect(() => {
     axios.get(`${API_BASE}/courses`).then(res => { if (res.data.success) setCourses(res.data.courses || []); });
@@ -174,6 +205,7 @@ const TournamentManagement: React.FC = () => {
       if (!data.success) return;
       setTournament(data.tournament);
       setTournaments(data.tournaments || []);
+      setBrackets(data.brackets || []);
       setSelectedTournamentId(data.tournament?.id ?? null);
       setHeats(data.heats || []);
       setEntries(data.entries || []);
@@ -204,13 +236,21 @@ const TournamentManagement: React.FC = () => {
   };
 
   const renameTournament = async () => {
-    if (!courseId || !tournament) return;
+    const target = renameTarget || tournament;
+    if (!courseId || !target) return;
     await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
-      id: tournament.id, name: renameValue.trim() || tournament.name,
-      description: tournament.description, team_field_key: tournament.team_field_key,
+      id: target.id, name: renameValue.trim() || target.name,
+      description: target.description, team_field_key: target.team_field_key,
     });
     setRenameOpen(false);
-    load(Number(courseId), tournament.id);
+    load(Number(courseId), target.id);
+  };
+
+  // Which bracket a heat belongs to, for the "move to" list — with several
+  // brackets on screen, a bare heat name is ambiguous.
+  const bracketNameOfHeat = (heatId: number) => {
+    const owner = brackets.find(b => b.heats.some(h => h.id === heatId));
+    return owner && brackets.length > 1 ? ` · ${owner.tournament.name}` : '';
   };
 
   const deleteTournament = (t: any) => setConfirmAction({
@@ -308,7 +348,7 @@ const TournamentManagement: React.FC = () => {
     load(Number(courseId));
   };
 
-  const openHeatDialog = (heat: Heat | null) => {
+  const openHeatDialog = (heat: Heat | null, tournamentId?: number) => {
     setHeatForm(heat
       ? {
         name: heat.name, slot_date: heat.slot_date || '',
@@ -316,7 +356,7 @@ const TournamentManagement: React.FC = () => {
         note: heat.note || '',
       }
       : { name: `Heat ${heats.length + 1}`, slot_date: '', slot_start_time: '', capacity: '', note: '' });
-    setHeatDialog({ open: true, editing: heat });
+    setHeatDialog({ open: true, editing: heat, tournamentId: tournamentId ?? tournament?.id ?? null });
   };
 
   const saveHeat = async () => {
@@ -329,8 +369,12 @@ const TournamentManagement: React.FC = () => {
       note: heatForm.note.trim() || null,
     };
     if (heatDialog.editing) await axios.put(`${API_BASE}/tournament-heats/${heatDialog.editing.id}`, payload);
-    else await axios.post(`${API_BASE}/tournaments/${tournament.id}/heats`, { ...payload, sort_order: heats.length });
-    setHeatDialog({ open: false, editing: null });
+    else {
+      const owner = heatDialog.tournamentId ?? tournament.id;
+      const existing = brackets.find(b => b.tournament.id === owner)?.heats.length ?? 0;
+      await axios.post(`${API_BASE}/tournaments/${owner}/heats`, { ...payload, sort_order: existing });
+    }
+    setHeatDialog({ open: false, editing: null, tournamentId: null });
     load(Number(courseId));
   };
 
@@ -372,78 +416,75 @@ const TournamentManagement: React.FC = () => {
   const roundLabel = (date: string | null, time: string | null) =>
     date ? `${date}${time ? ` · ${String(time).slice(0, 5)}` : ''}` : 'ไม่ระบุรอบ';
 
-  const entriesOf = (heatId: number) => entries.filter(e => e.heat_id === heatId);
+  const allEntries = useMemo(() => brackets.flatMap(b => b.entries), [brackets]);
+  const allHeats = useMemo(() => brackets.flatMap(b => b.heats), [brackets]);
+  const entriesOf = (heatId: number) => allEntries.filter(e => e.heat_id === heatId);
 
   // The bracket, one column per round. The last column is the final whether or
   // not anyone labelled it that — it is simply the round nothing follows.
-  const stages = useMemo(() => {
-    const byStage = new Map<number, Heat[]>();
-    for (const h of heats) {
-      const idx = h.stage_index ?? 0;
-      if (!byStage.has(idx)) byStage.set(idx, []);
-      byStage.get(idx)!.push(h);
-    }
-    const indexes = Array.from(byStage.keys()).sort((a, b) => a - b);
-    return indexes.map((index, i) => ({
-      index,
-      heats: byStage.get(index)!,
-      label: byStage.get(index)![0]?.stage_label || (indexes.length === 1 ? 'รอบแข่ง' : `รอบที่ ${index + 1}`),
-      isFinal: i === indexes.length - 1,
-    }));
-  }, [heats]);
+  const bracketViews = useMemo(
+    () => brackets.map(b => ({ ...b, stages: computeStages(b.heats) })),
+    [brackets],
+  );
+
 
   /**
-   * Draws the tree.
+   * Draws the trees.
    *
    * Which heat feeds which is not decoration — it is the same mapping the
    * advance action uses (winner j of heat i lands in next-stage heat i+j), so
-   * the lines on screen are the route an entrant actually takes.
+   * the lines on screen are the route an entrant actually takes. Every bracket
+   * on the page gets its own set, keyed by bracket, because they are separate
+   * containers and a line must not be drawn from one into another.
    */
   useLayoutEffect(() => {
-    const container = bracketRef.current;
-    if (!container || stages.length < 2) { setLinks([]); return; }
+    const computeAll = () => {
+      const next: Record<number, { id: string; d: string }[]> = {};
 
-    const compute = () => {
-      const base = container.getBoundingClientRect();
-      const next: { id: string; d: string }[] = [];
+      for (const view of bracketViews) {
+        const container = bracketRefs.current[view.tournament.id];
+        if (!container || view.stages.length < 2) continue;
+        const base = container.getBoundingClientRect();
+        const lines: { id: string; d: string }[] = [];
 
-      for (let s = 0; s < stages.length - 1; s++) {
-        const from = stages[s];
-        const to = stages[s + 1];
-        from.heats.forEach((heat, i) => {
-          const advance = heat.advance_count ?? 1;
-          const targets = new Set<number>();
-          for (let j = 0; j < advance; j++) targets.add((i + j) % to.heats.length);
+        for (let s = 0; s < view.stages.length - 1; s++) {
+          const from = view.stages[s];
+          const to = view.stages[s + 1];
+          from.heats.forEach((heat, i) => {
+            const advance = heat.advance_count ?? 1;
+            const targets = new Set<number>();
+            for (let j = 0; j < advance; j++) targets.add((i + j) % to.heats.length);
 
-          const a = heatRefs.current[heat.id]?.getBoundingClientRect();
-          if (!a) return;
-          targets.forEach(t => {
-            const b = heatRefs.current[to.heats[t].id]?.getBoundingClientRect();
-            if (!b) return;
-            const x1 = a.right - base.left;
-            const y1 = a.top - base.top + a.height / 2;
-            const x2 = b.left - base.left;
-            const y2 = b.top - base.top + b.height / 2;
-            const mid = x1 + (x2 - x1) / 2;
-            // Square elbows rather than curves — a bracket is read as columns
-            // and rails, and a diagonal makes two boxes look adjacent when they
-            // are a whole round apart.
-            next.push({ id: `${heat.id}-${to.heats[t].id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
+            const a = heatRefs.current[heat.id]?.getBoundingClientRect();
+            if (!a) return;
+            targets.forEach(t => {
+              const b = heatRefs.current[to.heats[t].id]?.getBoundingClientRect();
+              if (!b) return;
+              const x1 = a.right - base.left;
+              const y1 = a.top - base.top + a.height / 2;
+              const x2 = b.left - base.left;
+              const y2 = b.top - base.top + b.height / 2;
+              const mid = x1 + (x2 - x1) / 2;
+              // Square elbows rather than curves — a bracket is read as columns
+              // and rails, and a diagonal makes two boxes look adjacent when
+              // they are a whole round apart.
+              lines.push({ id: `${heat.id}-${to.heats[t].id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
+            });
           });
-        });
+        }
+        next[view.tournament.id] = lines;
       }
       setLinks(next);
     };
 
-    compute();
-    const observer = new ResizeObserver(compute);
-    observer.observe(container);
+    computeAll();
+    const observer = new ResizeObserver(computeAll);
+    Object.values(bracketRefs.current).forEach(el => el && observer.observe(el));
     Object.values(heatRefs.current).forEach(el => el && observer.observe(el));
     return () => observer.disconnect();
-  }, [stages, entries]);
+  }, [bracketViews, allEntries]);
 
-  // The pool, filtered by the dialog's own search. Anyone already racing in
-  // that round is excluded — the same rule the pool on the left follows.
+
   const pickerRows = useMemo(() => {
     const q = pickerSearch.trim().toLowerCase();
     return available.filter(o => {
@@ -454,10 +495,12 @@ const TournamentManagement: React.FC = () => {
   }, [available, pickerSearch]);
 
   const addPickedToPickerHeat = async () => {
-    if (!pickerHeat || !tournament || pickerPicked.size === 0) return;
+    if (!pickerHeat || pickerPicked.size === 0) return;
     const chosen = pickerRows.filter(o => pickerPicked.has(o.refKey));
-    const { data } = await axios.post(`${API_BASE}/tournament-heats/${pickerHeat.id}/entries`, {
-      tournament_id: tournament.id,
+    // The heat carries its own bracket — with several on screen, "the selected
+    // tournament" is not what the person clicked.
+    const { data } = await axios.post(`${API_BASE}/tournament-heats/${pickerHeat.heat.id}/entries`, {
+      tournament_id: pickerHeat.tournamentId,
       entries: chosen.map(o => ({
         entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
       })),
@@ -476,13 +519,14 @@ const TournamentManagement: React.FC = () => {
 
     if (which === 'start_list') {
       const rows: (string | number)[][] = [];
-      stages.forEach(stage => stage.heats.forEach(heat => {
+      bracketViews.forEach(view => view.stages.forEach(stage => stage.heats.forEach(heat => {
         const list = entriesOf(heat.id);
         if (list.length === 0) {
-          rows.push([stage.label, heat.name, roundLabel(heat.slot_date, heat.slot_start_time), '-', '', '', heat.note || '']);
+          rows.push([view.tournament.name, stage.label, heat.name, roundLabel(heat.slot_date, heat.slot_start_time), '-', '', '', heat.note || '']);
           return;
         }
         list.forEach((e, i) => rows.push([
+          view.tournament.name,
           stage.label,
           heat.name,
           roundLabel(heat.slot_date, heat.slot_start_time),
@@ -491,20 +535,21 @@ const TournamentManagement: React.FC = () => {
           e.sub_label || '',
           heat.note || '',
         ]));
-      }));
+      })));
       return {
         title: `รายชื่อและรอบการแข่งขัน — ${tournament?.name || courseName}`,
         subtitle: `${courseName} · พิมพ์เมื่อ ${stamp}`,
-        headers: ['รอบ', 'Heat', 'วันเวลา', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด', 'โน้ต'],
+        headers: ['สาย', 'รอบ', 'Heat', 'วันเวลา', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด', 'โน้ต'],
         rows,
       };
     }
 
-    const rows = stages.flatMap(stage => stage.heats.flatMap(heat =>
+    const rows = bracketViews.flatMap(view => view.stages.flatMap(stage => stage.heats.flatMap(heat =>
       entriesOf(heat.id)
         .filter(e => e.result_rank != null)
         .sort((a, b) => (a.result_rank || 0) - (b.result_rank || 0))
         .map(e => [
+          view.tournament.name,
           stage.label,
           heat.name,
           roundLabel(heat.slot_date, heat.slot_start_time),
@@ -512,11 +557,11 @@ const TournamentManagement: React.FC = () => {
           e.label,
           TYPE_LABEL[e.entry_type],
           e.sub_label || '',
-        ])));
+        ]))));
     return {
       title: `ผลการแข่งขัน — ${tournament?.name || courseName}`,
       subtitle: `${courseName} · พิมพ์เมื่อ ${stamp}`,
-      headers: ['รอบ', 'Heat', 'วันเวลา', 'อันดับ', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด'],
+      headers: ['สาย', 'รอบ', 'Heat', 'วันเวลา', 'อันดับ', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด'],
       rows,
     };
   };
@@ -526,9 +571,13 @@ const TournamentManagement: React.FC = () => {
     setExporting(true);
     try {
       if (isChart) {
-        const el = bracketRef.current;
+        // Prints the bracket named in the dialog, defaulting to the first —
+        // several are on screen and only one can go on a sheet of paper.
+        const target = exportTarget ?? bracketViews[0]?.tournament.id;
+        const el = target ? bracketRefs.current[target] : null;
         if (!el) { setNotice('ยังไม่มีสายให้พิมพ์'); return; }
-        const title = `${exportForm.template === 'chart_results' ? 'ผลการแข่งขัน' : 'สายการแข่งขัน'} — ${tournament?.name || ''}`;
+        const bracketName = bracketViews.find(v => v.tournament.id === target)?.tournament.name || '';
+        const title = `${exportForm.template === 'chart_results' ? 'ผลการแข่งขัน' : 'สายการแข่งขัน'} — ${bracketName}`;
         // The results chart is the same picture; what makes it a results sheet
         // is that the placings are on it, which they are as soon as they exist.
         if (exportForm.format === 'doc') await exportElementDoc(el, title);
@@ -578,7 +627,7 @@ const TournamentManagement: React.FC = () => {
     if (!tournament) return;
     setSaving(true);
     try {
-      const { data } = await axios.post(`${API_BASE}/tournaments/${tournament.id}/generate`, {
+      const { data } = await axios.post(`${API_BASE}/tournaments/${genTarget ?? tournament.id}/generate`, {
         // The pool being drawn from decides the size of the first round, so the
         // count follows whichever grouping is selected on the left.
         entrant_count: (options[entryType] || []).length || registrantCount,
@@ -775,58 +824,50 @@ const TournamentManagement: React.FC = () => {
               </Paper>
             </Grid>
 
-            {/* Right: the bracket. One column per round, so the shape of the
-                competition is the shape of the screen — heats feeding a
-                semi-final feeding a final, read left to right. */}
+            {/* Right: every bracket, each drawn as its own tree. Winners of
+                separate brackets meet each other, so keeping them all on one
+                page is the point — a chooser showing one at a time cannot say
+                where a cross-bracket final happens. */}
             <Grid item xs={12} md={8}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  {/* Which bracket, when a course runs more than one. A single
-                      bracket needs no chooser, so it does not get one. */}
-                  {tournaments.length > 1 ? (
-                    <FormControl size="small" sx={{ minWidth: 220 }}>
-                      <InputLabel>สาย</InputLabel>
-                      <Select
-                        label="สาย" value={selectedTournamentId ?? ''}
-                        onChange={e => load(Number(courseId), Number(e.target.value))}
-                      >
-                        {tournaments.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                  ) : (
-                    <Typography variant="subtitle2" fontWeight={800}>{tournament?.name}</Typography>
-                  )}
-                  <Typography variant="caption" color="text.secondary">
-                    {heats.length} Heat / {stages.length} รอบ
-                  </Typography>
-                  <Tooltip title="เปลี่ยนชื่อสาย">
-                    <IconButton size="small" onClick={() => { setRenameValue(tournament?.name || ''); setRenameOpen(true); }}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="ลบสายนี้">
-                    <IconButton size="small" color="error" onClick={() => deleteTournament(tournament)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <Stack direction="row" spacing={1}>
-                  <Button size="small" startIcon={<AddIcon />} onClick={() => createTournament(`สายที่ ${tournaments.length + 1}`)}>
-                    เพิ่มสาย
-                  </Button>
-                  <Button size="small" startIcon={<PrintIcon />} onClick={() => setExportOpen(true)}>
-                    พิมพ์ / Export
-                  </Button>
-                  <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => setGenOpen(true)}>
-                    สร้างสายอัตโนมัติ
-                  </Button>
-                  <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => openHeatDialog(null)}>
-                    เพิ่ม Heat
-                  </Button>
-                </Stack>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                <Button size="small" startIcon={<AddIcon />} onClick={() => createTournament(`สายที่ ${tournaments.length + 1}`)}>
+                  เพิ่มสาย
+                </Button>
+                <Button size="small" startIcon={<PrintIcon />} onClick={() => setExportOpen(true)}>
+                  พิมพ์ / Export
+                </Button>
               </Box>
 
-              {heats.length === 0 && (
+              {bracketViews.map(view => (
+                <Paper key={view.tournament.id} variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 3 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography variant="subtitle2" fontWeight={800}>{view.tournament.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {view.heats.length} Heat / {view.stages.length} รอบ
+                      </Typography>
+                      <Tooltip title="เปลี่ยนชื่อสาย">
+                        <IconButton size="small" onClick={() => { setRenameTarget(view.tournament); setRenameValue(view.tournament.name || ''); setRenameOpen(true); }}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="ลบสายนี้">
+                        <IconButton size="small" color="error" onClick={() => deleteTournament(view.tournament)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => { setGenTarget(view.tournament.id); setGenOpen(true); }}>
+                        สร้างสายอัตโนมัติ
+                      </Button>
+                      <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => openHeatDialog(null, view.tournament.id)}>
+                        เพิ่ม Heat
+                      </Button>
+                    </Stack>
+                  </Box>
+
+              {view.heats.length === 0 && (
                 <Alert severity="info">
                   ยังไม่มี Heat — กด "สร้างสายอัตโนมัติ" เพื่อวางรอบคัดเลือก รอบรอง และรอบชิงให้ทั้งหมด หรือกด "เพิ่ม Heat" เพื่อสร้างทีละอัน
                 </Alert>
@@ -834,16 +875,16 @@ const TournamentManagement: React.FC = () => {
 
               {/* Horizontal because a bracket is: the eye follows one entrant
                   left to right through the rounds. */}
-              <Box ref={bracketRef} sx={{ position: 'relative', display: 'flex', gap: 6, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
+              <Box ref={(el: HTMLDivElement | null) => { bracketRefs.current[view.tournament.id] = el; }} sx={{ position: 'relative', display: 'flex', gap: 6, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
                 <Box
                   component="svg"
                   sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
                 >
-                  {links.map(l => (
+                  {(links[view.tournament.id] || []).map(l => (
                     <path key={l.id} d={l.d} fill="none" stroke="#cbd5e1" strokeWidth={2} />
                   ))}
                 </Box>
-                {stages.map(stage => (
+                {view.stages.map(stage => (
                   <Box key={stage.index} sx={{ minWidth: 300, flex: '0 0 auto' }}>
                     <Box
                       sx={{
@@ -887,7 +928,7 @@ const TournamentManagement: React.FC = () => {
                                 </Typography>
                               </Box>
                               <Box sx={{ display: 'flex', flexShrink: 0 }}>
-                                <IconButton size="small" onClick={() => openHeatDialog(heat)}><EditIcon fontSize="small" /></IconButton>
+                                <IconButton size="small" onClick={() => openHeatDialog(heat, view.tournament.id)}><EditIcon fontSize="small" /></IconButton>
                                 <IconButton size="small" color="error" onClick={() => deleteHeat(heat)}><DeleteIcon fontSize="small" /></IconButton>
                               </Box>
                             </Box>
@@ -978,15 +1019,15 @@ const TournamentManagement: React.FC = () => {
                                       <FlagIcon fontSize="small" />
                                     </IconButton>
                                   </Tooltip>
-                                  {heats.length > 1 && (
+                                  {allHeats.length > 1 && (
                                     <Select
                                       size="small" value="" displayEmpty variant="standard" disableUnderline
                                       onChange={ev => moveEntry(e, Number(ev.target.value))}
                                       renderValue={() => <MoveIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
                                       sx={{ '& .MuiSelect-select': { p: 0, pr: '0 !important' } }}
                                     >
-                                      {heats.filter(h => h.id !== heat.id).map(h => (
-                                        <MenuItem key={h.id} value={h.id}>ย้ายไป {h.name}</MenuItem>
+                                      {allHeats.filter(h => h.id !== heat.id).map(h => (
+                                        <MenuItem key={h.id} value={h.id}>ย้ายไป {h.name}{bracketNameOfHeat(h.id)}</MenuItem>
                                       ))}
                                     </Select>
                                   )}
@@ -999,7 +1040,7 @@ const TournamentManagement: React.FC = () => {
 
                             <Button
                               fullWidth size="small" startIcon={<AddIcon />} sx={{ mt: 1, fontWeight: 700 }}
-                              onClick={() => { setPickerHeat(heat); setPickerPicked(new Set()); setPickerSearch(''); }}
+                              onClick={() => { setPickerHeat({ heat, tournamentId: view.tournament.id }); setPickerPicked(new Set()); setPickerSearch(''); }}
                             >
                               เลือกผู้เข้าแข่งขัน
                             </Button>
@@ -1021,6 +1062,8 @@ const TournamentManagement: React.FC = () => {
                   </Box>
                 ))}
               </Box>
+                </Paper>
+              ))}
             </Grid>
           </Grid>
         </>
@@ -1070,6 +1113,18 @@ const TournamentManagement: React.FC = () => {
                 </MenuItem>
               </Select>
             </FormControl>
+
+            {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && bracketViews.length > 1 && (
+              <FormControl fullWidth>
+                <InputLabel>สายที่จะพิมพ์</InputLabel>
+                <Select
+                  label="สายที่จะพิมพ์" value={exportTarget ?? bracketViews[0]?.tournament.id ?? ''}
+                  onChange={e => setExportTarget(Number(e.target.value))}
+                >
+                  {bracketViews.map(v => <MenuItem key={v.tournament.id} value={v.tournament.id}>{v.tournament.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            )}
 
             {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && (
               <Alert severity="info">
@@ -1130,7 +1185,7 @@ const TournamentManagement: React.FC = () => {
       <Dialog open={!!pickerHeat} onClose={() => setPickerHeat(null)} fullWidth maxWidth="sm">
         <DialogTitle>
           เลือกผู้เข้าแข่งขัน
-          <Typography variant="body2" color="text.secondary">{pickerHeat?.name}</Typography>
+          <Typography variant="body2" color="text.secondary">{pickerHeat?.heat.name}</Typography>
         </DialogTitle>
         <DialogContent dividers>
           <ToggleButtonGroup
@@ -1205,7 +1260,7 @@ const TournamentManagement: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setPickerHeat(null)}>ปิด</Button>
           <Button variant="contained" disabled={pickerPicked.size === 0} onClick={addPickedToPickerHeat}>
-            ใส่ลง {pickerHeat?.name} ({pickerPicked.size})
+            ใส่ลง {pickerHeat?.heat.name} ({pickerPicked.size})
           </Button>
         </DialogActions>
       </Dialog>
@@ -1253,7 +1308,7 @@ const TournamentManagement: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={heatDialog.open} onClose={() => setHeatDialog({ open: false, editing: null })} fullWidth maxWidth="xs">
+      <Dialog open={heatDialog.open} onClose={() => setHeatDialog({ open: false, editing: null, tournamentId: null })} fullWidth maxWidth="xs">
         <DialogTitle>{heatDialog.editing ? 'แก้ไข Heat' : 'เพิ่ม Heat'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -1279,7 +1334,7 @@ const TournamentManagement: React.FC = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setHeatDialog({ open: false, editing: null })}>ยกเลิก</Button>
+          <Button onClick={() => setHeatDialog({ open: false, editing: null, tournamentId: null })}>ยกเลิก</Button>
           <Button variant="contained" onClick={saveHeat}>บันทึก</Button>
         </DialogActions>
       </Dialog>

@@ -51,26 +51,32 @@ export class TournamentController {
 
       if (!tournament) {
         return c.json({
-          success: true, tournament: null, tournaments, heats: [], entries: [],
+          success: true, tournament: null, tournaments, brackets: [], heats: [], entries: [],
           options, teamFields, rounds, registrantCount: registrants.length,
         });
       }
 
-      const [heats, entries] = await Promise.all([
-        repo.getHeats(tournament.id),
-        repo.getEntries(tournament.id),
-      ]);
-
-      // An entry knows the bookings behind it now, not the ones behind it when
-      // it was drawn — see bookingIdsForEntry.
-      const entriesWithBookings = entries.map(e => ({
-        ...e,
-        booking_ids: bookingIdsForEntry(e, registrants),
-      }));
+      // Every bracket, not only the selected one: winners of separate brackets
+      // meet each other, and that is impossible to plan while looking at one at
+      // a time. Each is small — a handful of heats — so this is one round trip
+      // rather than one per bracket.
+      const brackets = [];
+      for (const t of tournaments) {
+        const [heats, entries] = await Promise.all([repo.getHeats(t.id), repo.getEntries(t.id)]);
+        brackets.push({
+          tournament: t,
+          heats,
+          // An entry knows the bookings behind it now, not the ones behind it
+          // when it was drawn — see bookingIdsForEntry.
+          entries: entries.map(e => ({ ...e, booking_ids: bookingIdsForEntry(e, registrants) })),
+        });
+      }
+      const selected = brackets.find(b => b.tournament.id === tournament.id)!;
 
       return c.json({
         success: true,
-        tournament, tournaments, heats, entries: entriesWithBookings,
+        tournament, tournaments, brackets,
+        heats: selected.heats, entries: selected.entries,
         options, teamFields, rounds, registrantCount: registrants.length,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
