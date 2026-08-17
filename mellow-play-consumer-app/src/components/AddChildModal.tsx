@@ -15,7 +15,9 @@ interface AddChildModalProps {
   // Locks the new member's relationship to this role with no picker shown —
   // e.g. always 'child' when opened from the plain child-selection step or
   // a registration form's child-role family_member_picker. Omit to keep the
-  // free-choice behavior (defaults to 'mother').
+  // free-choice behavior: the picker starts EMPTY and submitting requires an
+  // explicit choice — a pre-filled default got silently accepted by people
+  // who never read the field, mislabeling family members.
   forceRole?: string;
 }
 
@@ -33,13 +35,13 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
 
-  const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue(forceRole || 'mother'));
+  const [formValue, setFormValue] = useState<FamilyMemberFormValue>(emptyFamilyMemberFormValue(forceRole || ''));
 
   // Reset to the right locked/default role every time the modal is (re)opened
   // — without this, closing after adding one member left the next open still
   // showing the previous role instead of forceRole's.
   React.useEffect(() => {
-    if (isOpen) setFormValue(emptyFamilyMemberFormValue(forceRole || 'mother'));
+    if (isOpen) setFormValue(emptyFamilyMemberFormValue(forceRole || ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, forceRole]);
 
@@ -51,6 +53,13 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
 
     if (!formValue.firstName.trim() || !formValue.lastName.trim() || !formValue.dob) {
       setError(t.login?.fillRequiredInfo || 'Please fill out all required fields');
+      return;
+    }
+
+    // No silent default: whoever this member is to the account holder has
+    // to be picked on purpose (see forceRole's doc comment above).
+    if (!formValue.role) {
+      setError(lang === 'en' ? 'Please select the relationship (You are...)' : 'กรุณาเลือกความสัมพันธ์ (คุณคือ...)');
       return;
     }
 
@@ -87,7 +96,7 @@ const AddChildModal: React.FC<AddChildModalProps> = ({ isOpen, onClose, onSucces
           const user = JSON.parse(userJson);
           await fetchChildren(user.id);
         }
-        setFormValue(emptyFamilyMemberFormValue(forceRole || 'mother'));
+        setFormValue(emptyFamilyMemberFormValue(forceRole || ''));
         await onSuccess?.();
         // A system-wide (not just this account's) name match — surface it
         // before closing instead of after, since the modal disappearing
