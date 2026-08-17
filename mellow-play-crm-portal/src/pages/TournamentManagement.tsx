@@ -13,6 +13,7 @@ import {
   Print as PrintIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useStickyState } from '../utils/stickyState';
 import {
   ExportTable, ExportTemplate, ExportFormat,
   exportTableXlsx, exportTableDoc, exportTablePdf, exportElementPdf, exportElementDoc,
@@ -131,7 +132,7 @@ const genderLabel = (g: string | null) => {
  */
 const TournamentManagement: React.FC = () => {
   const [courses, setCourses] = useState<any[]>([]);
-  const [courseId, setCourseId] = useState<number | ''>('');
+  const [courseId, setCourseId] = useStickyState<number | ''>('tournaments.courseId', '');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -160,10 +161,10 @@ const TournamentManagement: React.FC = () => {
   const [genForm, setGenForm] = useState({ per_heat: 4, advance_per_heat: 2, slot_date: '', slot_start_time: '', replace: true });
   const [registrantCount, setRegistrantCount] = useState(0);
 
-  const [entryType, setEntryType] = useState<EntryType>('team');
+  const [entryType, setEntryType] = useStickyState<EntryType>('tournaments.entryType', 'team');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [targetHeat, setTargetHeat] = useState<number | ''>('');
-  const [roundFilter, setRoundFilter] = useState<string>('all');
+  const [roundFilter, setRoundFilter] = useStickyState<string>('tournaments.roundFilter', 'all');
 
   const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null; tournamentId: number | null }>({ open: false, editing: null, tournamentId: null });
   const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '' });

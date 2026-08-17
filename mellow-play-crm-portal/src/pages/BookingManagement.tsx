@@ -2,6 +2,7 @@ import { API_URL } from '../config';
 import { formatBirthDate } from '../utils/dateFormat';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useStickyState, clearStickyState } from '../utils/stickyState';
 import {
   Box, Typography, Paper, Chip, Button, IconButton,
   ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent,
@@ -947,23 +948,23 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   courses: Course[];
   submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>;
 }) => {
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useStickyState('bookings.search', '');
   // Which fields are being filtered on, and to which values. Grouping was
   // removed in favour of this: a group tells you how the list divides, a
   // filter answers "show me only these", which is what staff open this page
   // to do. Both read the same per-field value (getGroupValue), so a filter is
   // available on every field grouping used to offer — including the ones that
   // come from the course's own registration form.
-  const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>({});
+  const [fieldFilters, setFieldFilters] = useStickyState<Record<string, string[]>>('bookings.fieldFilters', {});
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
-  const [dupesOnly, setDupesOnly] = useState(false);
+  const [dupesOnly, setDupesOnly] = useStickyState('bookings.dupesOnly', false);
   // Computed over every booking on screen, not the filtered set: a duplicate
   // is a fact about the event, and hiding half a pair behind a filter would
   // make the other half stop looking like one.
   const duplicates = useMemo(() => findDuplicates(bookings, submissionsMap), [bookings, submissionsMap]);
-  const [sortKey, setSortKey] = useState('scheduled_asc');
+  const [sortKey, setSortKey] = useStickyState('bookings.sortKey', 'scheduled_asc');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useStickyState('bookings.pageSize', 25);
   const [manageMenu, setManageMenu] = useState<{ anchor: HTMLElement; booking: Booking } | null>(null);
   const [awardsBooking, setAwardsBooking] = useState<Booking | null>(null);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
@@ -1593,7 +1594,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             )}
           />
           {activeFilterFields.length > 0 && (
-            <Button size="small" onClick={() => setFieldFilters({})} sx={{ fontWeight: 700 }}>ล้างตัวกรอง</Button>
+            <Button
+              size="small" sx={{ fontWeight: 700 }}
+              // Clears what the button says it clears. The branch, the date
+              // range and the view are scoping, not filters, and wiping those
+              // from under someone who asked to clear a field filter is a
+              // surprise they then have to undo.
+              onClick={() => { setFieldFilters({}); setDupesOnly(false); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
+            >
+              ล้างตัวกรอง
+            </Button>
           )}
           {/* Only offered when there is something to find — a toggle that can
               only ever empty the list is noise. */}
@@ -1901,7 +1911,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const BookingManagement = () => {
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('list');
+  const [viewMode, setViewMode] = useStickyState<'day' | 'week' | 'month' | 'list'>('bookings.viewMode', 'list');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState<Booking[]>([]);
   // Keyed by Form_Submissions.id — fetched once per bookings load so each
@@ -1909,7 +1919,7 @@ const BookingManagement = () => {
   const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>>({});
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useStickyState('bookings.statusFilter', 'all');
   const [addOpen, setAddOpen] = useState(false);
   // Array-based (even for a single booking) so the same state also drives
   // ListView's bulk "กรอกรายงาน" — one report filed once across every
@@ -1941,7 +1951,8 @@ const BookingManagement = () => {
 
   // Super admins default to "every branch" so nothing is ever hidden behind
   // branch scoping by surprise; regular staff stay scoped to their own branch.
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+  const [selectedBranchId, setSelectedBranchId] = useStickyState<string>(
+    'bookings.branchId',
     isSuperAdmin ? 'all' : String(ownBranchId ?? ''),
   );
 
@@ -1963,8 +1974,8 @@ const BookingManagement = () => {
 
   // List view uses its own user-adjustable date range instead of being tied
   // to calendar navigation, so it's always obvious what window is in effect.
-  const [listFrom, setListFrom] = useState(toISODate(new Date()));
-  const [listTo, setListTo] = useState(toISODate(addDays(new Date(), 90)));
+  const [listFrom, setListFrom] = useStickyState('bookings.listFrom', toISODate(new Date()));
+  const [listTo, setListTo] = useStickyState('bookings.listTo', toISODate(addDays(new Date(), 90)));
 
   // ── date range & label based on view + currentDate ──────────────────────
   const { startDate, endDate, label } = useMemo(() => {
