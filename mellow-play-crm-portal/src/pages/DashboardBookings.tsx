@@ -85,10 +85,16 @@ const StatTile = ({ label, value, sub, icon }: {
 /**
  * A row's seats, read either way.
  *
- * Counting an invited seat as taken adds it to BOTH sides — the room is bigger
- * by the seats being held and fuller by the same number — so "remaining" is the
- * same number either way and only the occupancy changes. Anything else would
- * make one of the two readings a lie.
+ * Invite seats are extra: a round of 24 with an allowance of 18 seats 42 people
+ * in total, and the 18 never appear in public availability. Counting them as
+ * registered therefore adds to both sides — the room is bigger by the seats
+ * being held and fuller by the same number.
+ *
+ * The catch is that some of that allowance may already have been used. A family
+ * who booked through the invite link is in `booked` already, and adding the
+ * whole allowance on top counts them twice — which showed up as a round more
+ * than full, with a meter past 100%. Only the part of the allowance nobody has
+ * taken yet is added, so the two readings stay arithmetic.
  */
 const readSeats = (
   row: { seats?: number; capacity?: number; booked: number; remaining: number; inviteSeats?: number; inviteCapacity?: number },
@@ -97,7 +103,14 @@ const readSeats = (
   const seats = row.seats ?? row.capacity ?? 0;
   const invite = row.inviteSeats ?? row.inviteCapacity ?? 0;
   if (!vipAsBooked || invite === 0) return { seats, booked: row.booked, remaining: row.remaining, invite };
-  return { seats: seats + invite, booked: row.booked + invite, remaining: row.remaining, invite };
+
+  // Anything booked past the public capacity can only have come through an
+  // invite link, since that is the one path allowed to exceed it.
+  const inviteUsed = Math.min(invite, Math.max(0, row.booked - seats));
+  const stillHeld = invite - inviteUsed;
+  const total = seats + invite;
+  const booked = row.booked + stillHeld;
+  return { seats: total, booked, remaining: Math.max(0, total - booked), invite };
 };
 
 const FillMeter = ({ booked, capacity }: { booked: number; capacity: number }) => {
