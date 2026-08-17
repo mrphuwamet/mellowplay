@@ -45,3 +45,7 @@ yarn-error.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
