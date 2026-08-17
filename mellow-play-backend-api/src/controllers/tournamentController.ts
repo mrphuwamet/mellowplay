@@ -8,6 +8,19 @@ import { awardBadge } from '../services/stampService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
+/**
+ * What a round is called. Named by how many heats are left rather than by its
+ * number, because "รอบรองชนะเลิศ" means two heats to go, whichever round of the
+ * competition that happens to be.
+ */
+function stageLabel(stageIndex: number, heatCount: number, totalStages: number): string {
+  if (heatCount === 1) return 'รอบชิงชนะเลิศ';
+  if (heatCount === 2) return 'รอบรองชนะเลิศ';
+  if (heatCount === 4 && stageIndex > 0) return 'รอบก่อนรองชนะเลิศ';
+  if (stageIndex === 0) return totalStages > 1 ? 'รอบคัดเลือก' : 'รอบแข่ง';
+  return `รอบที่ ${stageIndex + 1}`;
+}
+
 export class TournamentController {
   private repo(c: C) { return new TournamentRepository(new ConfigService(c.env).db); }
 
@@ -28,11 +41,14 @@ export class TournamentController {
 
       const registrants = await repo.getRegistrants(courseId, teamFieldKey);
       const options = buildEntryOptions(registrants);
+      // Every round the course has, not only the ones that happen to have a
+      // registrant in the current grouping — a heat is often created first.
+      const rounds = await repo.getRounds(courseId);
 
       if (!tournament) {
         return c.json({
           success: true, tournament: null, heats: [], entries: [],
-          options, teamFields, registrantCount: registrants.length,
+          options, teamFields, rounds, registrantCount: registrants.length,
         });
       }
 
@@ -51,7 +67,7 @@ export class TournamentController {
       return c.json({
         success: true,
         tournament, heats, entries: entriesWithBookings,
-        options, teamFields, registrantCount: registrants.length,
+        options, teamFields, rounds, registrantCount: registrants.length,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
@@ -137,6 +153,107 @@ export class TournamentController {
         }
       }
       return c.json({ success: true, added, skipped });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Lays out the whole bracket from two numbers: how many go in a heat, and
+   * how many of them go through.
+   *
+   * Each round is derived from the one before — heats × advance = the next
+   * round's entrants — until one heat is left, which is the final. Generating
+   * it beats asking someone to type "รอบรองชนะเลิศ, 2 heats, 2 ผ่าน" four times
+   * and get one of them wrong.
+   */
+  async generate(c: C) {
+    try {
+      const tournamentId = parseInt(c.req.param('tournamentId'));
+      const { entrant_count, per_heat, advance_per_heat, slot_date, slot_start_time, replace } = await c.req.json() as {
+        entrant_count: number; per_heat: number; advance_per_heat: number;
+        slot_date?: string | null; slot_start_time?: string | null; replace?: boolean;
+      };
+
+      const perHeat = Math.max(2, Number(per_heat) || 4);
+      const advance = Math.min(Math.max(1, Number(advance_per_heat) || 2), perHeat - 1);
+      const entrants = Math.max(2, Number(entrant_count) || 0);
+
+      const repo = this.repo(c);
+      if (replace) await repo.deleteAllHeats(tournamentId);
+
+      const stages: number[] = [];
+      let remaining = entrants;
+      // Guard on stage count as well as size: a bad advance/perHeat pair could
+      // otherwise describe a bracket that never narrows.
+      while (stages.length < 8) {
+        const heatCount = Math.max(1, Math.ceil(remaining / perHeat));
+        stages.push(heatCount);
+        if (heatCount === 1) break;
+        const next = heatCount * advance;
+        if (next >= remaining) break; // not narrowing — stop rather than loop
+        remaining = next;
+      }
+
+      let created = 0;
+      for (const [stageIndex, heatCount] of stages.entries()) {
+        const label = stageLabel(stageIndex, heatCount, stages.length);
+        for (let i = 0; i < heatCount; i++) {
+          await repo.createHeat(tournamentId, {
+            name: heatCount === 1 ? label : `${label} · ${i + 1}`,
+            stageIndex,
+            stageLabel: label,
+            advanceCount: heatCount === 1 ? null : advance,
+            capacity: perHeat,
+            sortOrder: i,
+            slotDate: stageIndex === 0 ? (slot_date ?? null) : null,
+            slotStartTime: stageIndex === 0 ? (slot_start_time ?? null) : null,
+          });
+          created++;
+        }
+      }
+
+      await this.repo(c).update(tournamentId, { advancePerHeat: advance, format: 'bracket' });
+      return c.json({ success: true, stages, created });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Sends a heat's top finishers into the next round.
+   *
+   * Winners from one heat are spread across the next round's heats rather than
+   * poured into the first one — the point of seeding is that the two fastest
+   * entrants do not meet again in the round straight after.
+   */
+  async advance(c: C) {
+    try {
+      const heatId = parseInt(c.req.param('heatId'));
+      const repo = this.repo(c);
+      const heat = await repo.getHeat(heatId);
+      if (!heat) return c.json({ success: false, message: 'ไม่พบ Heat' }, 404);
+
+      const nextStage = await repo.getStageHeats(heat.tournament_id, heat.stage_index + 1);
+      if (nextStage.length === 0) {
+        return c.json({ success: false, message: 'ไม่มีรอบถัดไป — Heat นี้คือรอบสุดท้ายแล้ว' }, 400);
+      }
+
+      const take = heat.advance_count ?? 1;
+      const entries = await repo.getHeatEntries(heatId);
+      const qualified = entries.filter(e => e.result_rank != null).slice(0, take);
+      if (qualified.length === 0) {
+        return c.json({ success: false, message: 'ยังไม่ได้บันทึกผลของ Heat นี้' }, 400);
+      }
+
+      // Offset by this heat's own position so heat 1's winner and heat 2's
+      // winner land in different heats of the next round.
+      const siblings = await repo.getStageHeats(heat.tournament_id, heat.stage_index);
+      const heatPos = Math.max(0, siblings.findIndex(h => h.id === heatId));
+
+      let moved = 0;
+      for (const [i, entry] of qualified.entries()) {
+        const target = nextStage[(heatPos + i) % nextStage.length];
+        if (await repo.addAdvancedEntry(heat.tournament_id, target.id, entry)) moved++;
+      }
+      await repo.updateHeat(heatId, { status: 'done' });
+      return c.json({ success: true, moved });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

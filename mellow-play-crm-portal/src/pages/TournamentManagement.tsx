@@ -8,7 +8,8 @@ import {
 import {
   Add as AddIcon, Delete as DeleteIcon, EmojiEvents as TrophyIcon,
   ArrowForward as MoveIcon, Groups as TeamIcon, FamilyRestroom as FamilyIcon,
-  Person as PersonIcon, AutoAwesome as AutoIcon,
+  Person as PersonIcon, AutoAwesome as AutoIcon, Edit as EditIcon,
+  AccountTree as BracketIcon, DoubleArrow as AdvanceIcon, SportsScore as FlagIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -16,19 +17,36 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 
 type EntryType = 'team' | 'family' | 'person';
 
+interface Member {
+  fieldKey: string;
+  fieldLabel: string;
+  role: string | null;
+  name: string;
+}
+
 interface EntryOption {
   entryType: EntryType;
   refKey: string;
   label: string;
   subLabel: string;
+  members: Member[];
   bookingIds: number[];
   slotDate: string | null;
   slotStartTime: string | null;
 }
 
+interface Round {
+  slot_date: string | null;
+  slot_start_time: string | null;
+  booking_count: number;
+}
+
 interface Heat {
   id: number;
   name: string;
+  stage_index: number;
+  stage_label: string | null;
+  advance_count: number | null;
   slot_date: string | null;
   slot_start_time: string | null;
   capacity: number | null;
@@ -80,6 +98,9 @@ const TournamentManagement: React.FC = () => {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [options, setOptions] = useState<Record<EntryType, EntryOption[]>>({ team: [], family: [], person: [] });
   const [teamFields, setTeamFields] = useState<{ field_key: string; label: string }[]>([]);
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [genOpen, setGenOpen] = useState(false);
+  const [genForm, setGenForm] = useState({ per_heat: 4, advance_per_heat: 2, slot_date: '', slot_start_time: '', replace: true });
   const [registrantCount, setRegistrantCount] = useState(0);
 
   const [entryType, setEntryType] = useState<EntryType>('team');
@@ -107,6 +128,7 @@ const TournamentManagement: React.FC = () => {
       setEntries(data.entries || []);
       setOptions(data.options);
       setTeamFields(data.teamFields || []);
+      setRounds(data.rounds || []);
       setRegistrantCount(data.registrantCount || 0);
       setPicked(new Set());
       // No team field on this form means no team rows to show — start on the
@@ -152,11 +174,13 @@ const TournamentManagement: React.FC = () => {
     return { used, usedBookings };
   }, [entries]);
 
-  const rounds = useMemo(() => {
-    const set = new Set<string>();
-    Object.values(options).flat().forEach(o => { if (o.slotDate) set.add(`${o.slotDate}|${o.slotStartTime ?? ''}`); });
-    return Array.from(set).sort();
-  }, [options]);
+  // Straight from the course's bookings, so a round with nobody drawn into a
+  // heat yet is still on the list — the previous version derived these from
+  // whichever registrants happened to be showing and dropped the rest.
+  const roundKeys = useMemo(
+    () => rounds.map(r => ({ key: `${r.slot_date ?? ''}|${r.slot_start_time ?? ''}`, ...r })),
+    [rounds],
+  );
 
   const available = useMemo(() => {
     return (options[entryType] || []).filter(o => {
@@ -271,6 +295,75 @@ const TournamentManagement: React.FC = () => {
 
   const entriesOf = (heatId: number) => entries.filter(e => e.heat_id === heatId);
 
+  // The bracket, one column per round. The last column is the final whether or
+  // not anyone labelled it that — it is simply the round nothing follows.
+  const stages = useMemo(() => {
+    const byStage = new Map<number, Heat[]>();
+    for (const h of heats) {
+      const idx = h.stage_index ?? 0;
+      if (!byStage.has(idx)) byStage.set(idx, []);
+      byStage.get(idx)!.push(h);
+    }
+    const indexes = Array.from(byStage.keys()).sort((a, b) => a - b);
+    return indexes.map((index, i) => ({
+      index,
+      heats: byStage.get(index)!,
+      label: byStage.get(index)![0]?.stage_label || (indexes.length === 1 ? 'รอบแข่ง' : `รอบที่ ${index + 1}`),
+      isFinal: i === indexes.length - 1,
+    }));
+  }, [heats]);
+
+  const advanceHeat = async (heat: Heat) => {
+    try {
+      const { data } = await axios.post(`${API_BASE}/tournament-heats/${heat.id}/advance`);
+      setNotice(data.moved > 0 ? `ส่งเข้ารอบถัดไป ${data.moved} รายการ` : 'ไม่มีรายการใหม่ที่ต้องส่ง (อาจส่งไปแล้ว)');
+      load(Number(courseId));
+    } catch (e: any) {
+      setNotice(e.response?.data?.message || 'ส่งเข้ารอบถัดไปไม่สำเร็จ');
+    }
+  };
+
+  const generateBracket = async () => {
+    if (!tournament) return;
+    setSaving(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/tournaments/${tournament.id}/generate`, {
+        // The pool being drawn from decides the size of the first round, so the
+        // count follows whichever grouping is selected on the left.
+        entrant_count: (options[entryType] || []).length || registrantCount,
+        per_heat: genForm.per_heat,
+        advance_per_heat: genForm.advance_per_heat,
+        slot_date: genForm.slot_date || null,
+        slot_start_time: genForm.slot_start_time || null,
+        replace: genForm.replace,
+      });
+      setGenOpen(false);
+      setNotice(`สร้างสายแล้ว ${data.created} Heat · ${data.stages.join(' → ')} Heat ต่อรอบ`);
+      load(Number(courseId));
+    } catch (e: any) {
+      setNotice(e.response?.data?.message || 'สร้างสายไม่สำเร็จ');
+    } finally { setSaving(false); }
+  };
+
+  // What the generator will produce, shown before it runs — a bracket is much
+  // easier to agree with as "8 → 4 → 2 → 1" than as a paragraph of settings.
+  const genPreview = useMemo(() => {
+    const perHeat = Math.max(2, Number(genForm.per_heat) || 4);
+    const advance = Math.min(Math.max(1, Number(genForm.advance_per_heat) || 2), perHeat - 1);
+    const entrants = (options[entryType] || []).length || registrantCount;
+    const out: number[] = [];
+    let remaining = Math.max(2, entrants);
+    while (out.length < 8) {
+      const heatCount = Math.max(1, Math.ceil(remaining / perHeat));
+      out.push(heatCount);
+      if (heatCount === 1) break;
+      const next = heatCount * advance;
+      if (next >= remaining) break;
+      remaining = next;
+    }
+    return { entrants, out };
+  }, [genForm, options, entryType, registrantCount]);
+
   return (
     <Box sx={{ pb: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
@@ -345,15 +438,16 @@ const TournamentManagement: React.FC = () => {
                   ))}
                 </ToggleButtonGroup>
 
-                {rounds.length > 1 && (
+                {roundKeys.length > 1 && (
                   <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
                     <InputLabel>รอบ</InputLabel>
                     <Select label="รอบ" value={roundFilter} onChange={e => setRoundFilter(String(e.target.value))}>
                       <MenuItem value="all">ทุกรอบ</MenuItem>
-                      {rounds.map(r => {
-                        const [d, t] = r.split('|');
-                        return <MenuItem key={r} value={r}>{roundLabel(d, t)}</MenuItem>;
-                      })}
+                      {roundKeys.map(r => (
+                        <MenuItem key={r.key} value={r.key}>
+                          {roundLabel(r.slot_date, r.slot_start_time)} · {r.booking_count} คน
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 )}
@@ -413,114 +507,222 @@ const TournamentManagement: React.FC = () => {
               </Paper>
             </Grid>
 
-            {/* Right: the heats themselves, grouped by the round they run in. */}
+            {/* Right: the bracket. One column per round, so the shape of the
+                competition is the shape of the screen — heats feeding a
+                semi-final feeding a final, read left to right. */}
             <Grid item xs={12} md={8}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
                 <Typography variant="subtitle2" fontWeight={800}>
-                  Heat ทั้งหมด ({heats.length})
+                  สายการแข่งขัน · {heats.length} Heat / {stages.length} รอบ
                 </Typography>
-                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => openHeatDialog(null)}>
-                  เพิ่ม Heat
-                </Button>
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => setGenOpen(true)}>
+                    สร้างสายอัตโนมัติ
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => openHeatDialog(null)}>
+                    เพิ่ม Heat
+                  </Button>
+                </Stack>
               </Box>
 
               {heats.length === 0 && (
-                <Alert severity="info">ยังไม่มี Heat — กด "เพิ่ม Heat" แล้วระบุรอบ (วันที่/เวลา) ของกิจกรรม</Alert>
+                <Alert severity="info">
+                  ยังไม่มี Heat — กด "สร้างสายอัตโนมัติ" เพื่อวางรอบคัดเลือก รอบรอง และรอบชิงให้ทั้งหมด หรือกด "เพิ่ม Heat" เพื่อสร้างทีละอัน
+                </Alert>
               )}
 
-              <Grid container spacing={2}>
-                {heats.map(heat => {
-                  const list = entriesOf(heat.id);
-                  const over = heat.capacity != null && list.length > heat.capacity;
-                  return (
-                    <Grid item xs={12} sm={6} key={heat.id}>
-                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: '100%' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-                          <Box>
-                            <Typography sx={{ fontWeight: 800 }}>{heat.name}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {roundLabel(heat.slot_date, heat.slot_start_time)}
-                              {heat.capacity != null ? ` · ${list.length}/${heat.capacity}` : ` · ${list.length} รายการ`}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <IconButton size="small" onClick={() => openHeatDialog(heat)}><MoveIcon fontSize="small" sx={{ transform: 'rotate(90deg)' }} /></IconButton>
-                            <IconButton size="small" color="error" onClick={() => deleteHeat(heat)}><DeleteIcon fontSize="small" /></IconButton>
-                          </Box>
-                        </Box>
+              {/* Horizontal because a bracket is: the eye follows one entrant
+                  left to right through the rounds. */}
+              <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
+                {stages.map(stage => (
+                  <Box key={stage.index} sx={{ minWidth: 300, flex: '0 0 auto' }}>
+                    <Box
+                      sx={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        px: 1.5, py: 0.75, mb: 1.5, borderRadius: 2,
+                        bgcolor: stage.isFinal ? 'warning.light' : 'action.hover',
+                      }}
+                    >
+                      <Typography variant="caption" sx={{ fontWeight: 800 }}>
+                        {stage.isFinal && <TrophyIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'text-bottom' }} />}
+                        {stage.label}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {stage.heats.length} Heat
+                      </Typography>
+                    </Box>
 
-                        {over && <Alert severity="warning" sx={{ mb: 1, py: 0 }}>เกินจำนวนที่ตั้งไว้</Alert>}
-
-                        <Divider sx={{ mb: 1 }} />
-
-                        {list.length === 0 && (
-                          <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                            ยังไม่มีใครใน Heat นี้
-                          </Typography>
-                        )}
-
-                        <Stack spacing={0.75}>
-                          {list.map(e => (
-                            <Box
-                              key={e.id}
-                              sx={{
-                                display: 'flex', alignItems: 'center', gap: 1, p: 0.75, borderRadius: 2,
-                                bgcolor: e.result_rank ? `${RANK_COLOR[e.result_rank] || '#e2e8f0'}22` : 'action.hover',
-                              }}
-                            >
-                              <Tooltip title={TYPE_LABEL[e.entry_type]}>
-                                <Box sx={{ color: 'text.secondary', display: 'flex' }}>{TYPE_ICON[e.entry_type]}</Box>
-                              </Tooltip>
-                              <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{e.label}</Typography>
-                                {e.sub_label && (
-                                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                                    {e.sub_label}
-                                  </Typography>
-                                )}
+                    <Stack spacing={1.5}>
+                      {stage.heats.map(heat => {
+                        const list = entriesOf(heat.id);
+                        const over = heat.capacity != null && list.length > heat.capacity;
+                        const ranked = list.filter(e => e.result_rank != null).length;
+                        return (
+                          <Paper
+                            key={heat.id}
+                            variant="outlined"
+                            sx={{
+                              p: 1.5, borderRadius: 3,
+                              borderColor: heat.status === 'done' ? 'success.light' : 'divider',
+                              borderWidth: heat.status === 'done' ? 2 : 1,
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 0.5 }}>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 800, fontSize: 14 }} noWrap>{heat.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {heat.slot_date ? `${roundLabel(heat.slot_date, heat.slot_start_time)} · ` : ''}
+                                  {heat.capacity != null ? `${list.length}/${heat.capacity}` : `${list.length} รายการ`}
+                                  {heat.advance_count ? ` · ผ่าน ${heat.advance_count}` : ''}
+                                </Typography>
                               </Box>
-                              {e.result_rank && (
-                                <Chip
-                                  size="small" label={`อันดับ ${e.result_rank}`}
-                                  sx={{ fontWeight: 800, bgcolor: RANK_COLOR[e.result_rank], color: '#fff' }}
-                                />
-                              )}
-                              <Button
-                                size="small"
-                                onClick={() => {
-                                  setResultEntry(e);
-                                  setResultForm({ rank: e.result_rank ?? '', note: '', award: true });
-                                }}
-                              >
-                                ผล
-                              </Button>
-                              {heats.length > 1 && (
-                                <Select
-                                  size="small" value="" displayEmpty variant="standard" disableUnderline
-                                  onChange={ev => moveEntry(e, Number(ev.target.value))}
-                                  renderValue={() => <MoveIcon fontSize="small" sx={{ color: 'text.secondary' }} />}
-                                  sx={{ '& .MuiSelect-select': { p: 0, pr: '0 !important' } }}
-                                >
-                                  {heats.filter(h => h.id !== heat.id).map(h => (
-                                    <MenuItem key={h.id} value={h.id}>ย้ายไป {h.name}</MenuItem>
-                                  ))}
-                                </Select>
-                              )}
-                              <IconButton size="small" color="error" onClick={() => removeEntry(e)}>
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
+                              <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                                <IconButton size="small" onClick={() => openHeatDialog(heat)}><EditIcon fontSize="small" /></IconButton>
+                                <IconButton size="small" color="error" onClick={() => deleteHeat(heat)}><DeleteIcon fontSize="small" /></IconButton>
+                              </Box>
                             </Box>
-                          ))}
-                        </Stack>
-                      </Paper>
-                    </Grid>
-                  );
-                })}
-              </Grid>
+
+                            {over && <Alert severity="warning" sx={{ mb: 1, py: 0, fontSize: 12 }}>เกินจำนวนที่ตั้งไว้</Alert>}
+
+                            <Divider sx={{ mb: 1 }} />
+
+                            {list.length === 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', py: 1.5, textAlign: 'center' }}>
+                                {stage.index === 0 ? 'ยังไม่มีใครใน Heat นี้' : 'รอผู้ชนะจากรอบก่อนหน้า'}
+                              </Typography>
+                            )}
+
+                            <Stack spacing={0.5}>
+                              {list.map(e => (
+                                <Box
+                                  key={e.id}
+                                  sx={{
+                                    display: 'flex', alignItems: 'center', gap: 0.75, p: 0.75, borderRadius: 2,
+                                    bgcolor: e.result_rank && e.result_rank <= 3 ? `${RANK_COLOR[e.result_rank]}1f` : 'action.hover',
+                                    borderLeft: '3px solid',
+                                    borderColor: e.result_rank && e.result_rank <= 3 ? RANK_COLOR[e.result_rank] : 'transparent',
+                                  }}
+                                >
+                                  {e.result_rank ? (
+                                    <Box
+                                      sx={{
+                                        width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        bgcolor: RANK_COLOR[e.result_rank] || 'grey.400',
+                                        color: '#fff', fontWeight: 900, fontSize: 12,
+                                      }}
+                                    >
+                                      {e.result_rank}
+                                    </Box>
+                                  ) : (
+                                    <Tooltip title={TYPE_LABEL[e.entry_type]}>
+                                      <Box sx={{ color: 'text.disabled', display: 'flex' }}>{TYPE_ICON[e.entry_type]}</Box>
+                                    </Tooltip>
+                                  )}
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }} noWrap>{e.label}</Typography>
+                                    {/* The form's own question is the role — "ผู้ปกครอง: สมชาย ·
+                                        เด็ก: น้องเอ๋" says who is who without guessing. */}
+                                    {e.sub_label && (
+                                      <Tooltip title={e.sub_label}>
+                                        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                                          {e.sub_label}
+                                        </Typography>
+                                      </Tooltip>
+                                    )}
+                                  </Box>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => {
+                                      setResultEntry(e);
+                                      setResultForm({ rank: e.result_rank ?? '', note: '', award: true });
+                                    }}
+                                  >
+                                    <FlagIcon fontSize="small" />
+                                  </IconButton>
+                                  {heats.length > 1 && (
+                                    <Select
+                                      size="small" value="" displayEmpty variant="standard" disableUnderline
+                                      onChange={ev => moveEntry(e, Number(ev.target.value))}
+                                      renderValue={() => <MoveIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
+                                      sx={{ '& .MuiSelect-select': { p: 0, pr: '0 !important' } }}
+                                    >
+                                      {heats.filter(h => h.id !== heat.id).map(h => (
+                                        <MenuItem key={h.id} value={h.id}>ย้ายไป {h.name}</MenuItem>
+                                      ))}
+                                    </Select>
+                                  )}
+                                  <IconButton size="small" color="error" onClick={() => removeEntry(e)}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              ))}
+                            </Stack>
+
+                            {!stage.isFinal && list.length > 0 && (
+                              <Button
+                                fullWidth size="small" sx={{ mt: 1, fontWeight: 700 }}
+                                startIcon={<AdvanceIcon />}
+                                disabled={ranked === 0}
+                                onClick={() => advanceHeat(heat)}
+                              >
+                                {ranked === 0 ? 'บันทึกผลก่อนจึงส่งเข้ารอบได้' : `ส่ง ${heat.advance_count ?? 1} อันดับแรกเข้ารอบถัดไป`}
+                              </Button>
+                            )}
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  </Box>
+                ))}
+              </Box>
             </Grid>
           </Grid>
         </>
       )}
+
+      {/* The template: two numbers, and a preview of the bracket they make. */}
+      <Dialog open={genOpen} onClose={() => setGenOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>สร้างสายการแข่งขัน</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="จำนวนต่อ Heat" type="number" fullWidth
+              value={genForm.per_heat}
+              onChange={e => setGenForm(f => ({ ...f, per_heat: Number(e.target.value) }))}
+            />
+            <TextField
+              label="ผ่านเข้ารอบต่อ Heat" type="number" fullWidth
+              value={genForm.advance_per_heat}
+              onChange={e => setGenForm(f => ({ ...f, advance_per_heat: Number(e.target.value) }))}
+              helperText="เช่น 2 = ที่ 1 กับที่ 2 ของแต่ละ Heat ได้ไปต่อ"
+            />
+            <TextField
+              label="วันที่ของรอบแรก (ไม่บังคับ)" type="date" fullWidth InputLabelProps={{ shrink: true }}
+              value={genForm.slot_date}
+              onChange={e => setGenForm(f => ({ ...f, slot_date: e.target.value }))}
+            />
+
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 0.5 }}>
+                จะได้สายแบบนี้ (จาก {genPreview.entrants} รายการที่จะลงแข่ง)
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {genPreview.out.map(n => `${n} Heat`).join('  →  ')}
+              </Typography>
+            </Paper>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Checkbox checked={genForm.replace} onChange={e => setGenForm(f => ({ ...f, replace: e.target.checked }))} />
+              <Typography variant="body2">ลบ Heat และรายชื่อเดิมทั้งหมดก่อนสร้างใหม่</Typography>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGenOpen(false)}>ยกเลิก</Button>
+          <Button variant="contained" onClick={generateBracket} disabled={saving}>สร้าง</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={heatDialog.open} onClose={() => setHeatDialog({ open: false, editing: null })} fullWidth maxWidth="xs">
         <DialogTitle>{heatDialog.editing ? 'แก้ไข Heat' : 'เพิ่ม Heat'}</DialogTitle>
