@@ -835,9 +835,13 @@ const Booking = () => {
           />
           {successBooking.qrToken && (
             <div className="w-full mellow-card bg-white p-5 border border-slate-100 shadow-xl rounded-[28px] mb-4 flex flex-col items-center">
-              <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-3">
+              <p className="text-slate-400 text-xs font-black uppercase tracking-wider mb-1">
                 {lang === 'en' ? 'Check-in QR Code' : 'QR Code สำหรับเช็คอิน'}
               </p>
+              {/* The booking id, big and label-less, right above the QR — the
+                  number staff and the family quote to each other at the desk,
+                  readable at arm's length without scanning anything. */}
+              <p className="text-3xl font-black text-slate-800 tracking-tight mb-3">#{successBooking.id}</p>
               <div className="p-3 bg-white rounded-2xl border border-slate-100">
                 <QRCodeSVG value={successBooking.qrToken} size={180} level="M" />
               </div>
