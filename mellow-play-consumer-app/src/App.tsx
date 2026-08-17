@@ -153,6 +153,7 @@ const AppContent = () => {
             requiring a session would defeat emailing the link. */}
         <Route path="/checkin/:token" element={<CheckinQr />} />
         <Route path="/invite/:token" element={<InviteAccess />} />
+        <Route path="/i/:token" element={<InviteAccess />} />
       </Routes>
     </AppShell>
   );

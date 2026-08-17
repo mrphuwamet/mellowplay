@@ -571,12 +571,14 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
 
   const createInviteLink = async () => {
     if (!inviteLinksRound) return;
-    if (!/^\d{4,8}$/.test(newInvitePin)) { setNewInviteError('PIN ต้องเป็นตัวเลข 4-8 หลัก'); return; }
+    // A password is optional now, so an empty box is a valid choice rather
+    // than an error to fix.
+    if (newInvitePin && !/^\d{4,8}$/.test(newInvitePin)) { setNewInviteError('ถ้าตั้งรหัสผ่าน ต้องเป็นตัวเลข 4-8 หลัก'); return; }
     setNewInviteError('');
     try {
       await axios.post(`${API_BASE}/invite-access-links`, {
         label: newInviteLabel.trim() || null,
-        pin: newInvitePin,
+        pin: newInvitePin || null,
         courseId: inviteLinksRound.courseId,
         calendarSlotRuleId: inviteLinksRound.ruleId,
         expiresAt: newInviteExpiresAt || null,
@@ -594,8 +596,12 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     await fetchInviteLinks(inviteLinksRound.ruleId);
   };
 
-  const copyInviteLink = (link: any) => {
-    navigator.clipboard.writeText(`${CONSUMER_APP_URL}/invite/${link.token}`).catch(() => {});
+  const inviteShortUrl = (link: any) => (link.short_code ? `${CONSUMER_APP_URL}/i/${link.short_code}` : null);
+  const inviteFullUrl = (link: any) => `${CONSUMER_APP_URL}/invite/${link.token}`;
+
+  const copyInviteLink = (link: any, which: 'short' | 'full' = 'short') => {
+    const url = which === 'short' ? (inviteShortUrl(link) || inviteFullUrl(link)) : inviteFullUrl(link);
+    navigator.clipboard.writeText(url).catch(() => {});
     setCopiedInviteId(link.id);
     setTimeout(() => setCopiedInviteId(prev => (prev === link.id ? null : prev)), 1500);
   };
@@ -3177,15 +3183,39 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Box sx={{ minWidth: 0 }}>
                         <Typography variant="body2" fontWeight={700} noWrap>{link.label || `ลิงก์ #${link.id}`}</Typography>
-                        <Chip label={status} size="small" color={statusColor as any} sx={{ height: 18, fontSize: '10px', fontWeight: 700, mt: 0.5 }} />
+                        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap>
+                          <Chip label={status} size="small" color={statusColor as any} sx={{ height: 18, fontSize: '10px', fontWeight: 700 }} />
+                          {/* Whether this link asks for anything, said on the
+                              row — the difference decides how it is sent. */}
+                          <Chip
+                            label={link.requires_pin ? 'มีรหัสผ่าน' : 'เปิดได้เลย'}
+                            size="small" variant="outlined"
+                            sx={{ height: 18, fontSize: '10px', fontWeight: 700 }}
+                          />
+                        </Stack>
+                        {/* The short address is the one to send; the long one
+                            still works and is kept visible for anything already
+                            printed or scheduled. */}
+                        {inviteShortUrl(link) && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontFamily: 'ui-monospace, monospace', color: 'text.secondary' }}>
+                            {inviteShortUrl(link)}
+                          </Typography>
+                        )}
                       </Box>
                       <Stack direction="row">
                         {!link.is_revoked && !isExpired && (
-                          <Tooltip title={copiedInviteId === link.id ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์'}>
-                            <IconButton size="small" onClick={() => copyInviteLink(link)} color={copiedInviteId === link.id ? 'success' : 'default'}>
-                              <CopyLinkIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <>
+                            <Tooltip title={copiedInviteId === link.id ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์สั้น'}>
+                              <IconButton size="small" onClick={() => copyInviteLink(link, 'short')} color={copiedInviteId === link.id ? 'success' : 'default'}>
+                                <CopyLinkIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="คัดลอกลิงก์แบบเต็ม">
+                              <IconButton size="small" onClick={() => copyInviteLink(link, 'full')}>
+                                <LinkIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </>
                         )}
                         {!link.is_revoked && (
                           <IconButton size="small" color="error" onClick={() => revokeInviteLink(link.id)}><DeleteIcon fontSize="small" /></IconButton>
@@ -3204,8 +3234,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           <Stack spacing={1.5}>
             <TextField label="ชื่อลิงก์ (ถ้ามี)" size="small" fullWidth value={newInviteLabel} onChange={e => setNewInviteLabel(e.target.value)} />
             <TextField
-              label="PIN (ตัวเลข 4-8 หลัก)" size="small" fullWidth value={newInvitePin}
+              label="รหัสผ่าน (ไม่บังคับ — ตัวเลข 4-8 หลัก)" size="small" fullWidth value={newInvitePin}
               onChange={e => setNewInvitePin(e.target.value.replace(/\D/g, ''))}
+              helperText={newInvitePin ? 'ผู้รับต้องกรอกรหัสนี้ก่อนจึงจะจองได้' : 'ไม่ใส่ = กดลิงก์แล้วเข้าหน้าจองได้เลย'}
             />
             <TextField
               label="วันหมดอายุ (ไม่บังคับ)" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}

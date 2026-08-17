@@ -2,7 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { AuthService } from '../services/authService';
-import { InviteAccessLinkRepository, isInviteLinkUsable, InviteAccessLink } from '../repositories/inviteAccessLinkRepository';
+import { InviteAccessLinkRepository, isInviteLinkUsable, isInviteLinkOpen, InviteAccessLink } from '../repositories/inviteAccessLinkRepository';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -14,13 +14,19 @@ export class InviteAccessController {
   async create(c: C) {
     try {
       const { label, pin, courseId, calendarSlotRuleId, expiresAt } = await c.req.json();
-      if (!pin || !/^\d{4,8}$/.test(pin)) return c.json({ success: false, message: 'PIN ต้องเป็นตัวเลข 4-8 หลัก' }, 400);
+      // A PIN is optional now: an invite sent to one family in a private chat
+      // is already a secret, and asking them to also type a code was a step
+      // that only ever lost people. Given one, it must still be a real one.
+      const trimmedPin = (pin ?? '').toString().trim();
+      if (trimmedPin && !/^\d{4,8}$/.test(trimmedPin)) {
+        return c.json({ success: false, message: 'ถ้าตั้งรหัสผ่าน ต้องเป็นตัวเลข 4-8 หลัก' }, 400);
+      }
       if (!courseId || !calendarSlotRuleId) return c.json({ success: false, message: 'courseId และ calendarSlotRuleId จำเป็นต้องระบุ' }, 400);
       const crmUserId = c.get('crmUser')?.userId ?? null;
-      const { id, token } = await this.repo(c).create(
-        label?.trim() || null, pin, parseInt(courseId), parseInt(calendarSlotRuleId), expiresAt || null, crmUserId
+      const { id, token, shortCode } = await this.repo(c).create(
+        label?.trim() || null, trimmedPin || null, parseInt(courseId), parseInt(calendarSlotRuleId), expiresAt || null, crmUserId
       );
-      return c.json({ success: true, id, token });
+      return c.json({ success: true, id, token, shortCode });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -39,6 +45,31 @@ export class InviteAccessController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * What the link is, before anyone types anything.
+   *
+   * Public, and deliberately thin: whether a PIN is needed, and which course it
+   * opens. A link with no PIN can then take the guest straight to the booking
+   * page instead of showing them an empty box to fill in.
+   */
+  async info(c: C) {
+    try {
+      const token = c.req.param('token');
+      const link = await this.repo(c).findByToken(token);
+      if (!isInviteLinkUsable(link)) return c.json({ success: false, message: 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว' }, 403);
+
+      const config = new ConfigService(c.env);
+      const course = await config.db.prepare('SELECT name FROM Courses WHERE id = ?').bind(link!.course_id).first() as any;
+      return c.json({
+        success: true,
+        requiresPin: !isInviteLinkOpen(link),
+        label: link!.label,
+        courseId: link!.course_id,
+        courseName: course?.name || null,
+      });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // Public (see ADMIN_PUBLIC_ROUTES in index.ts) — the PIN itself is the
   // credential, since whoever holds this link is a guest, not a CRM user.
   // On success returns a session token (used to unlock the extra capacity
@@ -51,8 +82,12 @@ export class InviteAccessController {
       const link = await this.repo(c).findByToken(token);
       if (!isInviteLinkUsable(link)) return c.json({ success: false, message: 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว' }, 403);
 
-      const valid = await AuthService.verifyPassword(pin || '', link!.pin_hash);
-      if (!valid) return c.json({ success: false, message: 'PIN ไม่ถูกต้อง' }, 401);
+      // An open link hands out the session without a check; a protected one is
+      // verified as before. The empty hash is never compared against anything.
+      if (!isInviteLinkOpen(link)) {
+        const valid = await AuthService.verifyPassword(pin || '', link!.pin_hash);
+        if (!valid) return c.json({ success: false, message: 'รหัสผ่านไม่ถูกต้อง' }, 401);
+      }
 
       const config = new ConfigService(c.env);
       const course = await config.db.prepare('SELECT name FROM Courses WHERE id = ?').bind(link!.course_id).first() as any;

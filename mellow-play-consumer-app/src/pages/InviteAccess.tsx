@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Lock, ArrowRight, Loader2 } from 'lucide-react';
 import axios from 'axios';
@@ -27,27 +27,76 @@ const InviteAccess = () => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // Null while we are still asking what kind of link this is. Nothing renders
+  // until then: showing a PIN box and taking it away half a second later is
+  // worse than showing nothing for half a second.
+  const [requiresPin, setRequiresPin] = useState<boolean | null>(null);
 
-  const verifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pin.trim()) return;
+  const enter = async (submittedPin: string) => {
     setVerifying(true);
     setError(null);
     try {
-      const res = await bareAxios.post(`${API_BASE}/invite-access/${encodeURIComponent(token)}/verify-pin`, { pin });
+      const res = await bareAxios.post(
+        `${API_BASE}/invite-access/${encodeURIComponent(token)}/verify-pin`,
+        { pin: submittedPin },
+      );
       if (res.data.success) {
         localStorage.setItem(inviteSessionKey(res.data.courseId), JSON.stringify({
           sessionToken: res.data.sessionToken,
           expiresAt: Date.now() + res.data.expiresIn * 1000,
         }));
+        // Straight to booking. Booking.tsx sends anyone without an account
+        // through the ordinary signup and brings them back here afterwards, so
+        // an invite needs no flow of its own for that.
         navigate(`/booking?courseId=${res.data.courseId}`, { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.message || (lang === 'en' ? 'Something went wrong, please try again.' : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'));
+      setRequiresPin(true); // let them try again rather than stranding them
     } finally {
       setVerifying(false);
     }
   };
+
+  // A link with no password should not stop to ask for one.
+  useEffect(() => {
+    let cancelled = false;
+    bareAxios.get(`${API_BASE}/invite-access/${encodeURIComponent(token)}/info`)
+      .then(res => {
+        if (cancelled) return;
+        setRequiresPin(res.data.requiresPin !== false);
+        if (res.data.success && res.data.requiresPin === false) enter('');
+      })
+      .catch(err => {
+        if (cancelled) return;
+        // An older link, or a revoked one. Fall back to the PIN form: it is the
+        // path that has always worked and it reports its own errors clearly.
+        setRequiresPin(true);
+        if (err.response?.status === 403) {
+          setError(err.response?.data?.message || (lang === 'en' ? 'This link is no longer valid.' : 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว'));
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const verifyPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pin.trim()) return;
+    await enter(pin);
+  };
+
+  if (requiresPin === null || (requiresPin === false && !error)) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] p-5 gap-3">
+        <img src={logo} alt="Mellow Play" className="h-12" />
+        <Loader2 size={22} className="animate-spin text-slate-400" />
+        <p className="text-sm font-bold text-slate-400">
+          {lang === 'en' ? 'Opening your invitation…' : 'กำลังเปิดลิงก์เชิญ...'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-5">

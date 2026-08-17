@@ -481,6 +481,9 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/journey\/progress-by-booking\/[^/]+$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin-access\/[^/]+\/verify-pin$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/invite-access\/[^/]+\/verify-pin$/ },
+  // Says only whether a PIN is needed and which course the link opens — the
+  // guest holding it has not authenticated yet, and cannot until they know.
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/invite-access\/[^/]+\/info$/ },
 ];
 
 // The scanner endpoints a checkin-access session (PIN link, not a real CRM
@@ -981,6 +984,7 @@ app.post('/api/v1/admin/invite-access-links', (c) => inviteAccessController.crea
 app.get('/api/v1/admin/invite-access-links', (c) => inviteAccessController.listForRule(c));
 app.post('/api/v1/admin/invite-access-links/:id/revoke', (c) => inviteAccessController.revoke(c));
 app.post('/api/v1/admin/invite-access/:token/verify-pin', (c) => inviteAccessController.verifyPin(c));
+app.get('/api/v1/admin/invite-access/:token/info', (c) => inviteAccessController.info(c));
 
 app.get('/api/v1/promotions/validate',             (c) => adminController.validatePromoCode(c));
 app.get('/api/v1/public/liff-config',              (c) => adminController.getPublicLiffConfig(c));
