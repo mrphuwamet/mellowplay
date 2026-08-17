@@ -10,8 +10,13 @@ import {
   ArrowForward as MoveIcon, Groups as TeamIcon, FamilyRestroom as FamilyIcon,
   Person as PersonIcon, AutoAwesome as AutoIcon, Edit as EditIcon,
   AccountTree as BracketIcon, DoubleArrow as AdvanceIcon, SportsScore as FlagIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import {
+  ExportTable, ExportTemplate, ExportFormat,
+  exportTableXlsx, exportTableDoc, exportTablePdf, exportElementPdf, exportElementDoc,
+} from '../utils/tournamentExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -135,6 +140,12 @@ const TournamentManagement: React.FC = () => {
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
   const [notice, setNotice] = useState<string>('');
+
+  // Printing. The template decides what the document is; the format decides
+  // what happens to it next — print it, edit it, or sort it.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportForm, setExportForm] = useState<{ template: ExportTemplate; format: ExportFormat }>({ template: 'start_list', format: 'pdf' });
 
   // Picking entrants straight into one heat, rather than via the pool on the
   // left — which is how staff work once the bracket exists and they are filling
@@ -456,6 +467,91 @@ const TournamentManagement: React.FC = () => {
     load(Number(courseId));
   };
 
+  // The four documents this competition can produce, built from what is on
+  // screen rather than a second fetch — the export should be exactly what the
+  // person exporting is looking at.
+  const buildTable = (which: 'start_list' | 'results'): ExportTable => {
+    const courseName = courses.find(c => c.id === courseId)?.name || '';
+    const stamp = new Date().toLocaleString('th-TH');
+
+    if (which === 'start_list') {
+      const rows: (string | number)[][] = [];
+      stages.forEach(stage => stage.heats.forEach(heat => {
+        const list = entriesOf(heat.id);
+        if (list.length === 0) {
+          rows.push([stage.label, heat.name, roundLabel(heat.slot_date, heat.slot_start_time), '-', '', '', heat.note || '']);
+          return;
+        }
+        list.forEach((e, i) => rows.push([
+          stage.label,
+          heat.name,
+          roundLabel(heat.slot_date, heat.slot_start_time),
+          `${i + 1}. ${e.label}`,
+          TYPE_LABEL[e.entry_type],
+          e.sub_label || '',
+          heat.note || '',
+        ]));
+      }));
+      return {
+        title: `รายชื่อและรอบการแข่งขัน — ${tournament?.name || courseName}`,
+        subtitle: `${courseName} · พิมพ์เมื่อ ${stamp}`,
+        headers: ['รอบ', 'Heat', 'วันเวลา', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด', 'โน้ต'],
+        rows,
+      };
+    }
+
+    const rows = stages.flatMap(stage => stage.heats.flatMap(heat =>
+      entriesOf(heat.id)
+        .filter(e => e.result_rank != null)
+        .sort((a, b) => (a.result_rank || 0) - (b.result_rank || 0))
+        .map(e => [
+          stage.label,
+          heat.name,
+          roundLabel(heat.slot_date, heat.slot_start_time),
+          e.result_rank ?? '',
+          e.label,
+          TYPE_LABEL[e.entry_type],
+          e.sub_label || '',
+        ])));
+    return {
+      title: `ผลการแข่งขัน — ${tournament?.name || courseName}`,
+      subtitle: `${courseName} · พิมพ์เมื่อ ${stamp}`,
+      headers: ['รอบ', 'Heat', 'วันเวลา', 'อันดับ', 'ผู้เข้าแข่งขัน', 'ประเภท', 'รายละเอียด'],
+      rows,
+    };
+  };
+
+  const runExport = async () => {
+    const isChart = exportForm.template === 'chart' || exportForm.template === 'chart_results';
+    setExporting(true);
+    try {
+      if (isChart) {
+        const el = bracketRef.current;
+        if (!el) { setNotice('ยังไม่มีสายให้พิมพ์'); return; }
+        const title = `${exportForm.template === 'chart_results' ? 'ผลการแข่งขัน' : 'สายการแข่งขัน'} — ${tournament?.name || ''}`;
+        // The results chart is the same picture; what makes it a results sheet
+        // is that the placings are on it, which they are as soon as they exist.
+        if (exportForm.format === 'doc') await exportElementDoc(el, title);
+        else await exportElementPdf(el, title);
+        return;
+      }
+
+      const table = buildTable(exportForm.template === 'results' ? 'results' : 'start_list');
+      if (table.rows.length === 0) {
+        setNotice(exportForm.template === 'results' ? 'ยังไม่มีผลการแข่งขันให้พิมพ์' : 'ยังไม่มีรายชื่อใน Heat ให้พิมพ์');
+        return;
+      }
+      if (exportForm.format === 'xlsx') exportTableXlsx(table);
+      else if (exportForm.format === 'doc') exportTableDoc(table);
+      else await exportTablePdf(table);
+    } catch (e: any) {
+      setNotice(`พิมพ์ไม่สำเร็จ: ${e.message}`);
+    } finally {
+      setExporting(false);
+      setExportOpen(false);
+    }
+  };
+
   const advanceEntry = async (entry: Entry) => {
     try {
       const { data } = await axios.post(`${API_BASE}/tournament-entries/${entry.id}/advance`);
@@ -718,6 +814,9 @@ const TournamentManagement: React.FC = () => {
                   <Button size="small" startIcon={<AddIcon />} onClick={() => createTournament(`สายที่ ${tournaments.length + 1}`)}>
                     เพิ่มสาย
                   </Button>
+                  <Button size="small" startIcon={<PrintIcon />} onClick={() => setExportOpen(true)}>
+                    พิมพ์ / Export
+                  </Button>
                   <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => setGenOpen(true)}>
                     สร้างสายอัตโนมัติ
                   </Button>
@@ -926,6 +1025,66 @@ const TournamentManagement: React.FC = () => {
           </Grid>
         </>
       )}
+
+      {/* Printing. Template first, because it decides which formats make
+          sense — a chart has no spreadsheet form. */}
+      <Dialog open={exportOpen} onClose={() => !exporting && setExportOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>พิมพ์ / Export</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth>
+              <InputLabel>รูปแบบเอกสาร</InputLabel>
+              <Select
+                label="รูปแบบเอกสาร" value={exportForm.template}
+                onChange={e => {
+                  const template = e.target.value as ExportTemplate;
+                  const isChart = template === 'chart' || template === 'chart_results';
+                  setExportForm(f => ({
+                    template,
+                    // Silently keeping xlsx selected for a chart would produce
+                    // a file that cannot exist; fall back to the printable one.
+                    format: isChart && f.format === 'xlsx' ? 'pdf' : f.format,
+                  }));
+                }}
+              >
+                <MenuItem value="start_list">ตารางรายชื่อ และรอบการแข่งขัน</MenuItem>
+                <MenuItem value="chart">Tournament Chart (จัดการแข่งขัน)</MenuItem>
+                <MenuItem value="chart_results">Tournament Chart (ผลการแข่งขัน)</MenuItem>
+                <MenuItem value="results">ตารางผลการแข่งขัน</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel>ไฟล์</InputLabel>
+              <Select
+                label="ไฟล์" value={exportForm.format}
+                onChange={e => setExportForm(f => ({ ...f, format: e.target.value as ExportFormat }))}
+              >
+                <MenuItem value="pdf">PDF — สำหรับพิมพ์</MenuItem>
+                <MenuItem value="doc">DOC — เปิดแก้ไขต่อใน Word</MenuItem>
+                <MenuItem
+                  value="xlsx"
+                  disabled={exportForm.template === 'chart' || exportForm.template === 'chart_results'}
+                >
+                  XLSX — เฉพาะแบบตาราง
+                </MenuItem>
+              </Select>
+            </FormControl>
+
+            {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && (
+              <Alert severity="info">
+                จะพิมพ์สายที่เห็นบนหน้าจอตอนนี้ — เลื่อนให้เห็นครบก่อนพิมพ์จะได้ภาพเต็มสาย
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExportOpen(false)} disabled={exporting}>ยกเลิก</Button>
+          <Button variant="contained" onClick={runExport} disabled={exporting}>
+            {exporting ? <CircularProgress size={20} /> : 'สร้างไฟล์'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* One dialog for every destructive action on this page. It names what
           goes with it, which a browser confirm() has no room to do. */}
