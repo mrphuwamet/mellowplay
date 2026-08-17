@@ -376,7 +376,7 @@ const CourseDetail = () => {
                 <MapPin size={20} />
               </div>
               <div className="min-w-0">
-                <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่จัดคลาส'}</p>
+                <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">{lang === 'en' ? 'Location' : 'สถานที่'}</p>
                 <p className="text-[15px] font-black text-slate-700">{(course.is_extraclass || course.is_event) ? (course.location || (lang === 'en' ? 'Pending Location' : 'รอยืนยันสถานที่')) : 'Mellow Play (Little Walk Pattaya)'}</p>
               </div>
             </div>
