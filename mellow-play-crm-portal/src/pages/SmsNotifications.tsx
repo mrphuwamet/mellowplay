@@ -2,13 +2,14 @@ import { API_URL } from '../config';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControl, Grid, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
+  DialogTitle, FormControl, FormControlLabel, Grid, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
-import { Sms as SmsIcon, Visibility as ViewIcon, Person as ProfileIcon, Search as SearchIcon } from '@mui/icons-material';
+import { NotificationsActive as NotifyIcon, Visibility as ViewIcon, Person as ProfileIcon, Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
 import SmsPreviewBubble from '../components/SmsPreviewBubble';
 import SmsTemplateEditor from '../components/SmsTemplateEditor';
+import RichTextEditor from '../components/RichTextEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -98,6 +99,7 @@ interface ReminderCandidate {
   parent_nickname?: string;
   parent_user_id?: number;
   phone: string;
+  parent_email?: string | null;
   course_name: string;
   branch_name: string | null;
 }
@@ -133,10 +135,10 @@ const SmsNotifications: React.FC = () => {
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-        <SmsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+        <NotifyIcon sx={{ fontSize: 32, color: 'primary.main' }} />
         <Box>
-          <Typography variant="h5" fontWeight={800}>ส่ง SMS แจ้งเตือน</Typography>
-          <Typography variant="body2" color="text.secondary">แจ้งเตือนล่วงหน้าแบบเลือกเอง ดูสมาชิกที่ยังไม่สมัคร และส่ง Confirm ย้อนหลัง</Typography>
+          <Typography variant="h5" fontWeight={800}>การแจ้งเตือน</Typography>
+          <Typography variant="body2" color="text.secondary">ส่ง SMS และอีเมลแจ้งเตือนล่วงหน้าแบบเลือกเอง ดูสมาชิกที่ยังไม่สมัคร และส่ง Confirm ย้อนหลัง</Typography>
         </Box>
       </Box>
 
@@ -183,7 +185,7 @@ function RecipientTable({
             </TableCell>
             <TableCell>เด็ก</TableCell>
             <TableCell>ผู้ปกครอง</TableCell>
-            <TableCell>เบอร์โทร</TableCell>
+            <TableCell>ช่องทางติดต่อ</TableCell>
             <TableCell>คอร์ส/กิจกรรม</TableCell>
             <TableCell>สาขา</TableCell>
             <TableCell>วันเวลา</TableCell>
@@ -198,7 +200,14 @@ function RecipientTable({
               </TableCell>
               <TableCell>{row.child_name}</TableCell>
               <TableCell>{row.parent_name}</TableCell>
-              <TableCell>{row.phone}</TableCell>
+              {/* Both channels, because a row can be reachable by one and not
+                  the other and the send result would otherwise be a surprise. */}
+              <TableCell>
+                <Typography variant="body2">{row.phone || <Box component="span" sx={{ color: 'text.disabled' }}>ไม่มีเบอร์</Box>}</Typography>
+                <Typography variant="caption" color={row.parent_email ? 'text.secondary' : 'text.disabled'}>
+                  {row.parent_email || 'ไม่มีอีเมล'}
+                </Typography>
+              </TableCell>
               <TableCell>{row.course_name}</TableCell>
               <TableCell>{row.branch_name || '-'}</TableCell>
               <TableCell>{formatThaiDateTime(row.scheduled_at)}</TableCell>
@@ -302,6 +311,12 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState('');
+  // Channels for this send. SMS stays on by default — it is what this screen
+  // has always done — and email is an addition, not a replacement.
+  const [useSms, setUseSms] = useState(true);
+  const [useEmail, setUseEmail] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('แจ้งเตือน {{course_name}}');
+  const [emailBody, setEmailBody] = useState('');
   const [formFields, setFormFields] = useState<{ field_key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -352,11 +367,19 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
     return next;
   });
 
+  const channels = [...(useSms ? ['sms'] : []), ...(useEmail ? ['email'] : [])];
+  const canSend = selected.size > 0 && channels.length > 0
+    && (!useSms || message.trim().length > 0)
+    && (!useEmail || emailBody.trim().length > 0);
+  const sendLabel = useSms && useEmail ? 'ส่งแจ้งเตือน' : useEmail ? 'ส่งอีเมล' : 'ส่ง SMS';
+
   const send = async () => {
-    if (selected.size === 0 || !message.trim()) return;
+    if (!canSend) return;
     setSending(true);
     try {
-      const res = await axios.post(`${API_BASE}/sms/send-reminder`, { bookingIds: Array.from(selected), message });
+      const res = await axios.post(`${API_BASE}/sms/send-reminder`, {
+        bookingIds: Array.from(selected), message, channels, emailSubject, emailBody,
+      });
       if (res.data.success) setResult(res.data);
     } finally { setSending(false); }
   };
@@ -444,20 +467,71 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
       />
 
       <Paper variant="outlined" sx={{ p: 2, mt: 2, borderRadius: 2 }}>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS</Typography>
-        <SmsTemplateEditor
-          value={message}
-          onChange={setMessage}
-          placeholder="เช่น สวัสดีคุณ [ชื่อผู้ปกครอง] อีก 2 วันจะถึงกำหนด [ชื่อคอร์ส/กิจกรรม] ของ [ชื่อเด็ก] แล้วนะคะ"
-          builtins={BUILTIN_SMS_VARIABLES}
-          formFields={formFields.map(f => ({ key: f.field_key, label: f.label }))}
-        />
+        {/* Which channels this send uses. Both can be on: a family with only an
+            email still gets reached, and the result dialog says per row which
+            channel was missing. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>ช่องทาง</Typography>
+          <FormControlLabel
+            control={<Checkbox size="small" checked={useSms} onChange={e => setUseSms(e.target.checked)} />}
+            label={<Typography variant="body2" sx={{ fontWeight: 700 }}>SMS</Typography>}
+          />
+          <FormControlLabel
+            control={<Checkbox size="small" checked={useEmail} onChange={e => setUseEmail(e.target.checked)} />}
+            label={<Typography variant="body2" sx={{ fontWeight: 700 }}>อีเมล</Typography>}
+          />
+        </Box>
+
+        {useSms && (
+          <>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>ข้อความ SMS</Typography>
+            <SmsTemplateEditor
+              value={message}
+              onChange={setMessage}
+              placeholder="เช่น สวัสดีคุณ [ชื่อผู้ปกครอง] อีก 2 วันจะถึงกำหนด [ชื่อคอร์ส/กิจกรรม] ของ [ชื่อเด็ก] แล้วนะคะ"
+              builtins={BUILTIN_SMS_VARIABLES}
+              formFields={formFields.map(f => ({ key: f.field_key, label: f.label }))}
+            />
+          </>
+        )}
+
+        {useEmail && (
+          <Box sx={{ mt: useSms ? 3 : 0 }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>อีเมล</Typography>
+            <TextField
+              fullWidth size="small" label="หัวเรื่อง" sx={{ mb: 1.5 }}
+              value={emailSubject}
+              onChange={e => setEmailSubject(e.target.value)}
+              placeholder="เช่น แจ้งเตือน {{course_name}} วัน {{scheduled_at}}"
+            />
+            {/* Same editor as everywhere else, and the same frame around it on
+                send — the theme from ตั้งค่าระบบ wraps this body too. */}
+            <RichTextEditor
+              value={emailBody}
+              onChange={setEmailBody}
+              uploadFolder="reminder-email"
+              placeholder="เช่น สวัสดีค่ะคุณ {{parent_name}} พรุ่งนี้เจอกันที่ {{location}} นะคะ"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 0.5 }}>
+              กดเพื่อแทรกตัวแปรลงท้ายเนื้อหาอีเมล
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {BUILTIN_SMS_VARIABLES.map(v => (
+                <Chip
+                  key={v.key} size="small" label={v.tagLabel} sx={{ fontWeight: 700 }}
+                  onClick={() => setEmailBody(prev => `${prev}{{${v.key}}}`)}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-          <Button variant="outlined" disabled={!message.trim()} onClick={() => setPreviewOpen(true)} sx={{ borderRadius: 2, fontWeight: 700 }}>
-            Preview
+          <Button variant="outlined" disabled={!useSms || !message.trim()} onClick={() => setPreviewOpen(true)} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            Preview SMS
           </Button>
-          <Button variant="contained" disabled={selected.size === 0 || !message.trim() || sending} onClick={send} sx={{ borderRadius: 2, fontWeight: 700 }}>
-            {sending ? <CircularProgress size={20} /> : `ส่ง SMS (${selected.size} รายการ)`}
+          <Button variant="contained" disabled={!canSend || sending} onClick={send} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            {sending ? <CircularProgress size={20} /> : `${sendLabel} (${selected.size} รายการ)`}
           </Button>
         </Box>
       </Paper>
@@ -520,7 +594,7 @@ function NonRegisteredTab({ courses }: { courses: CourseOption[] }) {
           <TableHead>
             <TableRow>
               <TableCell>ชื่อ</TableCell>
-              <TableCell>เบอร์โทร</TableCell>
+              <TableCell>ช่องทางติดต่อ</TableCell>
               <TableCell>วันที่เป็นสมาชิก</TableCell>
               <TableCell align="right">&nbsp;</TableCell>
             </TableRow>

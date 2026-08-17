@@ -7,6 +7,7 @@ import {
   FormatBold, FormatItalic, FormatUnderlined, FormatListBulleted,
   FormatListNumbered, Image as ImageIcon, Link as LinkIcon, Title as HeadingIcon,
   Notes as ParagraphIcon, FormatColorText as ColorIcon, FormatSize as FontSizeIcon,
+  FormatLineSpacing as LineSpacingIcon,
   SmartButton as ButtonIcon, Undo as UndoIcon, Redo as RedoIcon, Circle as SwatchIcon,
   FormatColorFill as HighlightIcon, FormatAlignLeft, FormatAlignCenter, FormatAlignRight,
   Collections as ImageRowIcon, YouTube as YouTubeIcon, Dashboard as MediaCardIcon,
@@ -24,6 +25,16 @@ import { uploadEditorImage } from '../../utils/imageUpload';
 
 const COLOR_SWATCHES = ['#0f172a', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#db2777'];
 const HIGHLIGHT_SWATCHES = ['#fff3a3', '#b9f6ca', '#a7d8ff', '#ffd1a9', '#f4b8ff', '#ff9e9e'];
+
+// Applied to the paragraph, not to a span inside it, so the spacing survives
+// into an email body as style="line-height:..." on the <p> itself — which is
+// the only form Outlook honours.
+const LINE_HEIGHTS: { label: string; value: string | null }[] = [
+  { label: 'แน่น', value: '1.3' },
+  { label: 'ปกติ', value: null },
+  { label: 'โปร่ง', value: '1.9' },
+  { label: 'โปร่งมาก', value: '2.4' },
+];
 
 const FONT_SIZES: { label: string; value: string | null }[] = [
   { label: 'เล็ก', value: '12px' },
@@ -85,6 +96,7 @@ const EditorCore: React.FC<EditorCoreProps> = ({
   const [pendingHighlight, setPendingHighlight] = useState('#fff59d');
   const [highlightMenuAnchor, setHighlightMenuAnchor] = useState<HTMLElement | null>(null);
   const [fontSizeMenuAnchor, setFontSizeMenuAnchor] = useState<HTMLElement | null>(null);
+  const [lineHeightMenuAnchor, setLineHeightMenuAnchor] = useState<HTMLElement | null>(null);
   const [imageMenuAnchor, setImageMenuAnchor] = useState<HTMLElement | null>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pendingKind, setPendingKind] = useState<PendingKind>('inline');
@@ -94,7 +106,14 @@ const EditorCore: React.FC<EditorCoreProps> = ({
   const editor = useEditor({
     extensions: [
       StarterKit,
-      TextStyleKit.configure({ fontFamily: false, backgroundColor: false, lineHeight: false }),
+      // lineHeight targets the block nodes rather than its default 'textStyle'
+      // mark: the space between lines is a property of the paragraph, and a
+      // span carrying it would be lost the moment its text is re-edited.
+      TextStyleKit.configure({
+        fontFamily: false,
+        backgroundColor: false,
+        lineHeight: { types: ['paragraph', 'heading'] },
+      }),
       Highlight.configure({ multicolor: true }),
       // Only paragraphs and headings — aligning a list item moves its bullet
       // and reads as a bug rather than a feature.
@@ -362,6 +381,25 @@ const EditorCore: React.FC<EditorCoreProps> = ({
               </Button>
             </MenuItem>
             <MenuItem dense onClick={() => { editor.chain().focus().unsetHighlight().run(); setHighlightMenuAnchor(null); }}>ล้างการเน้น</MenuItem>
+          </Menu>
+
+          <Tooltip title="ระยะห่างบรรทัด">
+            <IconButton size="small" onClick={e => setLineHeightMenuAnchor(e.currentTarget)}><LineSpacingIcon fontSize="small" /></IconButton>
+          </Tooltip>
+          <Menu anchorEl={lineHeightMenuAnchor} open={!!lineHeightMenuAnchor} onClose={() => setLineHeightMenuAnchor(null)}>
+            {LINE_HEIGHTS.map(lh => (
+              <MenuItem
+                key={lh.label}
+                dense
+                onClick={() => {
+                  if (lh.value) editor.chain().focus().setLineHeight(lh.value).run();
+                  else editor.chain().focus().unsetLineHeight().run();
+                  setLineHeightMenuAnchor(null);
+                }}
+              >
+                {lh.value ? `${lh.label} (${lh.value})` : lh.label}
+              </MenuItem>
+            ))}
           </Menu>
 
           <Tooltip title="ขนาดข้อความ">

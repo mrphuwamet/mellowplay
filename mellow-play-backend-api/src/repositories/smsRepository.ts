@@ -14,6 +14,7 @@ const BOOKING_RECIPIENT_SELECT = `
     u.nickname as parent_nickname,
     u.id as parent_user_id,
     u.phone as phone,
+    u.email as parent_email,
     co.name as course_name,
     co.location as course_location, co.location_link as course_location_link,
     br.name as branch_name, br.address as branch_address
@@ -23,7 +24,7 @@ const BOOKING_RECIPIENT_SELECT = `
   JOIN Users u ON ch.parent_id = u.id
   JOIN Courses co ON b.course_id = co.id
   LEFT JOIN Branches br ON b.branch_id = br.id
-  WHERE u.phone IS NOT NULL AND b.status != 'cancelled'
+  WHERE (u.phone IS NOT NULL OR u.email IS NOT NULL) AND b.status != 'cancelled'
 `;
 
 export class SmsRepository {
