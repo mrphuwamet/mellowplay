@@ -1093,6 +1093,34 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       .map(([value, count]) => ({ value, count }));
   };
 
+  // One-click team filtering — teams are the thing staff slice an event's
+  // list by constantly, and each team_select has a small fixed set of
+  // values, so they earn an always-visible clickable chip row instead of
+  // living only behind the กรองตามฟิลด์ dropdown (which stays for every
+  // other field). Backed by the exact same fieldFilters state, so the two
+  // UIs always agree.
+  const teamQuickFilters = useMemo(() => {
+    const fields = new Map<string, string>();
+    for (const sub of Object.values(submissionsMap)) {
+      for (const f of sub.fields) {
+        if (f.type === 'team_select' && !fields.has(f.field_key)) fields.set(f.field_key, f.label);
+      }
+    }
+    return Array.from(fields.entries()).map(([fieldKey, label]) => ({ key: `field:${fieldKey}`, label }));
+  }, [submissionsMap]);
+
+  const toggleQuickFilter = (fieldKey: string, value: string) => {
+    setFieldFilters(prev => {
+      const cur = prev[fieldKey] ?? [];
+      const next = cur.includes(value) ? cur.filter(v => v !== value) : [...cur, value];
+      const copy = { ...prev };
+      // Dropping the key entirely (not leaving []) keeps the per-field
+      // Select row below from lingering for a filter that's fully off.
+      if (next.length === 0) delete copy[fieldKey]; else copy[fieldKey] = next;
+      return copy;
+    });
+  };
+
   // Defaults to the full filtered set (the toolbar button), but also reused
   // by the selection bar's "Export CSV ที่เลือก" to dump just the checked rows.
   const exportCSV = async (rows: Booking[] = filtered) => {
@@ -1190,14 +1218,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     downloadCsv(`bookings_${new Date().toISOString().slice(0, 10)}`, allHeaders, csvRows);
   };
 
-  const getTeamLabel = (b: Booking): string | null => {
+  // fieldKey rides along so the card's team chip can toggle the same
+  // quick filter clicking the chip row above does.
+  const getTeamLabel = (b: Booking): { value: string; fieldKey: string } | null => {
     if (!b.form_submission_id) return null;
     const sub = submissionsMap[b.form_submission_id];
     if (!sub) return null;
     const teamField = sub.fields.find(f => f.type === 'team_select');
     if (!teamField) return null;
     const value = sub.answers[teamField.field_key];
-    return value || null;
+    return value ? { value, fieldKey: `field:${teamField.field_key}` } : null;
   };
 
   // Every family_member_picker answer on the form — not just the first —
@@ -1293,8 +1323,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   )}
                   {teamLabel && (
                     <Chip
-                      label={teamLabel}
+                      label={teamLabel.value}
                       size="small"
+                      clickable
+                      onClick={() => toggleQuickFilter(teamLabel.fieldKey, teamLabel.value)}
                       sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
                     />
                   )}
@@ -1495,6 +1527,37 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           </Button>
         </Stack>
       </Paper>
+
+      {/* Team quick filters — tap a team to see just that team, tap again
+          to clear; counts show how many rows each team would return. */}
+      {teamQuickFilters.length > 0 && (
+        <Stack direction="row" sx={{ mb: 2, px: 0.5, flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+          {teamQuickFilters.map(tf => {
+            const options = valueOptionsFor(tf.key).filter(o => o.value && o.value !== 'ไม่ระบุ');
+            if (options.length === 0) return null;
+            return (
+              <React.Fragment key={tf.key}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>{tf.label}:</Typography>
+                {options.map(o => {
+                  const selected = (fieldFilters[tf.key] ?? []).includes(o.value);
+                  return (
+                    <Chip
+                      key={o.value}
+                      label={`${o.value} (${o.count})`}
+                      size="small"
+                      clickable
+                      color={selected ? 'primary' : 'default'}
+                      variant={selected ? 'filled' : 'outlined'}
+                      onClick={() => toggleQuickFilter(tf.key, o.value)}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+        </Stack>
+      )}
 
       {/* One select per chosen field. Options come from the data, with a count
           beside each, so a value that would return nothing is never offered. */}
