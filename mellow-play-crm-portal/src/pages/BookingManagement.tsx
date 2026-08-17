@@ -33,6 +33,7 @@ import {
   EventAvailable as BookedAtIcon,
   ForwardToInbox as ResendIcon,
   LocalActivity as StampIcon,
+  ReportProblem as WarningIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import axios from 'axios';
@@ -486,6 +487,67 @@ type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { f
 // never collide with the fixed native-column keys above — field_key is a
 // fresh UUID per field instance, so it's already unique across every course's
 // form without needing to also track which form it came from.
+/**
+ * Every full name a booking carries: the child on the account, and whoever the
+ * registration form named.
+ *
+ * Only names with two parts count. "น้องเอ" appears on a hundred registrations
+ * and means nothing; "สมชาย ศรีสุข" appearing twice in one event is a person
+ * who registered twice, which is the thing worth flagging.
+ */
+const fullNamesOf = (b: Booking, submissionsMap?: SubmissionsMap): string[] => {
+  const raw: string[] = [b.child_name || '', b.child_name_en || ''];
+  const sub = b.form_submission_id ? submissionsMap?.[String(b.form_submission_id)] : undefined;
+  if (sub) {
+    for (const f of sub.fields || []) {
+      if (f.type !== 'family_member_picker') continue;
+      raw.push(String(sub.answers?.[f.field_key] ?? ''));
+      raw.push(String(sub.answers?.[`${f.field_key}__realname`] ?? ''));
+    }
+  }
+  const seen = new Set<string>();
+  for (const name of raw) {
+    const norm = name.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (norm.split(' ').length < 2) continue; // a first name alone is not an identity
+    seen.add(norm);
+  }
+  return Array.from(seen);
+};
+
+/**
+ * Which bookings share a name with another booking on the same course.
+ *
+ * Per course and across every round, because "signed up twice for this event"
+ * is the mistake being looked for — a family booking two rounds of a class is
+ * ordinary, but two entries in one competition is not. Cancelled bookings are
+ * left out entirely: cancelling and rebooking is how a change of round is made,
+ * and flagging that as a duplicate would make the marker useless.
+ */
+const findDuplicates = (bookings: Booking[], submissionsMap?: SubmissionsMap): Map<number, number[]> => {
+  const byNameAndCourse = new Map<string, number[]>();
+  for (const b of bookings) {
+    if (b.status === 'cancelled') continue;
+    for (const name of fullNamesOf(b, submissionsMap)) {
+      const key = `${b.course_id}|${name}`;
+      if (!byNameAndCourse.has(key)) byNameAndCourse.set(key, []);
+      byNameAndCourse.get(key)!.push(b.id);
+    }
+  }
+
+  const dupes = new Map<number, number[]>();
+  for (const ids of byNameAndCourse.values()) {
+    if (ids.length < 2) continue;
+    for (const id of ids) {
+      const others = ids.filter(other => other !== id);
+      const existing = dupes.get(id) || [];
+      // One booking can collide on more than one name (the child and the
+      // parent); the same partner should still be listed once.
+      dupes.set(id, Array.from(new Set([...existing, ...others])));
+    }
+  }
+  return dupes;
+};
+
 const getGroupValue = (b: Booking, field: string, submissionsMap?: SubmissionsMap): string => {
   if (field.startsWith('field:')) {
     const fieldKey = field.slice('field:'.length);
@@ -894,6 +956,11 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // come from the course's own registration form.
   const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>({});
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
+  const [dupesOnly, setDupesOnly] = useState(false);
+  // Computed over every booking on screen, not the filtered set: a duplicate
+  // is a fact about the event, and hiding half a pair behind a filter would
+  // make the other half stop looking like one.
+  const duplicates = useMemo(() => findDuplicates(bookings, submissionsMap), [bookings, submissionsMap]);
   const [sortKey, setSortKey] = useState('scheduled_asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -983,7 +1050,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       ? bookings
       : bookings.filter(b => activeFilterFields.every(key =>
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
-    if (!search.trim()) return byField;
+    const byDupes = dupesOnly ? byField.filter(b => duplicates.has(b.id)) : byField;
+    if (!search.trim()) return byDupes;
     const q = search.toLowerCase();
     return byField.filter(b => {
       if (
@@ -1005,7 +1073,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, duplicates]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
@@ -1379,6 +1447,19 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                 #{b.id} · {b.branch_name || '-'}
               </Typography>
+              {/* Registered twice for this event under the same full name.
+                  Says which booking it clashes with, because the next question
+                  is always "the other one is which?" */}
+              {duplicates.has(b.id) && (
+                <Tooltip title="มีชื่อซ้ำกับรายการอื่นในกิจกรรมนี้ (ไม่นับรายการที่ยกเลิก)">
+                  <Chip
+                    icon={<WarningIcon sx={{ fontSize: 14 }} />}
+                    size="small" color="warning"
+                    label={`ซ้ำกับ ${duplicates.get(b.id)!.map(id => `#${id}`).join(', ')}`}
+                    sx={{ mt: 0.5, height: 20, fontSize: '11px', fontWeight: 800 }}
+                  />
+                </Tooltip>
+              )}
             </Box>
 
             {/* Status */}
@@ -1513,6 +1594,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           />
           {activeFilterFields.length > 0 && (
             <Button size="small" onClick={() => setFieldFilters({})} sx={{ fontWeight: 700 }}>ล้างตัวกรอง</Button>
+          )}
+          {/* Only offered when there is something to find — a toggle that can
+              only ever empty the list is noise. */}
+          {duplicates.size > 0 && (
+            <Chip
+              icon={<WarningIcon />}
+              label={`ชื่อซ้ำ (${duplicates.size})`}
+              color={dupesOnly ? 'warning' : 'default'}
+              variant={dupesOnly ? 'filled' : 'outlined'}
+              onClick={() => setDupesOnly(v => !v)}
+              sx={{ fontWeight: 800 }}
+            />
           )}
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
             <InputLabel sx={{ fontWeight: 700 }}>เรียงลำดับ</InputLabel>
