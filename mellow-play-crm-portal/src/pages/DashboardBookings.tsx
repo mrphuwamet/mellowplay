@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import axios from 'axios';
+import { useStickyState } from '../utils/stickyState';
 import {
   Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   ToggleButtonGroup, ToggleButton, LinearProgress, Stack, Collapse, IconButton, Alert,
-  Select, MenuItem, Checkbox, ListItemText, FormControl, InputLabel, Button,
+  Select, MenuItem, Checkbox, ListItemText, FormControl, InputLabel, Button, FormControlLabel,
 } from '@mui/material';
 import {
   EventSeat as SeatIcon,
@@ -81,6 +82,24 @@ const StatTile = ({ label, value, sub, icon }: {
 );
 
 /** A proportion bar with its number written beside it, never colour alone. */
+/**
+ * A row's seats, read either way.
+ *
+ * Counting an invited seat as taken adds it to BOTH sides — the room is bigger
+ * by the seats being held and fuller by the same number — so "remaining" is the
+ * same number either way and only the occupancy changes. Anything else would
+ * make one of the two readings a lie.
+ */
+const readSeats = (
+  row: { seats?: number; capacity?: number; booked: number; remaining: number; inviteSeats?: number; inviteCapacity?: number },
+  vipAsBooked: boolean,
+) => {
+  const seats = row.seats ?? row.capacity ?? 0;
+  const invite = row.inviteSeats ?? row.inviteCapacity ?? 0;
+  if (!vipAsBooked || invite === 0) return { seats, booked: row.booked, remaining: row.remaining, invite };
+  return { seats: seats + invite, booked: row.booked + invite, remaining: row.remaining, invite };
+};
+
 const FillMeter = ({ booked, capacity }: { booked: number; capacity: number }) => {
   const rate = capacity > 0 ? booked / capacity : 0;
   return (
@@ -110,6 +129,10 @@ const DashboardBookings = () => {
   // open the screen on an empty dashboard, which reads as broken rather than
   // as unfiltered.
   const [selectedCourseIds, setSelectedCourseIds] = useState<number[]>([]);
+  // Invite seats are held for people who have been asked but have not booked
+  // yet. Off, the numbers answer "what can still be sold"; on, they answer
+  // "how full is the room going to be" — the question staff have on the day.
+  const [vipAsBooked, setVipAsBooked] = useStickyState('dashboardBookings.vipAsBooked', false);
   // Starred rounds and calendars, keyed the same way the server stores them.
   // Kept as a Set of "kind:key" so a lookup while rendering a table row is a
   // hash hit rather than a scan of the list.
@@ -249,6 +272,19 @@ const DashboardBookings = () => {
         </Stack>
       </Stack>
 
+      <FormControlLabel
+        sx={{ mb: 2 }}
+        control={<Checkbox checked={vipAsBooked} onChange={e => setVipAsBooked(e.target.checked)} />}
+        label={
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>มุมมองรวมผู้ถูกเชิญ (นับที่นั่ง VIP เป็นลงทะเบียนแล้ว)</Typography>
+            <Typography variant="caption" color="text.secondary">
+              เปิดไว้เพื่อดูว่าห้องจะเต็มแค่ไหนจริงๆ · ปิดไว้เพื่อดูว่ายังเปิดขายได้อีกเท่าไหร่
+            </Typography>
+          </Box>
+        }
+      />
+
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>
       ) : !data ? (
@@ -259,19 +295,19 @@ const DashboardBookings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <StatTile
                 label={`ที่นั่งทั้งหมด (${days} วันข้างหน้า)`}
-                value={fmt(view.seats)}
+                value={fmt(readSeats(view, vipAsBooked).seats)}
                 sub={<Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                   {fmt(view.rounds)} รอบ · {fmt(view.calendars)} ปฏิทิน
-                  {!!view.inviteSeats && ` · รวม VIP ${fmt(view.inviteSeats)} ที่`}
+                  {!!view.inviteSeats && ` · ${vipAsBooked ? 'นับ' : 'รวม'} VIP ${fmt(view.inviteSeats)} ที่`}
                 </Typography>}
                 icon={<SeatIcon />}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <StatTile
-                label="จองแล้ว"
-                value={fmt(view.booked)}
-                sub={<FillMeter booked={view.booked} capacity={view.seats} />}
+                label={vipAsBooked ? 'จองแล้ว + เชิญ' : 'จองแล้ว'}
+                value={fmt(readSeats(view, vipAsBooked).booked)}
+                sub={<FillMeter booked={readSeats(view, vipAsBooked).booked} capacity={readSeats(view, vipAsBooked).seats} />}
                 icon={<BookedIcon />}
               />
             </Grid>
@@ -448,10 +484,12 @@ const DashboardBookings = () => {
                             <Chip size="small" label={`เต็ม ${c.fullRounds}`} sx={{ ml: 0.5, height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
                           )}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700 }}><SeatCount total={c.seats} invite={c.inviteSeats} /></TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(c.booked)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800 }}>{fmt(c.remaining)}</TableCell>
-                        <TableCell><FillMeter booked={c.booked} capacity={c.seats} /></TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                          <SeatCount total={readSeats(c, vipAsBooked).seats} invite={vipAsBooked ? 0 : c.inviteSeats} />
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(readSeats(c, vipAsBooked).booked)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800 }}>{fmt(readSeats(c, vipAsBooked).remaining)}</TableCell>
+                        <TableCell><FillMeter booked={readSeats(c, vipAsBooked).booked} capacity={readSeats(c, vipAsBooked).seats} /></TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell colSpan={7} sx={{ p: 0, border: 0 }}>
@@ -511,14 +549,16 @@ const DashboardBookings = () => {
                                           )}
                                         </Stack>
                                       </TableCell>
-                                      <TableCell align="right"><SeatCount total={r.capacity} invite={r.inviteCapacity} /></TableCell>
-                                      <TableCell align="right">{fmt(r.booked)}</TableCell>
+                                      <TableCell align="right">
+                                        <SeatCount total={readSeats(r, vipAsBooked).seats} invite={vipAsBooked ? 0 : r.inviteCapacity} />
+                                      </TableCell>
+                                      <TableCell align="right">{fmt(readSeats(r, vipAsBooked).booked)}</TableCell>
                                       <TableCell align="right" sx={{ fontWeight: 800 }}>
                                         {r.remaining === 0
                                           ? <Chip size="small" label="เต็มแล้ว" sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
-                                          : fmt(r.remaining)}
+                                          : fmt(readSeats(r, vipAsBooked).remaining)}
                                       </TableCell>
-                                      <TableCell><FillMeter booked={r.booked} capacity={r.capacity} /></TableCell>
+                                      <TableCell><FillMeter booked={readSeats(r, vipAsBooked).booked} capacity={readSeats(r, vipAsBooked).seats} /></TableCell>
                                     </TableRow>
                                     {teams.length > 0 && (
                                       <TableRow>
