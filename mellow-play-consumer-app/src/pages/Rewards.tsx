@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Gift, AlertCircle, Star, History, X, Check, Lock } from 'lucide-react';
+import { ChevronLeft, Gift, AlertCircle, Star, History, X, Check, Lock, User } from 'lucide-react';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
@@ -67,6 +67,8 @@ const Rewards = () => {
   const navigate = useNavigate();
   const { lang } = useTranslation();
   const selectedChild = useChildStore(state => state.getSelectedChild());
+  const familyMembers = useChildStore(state => state.children);
+  const selectChild = useChildStore(state => state.selectChild);
 
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [loading, setLoading] = useState(false);
@@ -190,6 +192,7 @@ const Rewards = () => {
   };
 
   const totalCount = stamps.length;
+  const badgeCount = badgeTiers.reduce((n, t) => n + t.count, 0);
 
   // Items this child has never joined. They are the point of showing a
   // collection at all: an empty slot with a name on it is an invitation, where
@@ -289,7 +292,7 @@ const Rewards = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-[900px] xl:max-w-[1100px]">
+    <div className="min-h-screen bg-[#f4f7f6] pb-24 relative font-sans max-w-[430px] mx-auto md:max-w-[680px] lg:max-w-none lg:mx-0 lg:w-full">
       {/* Shared clip-path def for the wavy/scalloped "stamp seal" edge — a
           ring of 12 rounded petal-bumps instead of a smooth circle, evoking
           a real stamp's perforated cut without boxing it into a square.
@@ -319,11 +322,39 @@ const Rewards = () => {
       </header>
 
       <main className="p-4">
-        {/* Personal/gamification section — kept at a reading-card width even
-            on wide screens (a profile banner and stamp passport shouldn't
-            stretch edge-to-edge on a 1100px container). The rewards catalog
-            below uses the full container width instead. */}
-        <div className="max-w-lg mx-auto md:max-w-[640px] lg:max-w-[820px]">
+        {/* One column on a phone, the whole width on a desktop — the stamp
+            grid is the thing that benefits, since more columns means fewer
+            rows of scrolling to see a collection. */}
+        <div className="max-w-lg mx-auto md:max-w-[640px] lg:max-w-none lg:w-full">
+        {/* Whose collection this is. Stamps and medals belong to one child, so
+            a family with more than one needs to switch here rather than leave
+            the page to do it. One member: nothing to choose, nothing shown. */}
+        {familyMembers.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1">
+            {familyMembers.map(member => {
+              const active = member.id === selectedChild?.id;
+              return (
+                <button
+                  key={member.id}
+                  onClick={() => selectChild(member.id)}
+                  className={`shrink-0 flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full border transition-colors ${
+                    active
+                      ? 'bg-mellow-ink text-white border-transparent'
+                      : 'bg-white text-slate-600 border-slate-200 active:scale-95'
+                  }`}
+                >
+                  <span className={`w-7 h-7 rounded-full flex items-center justify-center overflow-hidden ${active ? 'bg-white/20' : 'bg-slate-100'}`}>
+                    {member.customPhotoUrl || (member.avatar || '').startsWith('http')
+                      ? <img src={member.customPhotoUrl || member.avatar} alt="" className="w-full h-full object-cover" />
+                      : <User size={14} className={active ? 'text-white' : 'text-slate-400'} />}
+                  </span>
+                  <span className="text-[13px] font-black whitespace-nowrap">{member.nickname || member.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* User Profile Banner */}
         <div className="bg-gradient-to-r from-slate-100 to-slate-50 rounded-3xl p-4 shadow-sm mb-6">
           <div className="flex justify-between items-center">
@@ -371,8 +402,13 @@ const Rewards = () => {
         {/* A — the collection. Grouped by what the child joined rather than by
             position, because "which events have I been to" is the thing worth
             showing; a page of numbered circles said nothing about any of them.
-            The CRM-uploaded page background still backs the card. */}
-        {(() => {
+            The CRM-uploaded page background still backs the card.
+
+            Hidden until the first stamp is earned: a card of locked slots on a
+            brand-new account is a wall of things you have not done, and the
+            gap it is meant to advertise only reads as a gap once something
+            fills part of it. */}
+        {totalCount > 0 && (() => {
           const pageBg = pageBackgrounds.find(b => b.page_number === 1);
           return (
             <div
@@ -388,30 +424,22 @@ const Rewards = () => {
                 </span>
               </div>
 
-              {totalCount === 0 && suggestions.length === 0 ? (
-                <p className="text-center text-sm font-bold text-slate-400 py-6">
-                  {lang === 'en' ? 'No stamps yet — join an activity to start collecting' : 'ยังไม่มีแสตมป์ — ไปร่วมกิจกรรมแล้วเก็บดวงแรกกันเลย'}
-                </p>
-              ) : (
-                <div className="grid grid-cols-4 md:grid-cols-6 gap-y-5 gap-x-3">
-                  {stamps.map(st => renderStampCell(st))}
-                  {suggestions.map(course => renderEmptySlot(course))}
-                </div>
-              )}
-
-              {suggestions.length > 0 && (
-                <p className="mt-4 text-[11px] font-bold text-slate-400 text-center">
-                  {lang === 'en'
-                    ? 'Greyed slots are activities you have not joined yet — tap one to see it'
-                    : 'ช่องจางๆ คือกิจกรรมที่ยังไม่ได้ไป กดดูรายละเอียดได้เลย'}
-                </p>
-              )}
+              {/* Earned first, then the ones still to collect. The dimmed slots
+                  carry the activity's name and are tappable — a collection
+                  shows its gaps, it does not need a caption explaining them. */}
+              <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-y-5 gap-x-3">
+                {stamps.map(st => renderStampCell(st))}
+                {suggestions.map(course => renderEmptySlot(course))}
+              </div>
             </div>
           );
         })()}
 
-        {/* B — medals. Always all three, because the locked ones are what make
-            the unlocked one mean something. */}
+        {/* B — medals. All three tiers show once at least one is won, because
+            the locked ones are what make the unlocked one mean something. Held
+            back entirely until then: three grey circles on a new account
+            advertise a competition most families are not in. */}
+        {badgeCount > 0 && (
         <div className="bg-white rounded-3xl p-5 shadow-sm mb-6">
           <div className="flex items-baseline justify-between mb-4">
             <h3 className="text-[15px] font-black text-slate-800">
@@ -427,12 +455,8 @@ const Rewards = () => {
               accent_color: null, count: 0, unlocked: false, awards: [],
             }))).map(t => renderBadge(t as BadgeTier))}
           </div>
-          <p className="mt-4 text-[11px] font-bold text-slate-400 text-center leading-relaxed">
-            {lang === 'en'
-              ? 'Everyone who joins earns a stamp · winners take badge 1 · 2 · 3'
-              : 'ผู้เข้าร่วมทุกคนได้รับแสตมป์ · ผู้ชนะได้รับเหรียญอันดับ 1 · 2 · 3'}
-          </p>
         </div>
+        )}
 
         {errorMsg && (
           <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-3 text-sm font-bold border border-red-100">
@@ -452,14 +476,7 @@ const Rewards = () => {
         {/* Rewards Catalog — a content-card grid (photo + name + price +
             button), so unlike the icon-tile grids above it scales up to
             more columns as the page container widens. */}
-        <div className="px-2 mb-4">
-          <h3 className="text-lg font-black text-slate-800">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
-          <p className="text-[12px] font-bold text-slate-400 mt-0.5">
-            {lang === 'en'
-              ? 'Redeeming spends points — your stamp collection stays'
-              : 'แลกของใช้แต้ม แสตมป์ที่สะสมไว้ยังอยู่ครบ'}
-          </p>
-        </div>
+        <h3 className="text-lg font-black text-slate-800 mb-4 px-2">{lang === 'en' ? 'Available Rewards' : 'ของรางวัลที่แลกได้'}</h3>
 
         {loading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
@@ -473,7 +490,7 @@ const Rewards = () => {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
             {rewards.map(reward => (
               <div key={reward.id} className="bg-white rounded-3xl p-3 shadow-sm flex flex-col relative overflow-hidden border border-slate-100">
                 <div className="aspect-square bg-slate-50 rounded-2xl mb-3 overflow-hidden flex items-center justify-center">
