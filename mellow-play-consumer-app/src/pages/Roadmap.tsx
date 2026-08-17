@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { formatTime24 } from '../utils/dateFormat';
 import { useChildStore } from '../store/useChildStore';
-import { MapPin, Clock, CheckCircle, ChevronRight, AlertCircle, Play } from 'lucide-react';
+import { MapPin, Clock, CheckCircle, ChevronRight, AlertCircle, Play, BadgeCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
@@ -14,6 +14,7 @@ import { trackCourseView } from '../utils/analytics';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { stripHtml } from '../utils/stripHtml';
 import { getBookingPlace } from '../utils/bookingPlace';
+import { getBookingPeopleLabel, bookingMatchesPerson } from '../utils/bookingPeople';
 
 const Roadmap = () => {
   const navigate = useNavigate();
@@ -21,23 +22,40 @@ const Roadmap = () => {
   const selectedChild = useChildStore(state => state.getSelectedChild());
   // Filter chip state: 'all' shows every family member's bookings combined
   // (chronological, each item tagged with whose it is); a specific id narrows
-  // to just that person. Defaults to whoever's currently selected elsewhere
-  // in the app (Booking/etc.) so the page opens already relevant, not blank.
-  const [filterChildId, setFilterChildId] = useState<number | 'all'>(selectedChild?.id ?? 'all');
+  // to just that person, and 'main' narrows to the account holder — they can
+  // be a participant too (event registration forms name them directly).
+  // Defaults to whoever's currently selected elsewhere in the app
+  // (Booking/etc.) so the page opens already relevant, not blank.
+  const [filterChildId, setFilterChildId] = useState<number | 'all' | 'main'>(selectedChild?.id ?? 'all');
 
   const [allClasses, setAllClasses] = useState<any[]>([]);
   const [recommendedClasses, setRecommendedClasses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   const { lang, t } = useTranslation();
+
+  const user = JSON.parse(localStorage.getItem('mellow_user') || localStorage.getItem('mp_user') || '{}');
+  // Every display name the account holder goes by — form answers store the
+  // picker's display text, so matching "their" bookings is by name.
+  const mainAccountNames = [user?.displayName, [user?.firstName, user?.lastName].filter(Boolean).join(' '), user?.firstName];
+  const mainAccountLabel = user?.displayName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || (lang === 'en' ? 'Main Account' : 'บัญชีหลัก');
+
+  // A booking belongs under a person's filter if they hold the seat
+  // (child_id) OR the registration form names them as a participant — an
+  // event booked under one child can name a sibling and a parent too.
+  const matchesFilter = (b: any): boolean => {
+    if (filterChildId === 'all') return true;
+    if (filterChildId === 'main') return bookingMatchesPerson(b, { names: mainAccountNames });
+    const kid = kids.find(k => k.id === filterChildId);
+    return bookingMatchesPerson(b, { childId: filterChildId, names: kid ? [kid.nickname, kid.name] : [] });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       if (kids.length === 0) return;
       setIsLoading(true);
       try {
-        const user = JSON.parse(localStorage.getItem('mellow_user') || localStorage.getItem('mp_user') || '{}');
         const userId = user.id;
 
         // Both endpoints already join Children/HD_Profiles and scope to
@@ -59,8 +77,8 @@ const Roadmap = () => {
         // every family member's history so a course nobody's tried yet still
         // surfaces; a specific person narrows to just their own courses,
         // matching the original per-child behavior.
-        const relevantPast = filterChildId === 'all' ? past : past.filter((b: any) => b.child_id === filterChildId);
-        const relevantFuture = filterChildId === 'all' ? future : future.filter((b: any) => b.child_id === filterChildId);
+        const relevantPast = past.filter(matchesFilter);
+        const relevantFuture = future.filter(matchesFilter);
 
         // A course with an upcoming session is never re-recommended (child is
         // already going). A course only in past history is still shown, but
@@ -113,7 +131,7 @@ const Roadmap = () => {
     );
   }
 
-  const displayedClasses = filterChildId === 'all' ? allClasses : allClasses.filter(b => b.child_id === filterChildId);
+  const displayedClasses = allClasses.filter(matchesFilter);
   const now = new Date();
 
   return (
@@ -142,6 +160,17 @@ const Roadmap = () => {
               }`}
             >
               {lang === 'en' ? 'All' : 'ทั้งหมด'}
+            </button>
+            {/* The account holder is a filterable person like everyone else
+                — event registration forms can name them as a participant. */}
+            <button
+              onClick={() => setFilterChildId('main')}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full transition-all ${
+                filterChildId === 'main' ? 'bg-mellow-purple text-white shadow-sm' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              <BadgeCheck size={14} className="shrink-0" strokeWidth={2.5} />
+              <span className="text-[13px] font-black truncate max-w-[100px]">{mainAccountLabel}</span>
             </button>
             {kids.map(kid => (
               <button
@@ -260,7 +289,7 @@ const Roadmap = () => {
                             {filterChildId === 'all' && (
                               <span className="shrink-0 flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-full bg-slate-100">
                                 <ChildAvatar avatarType={booking.child_avatar} className="w-3.5 h-3.5" />
-                                <span className="text-[10px] font-black text-slate-500 truncate max-w-[60px]">{booking.child_nickname || booking.child_name}</span>
+                                <span className="text-[10px] font-black text-slate-500 truncate max-w-[100px]">{getBookingPeopleLabel(booking)}</span>
                               </span>
                             )}
                           </div>

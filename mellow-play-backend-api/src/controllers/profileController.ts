@@ -284,6 +284,26 @@ export class ProfileController {
     }
   }
 
+  // The registration form's person answers (family_member_picker), attached
+  // per booking as `form_people` — for a form-based registration those ARE
+  // the participants, and the app's booking lists lead with them instead of
+  // the account child the seat is booked under. Bulk-fetched once per list.
+  private async attachFormPeople(db: D1Database, bookings: any[]): Promise<any[]> {
+    const ids = Array.from(new Set(bookings.map(b => b.form_submission_id).filter((id: any): id is number => !!id)));
+    if (ids.length === 0) return bookings;
+    const registrationFormRepo = new RegistrationFormRepository(db);
+    const submissions = await registrationFormRepo.getSubmissionsWithFields(ids);
+    return bookings.map(b => {
+      const sub = b.form_submission_id ? submissions[b.form_submission_id] : undefined;
+      if (!sub) return b;
+      const formPeople = sub.fields
+        .filter((f: any) => f.type === 'family_member_picker')
+        .map((f: any) => ({ label: f.label, value: sub.answers[f.field_key] }))
+        .filter((p: any) => !!p.value);
+      return { ...b, form_people: formPeople };
+    });
+  }
+
   async getPendingBookings(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -310,12 +330,12 @@ export class ProfileController {
         JOIN Courses c ON b.course_id = c.id
         JOIN Branches br ON b.branch_id = br.id
         WHERE ch.parent_id = ? 
-          AND b.payment_status = 'pending' 
+          AND b.payment_status = 'pending'
           AND b.status != 'cancelled'
         ORDER BY b.created_at DESC
       `).bind(parseInt(userId)).all();
 
-      return c.json({ success: true, bookings: results });
+      return c.json({ success: true, bookings: await this.attachFormPeople(db, results as any[]) });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -352,7 +372,7 @@ export class ProfileController {
         ORDER BY b.scheduled_at ASC
       `).bind(parseInt(userId)).all();
 
-      return c.json({ success: true, bookings: results });
+      return c.json({ success: true, bookings: await this.attachFormPeople(db, results as any[]) });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -391,7 +411,7 @@ export class ProfileController {
         ORDER BY b.scheduled_at DESC
       `).bind(parseInt(userId)).all();
 
-      return c.json({ success: true, bookings: results });
+      return c.json({ success: true, bookings: await this.attachFormPeople(db, results as any[]) });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

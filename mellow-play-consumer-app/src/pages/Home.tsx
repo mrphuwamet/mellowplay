@@ -25,6 +25,7 @@ import apiClient from '../utils/apiClient';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { getBookingPlace } from '../utils/bookingPlace';
+import { getBookingPeopleLabel } from '../utils/bookingPeople';
 import { resolveImageUrl, getCourseView } from '../utils/courseImage';
 import { isChildRole } from '../utils/familyRoles';
 import { isPremiumChild } from '../utils/membership';
@@ -528,7 +529,7 @@ const Home = () => {
         {isBookingCard && item.booking?.scheduled_at && (
           <p className="text-[13px] text-slate-400 font-bold mt-0.5">
             {new Date(item.booking.scheduled_at).toLocaleDateString()}
-            {item.kind === 'upcoming' && children.length > 1 && item.booking?.child_nickname && ` · ${item.booking.child_nickname}`}
+            {item.kind === 'upcoming' && children.length > 1 && getBookingPeopleLabel(item.booking) && ` · ${getBookingPeopleLabel(item.booking)}`}
           </p>
         )}
 
@@ -862,11 +863,12 @@ const Home = () => {
                 )}
                 {/* Whose class this is — only needed once there's more than
                     one child to disambiguate, since this list now spans all
-                    of the parent's children instead of just the selected one. */}
-                {children.length > 1 && booking.child_nickname && (
+                    of the parent's children instead of just the selected one.
+                    A form-based registration names its participants itself. */}
+                {children.length > 1 && getBookingPeopleLabel(booking) && (
                   <div className="absolute top-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full pl-0.5 pr-2 py-0.5 shadow-sm">
                     <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5" />
-                    <span className="text-[11px] font-black text-slate-700">{booking.child_nickname}</span>
+                    <span className="text-[11px] font-black text-slate-700">{getBookingPeopleLabel(booking)}</span>
                   </div>
                 )}
               </div>
@@ -931,10 +933,10 @@ const Home = () => {
                     <span className="px-2.5 py-1 rounded-full text-[12px] font-black uppercase tracking-widest bg-mellow-purple text-white shrink-0">
                       {hasValidDate ? getCountdownLabel(booking.scheduled_at) : (lang === 'en' ? 'Upcoming' : 'กำลังจะถึง')}
                     </span>
-                    {children.length > 1 && booking.child_nickname && (
+                    {children.length > 1 && getBookingPeopleLabel(booking) && (
                       <div className="flex items-center gap-1 bg-slate-50 rounded-full pl-0.5 pr-2 py-0.5 min-w-0">
                         <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5 shrink-0" />
-                        <span className="text-[11px] font-black text-slate-700 truncate">{booking.child_nickname}</span>
+                        <span className="text-[11px] font-black text-slate-700 truncate">{getBookingPeopleLabel(booking)}</span>
                       </div>
                     )}
                   </div>

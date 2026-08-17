@@ -16,6 +16,7 @@ import ResponsiveModal from '../components/ResponsiveModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
 import { getBookingPlace } from '../utils/bookingPlace';
+import { getBookingPeopleLabel } from '../utils/bookingPeople';
 
 type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
 const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
@@ -266,10 +267,10 @@ const Explore = () => {
                           <BookOpen size={28} className="text-slate-400" />
                         </div>
                       )}
-                      {children.length > 1 && booking.child_nickname && (
+                      {children.length > 1 && getBookingPeopleLabel(booking) && (
                         <div className="absolute top-2 left-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full pl-0.5 pr-2 py-0.5 shadow-sm">
                           <ChildAvatar avatarType={booking.child_avatar} className="w-5 h-5" />
-                          <span className="text-[11px] font-black text-slate-700">{booking.child_nickname}</span>
+                          <span className="text-[11px] font-black text-slate-700">{getBookingPeopleLabel(booking)}</span>
                         </div>
                       )}
                     </div>

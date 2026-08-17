@@ -5,6 +5,7 @@ import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import { formatTime24 } from '../utils/dateFormat';
 import { getBookingPlace } from '../utils/bookingPlace';
+import { getBookingPeopleLabel } from '../utils/bookingPeople';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import BookingDetailModal from '../components/BookingDetailModal';
 import logo from '../assets/ui/logo.svg';
@@ -144,12 +145,14 @@ const UpcomingActivities = () => {
                           <div className="flex items-center gap-1.5 text-slate-500 mt-1">
                             <Clock size={13} className="shrink-0" />
                             <span className="text-[13px] font-bold">{formatTime24(b.scheduled_at, lang)}</span>
-                            {/* Which child this is for — the whole point of a
-                                per-account list is that it mixes them. */}
-                            {(b.child_nickname || b.child_name) && (
+                            {/* Who this is for — the whole point of a
+                                per-account list is that it mixes them. A
+                                form-based registration names its own
+                                participants. */}
+                            {getBookingPeopleLabel(b) && (
                               <>
                                 <Users size={13} className="shrink-0 ml-1" />
-                                <span className="text-[13px] font-bold truncate">{b.child_nickname || b.child_name}</span>
+                                <span className="text-[13px] font-bold truncate">{getBookingPeopleLabel(b)}</span>
                               </>
                             )}
                           </div>
