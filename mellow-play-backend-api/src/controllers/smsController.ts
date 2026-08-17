@@ -4,7 +4,9 @@ import { ConfigService } from '../services/configService';
 import { SmsRepository } from '../repositories/smsRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { SmsService } from '../services/smsService';
-import { renderSmsTemplate, buildNameVariables, buildLocationVariables, formatThaiDateTime } from '../services/smsTemplateService';
+import {
+  renderSmsTemplate, buildNameVariables, buildLocationVariables, formatThaiDateTime, stripUnresolvedTokens,
+} from '../services/smsTemplateService';
 import { sendBookingSuccessNotifications } from '../services/bookingNotificationService';
 import { EmailService } from '../services/emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
@@ -114,7 +116,7 @@ export class SmsController {
           if (!row.phone) {
             notes.push('ไม่มีเบอร์โทร');
           } else {
-            const rendered = renderSmsTemplate(message, variables);
+            const rendered = stripUnresolvedTokens(renderSmsTemplate(message, variables));
             const result = await sms.sendMessage(row.phone, rendered);
             reached = reached || result.ok;
             if (!result.ok) notes.push(`SMS: ${result.detail ?? 'ส่งไม่สำเร็จ'}`);
@@ -130,8 +132,8 @@ export class SmsController {
           if (!address) {
             notes.push('ไม่มีอีเมล');
           } else {
-            const subject = renderEmailSubject(body.emailSubject || 'แจ้งเตือน {{course_name}}', variables);
-            const html = wrapEmailHtml(renderEmailTemplate(body.emailBody || '', variables), emailTheme ?? undefined);
+            const subject = stripUnresolvedTokens(renderEmailSubject(body.emailSubject || 'แจ้งเตือน {{course_name}}', variables));
+            const html = wrapEmailHtml(stripUnresolvedTokens(renderEmailTemplate(body.emailBody || '', variables)), emailTheme ?? undefined);
             const result = emailer.isConfigured
               ? await emailer.sendMessage(address, subject, html)
               : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };

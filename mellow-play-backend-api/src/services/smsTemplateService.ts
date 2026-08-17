@@ -41,6 +41,42 @@ export function buildNameVariables(row: {
 }
 
 /**
+ * A form's answers as template variables, with the name siblings filled in.
+ *
+ * A family_member_picker writes three keys — the display name, `__realname` and
+ * `__nickname` — but only since the app started doing so. A submission made
+ * before that, or through any path that wrote just the plain answer, leaves a
+ * template referencing {{field__realname}} with nothing to resolve, and the
+ * parent receives the raw token. The plain answer IS a name, so it stands in.
+ */
+export function expandFormAnswerVariables(answers: Record<string, any>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    out[key] = Array.isArray(value) ? value.join(', ') : String(value ?? '');
+  }
+  for (const [key, value] of Object.entries(out)) {
+    if (key.endsWith('__realname') || key.endsWith('__nickname')) continue;
+    if (!value) continue;
+    if (out[`${key}__realname`] === undefined) out[`${key}__realname`] = value;
+    if (out[`${key}__nickname`] === undefined) out[`${key}__nickname`] = value;
+  }
+  return out;
+}
+
+/**
+ * Removes any {{token}} still standing after rendering.
+ *
+ * Only ever called on the way out to a real recipient. A template can outlive
+ * the field it names — a form question renamed or deleted — and what the parent
+ * then receives is "ผู้ปกครอง {{83b44ae9-...__realname}}". A gap reads as a
+ * layout slip; a raw token reads as a broken system. Previews deliberately do
+ * not do this, so whoever is writing the template still sees the mistake.
+ */
+export function stripUnresolvedTokens(text: string): string {
+  return text.replace(/\{\{\s*[\w.-]+\s*\}\}/g, '').replace(/[ \t]{2,}/g, ' ');
+}
+
+/**
  * Where to go, for the confirmation and the reminder.
  *
  * Falls back to the branch address when the item does not name its own venue:

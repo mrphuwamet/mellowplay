@@ -4,7 +4,10 @@ import { SmsService } from './smsService';
 import { SmsRepository } from '../repositories/smsRepository';
 import { EmailService } from './emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
-import { renderSmsTemplate, buildNameVariables, buildLocationVariables, formatThaiDateTime } from './smsTemplateService';
+import {
+  renderSmsTemplate, buildNameVariables, buildLocationVariables, formatThaiDateTime,
+  expandFormAnswerVariables, stripUnresolvedTokens,
+} from './smsTemplateService';
 import {
   renderEmailTemplate, renderEmailSubject, wrapEmailHtml, loadEmailTheme,
   buildCheckinQrBlock, buildCheckinQrLink,
@@ -99,10 +102,7 @@ export async function sendBookingSuccessNotifications(
         .bind(first.form_submission_id).first<{ answers_json: string }>();
       if (submission?.answers_json) {
         try {
-          const answers = JSON.parse(submission.answers_json);
-          for (const [key, value] of Object.entries(answers)) {
-            variables[key] = Array.isArray(value) ? value.join(', ') : String(value ?? '');
-          }
+          Object.assign(variables, expandFormAnswerVariables(JSON.parse(submission.answers_json)));
         } catch { /* malformed answers_json shouldn't block the send */ }
       }
       // A form that names specifically who's attending (e.g. two-parent
@@ -128,7 +128,7 @@ export async function sendBookingSuccessNotifications(
     // pricing, and inventing a body is worse than sending nothing.
     const sendSmsChannel = async (fallbackFrom: string | null): Promise<boolean> => {
       if (!hasSmsTemplate || !hasPhone) return false;
-      const message = renderSmsTemplate(first.sms_success_template, variables);
+      const message = stripUnresolvedTokens(renderSmsTemplate(first.sms_success_template, variables));
       const apiKey = await settingsRepo.getOverridable('sms_api_key', config.smsApiKey);
       const apiSecret = await settingsRepo.getOverridable('sms_api_secret', config.smsApiSecret);
       const senderName = await settingsRepo.getOverridable('sms_sender_name', 'Demo');
@@ -156,7 +156,7 @@ export async function sendBookingSuccessNotifications(
       if (!hasEmailTemplate) return false;
       const emailRepo = new EmailLogRepository(db);
       const subjectTemplate = first.email_success_subject || 'ยืนยันการลงทะเบียน {{course_name}}';
-      const subject = renderEmailSubject(subjectTemplate, variables);
+      const subject = stripUnresolvedTokens(renderEmailSubject(subjectTemplate, variables));
 
       if (!hasEmailAddress) {
         // Nothing was sent by email. Recorded against the booking anyway so the
@@ -191,7 +191,7 @@ export async function sendBookingSuccessNotifications(
         // a character that matters inside an href.
         variables.qr_link = buildCheckinQrLink(baseUrl, bookingRows.map(r => r.qr_token));
         const bodyHtml = wrapEmailHtml(
-          renderEmailTemplate(first.email_success_template, variables, { qr_code: qrBlock }),
+          stripUnresolvedTokens(renderEmailTemplate(first.email_success_template, variables, { qr_code: qrBlock })),
           await loadEmailTheme(settingsRepo),
         );
         const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
