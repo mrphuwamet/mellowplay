@@ -1253,26 +1253,27 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     const teamLabel = getTeamLabel(b);
     const formPeople = getFormPeople(b);
 
-    // The booking child's age/gender only decorate a form person when that
-    // person IS the booked child — pinning them onto a differently-named
+    // The booking child's age/gender chips only decorate a form person when
+    // that person IS the booked child — pinning them onto a differently-named
     // form answer (e.g. after staff corrected the participant) would label
     // one person with another person's age.
     const isBookedChild = (p: { display: string; realName: string }) =>
       (!!b.child_name && p.realName.includes(b.child_name)) ||
       (!!b.child_nickname && p.display === b.child_nickname);
-    const childExtras = [
-      b.child_birth_date ? calculateAge(b.child_birth_date) : null,
-      b.child_gender ? getGenderLabel(b.child_gender) : null,
-    ].filter(Boolean).join(' · ');
 
-    // "ผู้ใหญ่ : ชื่อ-สกุล (ชื่อเล่น)" / "เด็ก : ชื่อ-สกุล (ชื่อเล่น) · อายุ · เพศ"
-    const personLines = formPeople.map(p => {
-      const extras = p.role === 'child' && isBookedChild(p) && childExtras ? ` · ${childExtras}` : '';
-      return {
-        label: p.role === 'adult' ? 'ผู้ใหญ่' : 'เด็ก',
-        text: `${formatPersonName(p.realName, p.display)}${extras}`,
-      };
-    });
+    // "ผู้ใหญ่ : ชื่อ-สกุล (ชื่อเล่น)" / "เด็ก : ชื่อ-สกุล (ชื่อเล่น) [🎂อายุ][เพศ]"
+    // — withChips marks the line whose person the booking's own age/gender
+    // data describes, so the render can attach the age/gender chips to it.
+    const personLines = formPeople.length > 0
+      ? formPeople.map(p => ({
+          label: p.role === 'adult' ? 'ผู้ใหญ่' : 'เด็ก',
+          text: formatPersonName(p.realName, p.display),
+          withChips: p.role === 'child' && isBookedChild(p),
+        }))
+      : [
+          { label: 'เด็ก', text: formatPersonName(b.child_name, b.child_nickname), withChips: true },
+          ...(b.parent_name ? [{ label: 'ผู้ปกครอง', text: b.parent_name, withChips: false }] : []),
+        ];
     return (
       <Paper
         key={b.id}
@@ -1297,10 +1298,13 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
-            {/* Date block */}
+            {/* Date block — desktop/tablet only; on phones the same info
+                becomes the card's first text line instead (see below), so
+                the narrow column isn't spent on a 64px square. */}
             <Box sx={{
               flexShrink: 0, width: 64, textAlign: 'center', py: 0.75, borderRadius: 2,
               bgcolor: '#f8fafc', border: '1px solid #eef0f3',
+              display: { xs: 'none', sm: 'block' },
             }}>
               <Typography sx={{ fontSize: '10px', fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1.2 }}>
                 {hasValidDate ? dt.toLocaleDateString('th-TH', { month: 'short' }) : '-'}
@@ -1324,24 +1328,44 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   เด็ก : ชื่อ-สกุล (ชื่อเล่น) · อายุ · เพศ
                   ผู้ปกครอง : ชื่อ-สกุล */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
-              <Box sx={{ minWidth: 0 }}>
-                {(personLines.length > 0
-                  ? personLines
-                  : [
-                      { label: 'เด็ก', text: `${formatPersonName(b.child_name, b.child_nickname)}${childExtras ? ` · ${childExtras}` : ''}` },
-                      ...(b.parent_name ? [{ label: 'ผู้ปกครอง', text: b.parent_name }] : []),
-                    ]
-                ).map((line, i) => (
-                  <Typography key={i} sx={{ fontSize: i === 0 ? '14px' : '13px', color: 'text.primary', fontWeight: i === 0 ? 800 : 600 }} noWrap>
-                    <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>{line.label} : </Box>
-                    {line.text || '-'}
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                {/* Phones only: round + date/time as the very first line,
+                    replacing the hidden date square above. */}
+                <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '12px', fontWeight: 800, color: 'text.secondary', mb: 0.5 }}>
+                  {hasValidDate
+                    ? `${dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })} · รอบ ${b.slot_start_time?.slice(0, 5) || dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`
+                    : '-'}
+                </Typography>
+                {/* No noWrap anywhere in this block — a phone-width column
+                    truncating names/teams meant staff couldn't read exactly
+                    the data this card exists to show. Lines wrap instead. */}
+                {personLines.map((line, i) => (
+                  <Typography key={i} component="div" sx={{ fontSize: i === 0 ? '14px' : '13px', color: 'text.primary', fontWeight: i === 0 ? 800 : 600, wordBreak: 'break-word', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 0.75, rowGap: 0.25 }}>
+                    <span>
+                      <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>{line.label} : </Box>
+                      {line.text || '-'}
+                    </span>
+                    {line.withChips && b.child_birth_date && (
+                      <Chip
+                        icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
+                        label={calculateAge(b.child_birth_date)}
+                        size="small"
+                        sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#e0f2fe', color: '#0369a1' }}
+                      />
+                    )}
+                    {line.withChips && b.child_gender && (
+                      <Chip
+                        label={getGenderLabel(b.child_gender)}
+                        size="small"
+                        sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
+                      />
+                    )}
                   </Typography>
                 ))}
                 {teamLabel && (
                   <Typography
                     onClick={() => toggleQuickFilter(teamLabel.fieldKey, teamLabel.value)}
-                    sx={{ fontSize: '13px', fontWeight: 700, color: 'rgb(116, 82, 214)', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                    noWrap
+                    sx={{ fontSize: '13px', fontWeight: 700, color: 'rgb(116, 82, 214)', cursor: 'pointer', wordBreak: 'break-word', '&:hover': { textDecoration: 'underline' } }}
                   >
                     <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>ทีม : </Box>
                     {teamLabel.value}
@@ -1358,9 +1382,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Box>
             </Box>
 
-            {/* Class + branch */}
+            {/* Class + branch — wraps rather than truncates: on a phone the
+                clipped course name was exactly the info being looked up. */}
             <Box sx={{ minWidth: 160, flex: '2 1 220px' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary' }} noWrap>
+              <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary', wordBreak: 'break-word' }}>
                 {b.course_name || '-'}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
