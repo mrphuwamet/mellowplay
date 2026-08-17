@@ -480,7 +480,7 @@ const getBookingTypeLabel = (b: Booking): string =>
 // meaningful.
 const GROUPABLE_FIELD_TYPES = ['team_select', 'select', 'radio', 'checkbox'];
 
-type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>;
+type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>;
 
 // Dynamic form-field group keys are namespaced "field:<field_key>" so they
 // never collide with the fixed native-column keys above — field_key is a
@@ -883,7 +883,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   onMarkComplete: (ids: number[]) => void;
   onEdit: (b: Booking) => void;
   courses: Course[];
-  submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>;
+  submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>;
 }) => {
   const [search, setSearch] = useState('');
   // Which fields are being filtered on, and to which values. Grouping was
@@ -1139,7 +1139,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     // leave those cells blank; different forms' fields never collapse into
     // the same column since field_key is unique per form.
     const submissionIds = Array.from(new Set(rows.map(b => b.form_submission_id).filter((id): id is number => !!id)));
-    let submissions: Record<string, { formId: number; answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }> = {};
+    let submissions: Record<string, { formId: number; answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }> = {};
     if (submissionIds.length > 0) {
       try {
         const res = await axios.get(`${API_BASE}/form-submissions?ids=${submissionIds.join(',')}`);
@@ -1214,26 +1214,65 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     return value ? { value, fieldKey: `field:${teamField.field_key}` } : null;
   };
 
-  // Every family_member_picker answer on the form — not just the first —
-  // since a form can name more than one person (e.g. an adult field and a
-  // child field both), and staff need to see all of them, not only one.
-  const getPersonLabels = (b: Booking): { label: string; value: string }[] => {
+  // Every family_member_picker answer on the form, shaped for the card's
+  // "ผู้ใหญ่ : ... / เด็ก : ..." lines. The picker stores the display text
+  // (nickname-preferred) under the field key and the real full name under
+  // `${key}__realname` (the consumer app writes both), and the field's
+  // config_json.role says whether the picker asked for an adult or a child.
+  // Adults sort first — matching how staff read a registration out loud.
+  const getFormPeople = (b: Booking): { role: 'adult' | 'child'; display: string; realName: string }[] => {
     if (!b.form_submission_id) return [];
     const sub = submissionsMap[b.form_submission_id];
     if (!sub) return [];
     return sub.fields
       .filter(f => f.type === 'family_member_picker')
-      .map(f => ({ label: f.label, value: sub.answers[f.field_key] }))
-      .filter(f => !!f.value);
+      .map(f => {
+        let role: 'adult' | 'child' = 'adult';
+        try { if (JSON.parse(f.config_json || '{}').role === 'child') role = 'child'; } catch { /* malformed config shouldn't hide the person */ }
+        const display = String(sub.answers[f.field_key] ?? '').trim();
+        const realName = String(sub.answers[`${f.field_key}__realname`] ?? '').trim();
+        return { role, display, realName };
+      })
+      .filter(p => p.display || p.realName)
+      .sort((a, b2) => (a.role === b2.role ? 0 : a.role === 'adult' ? -1 : 1));
+  };
+
+  // "{ชื่อ-สกุล} ({ชื่อเล่น})" — real name leads, nickname trails; either one
+  // alone stands by itself.
+  const formatPersonName = (realName?: string | null, nickname?: string | null): string => {
+    const real = (realName || '').trim();
+    const nick = (nickname || '').trim();
+    if (real && nick && real !== nick) return `${real} (${nick})`;
+    return real || nick;
   };
 
   const renderBookingCard = (b: Booking) => {
     const si = getStatusInfo(b.status);
     const dt = new Date(b.scheduled_at);
     const hasValidDate = !isNaN(dt.getTime());
-    const hasRealName = b.child_nickname && b.child_name && b.child_nickname !== b.child_name;
     const teamLabel = getTeamLabel(b);
-    const personLabels = getPersonLabels(b);
+    const formPeople = getFormPeople(b);
+
+    // The booking child's age/gender only decorate a form person when that
+    // person IS the booked child — pinning them onto a differently-named
+    // form answer (e.g. after staff corrected the participant) would label
+    // one person with another person's age.
+    const isBookedChild = (p: { display: string; realName: string }) =>
+      (!!b.child_name && p.realName.includes(b.child_name)) ||
+      (!!b.child_nickname && p.display === b.child_nickname);
+    const childExtras = [
+      b.child_birth_date ? calculateAge(b.child_birth_date) : null,
+      b.child_gender ? getGenderLabel(b.child_gender) : null,
+    ].filter(Boolean).join(' · ');
+
+    // "ผู้ใหญ่ : ชื่อ-สกุล (ชื่อเล่น)" / "เด็ก : ชื่อ-สกุล (ชื่อเล่น) · อายุ · เพศ"
+    const personLines = formPeople.map(p => {
+      const extras = p.role === 'child' && isBookedChild(p) && childExtras ? ` · ${childExtras}` : '';
+      return {
+        label: p.role === 'adult' ? 'ผู้ใหญ่' : 'เด็ก',
+        text: `${formatPersonName(p.realName, p.display)}${extras}`,
+      };
+    });
     return (
       <Paper
         key={b.id}
@@ -1274,73 +1313,46 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               </Typography>
             </Box>
 
-            {/* Who this booking is for. When a registration form named the
-                actual participants (family_member_picker answers), THOSE
-                lead — they're what the family filled in, they update when
-                staff edit the form, and they're what staff look for. The
-                account member the seat is technically booked under
-                (Bookings.child_id — unchanged by form edits, still drives
-                QR check-in/reports) demotes to a "จองในระบบ" caption. A
-                form-less booking keeps the original child-led layout. */}
+            {/* Who this booking is for, as labeled lines. A registration
+                form's own participants lead when there is one — they're what
+                the family filled in, they update when staff edit the form:
+                  ผู้ใหญ่ : ชื่อ-สกุล (ชื่อเล่น)
+                  เด็ก : ชื่อ-สกุล (ชื่อเล่น) · อายุ · เพศ
+                  ทีม : ทีมสี...
+                A form-less booking shows the system child/parent the same
+                labeled way:
+                  เด็ก : ชื่อ-สกุล (ชื่อเล่น) · อายุ · เพศ
+                  ผู้ปกครอง : ชื่อ-สกุล */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 220, flex: '1 1 220px' }}>
               <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={0.75} alignItems="center">
-                  <Typography sx={{ fontWeight: 800, fontSize: '15px', color: 'text.primary' }} noWrap>
-                    {personLabels.length > 0
-                      ? personLabels.map(f => f.value).join(' · ')
-                      : (b.child_nickname || b.child_name || '-')}
+                {(personLines.length > 0
+                  ? personLines
+                  : [
+                      { label: 'เด็ก', text: `${formatPersonName(b.child_name, b.child_nickname)}${childExtras ? ` · ${childExtras}` : ''}` },
+                      ...(b.parent_name ? [{ label: 'ผู้ปกครอง', text: b.parent_name }] : []),
+                    ]
+                ).map((line, i) => (
+                  <Typography key={i} sx={{ fontSize: i === 0 ? '14px' : '13px', color: 'text.primary', fontWeight: i === 0 ? 800 : 600 }} noWrap>
+                    <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>{line.label} : </Box>
+                    {line.text || '-'}
                   </Typography>
-                  {personLabels.length === 0 && b.child_birth_date && (
-                    <Chip
-                      icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                      label={calculateAge(b.child_birth_date)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                  {personLabels.length === 0 && b.child_gender && (
-                    <Chip
-                      label={getGenderLabel(b.child_gender)}
-                      size="small"
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: '#f1f5f9' }}
-                    />
-                  )}
-                  {teamLabel && (
-                    <Chip
-                      label={teamLabel.value}
-                      size="small"
-                      clickable
-                      onClick={() => toggleQuickFilter(teamLabel.fieldKey, teamLabel.value)}
-                      sx={{ height: 18, fontSize: '10px', fontWeight: 700, bgcolor: 'rgba(116, 82, 214, 0.12)', color: 'rgb(116, 82, 214)' }}
-                    />
-                  )}
-                </Stack>
-                {personLabels.length > 0 ? (
-                  <>
-                    {personLabels.map((f, i) => (
-                      <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                        {f.label}: {f.value}
-                      </Typography>
-                    ))}
-                  </>
-                ) : (
-                  hasRealName && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                      {b.child_name}{b.child_name_en ? ` (${b.child_name_en})` : ''}
-                    </Typography>
-                  )
+                ))}
+                {teamLabel && (
+                  <Typography
+                    onClick={() => toggleQuickFilter(teamLabel.fieldKey, teamLabel.value)}
+                    sx={{ fontSize: '13px', fontWeight: 700, color: 'rgb(116, 82, 214)', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                    noWrap
+                  >
+                    <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>ทีม : </Box>
+                    {teamLabel.value}
+                  </Typography>
                 )}
-                {/* Phone leads — it's the reliable way to actually reach
-                    this family; parent name trails as secondary context. */}
+                {/* Phone stays — it's the reliable way to actually reach
+                    this family, and the form doesn't collect one. */}
                 {b.parent_phone && (
                   <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
                     <PhoneIcon sx={{ fontSize: 12 }} />
                     {b.parent_phone}
-                  </Typography>
-                )}
-                {b.parent_name && (
-                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }} noWrap>
-                    {b.parent_name}
                   </Typography>
                 )}
               </Box>
@@ -1819,7 +1831,7 @@ const BookingManagement = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   // Keyed by Form_Submissions.id — fetched once per bookings load so each
   // card can show its team_select answer (if any) without a request per row.
-  const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string }[] }>>({});
+  const [submissionsMap, setSubmissionsMap] = useState<Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>>({});
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');

@@ -231,8 +231,11 @@ export class RegistrationFormRepository {
     const formIds = Array.from(new Set((submissions as any[]).map(s => s.form_id)));
     const fieldsByForm = new Map<number, any[]>();
     for (const formId of formIds) {
+      // config_json included so callers can tell an adult picker from a
+      // child picker (config.role) — the CRM booking list labels each form
+      // person as ผู้ใหญ่/เด็ก from it.
       const { results: fields } = await this.db.prepare(
-        'SELECT field_key, type, label FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
+        'SELECT field_key, type, label, config_json FROM Registration_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
       ).bind(formId).all();
       fieldsByForm.set(formId, fields);
     }
