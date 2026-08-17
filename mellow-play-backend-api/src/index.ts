@@ -30,6 +30,7 @@ import { OrderController } from './controllers/orderController';
 import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
+import { TournamentController } from './controllers/tournamentController';
 import { NewsFeedController } from './controllers/newsFeedController';
 import { CourseEngagementController } from './controllers/courseEngagementController';
 import { CommunityController } from './controllers/communityController';
@@ -67,6 +68,7 @@ const inviteAccessController = new InviteAccessController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
+const tournamentController     = new TournamentController();
 const newsFeedController       = new NewsFeedController();
 const courseEngagementController = new CourseEngagementController();
 const communityController      = new CommunityController();
@@ -646,6 +648,17 @@ app.delete('/api/v1/admin/bookings/:bookingId/stamp',       (c) => rewardsContro
 app.post  ('/api/v1/admin/bookings/:bookingId/badge',       (c) => rewardsController.grantBookingBadge(c));
 app.delete('/api/v1/admin/bookings/:bookingId/badge/:tier', (c) => rewardsController.revokeBookingBadge(c));
 app.post  ('/api/v1/admin/children/:childId/points',        (c) => rewardsController.adjustPoints(c));
+
+// Heats for a competition: the draw, and the results that hand out the medals.
+app.get   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentController.getForCourse(c));
+app.put   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentController.createOrUpdate(c));
+app.post  ('/api/v1/admin/tournaments/:tournamentId/heats', (c) => tournamentController.createHeat(c));
+app.put   ('/api/v1/admin/tournament-heats/:heatId',        (c) => tournamentController.updateHeat(c));
+app.delete('/api/v1/admin/tournament-heats/:heatId',        (c) => tournamentController.deleteHeat(c));
+app.post  ('/api/v1/admin/tournament-heats/:heatId/entries',(c) => tournamentController.addEntries(c));
+app.put   ('/api/v1/admin/tournament-entries/:entryId/move',   (c) => tournamentController.moveEntry(c));
+app.put   ('/api/v1/admin/tournament-entries/:entryId/result', (c) => tournamentController.setResult(c));
+app.delete('/api/v1/admin/tournament-entries/:entryId',        (c) => tournamentController.deleteEntry(c));
 
 // ================= NEWS FEED (ข่าวสาร / สื่อความรู้) =================
 app.get('/api/v1/news-feed', (c) => newsFeedController.getPublished(c));
