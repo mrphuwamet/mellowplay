@@ -224,9 +224,19 @@ export class RegistrationFormRepository {
   // form_id, not once per submission.
   async getSubmissionsWithFields(submissionIds: number[]): Promise<Record<number, { formId: number; answers: Record<string, any>; fields: any[] }>> {
     if (submissionIds.length === 0) return {};
-    const { results: submissions } = await this.db.prepare(
-      `SELECT id, form_id, answers_json FROM Form_Submissions WHERE id IN (${submissionIds.map(() => '?').join(',')})`
-    ).bind(...submissionIds).all();
+    // Chunked: D1 caps bound parameters at 100 per statement, and a wide
+    // date range on the CRM booking list can easily reference more
+    // submissions than that — one oversized IN () threw, the caller's
+    // catch swallowed it, and the whole list silently lost every form's
+    // people/team display at once.
+    const submissions: any[] = [];
+    for (let i = 0; i < submissionIds.length; i += 90) {
+      const chunk = submissionIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(
+        `SELECT id, form_id, answers_json FROM Form_Submissions WHERE id IN (${chunk.map(() => '?').join(',')})`
+      ).bind(...chunk).all();
+      submissions.push(...(results as any[]));
+    }
 
     const formIds = Array.from(new Set((submissions as any[]).map(s => s.form_id)));
     const fieldsByForm = new Map<number, any[]>();

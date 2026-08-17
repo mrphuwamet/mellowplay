@@ -2210,7 +2210,17 @@ const BookingManagement = () => {
       // round patch so a failure here leaves the dialog open with the error
       // while the (already applied) reschedule stays visible on retry.
       if (editFormFields && editFormFields.length > 0) {
-        const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: editFormAnswers });
+        // A person picker's stored answer has a `${key}__realname` companion
+        // (the consumer app writes both). Re-picking a person here must
+        // update that companion too, or displays keep pairing the NEW
+        // nickname with the OLD person's real name.
+        const answersToSave = { ...editFormAnswers };
+        for (const f of editFormFields) {
+          if (f.type !== 'family_member_picker') continue;
+          const picked = editFamilyRoster.find(m => m.display === answersToSave[f.fieldKey]);
+          if (picked?.name) answersToSave[`${f.fieldKey}__realname`] = picked.name;
+        }
+        const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: answersToSave });
         if (!formRes.data.success) {
           setForceStatusError(formRes.data.message || 'บันทึกข้อมูลฟอร์มไม่สำเร็จ');
           fetchBookings();
