@@ -74,7 +74,13 @@ const CheckinQr: React.FC = () => {
       ) : (
         <div className="w-full max-w-sm space-y-4">
           {bookings.map(booking => {
-            const childName = booking.child_nickname || booking.child_name || '';
+            // A form-based registration's attendees are whoever the form
+            // named (form_people from the lookup) — the account child the
+            // seat is booked under only shows when there's no form.
+            const formPeople: { label: string; value: string }[] = booking.form_people || [];
+            const childName = formPeople.length > 0
+              ? formPeople.map(p => p.value).join(' · ')
+              : (booking.child_nickname || booking.child_name || '');
             return (
               <div key={booking.qr_token} className="bg-white rounded-3xl shadow-sm p-6 text-center">
                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</p>

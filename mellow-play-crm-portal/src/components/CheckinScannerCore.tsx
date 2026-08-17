@@ -208,12 +208,22 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booking?.id, booking?.form_submission_id]);
 
-  const attendeeName = booking?.child_nickname || booking?.child_name
-    || [booking?.parent_first_name, booking?.parent_last_name].filter(Boolean).join(' ')
-    || 'ผู้เข้าร่วม';
-  const attendeeRealName = booking?.child_name && booking.child_name !== attendeeName
-    ? `${booking.child_name}${booking.child_name_en ? ` (${booking.child_name_en})` : ''}`
-    : (booking?.child_name_en || null);
+  // For a form-based registration, the form's own person answers ARE the
+  // attendees — lead with those once loaded (the system child the seat is
+  // technically booked under stays out of the display entirely, matching
+  // the booking list/detail views). Form-less bookings keep the system
+  // child name as before.
+  const formPeople = (formFields || []).filter(f => f.type === 'family_member_picker' && f.value);
+  const attendeeName = formPeople.length > 0
+    ? formPeople.map(formatFormFieldValue).join(' · ')
+    : (booking?.child_nickname || booking?.child_name
+      || [booking?.parent_first_name, booking?.parent_last_name].filter(Boolean).join(' ')
+      || 'ผู้เข้าร่วม');
+  const attendeeRealName = formPeople.length > 0
+    ? null
+    : (booking?.child_name && booking.child_name !== attendeeName
+      ? `${booking.child_name}${booking.child_name_en ? ` (${booking.child_name_en})` : ''}`
+      : (booking?.child_name_en || null));
 
   return (
     <Box>

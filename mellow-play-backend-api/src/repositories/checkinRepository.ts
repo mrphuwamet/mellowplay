@@ -47,8 +47,30 @@ export class CheckinRepository {
     ).bind(booking.id).all();
     const checkedMap = new Map((checkedRows as any[]).map(r => [r.action_id, r.checked_at]));
 
+    // For a form-based registration the form's person answers ARE the
+    // attendees — the check-in surfaces (consumer QR page, CRM scanner)
+    // lead with these instead of the account child the seat is booked
+    // under, matching the CRM booking list/detail views.
+    let formPeople: Array<{ label: string; value: string }> = [];
+    if (booking.form_submission_id) {
+      const sub = await this.db.prepare(
+        'SELECT form_id, answers_json FROM Form_Submissions WHERE id = ?'
+      ).bind(booking.form_submission_id).first() as any;
+      if (sub) {
+        const { results: pickerFields } = await this.db.prepare(
+          `SELECT field_key, label FROM Registration_Form_Fields WHERE form_id = ? AND type = 'family_member_picker' ORDER BY page_index ASC, field_index ASC`
+        ).bind(sub.form_id).all();
+        let answers: Record<string, any> = {};
+        try { answers = JSON.parse(sub.answers_json || '{}'); } catch { /* malformed answers shouldn't block check-in */ }
+        formPeople = (pickerFields as any[])
+          .map(f => ({ label: f.label, value: answers[f.field_key] }))
+          .filter(p => !!p.value);
+      }
+    }
+
     return {
       ...booking,
+      form_people: formPeople,
       actions: actions.map((a: any) => ({ ...a, checked_at: checkedMap.get(a.id) ?? null })),
     };
   }

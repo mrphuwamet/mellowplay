@@ -734,31 +734,15 @@ const BookingDetailDialog = ({ booking, course, onClose, onViewCourse }: {
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
               ) : formFields && formFields.length > 0 ? (
                 <Stack spacing={1.5}>
-                  {/* Ground-truth identity from the child's own profile —
-                      kept alongside the form answers since a custom form's
-                      "person" field can just be a nickname or picked name,
-                      not necessarily the real name staff need for verification. */}
-                  {(booking.child_name || booking.child_birth_date) && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>ชื่อจริง-นามสกุล (ตามระบบ)</Typography>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography sx={{ fontWeight: 800, fontSize: '16px' }}>
-                          {booking.child_name || '-'}{booking.child_name_en ? ` (${booking.child_name_en})` : ''}
-                        </Typography>
-                        {booking.child_birth_date && (
-                          <Chip
-                            icon={<CakeIcon sx={{ fontSize: '12px !important' }} />}
-                            label={`${calculateAge(booking.child_birth_date)} ปี`}
-                            size="small"
-                            sx={{ height: 20, fontSize: '11px', fontWeight: 700 }}
-                          />
-                        )}
-                      </Stack>
-                    </Box>
-                  )}
+                  {/* Form answers ONLY — the account's own child/parent
+                      identity ("ตามระบบ") is deliberately absent here: for a
+                      form-based registration the form says who participates,
+                      and showing a second, unrelated system name next to it
+                      read as a contradiction. The phone stays as the plain
+                      contact channel (the form doesn't collect one). */}
                   {booking.parent_phone && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เบอร์โทรผู้ปกครอง (ตามระบบ)</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>เบอร์โทรติดต่อ</Typography>
                       <Stack direction="row" spacing={0.75} alignItems="center">
                         <PhoneIcon sx={{ fontSize: 13 }} color="action" />
                         <Typography sx={{ fontWeight: 800, fontSize: '15px' }}>{booking.parent_phone}</Typography>
@@ -1338,11 +1322,6 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                         {f.label}: {f.value}
                       </Typography>
                     ))}
-                    {(b.child_nickname || b.child_name) && (
-                      <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled', fontWeight: 600 }} noWrap>
-                        จองในระบบ: {b.child_nickname || b.child_name}{hasRealName ? ` (${b.child_name})` : ''}
-                      </Typography>
-                    )}
                   </>
                 ) : (
                   hasRealName && (
