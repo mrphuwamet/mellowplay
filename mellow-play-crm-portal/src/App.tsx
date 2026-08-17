@@ -444,7 +444,7 @@ const AppContent = () => {
       { text: 'แบบสอบถาม/แบบทดสอบ', icon: <SurveyMenuIcon />, path: '/crm/surveys', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
-      { text: 'จัดการแข่งขัน (Heat)', icon: <TournamentMenuIcon />, path: '/crm/tournaments', feature: 'bookings' },
+      { text: 'จัดการแข่งขัน', icon: <TournamentMenuIcon />, path: '/crm/tournaments', feature: 'bookings' },
       { text: 'การแจ้งเตือน', icon: <SmsMenuIcon />, path: '/crm/sms-notifications', feature: 'bookings' },
       { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
     ]);

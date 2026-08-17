@@ -106,6 +106,16 @@ const TournamentManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   const [tournament, setTournament] = useState<any>(null);
+  // A course can run several brackets — age bands, or a parents' draw beside
+  // the children's — so the page tracks the list and which one is open.
+  const [tournaments, setTournaments] = useState<any[]>([]);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  // Deleting anything on this page goes through one dialog: a browser confirm()
+  // gives no room to say what is about to be lost.
+  const [confirmAction, setConfirmAction] = useState<{ title: string; body: string; run: () => Promise<void> } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [heats, setHeats] = useState<Heat[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [options, setOptions] = useState<Record<EntryType, EntryOption[]>>({ team: [], family: [], person: [] });
@@ -121,7 +131,7 @@ const TournamentManagement: React.FC = () => {
   const [roundFilter, setRoundFilter] = useState<string>('all');
 
   const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null }>({ open: false, editing: null });
-  const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '' });
+  const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '' });
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
   const [notice, setNotice] = useState<string>('');
@@ -143,12 +153,17 @@ const TournamentManagement: React.FC = () => {
     axios.get(`${API_BASE}/courses`).then(res => { if (res.data.success) setCourses(res.data.courses || []); });
   }, []);
 
-  const load = async (id: number) => {
+  const load = async (id: number, tournamentId?: number | null) => {
     setLoading(true);
     try {
-      const { data } = await axios.get(`${API_BASE}/courses/${id}/tournament`);
+      const wanted = tournamentId !== undefined ? tournamentId : selectedTournamentId;
+      const { data } = await axios.get(
+        `${API_BASE}/courses/${id}/tournament${wanted ? `?tournamentId=${wanted}` : ''}`,
+      );
       if (!data.success) return;
       setTournament(data.tournament);
+      setTournaments(data.tournaments || []);
+      setSelectedTournamentId(data.tournament?.id ?? null);
       setHeats(data.heats || []);
       setEntries(data.entries || []);
       setOptions(data.options);
@@ -164,25 +179,44 @@ const TournamentManagement: React.FC = () => {
 
   useEffect(() => { if (courseId) load(Number(courseId)); }, [courseId]);
 
-  const createTournament = async () => {
+  const createTournament = async (name?: string) => {
     if (!courseId) return;
     setSaving(true);
     try {
       const course = courses.find(c => c.id === courseId);
-      await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
-        name: course?.name || 'การแข่งขัน',
+      const { data } = await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
+        name: name || course?.name || 'สายการแข่งขัน',
         team_field_key: teamFields[0]?.field_key ?? null,
       });
-      await load(Number(courseId));
+      await load(Number(courseId), data.id);
     } finally { setSaving(false); }
   };
+
+  const renameTournament = async () => {
+    if (!courseId || !tournament) return;
+    await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
+      id: tournament.id, name: renameValue.trim() || tournament.name,
+      description: tournament.description, team_field_key: tournament.team_field_key,
+    });
+    setRenameOpen(false);
+    load(Number(courseId), tournament.id);
+  };
+
+  const deleteTournament = (t: any) => setConfirmAction({
+    title: `ลบ "${t.name}"?`,
+    body: 'Heat และรายชื่อทั้งหมดในสายนี้จะหายไปจากหน้าจอ (ข้อมูลยังอยู่ในฐานข้อมูล กู้คืนได้)',
+    run: async () => {
+      await axios.delete(`${API_BASE}/tournaments/${t.id}`);
+      await load(Number(courseId), null);
+    },
+  });
 
   const setTeamField = async (fieldKey: string) => {
     if (!courseId) return;
     await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
-      name: tournament?.name, description: tournament?.description, team_field_key: fieldKey || null,
+      id: tournament?.id, name: tournament?.name, description: tournament?.description, team_field_key: fieldKey || null,
     });
-    load(Number(courseId));
+    load(Number(courseId), tournament?.id);
   };
 
   // Which registrants are already placed. An entry can cover several bookings,
@@ -268,8 +302,9 @@ const TournamentManagement: React.FC = () => {
       ? {
         name: heat.name, slot_date: heat.slot_date || '',
         slot_start_time: heat.slot_start_time || '', capacity: heat.capacity ? String(heat.capacity) : '',
+        note: heat.note || '',
       }
-      : { name: `Heat ${heats.length + 1}`, slot_date: '', slot_start_time: '', capacity: '' });
+      : { name: `Heat ${heats.length + 1}`, slot_date: '', slot_start_time: '', capacity: '', note: '' });
     setHeatDialog({ open: true, editing: heat });
   };
 
@@ -280,6 +315,7 @@ const TournamentManagement: React.FC = () => {
       slot_date: heatForm.slot_date || null,
       slot_start_time: heatForm.slot_start_time || null,
       capacity: heatForm.capacity ? Number(heatForm.capacity) : null,
+      note: heatForm.note.trim() || null,
     };
     if (heatDialog.editing) await axios.put(`${API_BASE}/tournament-heats/${heatDialog.editing.id}`, payload);
     else await axios.post(`${API_BASE}/tournaments/${tournament.id}/heats`, { ...payload, sort_order: heats.length });
@@ -287,16 +323,23 @@ const TournamentManagement: React.FC = () => {
     load(Number(courseId));
   };
 
-  const deleteHeat = async (heat: Heat) => {
-    if (!window.confirm(`ลบ "${heat.name}" และรายชื่อใน Heat นี้?`)) return;
-    await axios.delete(`${API_BASE}/tournament-heats/${heat.id}`);
-    load(Number(courseId));
-  };
+  const deleteHeat = (heat: Heat) => setConfirmAction({
+    title: `ลบ "${heat.name}"?`,
+    body: `รายชื่อ ${entriesOf(heat.id).length} รายการใน Heat นี้จะถูกเอาออกด้วย ผู้เข้าแข่งขันจะกลับไปอยู่ในรายชื่อที่ยังไม่ได้จัด`,
+    run: async () => {
+      await axios.delete(`${API_BASE}/tournament-heats/${heat.id}`);
+      await load(Number(courseId));
+    },
+  });
 
-  const removeEntry = async (entry: Entry) => {
-    await axios.delete(`${API_BASE}/tournament-entries/${entry.id}`);
-    load(Number(courseId));
-  };
+  const removeEntry = (entry: Entry) => setConfirmAction({
+    title: `เอา "${entry.label}" ออกจาก Heat?`,
+    body: 'จะกลับไปอยู่ในรายชื่อที่ยังไม่ได้จัด และใส่ลง Heat อื่นได้',
+    run: async () => {
+      await axios.delete(`${API_BASE}/tournament-entries/${entry.id}`);
+      await load(Number(courseId));
+    },
+  });
 
   const moveEntry = async (entry: Entry, heatId: number) => {
     await axios.put(`${API_BASE}/tournament-entries/${entry.id}/move`, { heat_id: heatId });
@@ -413,6 +456,18 @@ const TournamentManagement: React.FC = () => {
     load(Number(courseId));
   };
 
+  const advanceEntry = async (entry: Entry) => {
+    try {
+      const { data } = await axios.post(`${API_BASE}/tournament-entries/${entry.id}/advance`);
+      setNotice(data.moved
+        ? `${entry.label} ได้อันดับ ${data.rank} · เข้าไปอยู่ใน ${data.heatName} แล้ว`
+        : `${entry.label} อยู่ในรอบถัดไปแล้ว`);
+      load(Number(courseId));
+    } catch (e: any) {
+      setNotice(e.response?.data?.message || 'ส่งเข้ารอบถัดไปไม่สำเร็จ');
+    }
+  };
+
   const advanceHeat = async (heat: Heat) => {
     try {
       const { data } = await axios.post(`${API_BASE}/tournament-heats/${heat.id}/advance`);
@@ -469,7 +524,7 @@ const TournamentManagement: React.FC = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
         <TrophyIcon sx={{ fontSize: 32, color: 'primary.main' }} />
         <Box>
-          <Typography variant="h5" fontWeight={800}>จัดการแข่งขัน (Heat)</Typography>
+          <Typography variant="h5" fontWeight={800}>จัดการแข่งขัน</Typography>
           <Typography variant="body2" color="text.secondary">
             แบ่งผู้เข้าร่วมลง Heat ตามรอบของกิจกรรม · เลือกใส่ทีละทีม ทั้งครอบครัว หรือรายคนก็ได้ · บันทึกผลแล้วมอบเหรียญได้จากตรงนี้เลย
           </Typography>
@@ -511,7 +566,7 @@ const TournamentManagement: React.FC = () => {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             สร้างแล้วจะเพิ่ม Heat และจัดคนลงแต่ละ Heat ได้
           </Typography>
-          <Button variant="contained" onClick={createTournament} disabled={saving} startIcon={<AddIcon />}>
+          <Button variant="contained" onClick={() => createTournament()} disabled={saving} startIcon={<AddIcon />}>
             สร้างการแข่งขัน
           </Button>
         </Paper>
@@ -525,7 +580,7 @@ const TournamentManagement: React.FC = () => {
             {/* Left: who is still unplaced, in whichever shape is being drawn. */}
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, borderRadius: 3, position: 'sticky', top: 16 }}>
-                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>ยังไม่ได้จัด Heat</Typography>
+                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>รอจัดการ</Typography>
 
                 <ToggleButtonGroup
                   exclusive size="small" fullWidth value={entryType} sx={{ mb: 1.5 }}
@@ -555,7 +610,14 @@ const TournamentManagement: React.FC = () => {
                 <Box sx={{ maxHeight: 420, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                   {available.length === 0 && (
                     <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
-                      จัดครบแล้ว
+                      {/* "Nothing here" and "everything placed" are different
+                          answers, and reading the second when the first is true
+                          says the draw is done when it has not started. */}
+                      {(options[entryType] || []).length === 0
+                        ? (entryType === 'team' ? 'กิจกรรมนี้ยังไม่มีใครเลือกทีม' : 'ยังไม่มีผู้ลงทะเบียน')
+                        : roundFilter !== 'all'
+                          ? 'ไม่มีรายชื่อที่ยังว่างในรอบนี้'
+                          : 'จัดลง Heat ครบทุกคนแล้ว'}
                     </Typography>
                   )}
                   {available.map(o => (
@@ -622,10 +684,40 @@ const TournamentManagement: React.FC = () => {
                 semi-final feeding a final, read left to right. */}
             <Grid item xs={12} md={8}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="subtitle2" fontWeight={800}>
-                  สายการแข่งขัน · {heats.length} Heat / {stages.length} รอบ
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  {/* Which bracket, when a course runs more than one. A single
+                      bracket needs no chooser, so it does not get one. */}
+                  {tournaments.length > 1 ? (
+                    <FormControl size="small" sx={{ minWidth: 220 }}>
+                      <InputLabel>สาย</InputLabel>
+                      <Select
+                        label="สาย" value={selectedTournamentId ?? ''}
+                        onChange={e => load(Number(courseId), Number(e.target.value))}
+                      >
+                        {tournaments.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <Typography variant="subtitle2" fontWeight={800}>{tournament?.name}</Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary">
+                    {heats.length} Heat / {stages.length} รอบ
+                  </Typography>
+                  <Tooltip title="เปลี่ยนชื่อสาย">
+                    <IconButton size="small" onClick={() => { setRenameValue(tournament?.name || ''); setRenameOpen(true); }}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="ลบสายนี้">
+                    <IconButton size="small" color="error" onClick={() => deleteTournament(tournament)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
                 <Stack direction="row" spacing={1}>
+                  <Button size="small" startIcon={<AddIcon />} onClick={() => createTournament(`สายที่ ${tournaments.length + 1}`)}>
+                    เพิ่มสาย
+                  </Button>
                   <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => setGenOpen(true)}>
                     สร้างสายอัตโนมัติ
                   </Button>
@@ -703,6 +795,21 @@ const TournamentManagement: React.FC = () => {
 
                             {over && <Alert severity="warning" sx={{ mb: 1, py: 0, fontSize: 12 }}>เกินจำนวนที่ตั้งไว้</Alert>}
 
+                            {/* Whatever the day needs written down, beside the
+                                box it belongs to. Line breaks are kept — a note
+                                is usually a short list, not a sentence. */}
+                            {heat.note && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: 'block', whiteSpace: 'pre-wrap', mb: 1, p: 1,
+                                  borderRadius: 1.5, bgcolor: 'warning.light', color: 'text.primary',
+                                }}
+                              >
+                                {heat.note}
+                              </Typography>
+                            )}
+
                             <Divider sx={{ mb: 1 }} />
 
                             {list.length === 0 && (
@@ -750,15 +857,28 @@ const TournamentManagement: React.FC = () => {
                                       </Tooltip>
                                     )}
                                   </Box>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => {
-                                      setResultEntry(e);
-                                      setResultForm({ rank: e.result_rank ?? '', note: '', award: true });
-                                    }}
-                                  >
-                                    <FlagIcon fontSize="small" />
-                                  </IconButton>
+                                  {/* Calling one winner as it happens, rather
+                                      than recording the whole heat and then
+                                      advancing it — the next free placing is
+                                      assigned and they move up a round. */}
+                                  {!stage.isFinal && (
+                                    <Tooltip title="ให้ผ่านเข้ารอบถัดไป">
+                                      <IconButton size="small" color="success" onClick={() => advanceEntry(e)}>
+                                        <TrophyIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                  <Tooltip title="บันทึกผล / มอบเหรียญ">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setResultEntry(e);
+                                        setResultForm({ rank: e.result_rank ?? '', note: '', award: true });
+                                      }}
+                                    >
+                                      <FlagIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
                                   {heats.length > 1 && (
                                     <Select
                                       size="small" value="" displayEmpty variant="standard" disableUnderline
@@ -806,6 +926,44 @@ const TournamentManagement: React.FC = () => {
           </Grid>
         </>
       )}
+
+      {/* One dialog for every destructive action on this page. It names what
+          goes with it, which a browser confirm() has no room to do. */}
+      <Dialog open={!!confirmAction} onClose={() => !confirmBusy && setConfirmAction(null)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 800 }}>{confirmAction?.title}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">{confirmAction?.body}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmAction(null)} disabled={confirmBusy}>ยกเลิก</Button>
+          <Button
+            variant="contained" color="error" disabled={confirmBusy}
+            onClick={async () => {
+              if (!confirmAction) return;
+              setConfirmBusy(true);
+              try { await confirmAction.run(); setConfirmAction(null); }
+              finally { setConfirmBusy(false); }
+            }}
+          >
+            {confirmBusy ? <CircularProgress size={20} /> : 'ลบ'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>ชื่อสายการแข่งขัน</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus fullWidth sx={{ mt: 1 }} label="ชื่อสาย"
+            value={renameValue} onChange={e => setRenameValue(e.target.value)}
+            helperText="เช่น รุ่นอายุ 3-4 ปี / รุ่นผู้ปกครอง"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameOpen(false)}>ยกเลิก</Button>
+          <Button variant="contained" onClick={renameTournament}>บันทึก</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Filling one box of the bracket. Shows age, category and a phone number
           beside every name — an age-banded heat is drawn on exactly those, and
@@ -953,6 +1111,11 @@ const TournamentManagement: React.FC = () => {
               label="จำนวนที่รับ (ไม่บังคับ)" type="number" fullWidth
               value={heatForm.capacity} onChange={e => setHeatForm(f => ({ ...f, capacity: e.target.value }))}
               helperText="ใส่ไว้เพื่อเตือนเมื่อจัดเกิน — ระบบไม่ได้ห้ามใส่เกิน"
+            />
+            <TextField
+              label="โน้ต" fullWidth multiline minRows={3}
+              value={heatForm.note} onChange={e => setHeatForm(f => ({ ...f, note: e.target.value }))}
+              helperText="เช่น เวลาเรียกตัว ลู่ที่ใช้ กติกาเฉพาะรอบนี้ — จะแสดงอยู่ในกล่อง Heat"
             />
           </Stack>
         </DialogContent>

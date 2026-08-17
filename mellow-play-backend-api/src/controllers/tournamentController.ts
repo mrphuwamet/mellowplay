@@ -36,7 +36,11 @@ export class TournamentController {
       const repo = this.repo(c);
 
       const teamFields = await repo.getTeamFields(courseId);
-      const tournament = await repo.getByCourse(courseId);
+      const tournaments = await repo.listByCourse(courseId);
+      // Which bracket is being looked at. Defaults to the first so a link with
+      // no id still opens something.
+      const requestedId = parseInt(c.req.query('tournamentId') || '');
+      const tournament = tournaments.find(t => t.id === requestedId) || tournaments[0] || null;
       const teamFieldKey = tournament?.team_field_key || teamFields[0]?.field_key || null;
 
       const registrants = await repo.getRegistrants(courseId, teamFieldKey);
@@ -47,7 +51,7 @@ export class TournamentController {
 
       if (!tournament) {
         return c.json({
-          success: true, tournament: null, heats: [], entries: [],
+          success: true, tournament: null, tournaments, heats: [], entries: [],
           options, teamFields, rounds, registrantCount: registrants.length,
         });
       }
@@ -66,25 +70,38 @@ export class TournamentController {
 
       return c.json({
         success: true,
-        tournament, heats, entries: entriesWithBookings,
+        tournament, tournaments, heats, entries: entriesWithBookings,
         options, teamFields, rounds, registrantCount: registrants.length,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * Creates a bracket, or edits the one named by id.
+   *
+   * A course can hold several — an id in the body means "edit that one", no id
+   * means "add another". Without the id this used to silently rename whichever
+   * bracket happened to be first, which is how a second one becomes impossible.
+   */
   async createOrUpdate(c: C) {
     try {
       const courseId = parseInt(c.req.param('courseId'));
-      const { name, description, team_field_key } = await c.req.json();
+      const { id, name, description, team_field_key } = await c.req.json();
       const repo = this.repo(c);
-      const existing = await repo.getByCourse(courseId);
 
-      if (existing) {
-        await repo.update(existing.id, { name, description, teamFieldKey: team_field_key ?? null });
-        return c.json({ success: true, id: existing.id });
+      if (id) {
+        await repo.update(Number(id), { name, description, teamFieldKey: team_field_key ?? null });
+        return c.json({ success: true, id: Number(id) });
       }
-      const id = await repo.create(courseId, name?.trim() || 'การแข่งขัน', team_field_key ?? null);
-      return c.json({ success: true, id });
+      const newId = await repo.create(courseId, name?.trim() || 'สายการแข่งขัน', team_field_key ?? null);
+      return c.json({ success: true, id: newId });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async remove(c: C) {
+    try {
+      await this.repo(c).deactivate(parseInt(c.req.param('tournamentId')));
+      return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -254,6 +271,45 @@ export class TournamentController {
       }
       await repo.updateHeat(heatId, { status: 'done' });
       return c.json({ success: true, moved });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Marks one entry as through, and puts it in the next round.
+   *
+   * The two-step version — record a result, then advance the heat — is right
+   * when a whole heat finishes at once. Calling a single winner as it happens
+   * is what actually occurs at the side of a track, so it is one action: the
+   * next free placing is assigned and the entry moves.
+   */
+  async advanceEntry(c: C) {
+    try {
+      const entryId = parseInt(c.req.param('entryId'));
+      const repo = this.repo(c);
+      const entry = await repo.getEntry(entryId);
+      if (!entry) return c.json({ success: false, message: 'ไม่พบรายการ' }, 404);
+
+      const heat = await repo.getHeat(entry.heat_id);
+      const nextStage = await repo.getStageHeats(heat.tournament_id, heat.stage_index + 1);
+      if (nextStage.length === 0) {
+        return c.json({ success: false, message: 'รอบนี้คือรอบสุดท้ายแล้ว' }, 400);
+      }
+
+      let rank = entry.result_rank;
+      if (!rank) {
+        const siblings = await repo.getHeatEntries(entry.heat_id);
+        const taken = new Set(siblings.map((e: any) => e.result_rank).filter(Boolean));
+        rank = 1;
+        while (taken.has(rank)) rank++;
+        await repo.setEntryResult(entryId, rank, entry.result_note ?? null);
+      }
+
+      const heatsInStage = await repo.getStageHeats(heat.tournament_id, heat.stage_index);
+      const heatPos = Math.max(0, heatsInStage.findIndex(h => h.id === heat.id));
+      const target = nextStage[(heatPos + (rank - 1)) % nextStage.length];
+      const moved = await repo.addAdvancedEntry(heat.tournament_id, target.id, { ...entry, result_rank: rank });
+
+      return c.json({ success: true, moved, rank, heatName: target.name });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

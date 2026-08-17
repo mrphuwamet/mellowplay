@@ -657,11 +657,13 @@ app.get   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentContro
 app.put   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentController.createOrUpdate(c));
 app.post  ('/api/v1/admin/tournaments/:tournamentId/heats', (c) => tournamentController.createHeat(c));
 app.post  ('/api/v1/admin/tournaments/:tournamentId/generate', (c) => tournamentController.generate(c));
+app.delete('/api/v1/admin/tournaments/:tournamentId', (c) => tournamentController.remove(c));
 app.post  ('/api/v1/admin/tournament-heats/:heatId/advance', (c) => tournamentController.advance(c));
 app.put   ('/api/v1/admin/tournament-heats/:heatId',        (c) => tournamentController.updateHeat(c));
 app.delete('/api/v1/admin/tournament-heats/:heatId',        (c) => tournamentController.deleteHeat(c));
 app.post  ('/api/v1/admin/tournament-heats/:heatId/entries',(c) => tournamentController.addEntries(c));
 app.put   ('/api/v1/admin/tournament-entries/:entryId/move',   (c) => tournamentController.moveEntry(c));
+app.post  ('/api/v1/admin/tournament-entries/:entryId/advance', (c) => tournamentController.advanceEntry(c));
 app.put   ('/api/v1/admin/tournament-entries/:entryId/result', (c) => tournamentController.setResult(c));
 app.delete('/api/v1/admin/tournament-entries/:entryId',        (c) => tournamentController.deleteEntry(c));
 

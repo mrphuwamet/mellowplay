@@ -57,6 +57,20 @@ export interface EntryOption {
   slotStartTime: string | null;
 }
 
+// A team entry's key is the team plus the round it races in. The separator is
+// a control character so a team called "เขียว | รอบเช้า" cannot collide with it.
+const TEAM_KEY_SEP = String.fromCharCode(1);
+
+export function teamRefKey(team: string, slotDate: string | null, slotStartTime: string | null): string {
+  return [team, slotDate ?? '', slotStartTime ?? ''].join(TEAM_KEY_SEP);
+}
+
+export function parseTeamRefKey(refKey: string): { team: string; slotDate: string | null; slotStartTime: string } {
+  const parts = refKey.split(TEAM_KEY_SEP);
+  if (parts.length < 3) return { team: refKey, slotDate: null, slotStartTime: '' };
+  return { team: parts[0], slotDate: parts[1], slotStartTime: parts[2] };
+}
+
 // Age in whole years, which is what an age-banded competition runs on. Returns
 // null rather than 0 for a missing or unparseable date — "no age recorded" and
 // "newborn" must not look the same on a start list.
@@ -75,10 +89,29 @@ function ageFromBirthDate(birthDate: string | null): number | null {
 export class TournamentRepository {
   constructor(private db: D1Database) {}
 
+  // An event can run more than one competition — different age bands, or a
+  // parents' bracket beside the children's — so this is a list, and the caller
+  // says which one it is looking at.
+  async listByCourse(courseId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(
+      'SELECT * FROM Tournaments WHERE course_id = ? AND is_active = 1 ORDER BY id ASC'
+    ).bind(courseId).all<any>();
+    return results;
+  }
+
   async getByCourse(courseId: number): Promise<any | null> {
-    return await this.db.prepare(
-      'SELECT * FROM Tournaments WHERE course_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1'
-    ).bind(courseId).first<any>();
+    const all = await this.listByCourse(courseId);
+    return all[0] ?? null;
+  }
+
+  async getById(id: number): Promise<any | null> {
+    return await this.db.prepare('SELECT * FROM Tournaments WHERE id = ?').bind(id).first<any>();
+  }
+
+  // Soft: the heats and results are a record of an event that happened, and
+  // "remove this bracket from the screen" is not a reason to lose it.
+  async deactivate(id: number): Promise<void> {
+    await this.db.prepare('UPDATE Tournaments SET is_active = 0 WHERE id = ?').bind(id).run();
   }
 
   async create(courseId: number, name: string, teamFieldKey: string | null): Promise<number> {
@@ -363,8 +396,13 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
 
   for (const r of registrants) {
     if (r.team) {
-      if (!teams.has(r.team)) teams.set(r.team, []);
-      teams.get(r.team)!.push(r);
+      // A team is scoped to its round. The same team name is offered again in
+      // every round of an event — "ทีมสีเขียว" on Saturday and "ทีมสีเขียว" on
+      // Sunday are different sets of people, and one entry covering both would
+      // put forty strangers in one heat.
+      const teamKey = teamRefKey(r.team, r.slotDate, r.slotStartTime);
+      if (!teams.has(teamKey)) teams.set(teamKey, []);
+      teams.get(teamKey)!.push(r);
     }
     // A booking with no submission is its own family of one — grouping those
     // together under "no submission" would put strangers in one entry.
@@ -409,10 +447,10 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
     (members.length > 0 ? members.map(m => `${m.fieldLabel}: ${m.name}`).join(' · ') : fallback);
 
   return {
-    team: Array.from(teams.entries()).map(([name, rs]) => ({
+    team: Array.from(teams.entries()).map(([key, rs]) => ({
       entryType: 'team' as const,
-      refKey: name,
-      label: name,
+      refKey: key,
+      label: rs[0].team || key,
       subLabel: `${rs.length} คน`,
       members: membersOf(rs),
       people: peopleOf(rs),
@@ -460,7 +498,14 @@ export function bookingIdsForEntry(
   registrants: Registrant[],
 ): number[] {
   if (entry.entry_type === 'team') {
-    return registrants.filter(r => r.team === entry.ref_key).map(r => r.bookingId);
+    const parsed = parseTeamRefKey(entry.ref_key);
+    return registrants.filter(r => {
+      if (r.team !== parsed.team) return false;
+      // Entries drawn before teams were round-scoped have no round in their
+      // key; those still mean "everyone on this team", as they did then.
+      if (parsed.slotDate === null) return true;
+      return (r.slotDate ?? '') === parsed.slotDate && (r.slotStartTime ?? '') === parsed.slotStartTime;
+    }).map(r => r.bookingId);
   }
   if (entry.entry_type === 'family') {
     if (entry.ref_key.startsWith('sub:')) {
