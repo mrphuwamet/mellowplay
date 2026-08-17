@@ -490,6 +490,15 @@ type SubmissionsMap = Record<string, { answers: Record<string, any>; fields: { f
 // never collide with the fixed native-column keys above — field_key is a
 // fresh UUID per field instance, so it's already unique across every course's
 // form without needing to also track which form it came from.
+// 0846363632 is read back wrong more often than not; 084-636-3632 is not.
+// Anything that is not a 10-digit Thai mobile is left exactly as entered — a
+// landline or a foreign number reformatted by guesswork is worse than raw.
+const formatPhone = (phone?: string | null): string => {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length !== 10) return phone || '';
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+};
+
 /**
  * Where this booking takes place.
  *
@@ -1416,7 +1425,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                     truncating names/teams meant staff couldn't read exactly
                     the data this card exists to show. Lines wrap instead. */}
                 {personLines.map((line, i) => (
-                  <Typography key={i} component="div" sx={{ fontSize: i === 0 ? '14px' : '13px', color: 'text.primary', fontWeight: i === 0 ? 800 : 600, wordBreak: 'break-word', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 0.75, rowGap: 0.25 }}>
+                  <Typography key={i} component="div" sx={{ fontSize: '13.5px', color: 'text.primary', fontWeight: 700, wordBreak: 'break-word', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 0.75, rowGap: 0.25 }}>
                     <span>
                       <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>{line.label} : </Box>
                       {line.text || '-'}
@@ -1452,7 +1461,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 {b.parent_phone && (
                   <Typography sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'text.primary', fontWeight: 800, fontSize: '13px' }}>
                     <PhoneIcon sx={{ fontSize: 12 }} />
-                    {b.parent_phone}
+                    {formatPhone(b.parent_phone)}
                   </Typography>
                 )}
               </Box>
@@ -1464,8 +1473,11 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               <Typography sx={{ fontWeight: 700, fontSize: '14px', color: 'text.primary', wordBreak: 'break-word' }}>
                 {b.course_name || '-'}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                #{b.id} · {venueOf(b, courseMap)}
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'flex', alignItems: 'baseline', gap: 0.75, flexWrap: 'wrap' }}>
+                <Box component="span" sx={{ fontSize: '16px', fontWeight: 900, color: 'text.primary', letterSpacing: '-0.2px' }}>
+                  #{b.id}
+                </Box>
+                <span>{venueOf(b, courseMap)}</span>
               </Typography>
               {/* Registered twice for this event under the same full name.
                   Says which booking it clashes with, because the next question
