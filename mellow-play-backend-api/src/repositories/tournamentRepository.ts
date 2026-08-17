@@ -30,6 +30,11 @@ export interface Registrant {
   submissionId: number | null;
   childName: string;
   parentName: string;
+  // What staff need to call a heat to the start line and to reach a family
+  // that has not turned up: how old, which category, and a number to ring.
+  age: number | null;
+  gender: string | null;
+  phone: string | null;
   team: string | null;
   members: RegistrantMember[];
   slotDate: string | null;
@@ -45,9 +50,26 @@ export interface EntryOption {
   subLabel: string;
   /** Who is on this entry, and under which question of the form. */
   members: RegistrantMember[];
+  /** One line of "อายุ 7 · ชาย · 08x-xxx-xxxx" per person on the entry. */
+  people: { name: string; age: number | null; gender: string | null; phone: string | null }[];
   bookingIds: number[];
   slotDate: string | null;
   slotStartTime: string | null;
+}
+
+// Age in whole years, which is what an age-banded competition runs on. Returns
+// null rather than 0 for a missing or unparseable date — "no age recorded" and
+// "newborn" must not look the same on a start list.
+function ageFromBirthDate(birthDate: string | null): number | null {
+  if (!birthDate) return null;
+  const born = new Date(birthDate);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const beforeBirthday = now.getMonth() < born.getMonth()
+    || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate());
+  if (beforeBirthday) age--;
+  return age >= 0 && age < 130 ? age : null;
 }
 
 export class TournamentRepository {
@@ -249,6 +271,7 @@ export class TournamentRepository {
       SELECT b.id AS booking_id, b.form_submission_id, b.scheduled_at, b.slot_date, b.slot_start_time, b.status,
              COALESCE(hp.nickname, hp.name) AS child_name,
              (u.first_name || ' ' || u.last_name) AS parent_name,
+             hp.gender, hp.birth_date, u.phone,
              fs.answers_json
       FROM Bookings b
       JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
@@ -282,6 +305,9 @@ export class TournamentRepository {
         submissionId: r.form_submission_id ?? null,
         childName: r.child_name || '',
         parentName: r.parent_name || '',
+        age: ageFromBirthDate(r.birth_date),
+        gender: r.gender || null,
+        phone: r.phone || null,
         team,
         members,
         slotDate: r.slot_date ?? null,
@@ -347,6 +373,15 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
     families.get(familyKey)!.push(r);
   }
 
+  // One row per booking on the entry: the person racing, how old, which
+  // category, and the number to ring if they are not at the start line.
+  const peopleOf = (rs: Registrant[]) => rs.map(r => ({
+    name: r.childName || r.parentName,
+    age: r.age,
+    gender: r.gender,
+    phone: r.phone,
+  }));
+
   const slotOf = (rs: Registrant[]) => ({
     slotDate: rs[0]?.slotDate ?? null,
     slotStartTime: rs[0]?.slotStartTime ?? null,
@@ -380,6 +415,7 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
       label: name,
       subLabel: `${rs.length} คน`,
       members: membersOf(rs),
+      people: peopleOf(rs),
       bookingIds: rs.map(r => r.bookingId),
       ...slotOf(rs),
     })).sort((a, b) => a.label.localeCompare(b.label, 'th')),
@@ -394,6 +430,7 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
         label: rs[0].parentName || rs[0].childName,
         subLabel: describe(members, rs.map(r => r.childName).filter(Boolean).join(', ')),
         members,
+        people: peopleOf(rs),
         bookingIds: rs.map(r => r.bookingId),
         ...slotOf(rs),
       };
@@ -405,6 +442,7 @@ export function buildEntryOptions(registrants: Registrant[]): Record<EntryType, 
       label: r.childName || r.parentName,
       subLabel: describe(r.members, r.team || r.parentName),
       members: r.members,
+      people: peopleOf([r]),
       bookingIds: [r.bookingId],
       slotDate: r.slotDate,
       slotStartTime: r.slotStartTime,

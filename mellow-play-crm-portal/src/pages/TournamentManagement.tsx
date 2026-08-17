@@ -1,5 +1,5 @@
 import { API_URL } from '../config';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControl, Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, TextField,
@@ -30,6 +30,7 @@ interface EntryOption {
   label: string;
   subLabel: string;
   members: Member[];
+  people: { name: string; age: number | null; gender: string | null; phone: string | null }[];
   bookingIds: number[];
   slotDate: string | null;
   slotStartTime: string | null;
@@ -79,6 +80,17 @@ const TYPE_ICON: Record<EntryType, React.ReactNode> = {
 
 const RANK_COLOR: Record<number, string> = { 1: '#f2b418', 2: '#a8b3c1', 3: '#c98a5e' };
 
+// HD_Profiles stores whatever the signup form recorded; anything unexpected is
+// shown as-is rather than dropped, because a start list should not silently
+// lose a category it does not recognise.
+const genderLabel = (g: string | null) => {
+  if (!g) return null;
+  const key = g.toLowerCase();
+  if (key === 'male' || key === 'm' || key === 'ชาย') return 'ชาย';
+  if (key === 'female' || key === 'f' || key === 'หญิง') return 'หญิง';
+  return g;
+};
+
 /**
  * Building the start list for a competition.
  *
@@ -113,6 +125,19 @@ const TournamentManagement: React.FC = () => {
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
   const [notice, setNotice] = useState<string>('');
+
+  // Picking entrants straight into one heat, rather than via the pool on the
+  // left — which is how staff work once the bracket exists and they are filling
+  // it in one box at a time.
+  const [pickerHeat, setPickerHeat] = useState<Heat | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerPicked, setPickerPicked] = useState<Set<string>>(new Set());
+
+  // The tree's connector lines are drawn from where the boxes actually landed,
+  // so they stay right whatever the heat names and counts do.
+  const bracketRef = useRef<HTMLDivElement | null>(null);
+  const heatRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [links, setLinks] = useState<{ id: string; d: string }[]>([]);
 
   useEffect(() => {
     axios.get(`${API_BASE}/courses`).then(res => { if (res.data.success) setCourses(res.data.courses || []); });
@@ -313,6 +338,81 @@ const TournamentManagement: React.FC = () => {
     }));
   }, [heats]);
 
+  /**
+   * Draws the tree.
+   *
+   * Which heat feeds which is not decoration — it is the same mapping the
+   * advance action uses (winner j of heat i lands in next-stage heat i+j), so
+   * the lines on screen are the route an entrant actually takes.
+   */
+  useLayoutEffect(() => {
+    const container = bracketRef.current;
+    if (!container || stages.length < 2) { setLinks([]); return; }
+
+    const compute = () => {
+      const base = container.getBoundingClientRect();
+      const next: { id: string; d: string }[] = [];
+
+      for (let s = 0; s < stages.length - 1; s++) {
+        const from = stages[s];
+        const to = stages[s + 1];
+        from.heats.forEach((heat, i) => {
+          const advance = heat.advance_count ?? 1;
+          const targets = new Set<number>();
+          for (let j = 0; j < advance; j++) targets.add((i + j) % to.heats.length);
+
+          const a = heatRefs.current[heat.id]?.getBoundingClientRect();
+          if (!a) return;
+          targets.forEach(t => {
+            const b = heatRefs.current[to.heats[t].id]?.getBoundingClientRect();
+            if (!b) return;
+            const x1 = a.right - base.left;
+            const y1 = a.top - base.top + a.height / 2;
+            const x2 = b.left - base.left;
+            const y2 = b.top - base.top + b.height / 2;
+            const mid = x1 + (x2 - x1) / 2;
+            // Square elbows rather than curves — a bracket is read as columns
+            // and rails, and a diagonal makes two boxes look adjacent when they
+            // are a whole round apart.
+            next.push({ id: `${heat.id}-${to.heats[t].id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
+          });
+        });
+      }
+      setLinks(next);
+    };
+
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(container);
+    Object.values(heatRefs.current).forEach(el => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [stages, entries]);
+
+  // The pool, filtered by the dialog's own search. Anyone already racing in
+  // that round is excluded — the same rule the pool on the left follows.
+  const pickerRows = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    return available.filter(o => {
+      if (!q) return true;
+      const hay = [o.label, o.subLabel, ...(o.people || []).map(p => `${p.name} ${p.phone ?? ''}`)].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [available, pickerSearch]);
+
+  const addPickedToPickerHeat = async () => {
+    if (!pickerHeat || !tournament || pickerPicked.size === 0) return;
+    const chosen = pickerRows.filter(o => pickerPicked.has(o.refKey));
+    const { data } = await axios.post(`${API_BASE}/tournament-heats/${pickerHeat.id}/entries`, {
+      tournament_id: tournament.id,
+      entries: chosen.map(o => ({
+        entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
+      })),
+    });
+    setNotice(data.skipped?.length ? `ข้ามไป ${data.skipped.length} รายการ (อยู่ในรอบนี้แล้ว)` : '');
+    setPickerHeat(null);
+    load(Number(courseId));
+  };
+
   const advanceHeat = async (heat: Heat) => {
     try {
       const { data } = await axios.post(`${API_BASE}/tournament-heats/${heat.id}/advance`);
@@ -469,14 +569,24 @@ const TournamentManagement: React.FC = () => {
                       }}
                     >
                       <Checkbox size="small" checked={picked.has(o.refKey)} sx={{ p: 0.5 }} />
-                      <ListItemText
-                        primary={<Typography variant="body2" sx={{ fontWeight: 700 }}>{o.label}</Typography>}
-                        secondary={
-                          <Typography variant="caption" color="text.secondary">
-                            {o.subLabel}{o.slotDate ? ` · ${roundLabel(o.slotDate, o.slotStartTime)}` : ''}
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{o.label}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          {o.subLabel}{o.slotDate ? ` · ${roundLabel(o.slotDate, o.slotStartTime)}` : ''}
+                        </Typography>
+                        {/* Age, category and a phone number — what an age-banded
+                            draw is made from, and how staff chase a no-show. */}
+                        {(o.people || []).map((person, i) => (
+                          <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.disabled' }}>
+                            {[
+                              person.name,
+                              person.age != null ? `${person.age} ปี` : null,
+                              genderLabel(person.gender),
+                              person.phone,
+                            ].filter(Boolean).join(' · ')}
                           </Typography>
-                        }
-                      />
+                        ))}
+                      </Box>
                     </Box>
                   ))}
                 </Box>
@@ -533,7 +643,15 @@ const TournamentManagement: React.FC = () => {
 
               {/* Horizontal because a bracket is: the eye follows one entrant
                   left to right through the rounds. */}
-              <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
+              <Box ref={bracketRef} sx={{ position: 'relative', display: 'flex', gap: 6, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
+                <Box
+                  component="svg"
+                  sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
+                >
+                  {links.map(l => (
+                    <path key={l.id} d={l.d} fill="none" stroke="#cbd5e1" strokeWidth={2} />
+                  ))}
+                </Box>
                 {stages.map(stage => (
                   <Box key={stage.index} sx={{ minWidth: 300, flex: '0 0 auto' }}>
                     <Box
@@ -560,9 +678,10 @@ const TournamentManagement: React.FC = () => {
                         return (
                           <Paper
                             key={heat.id}
+                            ref={(el: HTMLDivElement | null) => { heatRefs.current[heat.id] = el; }}
                             variant="outlined"
                             sx={{
-                              p: 1.5, borderRadius: 3,
+                              p: 1.5, borderRadius: 3, position: 'relative', bgcolor: 'background.paper',
                               borderColor: heat.status === 'done' ? 'success.light' : 'divider',
                               borderWidth: heat.status === 'done' ? 2 : 1,
                             }}
@@ -659,6 +778,13 @@ const TournamentManagement: React.FC = () => {
                               ))}
                             </Stack>
 
+                            <Button
+                              fullWidth size="small" startIcon={<AddIcon />} sx={{ mt: 1, fontWeight: 700 }}
+                              onClick={() => { setPickerHeat(heat); setPickerPicked(new Set()); setPickerSearch(''); }}
+                            >
+                              เลือกผู้เข้าแข่งขัน
+                            </Button>
+
                             {!stage.isFinal && list.length > 0 && (
                               <Button
                                 fullWidth size="small" sx={{ mt: 1, fontWeight: 700 }}
@@ -680,6 +806,92 @@ const TournamentManagement: React.FC = () => {
           </Grid>
         </>
       )}
+
+      {/* Filling one box of the bracket. Shows age, category and a phone number
+          beside every name — an age-banded heat is drawn on exactly those, and
+          the phone is what staff reach for when someone is not at the line. */}
+      <Dialog open={!!pickerHeat} onClose={() => setPickerHeat(null)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          เลือกผู้เข้าแข่งขัน
+          <Typography variant="body2" color="text.secondary">{pickerHeat?.name}</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <ToggleButtonGroup
+            exclusive size="small" fullWidth value={entryType} sx={{ mb: 1.5 }}
+            onChange={(_, v) => { if (v) { setEntryType(v); setPickerPicked(new Set()); } }}
+          >
+            {(['team', 'family', 'person'] as EntryType[]).map(t => (
+              <ToggleButton key={t} value={t} disabled={t === 'team' && teamFields.length === 0} sx={{ fontWeight: 700, textTransform: 'none' }}>
+                {TYPE_LABEL[t]}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+
+          <TextField
+            size="small" fullWidth placeholder="ค้นหาชื่อ ทีม หรือเบอร์โทร" sx={{ mb: 1.5 }}
+            value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
+          />
+
+          <Stack spacing={0.75}>
+            {pickerRows.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                ไม่พบรายชื่อที่ยังว่างอยู่
+              </Typography>
+            )}
+            {pickerRows.map(o => (
+              <Paper
+                key={o.refKey}
+                variant="outlined"
+                onClick={() => setPickerPicked(prev => {
+                  const next = new Set(prev);
+                  if (next.has(o.refKey)) next.delete(o.refKey); else next.add(o.refKey);
+                  return next;
+                })}
+                sx={{
+                  p: 1, borderRadius: 2, cursor: 'pointer', display: 'flex', gap: 1, alignItems: 'flex-start',
+                  borderColor: pickerPicked.has(o.refKey) ? 'primary.main' : 'divider',
+                  bgcolor: pickerPicked.has(o.refKey) ? 'action.selected' : 'transparent',
+                }}
+              >
+                <Checkbox size="small" checked={pickerPicked.has(o.refKey)} sx={{ p: 0.5 }} />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>{o.label}</Typography>
+                  {o.subLabel && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{o.subLabel}</Typography>
+                  )}
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+                    {(o.people || []).map((person, i) => (
+                      <Chip
+                        key={i}
+                        size="small"
+                        variant="outlined"
+                        label={[
+                          person.name,
+                          person.age != null ? `${person.age} ปี` : null,
+                          genderLabel(person.gender),
+                          person.phone,
+                        ].filter(Boolean).join(' · ')}
+                        sx={{ fontWeight: 600, maxWidth: '100%' }}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+                {o.slotDate && (
+                  <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                    {roundLabel(o.slotDate, o.slotStartTime)}
+                  </Typography>
+                )}
+              </Paper>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPickerHeat(null)}>ปิด</Button>
+          <Button variant="contained" disabled={pickerPicked.size === 0} onClick={addPickedToPickerHeat}>
+            ใส่ลง {pickerHeat?.name} ({pickerPicked.size})
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* The template: two numbers, and a preview of the bracket they make. */}
       <Dialog open={genOpen} onClose={() => setGenOpen(false)} fullWidth maxWidth="xs">
