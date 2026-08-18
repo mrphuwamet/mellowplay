@@ -127,6 +127,50 @@ export class AnalyticsController {
     }
   }
 
+  /**
+   * Bookings made since the caller last looked.
+   *
+   * Polled by the announcement board, which is left open on a screen in the
+   * office. Keyed on id rather than a timestamp because ids are what the board
+   * already has and cannot drift with clock skew between two machines.
+   *
+   * The first call has no sinceId and deliberately announces nothing — opening
+   * the board should not read out the last twenty bookings of the morning.
+   */
+  async getRecentBookings(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const sinceId = parseInt(c.req.query('sinceId') || '0');
+      const limit = Math.min(20, Math.max(1, parseInt(c.req.query('limit') || '10')));
+
+      const { results } = await config.db.prepare(`
+        SELECT b.id, b.created_at, b.scheduled_at, b.slot_date, b.slot_start_time,
+               co.name AS course_name,
+               COALESCE(hp.nickname, hp.name) AS child_name,
+               br.name AS branch_name
+        FROM Bookings b
+        JOIN Courses co ON b.course_id = co.id
+        LEFT JOIN Children ch ON b.child_id = ch.id
+        LEFT JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
+        LEFT JOIN Branches br ON b.branch_id = br.id
+        WHERE b.status != 'cancelled' AND b.id > ?
+        ORDER BY b.id DESC
+        LIMIT ?
+      `).bind(sinceId, limit).all<any>();
+
+      // Oldest first, so a board announcing several at once reads them in the
+      // order they happened.
+      const bookings = (results as any[]).slice().reverse();
+      const latestId = await config.db.prepare(
+        "SELECT COALESCE(MAX(id), 0) AS id FROM Bookings WHERE status != 'cancelled'"
+      ).first<any>();
+
+      return c.json({ success: true, bookings, latestId: latestId?.id ?? 0 });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
   async getActiveUsers(c: C) {
     try {
       const config = new ConfigService(c.env);

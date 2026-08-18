@@ -74,6 +74,7 @@ import {
   ManageSearch as ChildDirectoryMenuIcon,
   Sms as SmsMenuIcon,
   EmojiEvents as TournamentMenuIcon,
+  VolumeUp as AnnouncerMenuIcon,
 } from '@mui/icons-material';
 import logo from './assets/logo.svg';
 
@@ -127,6 +128,7 @@ import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
 import TournamentManagement from './pages/TournamentManagement';
+import BookingAnnouncer from './pages/BookingAnnouncer';
 import { SystemLogs } from './pages/SystemLogs';
 import { ApiCallLogs } from './pages/ApiCallLogs';
 import {
@@ -152,7 +154,7 @@ const drawerWidth = 280;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/bookings', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/tournaments', '/crm/sms-notifications'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/booking-announcer', '/crm/tournaments', '/crm/sms-notifications'],
   marketing: ['/crm/broadcasts', '/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -444,6 +446,7 @@ const AppContent = () => {
       { text: 'แบบสอบถาม/แบบทดสอบ', icon: <SurveyMenuIcon />, path: '/crm/surveys', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
+      { text: 'ประกาศการจองใหม่', icon: <AnnouncerMenuIcon />, path: '/crm/booking-announcer', feature: 'bookings' },
       { text: 'จัดการแข่งขัน', icon: <TournamentMenuIcon />, path: '/crm/tournaments', feature: 'bookings' },
       { text: 'การแจ้งเตือน', icon: <SmsMenuIcon />, path: '/crm/sms-notifications', feature: 'bookings' },
       { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
@@ -907,6 +910,7 @@ const AppContent = () => {
             <Route path="/crm/message-logs" element={protect('settings', <MessageLogs />)} />
             <Route path="/crm/broadcasts" element={protect('settings', <BroadcastManagement />)} />
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />
+            <Route path="/crm/booking-announcer" element={protect('bookings', <BookingAnnouncer />)} />
             <Route path="/crm/tournaments"       element={protect('bookings', <TournamentManagement />)} />
             <Route path="/crm/sms-notifications" element={protect('bookings', <SmsNotifications />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
