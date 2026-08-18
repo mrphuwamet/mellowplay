@@ -25,7 +25,7 @@ function generateId(): string {
 // Lightweight presence ping for the CRM Dashboard's "active now" widget —
 // not a full analytics/session system. One random ID persisted per browser
 // so repeat visits from the same device count once toward "active now".
-function getSessionId(): string {
+export function getSessionId(): string {
   let id = localStorage.getItem('mellow_session_id');
   if (!id) {
     id = generateId();

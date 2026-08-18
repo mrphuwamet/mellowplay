@@ -729,6 +729,7 @@ app.get ('/api/v1/admin/analytics/booking-capacity', (c) => analyticsController.
 app.get ('/api/v1/admin/analytics/booking-watchlist', (c) => analyticsController.getBookingWatchlist(c));
 app.post('/api/v1/admin/analytics/booking-watchlist', (c) => analyticsController.toggleBookingWatch(c));
 app.post('/api/v1/visits/ping',                    (c) => analyticsController.pingVisit(c));
+app.post('/api/v1/visits/tag-click',               (c) => analyticsController.recordTagClick(c));
 app.post('/api/v1/courses/:courseId/view',         (c) => analyticsController.recordCourseView(c));
 app.get ('/api/v1/courses/:courseId/reviews',      (c) => analyticsController.getCourseReviews(c));
 app.post('/api/v1/courses/reviews',                (c) => analyticsController.createCourseReview(c));
@@ -927,6 +928,7 @@ app.get('/api/v1/admin/reports/busiest-days',   (c) => reportController.getBusie
 app.get('/api/v1/admin/reports/kpis',           (c) => reportController.getSummaryKPIs(c));
 app.get('/api/v1/admin/reports/tag-attribution', (c) => reportController.getTagAttribution(c));
 app.get('/api/v1/admin/reports/tag-attribution/people', (c) => reportController.getTagAttributionPeople(c));
+app.get('/api/v1/admin/reports/tag-clicks', (c) => reportController.getTagClicks(c));
 
 app.get('/api/v1/admin/registration-forms',      (c) => registrationFormController.listForms(c));
 app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));

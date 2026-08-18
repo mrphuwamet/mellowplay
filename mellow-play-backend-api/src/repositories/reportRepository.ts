@@ -178,6 +178,77 @@ export class ReportRepository {
     };
   }
 
+  // ── Tag click-throughs ─────────────────────────────────────────────────────
+  // The other half of the tag story: arrivals, not registrations. A campaign
+  // that brings a thousand visitors who never sign up is invisible in the
+  // booking-based numbers above, and is exactly what a sponsor asks about.
+  async getTagClickSummary(startDate: string, endDate: string): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT
+        tag,
+        COUNT(*) AS clicks,
+        -- Distinct browsers. The gap between this and clicks is how much of a
+        -- campaign's traffic is the same few people opening the link again.
+        COUNT(DISTINCT COALESCE(session_id, id)) AS unique_visitors,
+        MIN(DATE(created_at, '+7 hours')) AS first_seen,
+        MAX(DATE(created_at, '+7 hours')) AS last_seen
+      FROM Tag_Clicks
+      WHERE DATE(created_at, '+7 hours') BETWEEN ? AND ?
+      GROUP BY tag
+      ORDER BY clicks DESC
+    `).bind(startDate, endDate).all();
+    return results;
+  }
+
+  async getTagClickTrend(startDate: string, endDate: string): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT DATE(created_at, '+7 hours') AS date, tag, COUNT(*) AS clicks
+      FROM Tag_Clicks
+      WHERE DATE(created_at, '+7 hours') BETWEEN ? AND ?
+      GROUP BY DATE(created_at, '+7 hours'), tag
+      ORDER BY date ASC
+    `).bind(startDate, endDate).all();
+    return results;
+  }
+
+  /** Which shared link people actually opened, per tag. */
+  async getTagClickPaths(startDate: string, endDate: string): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT tag, COALESCE(NULLIF(path, ''), '/') AS path, COUNT(*) AS clicks
+      FROM Tag_Clicks
+      WHERE DATE(created_at, '+7 hours') BETWEEN ? AND ?
+      GROUP BY tag, COALESCE(NULLIF(path, ''), '/')
+      ORDER BY clicks DESC
+      LIMIT 200
+    `).bind(startDate, endDate).all();
+    return results;
+  }
+
+  /**
+   * Clicks beside registrations, per tag.
+   *
+   * Two separate counts joined on the tag rather than one query over a join:
+   * a click has no branch and a booking has no session, so a row that tried to
+   * be both would multiply one by the other.
+   */
+  async getTagFunnel(startDate: string, endDate: string, branchId?: number): Promise<any[]> {
+    const clicks = await this.getTagClickSummary(startDate, endDate);
+    const bookings = await this.getTagAttributionSummary(startDate, endDate, branchId);
+    const byTag = new Map<string, any>();
+    for (const c of clicks as any[]) {
+      byTag.set(c.tag, { tag: c.tag, clicks: c.clicks, unique_visitors: c.unique_visitors, bookings: 0, unique_children: 0 });
+    }
+    for (const b of bookings as any[]) {
+      const row = byTag.get(b.tag) ?? { tag: b.tag, clicks: 0, unique_visitors: 0, bookings: 0, unique_children: 0 };
+      row.bookings = b.booking_count;
+      row.unique_children = b.unique_children;
+      byTag.set(b.tag, row);
+    }
+    return Array.from(byTag.values())
+      .map(r => ({ ...r, conversion: r.clicks > 0 ? r.bookings / r.clicks : null }))
+      .sort((a, b) => b.clicks - a.clicks || b.bookings - a.bookings);
+  }
+
   // ── Sponsor/Marketing Tag Attribution ──────────────────────────────────────
   // sponsor_tag is set on Bookings.created_at from a ?tag= URL param the
   // consumer app captured before checkout; NULL covers both "never tagged"

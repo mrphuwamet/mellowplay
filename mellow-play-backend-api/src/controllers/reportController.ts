@@ -88,6 +88,28 @@ export class ReportController {
   }
 
   /**
+   * Arrivals through a tagged link, and how they compare with registrations.
+   *
+   * Its own endpoint rather than more fields on getTagAttribution: the two
+   * answer different questions, are read on different screens, and a click has
+   * no branch to filter by.
+   */
+  async getTagClicks(c: C) {
+    try {
+      const d = defaultDates();
+      const { startDate = d.startDate, endDate = d.endDate, branchId } = c.req.query();
+      const bId = branchId ? parseInt(branchId) : undefined;
+      const [summary, trend, paths, funnel] = await Promise.all([
+        this.repo(c).getTagClickSummary(startDate, endDate),
+        this.repo(c).getTagClickTrend(startDate, endDate),
+        this.repo(c).getTagClickPaths(startDate, endDate),
+        this.repo(c).getTagFunnel(startDate, endDate, bId),
+      ]);
+      return c.json({ success: true, summary, trend, paths, funnel });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
    * The name list behind the tag report — its own endpoint rather than another
    * field on getTagAttribution, because the dashboard loads on every date
    * change and would otherwise drag a few thousand rows along each time to

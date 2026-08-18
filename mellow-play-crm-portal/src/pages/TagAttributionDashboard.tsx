@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box, Grid, Paper, Typography, Card, CardContent, Skeleton,
   TextField, FormControl, InputLabel, Select, MenuItem, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, Chip, Button, Alert,
+  TableCell, TableContainer, TableHead, TableRow, Chip, Button, Alert, Tabs, Tab,
 } from '@mui/material';
 import {
   Link as TagIcon,
@@ -11,6 +11,7 @@ import {
   Sell as TaggedIcon,
   FileDownload as ExportIcon,
   People as PeopleIcon,
+  TouchApp as ClickIcon,
 } from '@mui/icons-material';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -31,6 +32,10 @@ interface Branch { id: number; name: string; }
 interface SummaryRow { tag: string; booking_count: number; unique_children: number; first_seen: string; last_seen: string; }
 interface TrendRow { date: string; tag: string; booking_count: number; }
 interface ByCourseRow { tag: string; course_name: string; booking_count: number; unique_children: number; }
+interface ClickRow { tag: string; clicks: number; unique_visitors: number; first_seen: string; last_seen: string; }
+interface ClickTrendRow { date: string; tag: string; clicks: number; }
+interface PathRow { tag: string; path: string; clicks: number; }
+interface FunnelRow { tag: string; clicks: number; unique_visitors: number; bookings: number; unique_children: number; conversion: number | null; }
 
 const StatCard = ({
   title, value, icon, color, loading,
@@ -74,6 +79,47 @@ const TagAttributionDashboard = () => {
   const [peopleTag, setPeopleTag] = useState('');
   const [downloadingPeople, setDownloadingPeople] = useState(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [tab, setTab] = useState(0);
+  const [clickSummary, setClickSummary] = useState<ClickRow[]>([]);
+  const [clickTrend, setClickTrend] = useState<ClickTrendRow[]>([]);
+  const [paths, setPaths] = useState<PathRow[]>([]);
+  const [funnel, setFunnel] = useState<FunnelRow[]>([]);
+  const [clickLoading, setClickLoading] = useState(false);
+  const [clickError, setClickError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tab !== 1) return;
+    let cancelled = false;
+    setClickLoading(true);
+    const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo });
+    if (branch !== 'all') params.set('branchId', branch);
+    axios.get(`${API_BASE}/reports/tag-clicks?${params}`)
+      .then(res => {
+        if (cancelled || !res.data.success) return;
+        setClickSummary(res.data.summary || []);
+        setClickTrend(res.data.trend || []);
+        setPaths(res.data.paths || []);
+        setFunnel(res.data.funnel || []);
+        setClickError(null);
+      })
+      .catch(e => { if (!cancelled) setClickError(e.response?.data?.message || 'โหลดข้อมูลคลิกไม่สำเร็จ'); })
+      .finally(() => { if (!cancelled) setClickLoading(false); });
+    return () => { cancelled = true; };
+  }, [tab, dateFrom, dateTo, branch]);
+
+  const totalClicks = useMemo(() => clickSummary.reduce((n, r) => n + r.clicks, 0), [clickSummary]);
+  const totalVisitors = useMemo(() => clickSummary.reduce((n, r) => n + r.unique_visitors, 0), [clickSummary]);
+  const funnelBookings = useMemo(() => funnel.reduce((n, r) => n + r.bookings, 0), [funnel]);
+
+  // One bar per day across every tag — which day a campaign landed is the
+  // question here; which tag it was is the table below.
+  const clickTrendData = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const row of clickTrend) byDate.set(row.date, (byDate.get(row.date) ?? 0) + row.clicks);
+    return Array.from(byDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, clicks]) => ({ label: date.slice(5), clicks }));
+  }, [clickTrend]);
 
   useEffect(() => {
     axios.get(`${API_BASE}/branches`)
@@ -177,6 +223,15 @@ const TagAttributionDashboard = () => {
     <Box>
       <DashboardTabs />
 
+      {/* Two reports under one menu: what a campaign brought to the door, and
+          what it turned into. Kept as tabs rather than two screens because the
+          date range and the sponsor being asked about are the same for both. */}
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <Tab label="การสมัครตาม Tag" />
+        <Tab label="คลิกเข้ามาตาม Tag" />
+      </Tabs>
+
+
       <Box sx={{
         position: 'sticky', top: 0, zIndex: 5, bgcolor: 'background.default', py: 1.5, mb: 3,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5,
@@ -219,6 +274,8 @@ const TagAttributionDashboard = () => {
           </Button>
         </Box>
       </Box>
+      {tab === 0 && (
+        <>
       {peopleError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setPeopleError(null)}>{peopleError}</Alert>}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -331,6 +388,122 @@ const TagAttributionDashboard = () => {
           </SectionPaper>
         </Grid>
       </Grid>
+        </>
+      )}
+
+      {tab === 1 && (
+        <>
+          {clickError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setClickError(null)}>{clickError}</Alert>}
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard title="คลิกเข้ามาทั้งหมด" value={totalClicks.toLocaleString()} icon={<ClickIcon />} color="primary" loading={clickLoading} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard title="ผู้เข้าชมไม่ซ้ำ" value={totalVisitors.toLocaleString()} icon={<OrganicIcon />} color="info" loading={clickLoading} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard title="Tag ที่มีคนคลิก" value={clickSummary.length.toLocaleString()} icon={<TagIcon />} color="success" loading={clickLoading} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard
+                title="คลิกแล้วสมัคร"
+                value={totalClicks > 0 ? `${Math.round((funnelBookings / totalClicks) * 100)}%` : '-'}
+                icon={<RegistrationsIcon />} color="secondary" loading={clickLoading}
+              />
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid item xs={12}>
+              <SectionPaper title="จำนวนคลิกรายวัน">
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={clickTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <RechartsTooltip />
+                    <Bar dataKey="clicks" name="คลิก" fill="#7452d6" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </SectionPaper>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid item xs={12}>
+              {/* Clicks beside registrations, because neither number means much
+                  alone: a thousand clicks and two sign-ups is a different
+                  problem from twenty clicks and two sign-ups. */}
+              <SectionPaper title="คลิก → สมัคร แยกตาม Tag">
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Tag</TableCell>
+                        <TableCell align="right">คลิก</TableCell>
+                        <TableCell align="right">ผู้เข้าชมไม่ซ้ำ</TableCell>
+                        <TableCell align="right">สมัคร</TableCell>
+                        <TableCell align="right">อัตราการสมัคร</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {funnel.length === 0 && !clickLoading && (
+                        <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>ยังไม่มีข้อมูลในช่วงวันที่เลือก</TableCell></TableRow>
+                      )}
+                      {funnel.map(row => (
+                        <TableRow key={row.tag} hover>
+                          <TableCell>
+                            <Chip size="small" label={row.tag} sx={{ fontWeight: 700 }} />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>{row.clicks.toLocaleString()}</TableCell>
+                          <TableCell align="right">{row.unique_visitors.toLocaleString()}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>{row.bookings.toLocaleString()}</TableCell>
+                          <TableCell align="right">
+                            {row.conversion == null
+                              ? <Typography variant="caption" color="text.secondary">ไม่มีคลิกที่บันทึกไว้</Typography>
+                              : `${Math.round(row.conversion * 100)}%`}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </SectionPaper>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <SectionPaper title="ลิงก์ที่ถูกเปิด (แยกตาม Tag)">
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Tag</TableCell>
+                        <TableCell>หน้าที่เปิด</TableCell>
+                        <TableCell align="right">คลิก</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {paths.length === 0 && !clickLoading && (
+                        <TableRow><TableCell colSpan={3} align="center" sx={{ py: 4, color: 'text.secondary' }}>ยังไม่มีข้อมูล</TableCell></TableRow>
+                      )}
+                      {paths.map((row, i) => (
+                        <TableRow key={`${row.tag}-${row.path}-${i}`} hover>
+                          <TableCell><Chip size="small" label={row.tag} sx={{ fontWeight: 700 }} /></TableCell>
+                          <TableCell sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }}>{row.path}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>{row.clicks.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </SectionPaper>
+            </Grid>
+          </Grid>
+        </>
+      )}
     </Box>
   );
 };

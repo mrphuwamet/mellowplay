@@ -100,6 +100,33 @@ export class AnalyticsController {
     }
   }
 
+  /**
+   * Records an arrival carrying a sponsor's ?tag=.
+   *
+   * Public, unauthenticated and deliberately forgiving: this fires from a
+   * visitor's browser before they are anyone, and a failure here must never be
+   * visible to them — a lost click is a lost row in a report, not a broken page.
+   */
+  async recordTagClick(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const { tag, path, sessionId } = await c.req.json();
+      const clean = (tag ?? '').toString().trim().slice(0, 120);
+      if (!clean) return c.json({ success: true, skipped: true });
+      await config.db.prepare(
+        'INSERT INTO Tag_Clicks (tag, path, session_id, referrer) VALUES (?, ?, ?, ?)'
+      ).bind(
+        clean,
+        (path ?? '').toString().slice(0, 300) || null,
+        (sessionId ?? '').toString().slice(0, 120) || null,
+        (c.req.header('Referer') ?? '').slice(0, 300) || null,
+      ).run();
+      return c.json({ success: true });
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
   async getActiveUsers(c: C) {
     try {
       const config = new ConfigService(c.env);
