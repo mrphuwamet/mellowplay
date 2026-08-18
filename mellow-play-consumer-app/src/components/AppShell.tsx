@@ -56,6 +56,11 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const isAuthFlow = AUTH_FLOW_PATHS.includes(location.pathname);
   const showBottomNav = NAV_PATHS.includes(location.pathname);
+  // The feed lays itself out as a full-height row — a scrolling column beside a
+  // scrolling sidebar — so at lg: it owns its own scrolling. Letting the shell
+  // scroll as well puts a second bar at the far right of the window, past the
+  // sidebar, scrolling the two columns together.
+  const ownsScrolling = location.pathname === '/';
   const [lockedNavFeature, setLockedNavFeature] = React.useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [isBookingMenuOpen, setIsBookingMenuOpen] = React.useState(false);
@@ -570,7 +575,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           rules in index.css to pick up its own width — that class has to
           stay on this wrapper for those pages, unchanged from before, now
           just sitting next to the sidebar instead of centered alone. */}
-      <div className={`${showBottomNav ? 'max-w-[430px] md:max-w-none' : 'mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full'} md:flex-1 md:min-w-0 mx-auto md:mx-auto min-h-screen md:h-screen bg-[#fbfaf7] relative shadow-2xl md:shadow-none overflow-hidden md:overflow-y-auto`}>
+      <div className={`${showBottomNav ? 'max-w-[430px] md:max-w-none' : 'mellow-shell-frame max-w-[430px] mx-auto md:max-w-none md:w-full'} md:flex-1 md:min-w-0 mx-auto md:mx-auto min-h-screen md:h-screen bg-[#fbfaf7] relative shadow-2xl md:shadow-none overflow-hidden md:overflow-y-auto ${ownsScrolling ? 'lg:overflow-hidden' : ''}`}>
         {children}
 
         {/* Shared Bottom Navigation — mobile only, and only on the 5 tab

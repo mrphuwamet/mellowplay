@@ -1203,13 +1203,13 @@ const Home = () => {
         </div>
       </header>
 
-      <main className="px-5 pb-6 lg:pb-0 relative z-10 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+      <main className="px-5 pb-6 lg:px-0 lg:pb-0 relative z-10 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
         {/* At lg:+, this whole feed scrolls independently of the left nav
             sidebar and the right sidebar (a separate sibling column now,
             outside this max-width wrapper — see below); below lg: it's
             inert and everything renders in its original stacked order,
             unchanged. */}
-        <div className="lg:h-full lg:overflow-y-auto">
+        <div className="lg:h-full lg:overflow-y-auto lg:px-5">
         {/* Profile/quick-access/upcoming-classes section stays at a reading
             width even on wide screens — the recommended-classes carousel
             below uses the full page width instead, so it can show more
