@@ -263,3 +263,52 @@ p, li, label, h1, h2, h3, h4, h5, h6 {
   width: 0px;
   background: transparent;
 }
+
+/* Scrollbars.
+ *
+ * The app is phone-shaped and hides them by default (above), which is right on
+ * a touch device where the bar is a transient overlay. On a desktop it is not:
+ * a long feed with no bar gives no sense of how much is left, and no target to
+ * drag. Below 1024px nothing changes.
+ */
+@media (min-width: 1024px) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    /* Padded via a transparent border so the thumb reads as a slim pill
+       rather than a bar wedged against the edge of the window. */
+    background-color: #cfd6e4;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #aab4c8;
+  }
+  /* Firefox has no pseudo-elements for this; these two properties are the
+     whole API it offers. */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: #cfd6e4 transparent;
+  }
+}
+
+/* The horizontal card rails keep their hidden bars everywhere — they are
+ * dragged and snapped, and a bar under each one would stack up as visual
+ * noise down the page. The class was already on those elements but had never
+ * been defined, since no scrollbar plugin is installed.
+ */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
