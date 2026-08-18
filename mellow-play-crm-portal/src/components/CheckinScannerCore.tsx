@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import {
   Box, Paper, Typography, Avatar, Chip, Button, Alert, CircularProgress,
   List, ListItem, ListItemText, Checkbox, Divider, Tabs, Tab, TextField,
@@ -80,6 +80,37 @@ interface Props {
 // found so it doesn't immediately re-trigger on the same QR still in
 // frame; "สแกนใหม่" resumes it for the next attendee. A manual phone-number
 // mode covers the case where scanning isn't practical.
+/**
+ * Which lens to open.
+ *
+ * A phone offers several rear cameras and the browser's default is often the
+ * ultra-wide, which puts the QR so far away that it will not resolve at arm's
+ * length. Prefer a rear camera that is not ultra-wide; fall back to any rear
+ * one, then to whatever exists — a laptop has only a front camera and should
+ * still work.
+ */
+export function pickRearCamera(cameras: { id: string; label: string }[]): string {
+  const rear = cameras.filter(c => /back|rear|environment|หลัง/i.test(c.label || ''));
+  const pool = rear.length > 0 ? rear : cameras;
+  const usable = pool.filter(c => !/ultra|wide-angle|ultrawide|มุมกว้าง/i.test(c.label || ''));
+  return (usable[0] ?? pool[0] ?? cameras[0]).id;
+}
+
+/**
+ * The token out of whatever was scanned.
+ *
+ * The QR image encodes the bare token, but the same code reaches this from an
+ * email link (/checkin/<token>, possibly several joined by commas) and from a
+ * handheld scanner pointed at either. Taking the last path segment and the
+ * first token covers all of them without the caller having to know which it got.
+ */
+export function extractToken(raw: string): string {
+  const text = (raw || '').trim();
+  if (!text) return '';
+  const afterPath = text.includes('/checkin/') ? text.split('/checkin/').pop()! : text;
+  return decodeURIComponent(afterPath.split(/[?#]/)[0].split(',')[0].trim());
+}
+
 const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [booking, setBooking] = useState<CheckinBooking | null>(null);
@@ -91,7 +122,14 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const [phoneResults, setPhoneResults] = useState<PhoneSearchResult[] | null>(null);
   const [formFields, setFormFields] = useState<FormAnswerField[] | null>(null);
   const [formLoading, setFormLoading] = useState(false);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(true);
+  // A hardware scanner is a keyboard: it types the code and presses Enter.
+  // The field is kept focused whenever the camera view is on screen so a
+  // handheld gun works without anyone clicking into anything first.
+  const wedgeRef = useRef<HTMLInputElement | null>(null);
+  const [wedgeValue, setWedgeValue] = useState('');
   const lastScannedRef = useRef<string | null>(null);
 
   const handleRequestError = (e: any, fallbackMessage: string) => {
@@ -103,7 +141,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const lookupToken = async (token: string) => {
     if (token === lastScannedRef.current) return; // same code still in frame
     lastScannedRef.current = token;
-    scannerRef.current?.pause(true);
+    pauseCamera();
     setLoading(true);
     setError(null);
     try {
@@ -117,28 +155,84 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   };
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      SCANNER_ELEMENT_ID,
-      { fps: 10, qrbox: 250 },
-      false
-    );
-    scanner.render((decodedText) => lookupToken(decodedText), undefined);
+    let cancelled = false;
+    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, false);
     scannerRef.current = scanner;
+
+    (async () => {
+      try {
+        // Asking for the list is itself the permission prompt, which is why
+        // there is no button to press first — someone working a door has a
+        // queue in front of them.
+        const cameras = await Html5Qrcode.getCameras();
+        if (cancelled) return;
+        const constraint = cameras.length > 0
+          ? { deviceId: { exact: pickRearCamera(cameras) } }
+          : { facingMode: 'environment' };
+        await scanner.start(
+          constraint as any,
+          { fps: 10, qrbox: 250 },
+          decodedText => lookupToken(extractToken(decodedText)),
+          undefined,
+        );
+        if (!cancelled) setCameraError(null);
+      } catch (e: any) {
+        if (cancelled) return;
+        // Denied, or no camera at all. The hardware-scanner field below still
+        // works, so this is a notice rather than a dead end.
+        setCameraError(e?.message || 'เปิดกล้องไม่ได้');
+      } finally {
+        if (!cancelled) setStarting(false);
+      }
+    })();
+
     return () => {
-      scanner.clear().catch(() => {});
+      cancelled = true;
+      // stop() rejects when it was never started; either way the element is
+      // about to go away.
+      scanner.stop().catch(() => {}).finally(() => scanner.clear());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keeps the hardware-scanner field ready without stealing focus from a form
+  // the user is actually typing in.
+  useEffect(() => {
+    if (booking || mode !== 'scan') return;
+    const el = wedgeRef.current;
+    if (el && document.activeElement !== el) el.focus();
+  }, [booking, mode, starting]);
+
+  const pauseCamera = () => {
+    try {
+      if (scannerRef.current?.getState() === Html5QrcodeScannerState.SCANNING) scannerRef.current.pause(true);
+    } catch { /* never started, or already stopped */ }
+  };
+
+  const resumeCamera = () => {
+    try {
+      if (scannerRef.current?.getState() === Html5QrcodeScannerState.PAUSED) scannerRef.current.resume();
+    } catch { /* never started, or already stopped */ }
+  };
+
+  const submitWedge = () => {
+    const token = extractToken(wedgeValue);
+    setWedgeValue('');
+    if (token) {
+      lastScannedRef.current = null; // a deliberate re-scan is not a duplicate
+      lookupToken(token);
+    }
+  };
 
   const switchMode = (newMode: 'scan' | 'manual') => {
     setMode(newMode);
     setError(null);
     setPhoneResults(null);
     if (newMode === 'manual') {
-      scannerRef.current?.pause(true);
+      pauseCamera();
     } else {
       lastScannedRef.current = null;
-      scannerRef.current?.resume();
+      resumeCamera();
     }
   };
 
@@ -148,7 +242,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
     setPhoneResults(null);
     setPhoneInput('');
     lastScannedRef.current = null;
-    if (mode === 'scan') scannerRef.current?.resume();
+    if (mode === 'scan') resumeCamera();
   };
 
   const searchByPhone = async () => {
@@ -242,8 +336,35 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
           would break resume(). */}
       <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box', display: (booking || mode !== 'scan') ? 'none' : 'block' }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          เปิดกล้องและส่อง QR Code ของผู้เข้าร่วมที่ได้รับหลังจองสำเร็จ
+          ส่อง QR Code ของผู้เข้าร่วมที่ได้รับหลังจองสำเร็จ หรือยิงด้วยเครื่องสแกน
         </Typography>
+
+        {/* Always present, always focused: a handheld scanner types into
+            whatever has focus and presses Enter, so the field has to be ready
+            before anyone thinks to click it. */}
+        <TextField
+          inputRef={wedgeRef}
+          fullWidth size="small" autoComplete="off"
+          label="ยิงด้วยเครื่องสแกน / วางโค้ด"
+          value={wedgeValue}
+          onChange={e => setWedgeValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitWedge(); } }}
+          onBlur={() => { if (!booking && mode === 'scan') setTimeout(() => wedgeRef.current?.focus(), 0); }}
+          helperText="ยิงแล้วระบบจะค้นหาให้ทันที ไม่ต้องกดปุ่มใดๆ"
+          sx={{ mb: 2 }}
+        />
+
+        {starting && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <CircularProgress size={16} />
+            <Typography variant="caption" color="text.secondary">กำลังเปิดกล้อง...</Typography>
+          </Box>
+        )}
+        {cameraError && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            เปิดกล้องไม่ได้ ({cameraError}) — ใช้เครื่องสแกนยิงที่ช่องด้านบน หรือกรอกเบอร์โทรแทนได้
+          </Alert>
+        )}
         <div id={SCANNER_ELEMENT_ID} />
         {loading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
