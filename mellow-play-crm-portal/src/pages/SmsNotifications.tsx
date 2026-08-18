@@ -311,10 +311,13 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState('');
-  // Channels for this send. SMS stays on by default — it is what this screen
-  // has always done — and email is an addition, not a replacement.
-  const [useSms, setUseSms] = useState(true);
-  const [useEmail, setUseEmail] = useState(false);
+  // One policy rather than two switches, so "email, and SMS only if they have
+  // no email" is sayable — the combination staff actually want, and one that
+  // two independent checkboxes cannot express. Same vocabulary as the
+  // per-course confirmation setting.
+  const [mode, setMode] = useState<'sms_only' | 'email_only' | 'both' | 'email_first' | 'sms_first'>('sms_only');
+  const useSms = mode !== 'email_only';
+  const useEmail = mode !== 'sms_only';
   const [emailSubject, setEmailSubject] = useState('แจ้งเตือน {{course_name}}');
   const [emailBody, setEmailBody] = useState('');
   const [formFields, setFormFields] = useState<{ field_key: string; label: string }[]>([]);
@@ -367,18 +370,17 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
     return next;
   });
 
-  const channels = [...(useSms ? ['sms'] : []), ...(useEmail ? ['email'] : [])];
-  const canSend = selected.size > 0 && channels.length > 0
+  const canSend = selected.size > 0
     && (!useSms || message.trim().length > 0)
     && (!useEmail || emailBody.trim().length > 0);
-  const sendLabel = useSms && useEmail ? 'ส่งแจ้งเตือน' : useEmail ? 'ส่งอีเมล' : 'ส่ง SMS';
+  const sendLabel = mode === 'sms_only' ? 'ส่ง SMS' : mode === 'email_only' ? 'ส่งอีเมล' : 'ส่งแจ้งเตือน';
 
   const send = async () => {
     if (!canSend) return;
     setSending(true);
     try {
       const res = await axios.post(`${API_BASE}/sms/send-reminder`, {
-        bookingIds: Array.from(selected), message, channels, emailSubject, emailBody,
+        bookingIds: Array.from(selected), message, mode, emailSubject, emailBody,
       });
       if (res.data.success) setResult(res.data);
     } finally { setSending(false); }
@@ -470,17 +472,23 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
         {/* Which channels this send uses. Both can be on: a family with only an
             email still gets reached, and the result dialog says per row which
             channel was missing. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>ช่องทาง</Typography>
-          <FormControlLabel
-            control={<Checkbox size="small" checked={useSms} onChange={e => setUseSms(e.target.checked)} />}
-            label={<Typography variant="body2" sx={{ fontWeight: 700 }}>SMS</Typography>}
-          />
-          <FormControlLabel
-            control={<Checkbox size="small" checked={useEmail} onChange={e => setUseEmail(e.target.checked)} />}
-            label={<Typography variant="body2" sx={{ fontWeight: 700 }}>อีเมล</Typography>}
-          />
-        </Box>
+        <FormControl size="small" fullWidth sx={{ mb: 2, maxWidth: 420 }}>
+          <InputLabel>ช่องทางการส่ง</InputLabel>
+          <Select label="ช่องทางการส่ง" value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
+            <MenuItem value="sms_only">SMS เท่านั้น</MenuItem>
+            <MenuItem value="email_only">อีเมลเท่านั้น</MenuItem>
+            <MenuItem value="email_first">อีเมลก่อน ถ้าส่งไม่ได้จึงส่ง SMS</MenuItem>
+            <MenuItem value="sms_first">SMS ก่อน ถ้าส่งไม่ได้จึงส่งอีเมล</MenuItem>
+            <MenuItem value="both">ส่งทั้ง SMS และอีเมล</MenuItem>
+          </Select>
+        </FormControl>
+
+        {(mode === 'email_first' || mode === 'sms_first') && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            ช่องทางสำรองจะถูกใช้เมื่อผู้รับไม่มีช่องทางแรก หรือส่งช่องทางแรกไม่สำเร็จ ·
+            ต้องเขียนข้อความไว้ทั้งสองแบบ
+          </Alert>
+        )}
 
         {useSms && (
           <>

@@ -39,14 +39,22 @@ export class SmsController {
       const config = new ConfigService(c.env);
       const body = await c.req.json() as {
         bookingIds: number[]; message: string;
-        channels?: ('sms' | 'email')[]; emailSubject?: string; emailBody?: string;
+        channels?: ('sms' | 'email')[]; mode?: string; emailSubject?: string; emailBody?: string;
       };
       const { bookingIds, message } = body;
-      // A reminder can go out by SMS, by email, or by both. Defaults to SMS
-      // alone, which is what every caller predating the email channel sends.
-      const channels = body.channels?.length ? body.channels : ['sms'];
-      const wantsSms = channels.includes('sms');
-      const wantsEmail = channels.includes('email');
+      // The channel policy, in the vocabulary the per-course confirmation
+      // already uses (see bookingNotificationService): both / email_first /
+      // sms_first / email_only / sms_only. The older `channels` array still
+      // works, and a caller that predates either sends SMS alone.
+      const mode = body.mode
+        || (body.channels?.length
+          ? (body.channels.includes('sms') && body.channels.includes('email') ? 'both'
+            : body.channels.includes('email') ? 'email_only' : 'sms_only')
+          : 'sms_only');
+      // What has to be prepared, not what will be used: a fallback needs its
+      // channel ready before anyone knows whether the first one failed.
+      const wantsSms = mode !== 'email_only';
+      const wantsEmail = mode !== 'sms_only';
 
       if (!Array.isArray(bookingIds) || bookingIds.length === 0) {
         return c.json({ success: false, message: 'bookingIds required' }, 400);
@@ -107,44 +115,74 @@ export class SmsController {
           scheduled_at: formatThaiDateTime(row.scheduled_at),
         };
 
-        // One row can succeed on one channel and fail on the other. It counts
-        // as reached if either got through, and the detail says which did not.
-        let reached = false;
         const notes: string[] = [];
 
-        if (wantsSms && sms) {
-          if (!row.phone) {
-            notes.push('ไม่มีเบอร์โทร');
-          } else {
-            const rendered = stripUnresolvedTokens(renderSmsTemplate(message, variables));
-            const result = await sms.sendMessage(row.phone, rendered);
-            reached = reached || result.ok;
-            if (!result.ok) notes.push(`SMS: ${result.detail ?? 'ส่งไม่สำเร็จ'}`);
-            await smsRepo.logSms({
-              bookingId, courseId: row.course_id, type: 'reminder', phone: row.phone,
-              message: rendered, status: result.ok ? 'sent' : 'failed', providerDetail: result.detail ?? null, sentBy,
-            });
-          }
-        }
+        // Each channel as a callable, so the policy below can order them and
+        // react to what the first one did — the same shape the automatic
+        // confirmation uses. fallbackFrom goes into the log, because "why did
+        // this parent get an SMS?" has to be answerable from the CRM later.
+        const sendSmsChannel = async (fallbackFrom: string | null): Promise<boolean> => {
+          if (!sms) return false;
+          if (!row.phone) { notes.push('ไม่มีเบอร์โทร'); return false; }
+          const rendered = stripUnresolvedTokens(renderSmsTemplate(message, variables));
+          const result = await sms.sendMessage(row.phone, rendered);
+          if (!result.ok) notes.push(`SMS: ${result.detail ?? 'ส่งไม่สำเร็จ'}`);
+          await smsRepo.logSms({
+            bookingId, courseId: row.course_id, type: 'reminder', phone: row.phone,
+            message: rendered, status: result.ok ? 'sent' : 'failed',
+            providerDetail: fallbackFrom
+              ? `สำรองจาก${fallbackFrom}${result.detail ? `: ${result.detail}` : ''}`
+              : result.detail ?? null,
+            sentBy,
+          });
+          return result.ok;
+        };
 
-        if (wantsEmail && emailer && emailLog) {
+        const sendEmailChannel = async (fallbackFrom: string | null): Promise<boolean> => {
+          if (!emailer || !emailLog) return false;
           const address = (row.parent_email || '').trim();
-          if (!address) {
-            notes.push('ไม่มีอีเมล');
-          } else {
-            const subject = stripUnresolvedTokens(renderEmailSubject(body.emailSubject || 'แจ้งเตือน {{course_name}}', variables));
-            const html = wrapEmailHtml(stripUnresolvedTokens(renderEmailTemplate(body.emailBody || '', variables)), emailTheme ?? undefined);
-            const result = emailer.isConfigured
-              ? await emailer.sendMessage(address, subject, html)
-              : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };
-            reached = reached || result.ok;
-            if (!result.ok) notes.push(`Email: ${result.detail ?? 'ส่งไม่สำเร็จ'}`);
-            await emailLog.log({
-              bookingId, courseId: row.course_id, type: 'reminder', email: address,
-              subject, bodyHtml: html, status: result.ok ? 'sent' : 'failed',
-              providerMessageId: result.messageId ?? null, providerDetail: result.detail ?? null, sentBy,
-            });
+          if (!address) { notes.push('ไม่มีอีเมล'); return false; }
+          const subject = stripUnresolvedTokens(renderEmailSubject(body.emailSubject || 'แจ้งเตือน {{course_name}}', variables));
+          const html = wrapEmailHtml(stripUnresolvedTokens(renderEmailTemplate(body.emailBody || '', variables)), emailTheme ?? undefined);
+          const result = emailer.isConfigured
+            ? await emailer.sendMessage(address, subject, html)
+            : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };
+          if (!result.ok) notes.push(`Email: ${result.detail ?? 'ส่งไม่สำเร็จ'}`);
+          await emailLog.log({
+            bookingId, courseId: row.course_id, type: 'reminder', email: address,
+            subject, bodyHtml: html, status: result.ok ? 'sent' : 'failed',
+            providerMessageId: result.messageId ?? null,
+            providerDetail: fallbackFrom
+              ? `สำรองจาก${fallbackFrom}${result.detail ? `: ${result.detail}` : ''}`
+              : result.detail ?? null,
+            sentBy,
+          });
+          return result.ok;
+        };
+
+        // A failed send counts the same as a missing address: an email that
+        // bounces is no more use to the parent than none at all.
+        let reached = false;
+        switch (mode) {
+          case 'both': {
+            const byEmail = await sendEmailChannel(null);
+            const bySms = await sendSmsChannel(null);
+            reached = byEmail || bySms;
+            break;
           }
+          case 'email_first':
+            reached = await sendEmailChannel(null);
+            if (!reached) reached = await sendSmsChannel('อีเมล');
+            break;
+          case 'sms_first':
+            reached = await sendSmsChannel(null);
+            if (!reached) reached = await sendEmailChannel('SMS');
+            break;
+          case 'email_only':
+            reached = await sendEmailChannel(null);
+            break;
+          default:
+            reached = await sendSmsChannel(null);
         }
 
         if (reached) sent++;
