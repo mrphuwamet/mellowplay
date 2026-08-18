@@ -196,8 +196,18 @@ const TournamentManagement: React.FC = () => {
     axios.get(`${API_BASE}/courses`).then(res => { if (res.data.success) setCourses(res.data.courses || []); });
   }, []);
 
-  const load = async (id: number, tournamentId?: number | null) => {
-    setLoading(true);
+  /**
+   * Refetches the board.
+   *
+   * silent is the default for everything that happens after an action — adding
+   * an entrant, moving one, recording a result. Blanking the whole screen to a
+   * spinner for a change the person just made reads as the page reloading
+   * itself, and loses the scroll position of a bracket they were working in.
+   * The spinner is for the first load and for switching event, where there is
+   * genuinely nothing to look at yet.
+   */
+  const load = async (id: number, tournamentId?: number | null, silent = true) => {
+    if (!silent) setLoading(true);
     try {
       const wanted = tournamentId !== undefined ? tournamentId : selectedTournamentId;
       const { data } = await axios.get(
@@ -218,10 +228,10 @@ const TournamentManagement: React.FC = () => {
       // No team field on this form means no team rows to show — start on the
       // grouping that always exists.
       if ((data.teamFields || []).length === 0 && entryType === 'team') setEntryType('family');
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   };
 
-  useEffect(() => { if (courseId) load(Number(courseId)); }, [courseId]);
+  useEffect(() => { if (courseId) load(Number(courseId), undefined, false); }, [courseId]);
 
   const createTournament = async (name?: string) => {
     if (!courseId) return;
@@ -232,7 +242,7 @@ const TournamentManagement: React.FC = () => {
         name: name || course?.name || 'สายการแข่งขัน',
         team_field_key: teamFields[0]?.field_key ?? null,
       });
-      await load(Number(courseId), data.id);
+      await load(Number(courseId), data.id, false);
     } finally { setSaving(false); }
   };
 
@@ -392,12 +402,22 @@ const TournamentManagement: React.FC = () => {
     title: `เอา "${entry.label}" ออกจาก Heat?`,
     body: 'จะกลับไปอยู่ในรายชื่อที่ยังไม่ได้จัด และใส่ลง Heat อื่นได้',
     run: async () => {
-      await axios.delete(`${API_BASE}/tournament-entries/${entry.id}`);
-      await load(Number(courseId));
+      setBrackets(prev => prev.map(b => ({ ...b, entries: b.entries.filter(e => e.id !== entry.id) })));
+      try {
+        await axios.delete(`${API_BASE}/tournament-entries/${entry.id}`);
+      } finally {
+        await load(Number(courseId));
+      }
     },
   });
 
   const moveEntry = async (entry: Entry, heatId: number) => {
+    // The card jumps to its new heat as the menu closes; the refetch that
+    // follows corrects the stage and bracket the server actually assigned.
+    setBrackets(prev => prev.map(b => ({
+      ...b,
+      entries: b.entries.map(e => (e.id === entry.id ? { ...e, heat_id: heatId } : e)),
+    })));
     await axios.put(`${API_BASE}/tournament-entries/${entry.id}/move`, { heat_id: heatId });
     load(Number(courseId));
   };
