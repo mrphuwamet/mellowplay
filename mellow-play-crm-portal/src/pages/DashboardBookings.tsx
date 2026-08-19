@@ -109,6 +109,19 @@ const readSeats = (
   return { seats, booked, remaining: Math.max(0, seats - booked), invite };
 };
 
+/**
+ * How many of a calendar's rounds read as full right now.
+ *
+ * The server's own fullRounds counts rounds with no seats left to sell, which
+ * is the answer when invite seats are not counted as taken. With the switch on
+ * the rows say otherwise, and a headline that disagrees with the table under it
+ * is worse than no headline.
+ */
+const countFullRounds = (calendar: any, vipAsBooked: boolean): number => {
+  if (!vipAsBooked || !Array.isArray(calendar.rounds)) return calendar.fullRounds ?? 0;
+  return calendar.rounds.filter((r: any) => r.capacity > 0 && readSeats(r, true).remaining === 0).length;
+};
+
 const FillMeter = ({ booked, capacity }: { booked: number; capacity: number }) => {
   const rate = capacity > 0 ? booked / capacity : 0;
   return (
@@ -223,10 +236,12 @@ const DashboardBookings = () => {
         remaining: shown.reduce((n: number, c: any) => n + c.remaining, 0),
         inviteSeats: shown.reduce((n: number, c: any) => n + c.inviteSeats, 0),
         rounds: shown.reduce((n: number, c: any) => n + c.roundCount, 0),
-        fullRounds: shown.reduce((n: number, c: any) => n + c.fullRounds, 0),
+        fullRounds: shown.reduce((n: number, c: any) => n + countFullRounds(c, vipAsBooked), 0),
         calendars: shown.length,
       }
-    : totals;
+    : (totals && vipAsBooked
+      ? { ...totals, fullRounds: shown.reduce((n: number, c: any) => n + countFullRounds(c, true), 0) }
+      : totals);
   // Stars are resolved against the rounds that exist right now, so a round
   // that has since been rescheduled simply stops appearing rather than showing
   // a row with nothing behind it.
@@ -370,9 +385,13 @@ const DashboardBookings = () => {
                       </Typography>
                     </Box>
                     <Typography variant="body2" sx={{ fontWeight: 800, minWidth: 90 }}>
-                      {r.remaining === 0 ? 'เต็มแล้ว' : `เหลือ ${fmt(r.remaining)} ที่`}
+                      {readSeats(r, vipAsBooked).remaining === 0
+                        ? 'เต็มแล้ว'
+                        : `เหลือ ${fmt(readSeats(r, vipAsBooked).remaining)} ที่`}
                     </Typography>
-                    <Box sx={{ minWidth: 220 }}><FillMeter booked={r.booked} capacity={r.capacity} /></Box>
+                    <Box sx={{ minWidth: 220 }}>
+                      <FillMeter booked={readSeats(r, vipAsBooked).booked} capacity={readSeats(r, vipAsBooked).seats} />
+                    </Box>
                   </Stack>
                 ))}
               </Stack>
@@ -489,15 +508,22 @@ const DashboardBookings = () => {
                         </TableCell>
                         <TableCell align="right">
                           {fmt(c.roundCount)}
-                          {c.fullRounds > 0 && (
-                            <Chip size="small" label={`เต็ม ${c.fullRounds}`} sx={{ ml: 0.5, height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
+                          {countFullRounds(c, vipAsBooked) > 0 && (
+                            <Chip
+                              size="small" label={`เต็ม ${countFullRounds(c, vipAsBooked)}`}
+                              sx={{ ml: 0.5, height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }}
+                            />
                           )}
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
                           <SeatCount total={readSeats(c, vipAsBooked).seats} invite={c.inviteSeats} />
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700 }}>{fmt(readSeats(c, vipAsBooked).booked)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800 }}>{fmt(readSeats(c, vipAsBooked).remaining)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800 }}>
+                          {readSeats(c, vipAsBooked).remaining === 0
+                            ? <Chip size="small" label="เต็มแล้ว" sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
+                            : fmt(readSeats(c, vipAsBooked).remaining)}
+                        </TableCell>
                         <TableCell><FillMeter booked={readSeats(c, vipAsBooked).booked} capacity={readSeats(c, vipAsBooked).seats} /></TableCell>
                       </TableRow>
                       <TableRow>
@@ -563,8 +589,14 @@ const DashboardBookings = () => {
                                       </TableCell>
                                       <TableCell align="right">{fmt(readSeats(r, vipAsBooked).booked)}</TableCell>
                                       <TableCell align="right" sx={{ fontWeight: 800 }}>
-                                        {r.remaining === 0
-                                          ? <Chip size="small" label="เต็มแล้ว" sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }} />
+                                        {readSeats(r, vipAsBooked).remaining === 0
+                                          ? (
+                                            <Chip
+                                              size="small"
+                                              label={vipAsBooked && r.remaining > 0 ? 'เต็ม (รวมผู้ถูกเชิญ)' : 'เต็มแล้ว'}
+                                              sx={{ height: 20, fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }}
+                                            />
+                                          )
                                           : fmt(readSeats(r, vipAsBooked).remaining)}
                                       </TableCell>
                                       <TableCell><FillMeter booked={readSeats(r, vipAsBooked).booked} capacity={readSeats(r, vipAsBooked).seats} /></TableCell>
