@@ -168,12 +168,201 @@ export interface PrintStage {
   heats: PrintHeat[];
 }
 
+export type BracketOrientation = 'horizontal' | 'vertical';
+
 export interface BracketPrintOptions {
   title: string;
   subtitle: string;
   stages: PrintStage[];
   /** Results sheets print the placings; a draw sheet prints blank lines. */
   withResults: boolean;
+  /**
+   * 'horizontal' reads left to right, a column per round. 'vertical' stacks the
+   * rounds top to bottom — the first round widest, narrowing to the final: an
+   * upside-down pyramid, which is how a bracket is usually drawn on a wall.
+   */
+  orientation: BracketOrientation;
+}
+
+// Every measurement the chart is laid out with. Fixed rather than left to the
+// browser because the connector lines are drawn from arithmetic on these
+// numbers — a card whose real height disagreed with the maths would have a line
+// pointing at nothing.
+const CHART = {
+  cardWidth: 250,
+  gap: 96,          // between rounds: room for the elbow of a connector
+  headerHeight: 30, // the round's pill
+  cardHeader: 34,
+  cardMeta: 15,
+  entryRow: 20,
+  entrySub: 13,
+  blankRow: 22,
+  notePad: 22,
+  cardPadding: 20,
+  minCardGap: 18,
+};
+
+const cardHeight = (heat: PrintHeat, withResults: boolean): number => {
+  const rows = heat.entries.length > 0
+    ? heat.entries.reduce((n, e) => n + CHART.entryRow + (e.subLabel ? CHART.entrySub : 0), 0)
+    : Math.max(2, 3) * CHART.blankRow;
+  const meta = (heat.when || heat.advance) ? CHART.cardMeta : 0;
+  const note = heat.note ? CHART.notePad + 12 : 0;
+  void withResults;
+  return CHART.cardHeader + meta + rows + note + CHART.cardPadding;
+};
+
+/**
+ * Where every card sits, and every line between them.
+ *
+ * Positions are computed rather than left to a flex container so the connectors
+ * can be real lines: each round's cards are spread evenly along the cross axis,
+ * which is what gives a bracket its shape, and a line runs from each card to
+ * the card its winners feed — the same mapping the advance action uses.
+ */
+function layoutChart(stages: PrintStage[], orientation: BracketOrientation, withResults: boolean) {
+  const heights = stages.map(stage => stage.heats.map(h => cardHeight(h, withResults)));
+  const vertical = orientation === 'vertical';
+
+  // The cross axis has to fit the widest round with no overlap; every other
+  // round then spreads its cards across the same span, which is what makes the
+  // rounds converge.
+  const crossSpan = vertical
+    ? Math.max(...stages.map(s => s.heats.length)) * (CHART.cardWidth + CHART.minCardGap)
+    : Math.max(...stages.map((s, si) => s.heats.length * (Math.max(...heights[si]) + CHART.minCardGap)));
+
+  const boxes = stages.map((stage, si) => stage.heats.map((heat, hi) => {
+    const centre = crossSpan * ((hi + 0.5) / stage.heats.length);
+    const h = heights[si][hi];
+    if (vertical) {
+      const rowTop = stages.slice(0, si).reduce(
+        (y, s, i) => y + CHART.headerHeight + Math.max(...heights[i]) + CHART.gap, 0,
+      );
+      return { x: centre - CHART.cardWidth / 2, y: rowTop + CHART.headerHeight, w: CHART.cardWidth, h };
+    }
+    return {
+      x: si * (CHART.cardWidth + CHART.gap),
+      y: CHART.headerHeight + centre - h / 2,
+      w: CHART.cardWidth,
+      h,
+    };
+  }));
+
+  // Winner j of heat i lands in next-round heat i+j — the rule the board and
+  // the advance action already follow, so the printed lines are the real route.
+  const links: string[] = [];
+  for (let si = 0; si < stages.length - 1; si++) {
+    const next = stages[si + 1];
+    stages[si].heats.forEach((heat, hi) => {
+      const advance = heat.advance ?? 1;
+      const targets = new Set<number>();
+      for (let j = 0; j < advance; j++) targets.add((hi + j) % next.heats.length);
+      const from = boxes[si][hi];
+      targets.forEach(t => {
+        const to = boxes[si + 1][t];
+        if (vertical) {
+          const x1 = from.x + from.w / 2;
+          const y1 = from.y + from.h;
+          const x2 = to.x + to.w / 2;
+          const y2 = to.y;
+          const mid = y1 + (y2 - y1) / 2;
+          links.push(`M ${x1} ${y1} V ${mid} H ${x2} V ${y2}`);
+        } else {
+          const x1 = from.x + from.w;
+          const y1 = from.y + from.h / 2;
+          const x2 = to.x;
+          const y2 = to.y + to.h / 2;
+          const mid = x1 + (x2 - x1) / 2;
+          links.push(`M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`);
+        }
+      });
+    });
+  }
+
+  const width = vertical
+    ? crossSpan
+    : stages.length * CHART.cardWidth + (stages.length - 1) * CHART.gap;
+  const height = vertical
+    ? stages.reduce((y, _s, i) => y + CHART.headerHeight + Math.max(...heights[i]) + CHART.gap, 0) - CHART.gap
+    : CHART.headerHeight + crossSpan;
+
+  return { boxes, links, width, height };
+}
+
+/**
+ * The bracket as a chart, with the rounds joined by lines.
+ *
+ * Absolutely positioned from the layout above rather than flowed, because a
+ * flowed layout cannot say where a card ended up and so cannot have a line
+ * drawn to it. The lines are one SVG behind the cards.
+ */
+export function buildBracketChartHtml(opts: BracketPrintOptions): string {
+  const { title, subtitle, stages, withResults, orientation } = opts;
+  const vertical = orientation === 'vertical';
+  const { boxes, links, width, height } = layoutChart(stages, orientation, withResults);
+
+  const entryRow = (e: PrintEntry, i: number): string => {
+    const rank = withResults && e.rank && RANK_STYLE[e.rank] ? RANK_STYLE[e.rank] : null;
+    const marker = rank
+      ? `<span style="display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;border-radius:8px;background:${rank.bg};color:${rank.fg};font-size:9.5px;font-weight:800;">${e.rank}</span>`
+      : `<span style="display:inline-block;width:16px;color:${CI.muted};font-size:9.5px;font-weight:700;">${i + 1}.</span>`;
+    // No wrapping inside a card: the card's height is arithmetic that the
+    // connector lines depend on, and a name that wrapped would move the line.
+    return `<div style="height:${CHART.entryRow}px;line-height:${CHART.entryRow}px;display:flex;gap:5px;align-items:center;">
+      ${marker}
+      <span style="flex:1;min-width:0;font-size:11px;font-weight:700;color:${CI.ink};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.label)}</span>
+    </div>${e.subLabel ? `<div style="height:${CHART.entrySub}px;line-height:${CHART.entrySub}px;margin-left:21px;font-size:9px;color:${CI.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.subLabel)}</div>` : ''}`;
+  };
+
+  const blanks = (): string => Array.from({ length: 3 }, () =>
+    `<div style="height:${CHART.blankRow}px;border-bottom:1px dashed ${CI.line};"></div>`).join('');
+
+  const cards = stages.map((stage, si) => stage.heats.map((heat, hi) => {
+    const box = boxes[si][hi];
+    const meta = [heat.when, heat.advance ? `ผ่าน ${heat.advance}` : null].filter(Boolean).join(' · ');
+    const accent = stage.isFinal ? CI.yellow : CI.purple;
+    return `<div style="position:absolute;left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px;
+      box-sizing:border-box;background:${CI.paper};border:1.5px solid ${CI.line};border-top:4px solid ${accent};
+      border-radius:12px;padding:8px 10px;overflow:hidden;">
+      <div style="height:${CHART.cardHeader - 12}px;line-height:${CHART.cardHeader - 12}px;font-size:12px;font-weight:800;color:${CI.ink};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(heat.name)}</div>
+      ${meta ? `<div style="height:${CHART.cardMeta}px;line-height:${CHART.cardMeta}px;font-size:9px;color:${CI.muted};">${escapeHtml(meta)}</div>` : ''}
+      ${heat.entries.length > 0 ? heat.entries.map(entryRow).join('') : blanks()}
+      ${heat.note ? `<div style="margin-top:4px;height:${CHART.notePad}px;line-height:${CHART.notePad}px;padding:0 6px;border-radius:6px;background:${CI.yellowSoft};color:#7a5300;font-size:8.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(heat.note)}</div>` : ''}
+    </div>`;
+  }).join('')).join('');
+
+  // One pill per round, sitting at the head of its column or its row.
+  const headers = stages.map((stage, si) => {
+    const first = boxes[si][0];
+    const last = boxes[si][boxes[si].length - 1];
+    const style = vertical
+      ? `left:0;top:${first.y - CHART.headerHeight}px;width:${width}px;`
+      : `left:${first.x}px;top:0;width:${CHART.cardWidth}px;`;
+    void last;
+    const bg = stage.isFinal ? CI.yellow : CI.purpleSoft;
+    const fg = stage.isFinal ? '#ffffff' : CI.purple;
+    return `<div style="position:absolute;${style}height:${CHART.headerHeight - 8}px;line-height:${CHART.headerHeight - 8}px;
+      background:${bg};color:${fg};border-radius:999px;text-align:center;font-size:11px;font-weight:800;">
+      ${stage.isFinal ? '🏆 ' : ''}${escapeHtml(stage.label)}
+    </div>`;
+  }).join('');
+
+  return `<div style="font-family:'Sarabun',Tahoma,sans-serif;color:${CI.ink};background:${CI.paper};padding:18px;">
+    <div style="border-bottom:3px solid ${CI.purple};padding-bottom:10px;margin-bottom:16px;">
+      <div style="font-size:19px;font-weight:900;letter-spacing:-0.3px;">${escapeHtml(title)}</div>
+      <div style="font-size:11px;color:${CI.muted};margin-top:2px;">${escapeHtml(subtitle)}</div>
+    </div>
+    <div style="position:relative;width:${width}px;height:${height}px;">
+      <svg width="${width}" height="${height}" style="position:absolute;left:0;top:0;overflow:visible;">
+        ${links.map(d => `<path d="${d}" fill="none" stroke="${CI.purple}" stroke-width="1.5" stroke-opacity="0.45" />`).join('')}
+      </svg>
+      ${headers}
+      ${cards}
+    </div>
+    <div style="margin-top:16px;padding-top:8px;border-top:1px solid ${CI.line};font-size:9.5px;color:${CI.muted};text-align:right;">
+      Mellow Play
+    </div>
+  </div>`;
 }
 
 /**
@@ -246,22 +435,29 @@ export function buildBracketHtml(opts: BracketPrintOptions): string {
   </div>`;
 }
 
-/** The printable bracket as a PDF, laid out for landscape A4. */
+/** The printable bracket as a PDF: the chart, with its connector lines. */
 export async function exportBracketPdf(opts: BracketPrintOptions) {
   const holder = document.createElement('div');
-  // 1400px wide renders text at a size that survives being scaled onto A4;
-  // narrower and the columns crush, wider and the type comes out spidery.
-  holder.style.cssText = 'position:fixed;left:-20000px;top:0;width:1400px;background:#fff;';
-  holder.innerHTML = buildBracketHtml(opts);
+  // Sized to the chart rather than to a fixed width — captureToPdf scales the
+  // capture onto the page, so the layout keeps its proportions either way.
+  holder.style.cssText = 'position:fixed;left:-20000px;top:0;display:inline-block;background:#fff;';
+  holder.innerHTML = buildBracketChartHtml(opts);
   document.body.appendChild(holder);
   try {
-    await captureToPdf(holder, opts.title, 'l');
+    // A pyramid is taller than it is wide, and columns are wider than tall.
+    await captureToPdf(holder, opts.title, opts.orientation === 'vertical' ? 'p' : 'l');
   } finally {
     document.body.removeChild(holder);
   }
 }
 
-/** The same sheet as an editable Word document. */
+/**
+ * The same rounds as an editable Word document.
+ *
+ * Deliberately the table layout, not the chart: Word cannot be trusted with
+ * absolute positioning or an SVG overlay, and someone asking for .doc wants to
+ * retype a name rather than to reproduce a diagram.
+ */
 export function exportBracketDoc(opts: BracketPrintOptions) {
   downloadDoc(opts.title, buildBracketHtml(opts));
 }

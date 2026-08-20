@@ -15,7 +15,7 @@ import {
 import axios from 'axios';
 import { useStickyState } from '../utils/stickyState';
 import {
-  ExportTable, ExportTemplate, ExportFormat, BracketPrintOptions,
+  ExportTable, ExportTemplate, ExportFormat, BracketPrintOptions, BracketOrientation,
   exportTableXlsx, exportTableDoc, exportTablePdf, exportBracketPdf, exportBracketDoc,
 } from '../utils/tournamentExport';
 
@@ -178,6 +178,7 @@ const TournamentManagement: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [exportForm, setExportForm] = useState<{ template: ExportTemplate; format: ExportFormat }>({ template: 'start_list', format: 'pdf' });
   const [exportTarget, setExportTarget] = useState<number | null>(null);
+  const [orientation, setOrientation] = useStickyState<BracketOrientation>('tournaments.printOrientation', 'horizontal');
 
   // Picking entrants straight into one heat, rather than via the pool on the
   // left — which is how staff work once the bracket exists and they are filling
@@ -604,6 +605,7 @@ const TournamentManagement: React.FC = () => {
           subtitle: [courses.find(c => c.id === courseId)?.name, `พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}`]
             .filter(Boolean).join(' · '),
           withResults,
+          orientation,
           // Laid out from the data, not captured off the screen: the printed
           // sheet has no buttons on it and breaks where paper breaks.
           stages: view.stages.map(stage => ({
@@ -1156,6 +1158,19 @@ const TournamentManagement: React.FC = () => {
               </Select>
             </FormControl>
 
+            {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && (
+              <FormControl fullWidth>
+                <InputLabel>ทิศทางของสาย</InputLabel>
+                <Select
+                  label="ทิศทางของสาย" value={orientation}
+                  onChange={e => setOrientation(e.target.value as BracketOrientation)}
+                >
+                  <MenuItem value="horizontal">แนวนอน — ซ้ายไปขวา (กระดาษแนวนอน)</MenuItem>
+                  <MenuItem value="vertical">แนวตั้ง — พีระมิดหัวกลับ (กระดาษแนวตั้ง)</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+
             {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && bracketViews.length > 1 && (
               <FormControl fullWidth>
                 <InputLabel>สายที่จะพิมพ์</InputLabel>
@@ -1170,7 +1185,8 @@ const TournamentManagement: React.FC = () => {
 
             {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && (
               <Alert severity="info">
-                จัดหน้าใหม่สำหรับกระดาษ ไม่มีปุ่มหรือไอคอนติดไป · Heat ที่ยังไม่มีรายชื่อจะพิมพ์เป็นบรรทัดว่างไว้ให้กรอกด้วยปากกา
+                PDF พิมพ์เป็นผังพร้อมเส้นโยงระหว่างรอบ · Heat ที่ยังไม่มีรายชื่อจะเป็นบรรทัดว่างให้กรอกด้วยปากกา ·
+                ไฟล์ DOC จะเป็นตารางรายรอบ (แก้ไขข้อความได้ แต่ไม่มีเส้นโยง)
               </Alert>
             )}
           </Stack>
