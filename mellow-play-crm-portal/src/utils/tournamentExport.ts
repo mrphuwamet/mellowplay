@@ -121,14 +121,149 @@ export async function exportTablePdf(table: ExportTable) {
   }
 }
 
-/** The bracket itself, captured from the screen. */
-export async function exportElementPdf(element: HTMLElement, title: string) {
-  await captureToPdf(element, title, 'l');
+
+// The site's own palette. A printed bracket that goes on a wall beside the
+// banners should look like it came from the same place they did.
+const CI = {
+  ink: '#172038',
+  muted: '#6c7280',
+  line: '#eef0f5',
+  paper: '#ffffff',
+  bg: '#fbfaf7',
+  purple: '#7452d6',
+  purpleSoft: '#f4efff',
+  red: '#ef4f55',
+  redSoft: '#fff0f1',
+  yellow: '#f7aa16',
+  yellowSoft: '#fff7df',
+  green: '#21a45b',
+  greenSoft: '#effaf3',
+  blue: '#2273d9',
+  blueSoft: '#eef6ff',
+};
+
+const RANK_STYLE: Record<number, { bg: string; fg: string; label: string }> = {
+  1: { bg: '#f7aa16', fg: '#ffffff', label: 'อันดับ 1' },
+  2: { bg: '#a8b3c1', fg: '#ffffff', label: 'อันดับ 2' },
+  3: { bg: '#c98a5e', fg: '#ffffff', label: 'อันดับ 3' },
+};
+
+export interface PrintEntry {
+  label: string;
+  subLabel?: string | null;
+  rank?: number | null;
 }
 
-export async function exportElementDoc(element: HTMLElement, title: string) {
-  const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#ffffff' });
-  downloadDoc(title, `<h1>${escapeHtml(title)}</h1><img src="${canvas.toDataURL('image/png')}" />`);
+export interface PrintHeat {
+  name: string;
+  when?: string | null;
+  note?: string | null;
+  advance?: number | null;
+  entries: PrintEntry[];
+}
+
+export interface PrintStage {
+  label: string;
+  isFinal: boolean;
+  heats: PrintHeat[];
+}
+
+export interface BracketPrintOptions {
+  title: string;
+  subtitle: string;
+  stages: PrintStage[];
+  /** Results sheets print the placings; a draw sheet prints blank lines. */
+  withResults: boolean;
+}
+
+/**
+ * The bracket as a printable sheet.
+ *
+ * Built from the data rather than photographed off the screen: a screenshot
+ * carries every edit and delete button with it, splits wherever the viewport
+ * happened to end, and hands someone a picture of software instead of a start
+ * list. This is laid out for paper — columns per round, the site's colours, and
+ * nothing on it that anybody could try to click.
+ */
+export function buildBracketHtml(opts: BracketPrintOptions): string {
+  const { title, subtitle, stages, withResults } = opts;
+
+  const entryRow = (e: PrintEntry, i: number): string => {
+    const rank = withResults && e.rank && RANK_STYLE[e.rank] ? RANK_STYLE[e.rank] : null;
+    const marker = rank
+      ? `<span style="display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;background:${rank.bg};color:${rank.fg};font-size:10px;font-weight:800;margin-right:6px;">${e.rank}</span>`
+      : `<span style="display:inline-block;min-width:18px;color:${CI.muted};font-size:10px;font-weight:700;margin-right:6px;">${i + 1}.</span>`;
+    const sub = e.subLabel
+      ? `<div style="color:${CI.muted};font-size:9.5px;margin-left:24px;line-height:1.35;">${escapeHtml(e.subLabel)}</div>`
+      : '';
+    return `<div style="padding:5px 8px;border-radius:8px;background:${rank ? CI.yellowSoft : CI.bg};margin-bottom:4px;">
+      <div style="font-size:11.5px;font-weight:700;color:${CI.ink};line-height:1.35;">${marker}${escapeHtml(e.label)}</div>
+      ${sub}
+    </div>`;
+  };
+
+  // An empty box on a draw sheet gets ruled lines, so the day can be run with a
+  // pen when the wifi is down — which is the situation a printout is for.
+  const blankRows = (count: number): string => Array.from({ length: Math.max(2, count) }, () =>
+    `<div style="height:22px;border-bottom:1px dashed ${CI.line};margin-bottom:4px;"></div>`).join('');
+
+  const heatCard = (heat: PrintHeat): string => {
+    const meta = [heat.when, heat.advance ? `ผ่าน ${heat.advance}` : null].filter(Boolean).join(' · ');
+    const body = heat.entries.length > 0
+      ? heat.entries.map(entryRow).join('')
+      : blankRows(3);
+    const note = heat.note
+      ? `<div style="margin-top:6px;padding:5px 8px;border-radius:8px;background:${CI.yellowSoft};color:#7a5300;font-size:9.5px;white-space:pre-wrap;line-height:1.4;">${escapeHtml(heat.note)}</div>`
+      : '';
+    return `<div style="border:1.5px solid ${CI.line};border-radius:14px;padding:10px;background:${CI.paper};margin-bottom:12px;break-inside:avoid;">
+      <div style="font-size:12.5px;font-weight:800;color:${CI.ink};">${escapeHtml(heat.name)}</div>
+      ${meta ? `<div style="font-size:9.5px;color:${CI.muted};margin-bottom:6px;">${escapeHtml(meta)}</div>` : '<div style="height:6px;"></div>'}
+      ${body}
+      ${note}
+    </div>`;
+  };
+
+  const stageColumn = (stage: PrintStage): string => {
+    const header = stage.isFinal
+      ? `<div style="background:${CI.yellow};color:#fff;border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:800;margin-bottom:10px;text-align:center;">🏆 ${escapeHtml(stage.label)}</div>`
+      : `<div style="background:${CI.purpleSoft};color:${CI.purple};border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:800;margin-bottom:10px;text-align:center;">${escapeHtml(stage.label)}</div>`;
+    return `<td style="vertical-align:top;padding:0 10px;width:${Math.floor(100 / Math.max(1, stages.length))}%;">
+      ${header}${stage.heats.map(heatCard).join('')}
+    </td>`;
+  };
+
+  // A table, not flexbox: Word understands tables, and this same markup is what
+  // the .doc export hands it.
+  return `<div style="font-family:'Sarabun',Tahoma,sans-serif;color:${CI.ink};background:${CI.paper};padding:18px 14px;">
+    <div style="border-bottom:3px solid ${CI.purple};padding-bottom:10px;margin-bottom:14px;">
+      <div style="font-size:19px;font-weight:900;letter-spacing:-0.3px;">${escapeHtml(title)}</div>
+      <div style="font-size:11px;color:${CI.muted};margin-top:2px;">${escapeHtml(subtitle)}</div>
+    </div>
+    <table style="width:100%;border-collapse:separate;border-spacing:0;"><tr>${stages.map(stageColumn).join('')}</tr></table>
+    <div style="margin-top:14px;padding-top:8px;border-top:1px solid ${CI.line};font-size:9.5px;color:${CI.muted};text-align:right;">
+      Mellow Play
+    </div>
+  </div>`;
+}
+
+/** The printable bracket as a PDF, laid out for landscape A4. */
+export async function exportBracketPdf(opts: BracketPrintOptions) {
+  const holder = document.createElement('div');
+  // 1400px wide renders text at a size that survives being scaled onto A4;
+  // narrower and the columns crush, wider and the type comes out spidery.
+  holder.style.cssText = 'position:fixed;left:-20000px;top:0;width:1400px;background:#fff;';
+  holder.innerHTML = buildBracketHtml(opts);
+  document.body.appendChild(holder);
+  try {
+    await captureToPdf(holder, opts.title, 'l');
+  } finally {
+    document.body.removeChild(holder);
+  }
+}
+
+/** The same sheet as an editable Word document. */
+export function exportBracketDoc(opts: BracketPrintOptions) {
+  downloadDoc(opts.title, buildBracketHtml(opts));
 }
 
 async function captureToPdf(element: HTMLElement, title: string, orientation: 'p' | 'l') {

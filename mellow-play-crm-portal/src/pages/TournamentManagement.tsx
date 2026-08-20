@@ -15,8 +15,8 @@ import {
 import axios from 'axios';
 import { useStickyState } from '../utils/stickyState';
 import {
-  ExportTable, ExportTemplate, ExportFormat,
-  exportTableXlsx, exportTableDoc, exportTablePdf, exportElementPdf, exportElementDoc,
+  ExportTable, ExportTemplate, ExportFormat, BracketPrintOptions,
+  exportTableXlsx, exportTableDoc, exportTablePdf, exportBracketPdf, exportBracketDoc,
 } from '../utils/tournamentExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -595,14 +595,35 @@ const TournamentManagement: React.FC = () => {
         // Prints the bracket named in the dialog, defaulting to the first —
         // several are on screen and only one can go on a sheet of paper.
         const target = exportTarget ?? bracketViews[0]?.tournament.id;
-        const el = target ? bracketRefs.current[target] : null;
-        if (!el) { setNotice('ยังไม่มีสายให้พิมพ์'); return; }
-        const bracketName = bracketViews.find(v => v.tournament.id === target)?.tournament.name || '';
-        const title = `${exportForm.template === 'chart_results' ? 'ผลการแข่งขัน' : 'สายการแข่งขัน'} — ${bracketName}`;
-        // The results chart is the same picture; what makes it a results sheet
-        // is that the placings are on it, which they are as soon as they exist.
-        if (exportForm.format === 'doc') await exportElementDoc(el, title);
-        else await exportElementPdf(el, title);
+        const view = bracketViews.find(v => v.tournament.id === target);
+        if (!view || view.heats.length === 0) { setNotice('ยังไม่มีสายให้พิมพ์'); return; }
+
+        const withResults = exportForm.template === 'chart_results';
+        const sheet: BracketPrintOptions = {
+          title: `${withResults ? 'ผลการแข่งขัน' : 'สายการแข่งขัน'} — ${view.tournament.name}`,
+          subtitle: [courses.find(c => c.id === courseId)?.name, `พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}`]
+            .filter(Boolean).join(' · '),
+          withResults,
+          // Laid out from the data, not captured off the screen: the printed
+          // sheet has no buttons on it and breaks where paper breaks.
+          stages: view.stages.map(stage => ({
+            label: stage.label,
+            isFinal: stage.isFinal,
+            heats: stage.heats.map(heat => ({
+              name: heat.name,
+              when: heat.slot_date ? roundLabel(heat.slot_date, heat.slot_start_time) : null,
+              note: heat.note,
+              advance: stage.isFinal ? null : heat.advance_count,
+              entries: entriesOf(heat.id)
+                .slice()
+                .sort((a, b) => (a.result_rank ?? 99) - (b.result_rank ?? 99))
+                .map(e => ({ label: e.label, subLabel: e.sub_label, rank: e.result_rank })),
+            })),
+          })),
+        };
+
+        if (exportForm.format === 'doc') exportBracketDoc(sheet);
+        else await exportBracketPdf(sheet);
         return;
       }
 
@@ -1149,7 +1170,7 @@ const TournamentManagement: React.FC = () => {
 
             {(exportForm.template === 'chart' || exportForm.template === 'chart_results') && (
               <Alert severity="info">
-                จะพิมพ์สายที่เห็นบนหน้าจอตอนนี้ — เลื่อนให้เห็นครบก่อนพิมพ์จะได้ภาพเต็มสาย
+                จัดหน้าใหม่สำหรับกระดาษ ไม่มีปุ่มหรือไอคอนติดไป · Heat ที่ยังไม่มีรายชื่อจะพิมพ์เป็นบรรทัดว่างไว้ให้กรอกด้วยปากกา
               </Alert>
             )}
           </Stack>
