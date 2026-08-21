@@ -2390,10 +2390,23 @@ const BookingManagement = () => {
     setForceStatusLoading(true);
     setForceStatusError('');
     if (overrideTeamQuota) setTeamQuotaWarning('');
+    // Built before the patch, not after: the round change is judged against
+    // the team this save is moving to, and the two go in separate requests.
+    // A person picker's stored answer has a `${key}__realname` companion (the
+    // consumer app writes both). Re-picking a person here must update that
+    // companion too, or displays keep pairing the NEW nickname with the OLD
+    // person's real name.
+    const answersToSave: Record<string, any> = { ...editFormAnswers };
+    for (const f of (editFormFields || [])) {
+      if (f.type !== 'family_member_picker') continue;
+      const picked = editFamilyRoster.find(m => m.display === answersToSave[f.fieldKey]);
+      if (picked?.name) answersToSave[`${f.fieldKey}__realname`] = picked.name;
+    }
     try {
       await axios.patch(`${API_BASE}/bookings/${forceStatusBooking.id}/status`, {
         status: forceStatusValue,
         overrideTeamQuota,
+        ...(editFormFields && editFormFields.length > 0 ? { formAnswers: answersToSave } : {}),
         scheduledAt: usesReschedulePicker
           ? `${rescheduleSelectedDate!.date} ${rescheduleSelectedSlot!.startTime}:00`
           : (forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined),
@@ -2408,16 +2421,6 @@ const BookingManagement = () => {
       // round patch so a failure here leaves the dialog open with the error
       // while the (already applied) reschedule stays visible on retry.
       if (editFormFields && editFormFields.length > 0) {
-        // A person picker's stored answer has a `${key}__realname` companion
-        // (the consumer app writes both). Re-picking a person here must
-        // update that companion too, or displays keep pairing the NEW
-        // nickname with the OLD person's real name.
-        const answersToSave = { ...editFormAnswers };
-        for (const f of editFormFields) {
-          if (f.type !== 'family_member_picker') continue;
-          const picked = editFamilyRoster.find(m => m.display === answersToSave[f.fieldKey]);
-          if (picked?.name) answersToSave[`${f.fieldKey}__realname`] = picked.name;
-        }
         const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: answersToSave, overrideTeamQuota });
         if (!formRes.data.success) {
           setForceStatusError(formRes.data.message || 'บันทึกข้อมูลฟอร์มไม่สำเร็จ');

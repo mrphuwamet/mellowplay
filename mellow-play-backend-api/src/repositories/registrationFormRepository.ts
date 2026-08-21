@@ -224,11 +224,19 @@ export class RegistrationFormRepository {
   async findTeamQuotaBreach(params: {
     formId: number;
     courseId: number;
+    /** The round the booking will sit in after the save. */
     scheduledAt: string;
+    /** The answers as they will be after the save. */
     answers: Record<string, any>;
     excludeSubmissionId?: number;
+    /** The round and answers before the save, when there is a before. */
+    currentScheduledAt?: string;
+    currentAnswers?: Record<string, any>;
   }): Promise<{ fieldKey: string; label: string; capacity: number; current: number } | null> {
     if (!params.scheduledAt) return null;
+    const round = (v?: string) => String(v ?? '').slice(0, 16);
+    const roundUnchanged = params.currentScheduledAt !== undefined
+      && round(params.currentScheduledAt) === round(params.scheduledAt);
     const { results: fields } = await this.db.prepare(
       `SELECT field_key, options_json FROM Registration_Form_Fields WHERE form_id = ? AND type = 'team_select'`
     ).bind(params.formId).all();
@@ -236,6 +244,13 @@ export class RegistrationFormRepository {
     for (const f of fields as any[]) {
       const chosen = params.answers[f.field_key];
       if (!chosen) continue;
+      // A quota can only be broken by consuming a spot that was not already
+      // held. Staying in the same team in the same round consumes nothing, so
+      // an edit to something else entirely — a status, a payment date — must
+      // not be nagged about a team it is not touching, least of all one that
+      // is already over and that this very edit might be on its way to fixing.
+      if (roundUnchanged && params.currentAnswers
+          && params.currentAnswers[f.field_key] === chosen) continue;
       let options: { label: string; capacity: number }[] = [];
       try { options = JSON.parse(f.options_json || '[]'); } catch { continue; }
       const team = options.find(t => t.label === chosen);

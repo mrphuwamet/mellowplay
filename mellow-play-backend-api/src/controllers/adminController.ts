@@ -249,18 +249,45 @@ export class AdminController {
   // (Children/HD_Profiles) — the CRM previously locked these rows
   // completely read-only (only CRM-created walk-in children were editable),
   // so staff had no way to fix a wrong nickname/gender/relation for a real
-  // customer's kid. full_name/date_of_birth stay locked here since they
-  // feed the Human Design chart calculation.
+  // customer's kid.
+  //
+  // date_of_birth is a Super Admin edit only. It was locked outright because
+  // the HD chart columns cached on the row are derived from it, but a wrong
+  // birthday is not a thing a family can be left stuck with: it decides which
+  // courses the child is old enough for, and it is what an age-banded report
+  // counts them under. So it is editable, by the one role that can already
+  // correct anything else, and never by a body flag alone — the role is read
+  // from the token, the same way the booking overrides are.
+  //
+  // What this does NOT do is recompute the HD chart. Those columns keep the
+  // values worked out from the old date, so the CRM says so at the field.
   async updateChildProfile(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const childId = parseInt(c.req.param('id'));
-      const { nickname, gender, relation, name_en, membership_type, membership_expires_at } = await c.req.json();
+      const { nickname, gender, relation, name_en, membership_type, membership_expires_at, date_of_birth } = await c.req.json();
+
+      let birthDate: string | undefined;
+      if (date_of_birth) {
+        const authHeader = c.req.header('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+        if (payload?.type !== 'admin' || payload?.role !== 'super_admin') {
+          return c.json({ success: false, message: 'แก้วันเกิดได้เฉพาะ Super Admin' }, 403);
+        }
+        // YYYY-MM-DD only — the column is a DATE and the HD chart reads it.
+        if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(date_of_birth))) {
+          return c.json({ success: false, message: 'รูปแบบวันเกิดไม่ถูกต้อง' }, 400);
+        }
+        birthDate = String(date_of_birth);
+      }
+
       await adminRepo.updateHdChild(childId, {
         nickname, gender, relation, nameEn: name_en,
         membershipType: membership_type,
         membershipExpiresAt: membership_expires_at,
+        birthDate,
       });
       return c.json({ success: true });
     } catch (error: any) {
@@ -580,6 +607,10 @@ export class AdminController {
             scheduledAt: String(booking.scheduled_at),
             answers: merged,
             excludeSubmissionId: booking.form_submission_id,
+            // The round is not changing here, so an unchanged team consumes
+            // nothing and is not a breach to report.
+            currentScheduledAt: String(booking.scheduled_at),
+            currentAnswers: current?.answers || {},
           });
           if (breach) {
             return c.json({
@@ -2465,7 +2496,7 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
       const { status, scheduledAt, paidAt, calendarId, slotDate, slotStartTime,
-              overrideTeamQuota } = await c.req.json();
+              overrideTeamQuota, formAnswers } = await c.req.json();
       // Every status value actually used anywhere in the system (both the
       // 'pending'/'pending_payment' naming variants included — the two are
       // used inconsistently across the codebase for the same conceptual
@@ -2493,8 +2524,8 @@ export class AdminController {
       // round. Staff can still proceed; they just have to mean it.
       if (scheduledAt && status !== 'cancelled' && !overrideTeamQuota) {
         const booking = await config.db.prepare(
-          'SELECT form_submission_id FROM Bookings WHERE id = ?'
-        ).bind(id).first<{ form_submission_id: number | null }>();
+          'SELECT form_submission_id, scheduled_at FROM Bookings WHERE id = ?'
+        ).bind(id).first<{ form_submission_id: number | null; scheduled_at: string | null }>();
         if (booking?.form_submission_id) {
           const formRepo = new RegistrationFormRepository(config.db);
           const submission = await formRepo.getSubmissionWithFields(booking.form_submission_id);
@@ -2502,12 +2533,23 @@ export class AdminController {
             'SELECT form_id, course_id FROM Form_Submissions WHERE id = ?'
           ).bind(booking.form_submission_id).first<{ form_id: number; course_id: number }>();
           if (submission && meta) {
+            // The dialog that reschedules can also change the team, and it saves
+            // the two in separate requests. Judging this one on the answers still
+            // on file would refuse a move out of a full team on the grounds that
+            // the full team is full — so the answers about to be saved come with
+            // it, and they are what gets checked.
+            const stored = submission.answers || {};
+            const after = (formAnswers && typeof formAnswers === 'object')
+              ? { ...stored, ...formAnswers }
+              : stored;
             const breach = await formRepo.findTeamQuotaBreach({
               formId: meta.form_id,
               courseId: meta.course_id,
               scheduledAt,
-              answers: submission.answers || {},
+              answers: after,
               excludeSubmissionId: booking.form_submission_id,
+              currentScheduledAt: booking.scheduled_at ?? undefined,
+              currentAnswers: stored,
             });
             if (breach) {
               return c.json({

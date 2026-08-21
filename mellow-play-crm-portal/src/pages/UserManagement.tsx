@@ -219,6 +219,11 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
 );
 
 const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
+  // A birthday decides which courses a child is old enough for and which band
+  // a report counts them under, so a wrong one cannot be left permanent. It
+  // stays out of reach of every other role because the HD chart is derived
+  // from it.
+  const canEditDob = currentUserRole === 'super_admin';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -608,6 +613,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             name_en: c.full_name_en || null,
             membership_type: c.membership_type ?? 'standard',
             membership_expires_at: c.membership_type === 'premium' ? c.membership_expires_at : null,
+            // Only sent when this role may change it — the server checks the
+            // token too, so a stray value here would be refused, not applied.
+            ...(canEditDob && c.date_of_birth ? { date_of_birth: c.date_of_birth } : {}),
           })
         )
       );
@@ -1059,12 +1067,16 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label={`วัน/เดือน/ปีเกิด ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : ''}`} fullWidth size="small" type="date"
+                              label={`วัน/เดือน/ปีเกิด ${child.is_hd && !canEditDob ? '(ลงทะเบียนผ่านแอป)' : ''}`}
+                              fullWidth size="small" type="date"
                               value={child.date_of_birth}
-                              onChange={e => !readOnly && !child.is_hd && updateChild(index, 'date_of_birth', e.target.value)}
+                              onChange={e => (!readOnly && (!child.is_hd || canEditDob)) && updateChild(index, 'date_of_birth', e.target.value)}
                               InputLabelProps={{ shrink: true }}
-                              InputProps={{ readOnly: readOnly || child.is_hd }}
-                              disabled={child.is_hd}
+                              InputProps={{ readOnly: readOnly || (child.is_hd && !canEditDob) }}
+                              disabled={child.is_hd && !canEditDob}
+                              helperText={child.is_hd && canEditDob
+                                ? 'แก้ได้เฉพาะ Super Admin · ผัง Human Design ที่คำนวณไว้จะยังเป็นค่าจากวันเกิดเดิม'
+                                : undefined}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
