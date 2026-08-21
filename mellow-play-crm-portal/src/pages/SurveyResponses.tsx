@@ -101,11 +101,19 @@ const SurveyResponses = () => {
 
   // Built on demand by ExportMenu — one row per submission, one column per
   // question, matching what the table shows.
+  // An option with its own text box stores what was typed under
+  // `${field_key}__other`, which is not a field of its own and so would never
+  // reach the export on its own. It gets a column right after its question.
+  const hasOtherBox = (f: any): boolean => {
+    try { return (JSON.parse(f.options_json || '[]') as any[]).some(o => o?.allowText); } catch { return false; }
+  };
+
   const buildCsv = (): CsvPayload => {
     const questionFields = (form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph');
     return {
       fileName: `${form?.name || 'survey'}-responses`,
-      headers: ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', 'รอบ', ...(form?.has_answer_key ? ['คะแนน'] : []), ...questionFields.map((f: any) => f.label)],
+      headers: ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', 'รอบ', ...(form?.has_answer_key ? ['คะแนน'] : []),
+        ...questionFields.flatMap((f: any) => hasOtherBox(f) ? [f.label, `${f.label} (ระบุเพิ่ม)`] : [f.label])],
       rows: dashboardSubmissions.map((d, i) => {
         const s = submissions[i];
         return [
@@ -114,9 +122,10 @@ const SurveyResponses = () => {
           s.respondent_phone || '',
           s.attempt_label || `ครั้งที่ ${s.attempt_no ?? 1}`,
           ...(form?.has_answer_key ? [s.total_score != null ? `${s.total_score}/${s.max_score}` : ''] : []),
-          ...questionFields.map((f: any) => {
+          ...questionFields.flatMap((f: any) => {
             const v = d.answers[f.field_key];
-            return Array.isArray(v) ? v.join('; ') : (v ?? '');
+            const cell = Array.isArray(v) ? v.join('; ') : (v ?? '');
+            return hasOtherBox(f) ? [cell, d.answers[`${f.field_key}__other`] ?? ''] : [cell];
           }),
         ];
       }),

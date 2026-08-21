@@ -54,6 +54,15 @@ interface ScoredOption {
    * touches an answer that was already given.
    */
   color?: string;
+  /**
+   * Gives this option its own text box, for the "อื่น ๆ ระบุ ......" line every
+   * paper form ends a list with. The typed text is stored beside the answer as
+   * `${field_key}__other`, following the same companion-key convention the
+   * person picker uses for `__realname`/`__nickname` — so the option itself
+   * still counts as one clean tally in the summary instead of splintering into
+   * a separate bar per thing anyone wrote.
+   */
+  allowText?: boolean;
 }
 
 // A short fixed set rather than a free colour picker: these are what the rest
@@ -769,7 +778,7 @@ const SurveyManagement = () => {
                         {isChoiceType(field.type) && (
                           <Stack spacing={1}>
                             {(field.options || []).map((opt, oIdx) => (
-                              <Stack key={oIdx} direction="row" spacing={1} alignItems="center">
+                              <Stack key={oIdx} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                                 <TextField
                                   size="small" label="ตัวเลือก" sx={{ flex: 1 }}
                                   value={opt.label}
@@ -811,6 +820,21 @@ const SurveyManagement = () => {
                                     ))}
                                   </Select>
                                 </FormControl>
+                                {field.type !== 'select' && (
+                                  <FormControlLabel
+                                    sx={{ mr: 0 }}
+                                    control={
+                                      <Switch
+                                        size="small"
+                                        checked={!!opt.allowText}
+                                        onChange={e => updateField(idx, {
+                                          options: (field.options || []).map((o, i) => i === oIdx ? { ...o, allowText: e.target.checked || undefined } : o),
+                                        })}
+                                      />
+                                    }
+                                    label={<Typography variant="caption">มีช่องให้พิมพ์</Typography>}
+                                  />
+                                )}
                                 <IconButton
                                   size="small" color="error"
                                   onClick={() => updateField(idx, { options: (field.options || []).filter((_, i) => i !== oIdx) })}

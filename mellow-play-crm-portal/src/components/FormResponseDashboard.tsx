@@ -465,8 +465,26 @@ const FormResponseDashboard = ({
             for (const p of picks) counts.set(p, (counts.get(p) || 0) + 1);
           }
           const rows = Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
+          // The free text behind an "อื่น ๆ" option. It lives under a
+          // companion key, so without this it is collected and never seen.
+          const typed = submissions
+            .map(s => s.answers?.[`${f.field_key}__other`])
+            .filter(v => typeof v === 'string' && v.trim() !== '')
+            .map(String);
           body = rows.length > 0
-            ? <CountBars rows={rows} respondents={answered} />
+            ? (
+              <Stack spacing={2}>
+                <CountBars rows={rows} respondents={answered} />
+                {typed.length > 0 && (
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                      ข้อความที่ระบุเพิ่ม ({typed.length})
+                    </Typography>
+                    <TextAnswers answers={typed} />
+                  </Box>
+                )}
+              </Stack>
+            )
             : <Typography variant="body2" color="text.disabled">คำถามนี้ยังไม่มีตัวเลือก</Typography>;
         } else if (f.type === 'number') {
           const nums = answeredValues.map(Number).filter(n => !isNaN(n));
