@@ -170,7 +170,7 @@ export class RegistrationFormRepository {
   // every occurrence of the course — so the consumer booking wizard's date
   // step now runs before the registration-form step whenever a form has a
   // team_select field, and passes the chosen scheduledAt in here.
-  async getTeamCounts(formId: number, courseId: number, scheduledAt: string, fieldKey: string): Promise<Record<string, number>> {
+  async getTeamCounts(formId: number, courseId: number, scheduledAt: string, fieldKey: string, excludeSubmissionId?: number): Promise<Record<string, number>> {
     // Same "only count it if still actively booked" guard as
     // findDuplicateSubmission — a cancelled or hard-deleted booking must
     // free its team spot back up, not hold it forever.
@@ -183,15 +183,19 @@ export class RegistrationFormRepository {
     // "YYYY-MM-DD HH:MM" (consumer flow) or "...HH:MM:SS" (CRM, which reads
     // Bookings.scheduled_at back) — an exact string compare made every CRM
     // lookup miss entirely, so every team showed its full capacity as free.
+    // excludeSubmissionId is for the CRM's correction paths: a booking that is
+    // being moved into, or re-saved inside, this round must not be counted as a
+    // rival for the spot it already holds.
     const { results } = await this.db.prepare(`
       SELECT answers_json FROM Form_Submissions fs
       WHERE fs.form_id = ? AND fs.course_id = ?
+        AND (? IS NULL OR fs.id != ?)
         AND EXISTS (
           SELECT 1 FROM Bookings b
           WHERE b.form_submission_id = fs.id AND b.status != 'cancelled'
             AND SUBSTR(b.scheduled_at, 1, 16) = SUBSTR(?, 1, 16)
         )
-    `).bind(formId, courseId, scheduledAt).all();
+    `).bind(formId, courseId, excludeSubmissionId ?? null, excludeSubmissionId ?? null, scheduledAt).all();
     const counts: Record<string, number> = {};
     for (const row of results as any[]) {
       try {
@@ -201,6 +205,52 @@ export class RegistrationFormRepository {
       } catch { /* malformed answers_json shouldn't block other rows */ }
     }
     return counts;
+  }
+
+  /**
+   * The first team on this form that the given answers would push past its
+   * quota in that round, or null when nothing breaches.
+   *
+   * One rule for every path that can change a team's membership. Booking
+   * creation used to be the only place that checked, while three things could
+   * change the outcome — creating a booking, rescheduling one into another
+   * round, and editing which team a booking chose. Two of those wrote silently,
+   * so a round could read "เกินโควตา 2" with nothing having been rejected.
+   *
+   * Counts a submission as one spot per round, matching both the booking
+   * dialogs and the capacity board — a multi-child checkout is one entry in a
+   * team, not one per child.
+   */
+  async findTeamQuotaBreach(params: {
+    formId: number;
+    courseId: number;
+    scheduledAt: string;
+    answers: Record<string, any>;
+    excludeSubmissionId?: number;
+  }): Promise<{ fieldKey: string; label: string; capacity: number; current: number } | null> {
+    if (!params.scheduledAt) return null;
+    const { results: fields } = await this.db.prepare(
+      `SELECT field_key, options_json FROM Registration_Form_Fields WHERE form_id = ? AND type = 'team_select'`
+    ).bind(params.formId).all();
+
+    for (const f of fields as any[]) {
+      const chosen = params.answers[f.field_key];
+      if (!chosen) continue;
+      let options: { label: string; capacity: number }[] = [];
+      try { options = JSON.parse(f.options_json || '[]'); } catch { continue; }
+      const team = options.find(t => t.label === chosen);
+      // A team no longer on the form has no quota to breach — staff renaming
+      // an option must not make every existing booking unsaveable.
+      if (!team || !(team.capacity > 0)) continue;
+      const counts = await this.getTeamCounts(
+        params.formId, params.courseId, params.scheduledAt, f.field_key, params.excludeSubmissionId
+      );
+      const current = counts[String(chosen)] || 0;
+      if (current >= team.capacity) {
+        return { fieldKey: f.field_key, label: String(chosen), capacity: team.capacity, current };
+      }
+    }
+    return null;
   }
 
   // Same counts as getTeamCounts, but for every team_select field on the

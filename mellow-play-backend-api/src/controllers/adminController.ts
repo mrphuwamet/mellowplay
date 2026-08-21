@@ -548,11 +548,13 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const bookingId = c.req.param('id');
-      const { answers } = await c.req.json();
+      const { answers, overrideTeamQuota } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const db = config.db;
-      const booking = await db.prepare('SELECT form_submission_id FROM Bookings WHERE id = ?').bind(bookingId).first() as any;
+      const booking = await db.prepare(
+        'SELECT form_submission_id, scheduled_at FROM Bookings WHERE id = ?'
+      ).bind(bookingId).first() as any;
       if (!booking) return c.json({ success: false, message: 'Booking not found' }, 404);
       if (!booking.form_submission_id) return c.json({ success: false, message: 'This booking has no registration form submission' }, 400);
 
@@ -562,6 +564,35 @@ export class AdminController {
       const registrationFormRepo = new RegistrationFormRepository(db);
       const current = await registrationFormRepo.getSubmissionWithFields(booking.form_submission_id);
       const merged = { ...(current?.answers || {}), ...answers };
+
+      // Switching which team a booking is on is a change to that team's roll,
+      // and this endpoint used to make it without looking. Checked against the
+      // round the booking actually sits in, excluding its own spot so
+      // re-saving an unchanged team is never reported as a breach.
+      if (!overrideTeamQuota && booking.scheduled_at) {
+        const meta = await db.prepare(
+          'SELECT form_id, course_id FROM Form_Submissions WHERE id = ?'
+        ).bind(booking.form_submission_id).first<{ form_id: number; course_id: number }>();
+        if (meta) {
+          const breach = await registrationFormRepo.findTeamQuotaBreach({
+            formId: meta.form_id,
+            courseId: meta.course_id,
+            scheduledAt: String(booking.scheduled_at),
+            answers: merged,
+            excludeSubmissionId: booking.form_submission_id,
+          });
+          if (breach) {
+            return c.json({
+              success: false,
+              error_code: 'TEAM_OVER_QUOTA',
+              team: breach.label,
+              capacity: breach.capacity,
+              current: breach.current,
+              message: `ทีม "${breach.label}" เต็มแล้ว (${breach.current}/${breach.capacity}) ย้ายเข้าแล้วจะเกินโควตา`,
+            }, 409);
+          }
+        }
+      }
 
       // A multi-child checkout shares ONE Form_Submissions row across every
       // sibling Bookings row it produced (see createBooking) — updating that
@@ -742,22 +773,19 @@ export class AdminController {
           // where two families submit for the last spot around the same
           // time. Scoped to form+course+round — a team's capacity resets
           // per round, not shared across every occurrence of the course.
-          for (const field of (form.fields || [])) {
-            if (field.type !== 'team_select') continue;
-            const chosenTeam = formAnswers[field.field_key];
-            if (!chosenTeam) continue;
-            let teamOptions: { label: string; capacity: number }[] = [];
-            try { teamOptions = JSON.parse(field.options_json || '[]'); } catch { /* malformed config shouldn't block booking */ }
-            const team = teamOptions.find(t => t.label === chosenTeam);
-            if (!team) continue;
-            const counts = await registrationFormRepo.getTeamCounts(parseInt(formId), parseInt(courseId), scheduledAt, field.field_key);
-            if ((counts[chosenTeam] || 0) >= team.capacity) {
-              return c.json({
-                success: false,
-                error_code: 'TEAM_FULL',
-                message: `ทีม "${chosenTeam}" เต็มแล้ว กรุณาเลือกทีมอื่น`,
-              }, 400);
-            }
+          //
+          // Shared with the reschedule and edit-answers paths, which used to
+          // write without checking at all: a round could show "เกินโควตา"
+          // having never rejected anything.
+          const breach = await registrationFormRepo.findTeamQuotaBreach({
+            formId: parseInt(formId), courseId: parseInt(courseId), scheduledAt, answers: formAnswers,
+          });
+          if (breach) {
+            return c.json({
+              success: false,
+              error_code: 'TEAM_FULL',
+              message: `ทีม "${breach.label}" เต็มแล้ว กรุณาเลือกทีมอื่น`,
+            }, 400);
           }
         }
       }
@@ -2436,7 +2464,8 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
-      const { status, scheduledAt, paidAt, calendarId, slotDate, slotStartTime } = await c.req.json();
+      const { status, scheduledAt, paidAt, calendarId, slotDate, slotStartTime,
+              overrideTeamQuota } = await c.req.json();
       // Every status value actually used anywhere in the system (both the
       // 'pending'/'pending_payment' naming variants included — the two are
       // used inconsistently across the codebase for the same conceptual
@@ -2456,6 +2485,44 @@ export class AdminController {
       // payment_status, not status, so that mismatch made a genuinely paid,
       // confirmed booking invisible to seat availability — the class looked
       // like it still had room when it didn't.
+      // Moving a booking into another round used to write scheduled_at with no
+      // capacity check of any kind. The seat check is deliberately skipped for
+      // staff (a correction often lands on a past, full round), but a team
+      // quota was being broken with no warning at all — which is how a round
+      // came to read 8/6 on a quota of 6, three of them moved in from another
+      // round. Staff can still proceed; they just have to mean it.
+      if (scheduledAt && status !== 'cancelled' && !overrideTeamQuota) {
+        const booking = await config.db.prepare(
+          'SELECT form_submission_id FROM Bookings WHERE id = ?'
+        ).bind(id).first<{ form_submission_id: number | null }>();
+        if (booking?.form_submission_id) {
+          const formRepo = new RegistrationFormRepository(config.db);
+          const submission = await formRepo.getSubmissionWithFields(booking.form_submission_id);
+          const meta = await config.db.prepare(
+            'SELECT form_id, course_id FROM Form_Submissions WHERE id = ?'
+          ).bind(booking.form_submission_id).first<{ form_id: number; course_id: number }>();
+          if (submission && meta) {
+            const breach = await formRepo.findTeamQuotaBreach({
+              formId: meta.form_id,
+              courseId: meta.course_id,
+              scheduledAt,
+              answers: submission.answers || {},
+              excludeSubmissionId: booking.form_submission_id,
+            });
+            if (breach) {
+              return c.json({
+                success: false,
+                error_code: 'TEAM_OVER_QUOTA',
+                team: breach.label,
+                capacity: breach.capacity,
+                current: breach.current,
+                message: `ย้ายเข้ารอบนี้แล้ว ทีม "${breach.label}" จะเกินโควตา (${breach.current + 1}/${breach.capacity})`,
+              }, 409);
+            }
+          }
+        }
+      }
+
       const sets = ['status = ?'];
       const binds: any[] = [status];
       if (status === 'confirmed_paid' || status === 'confirmed' || status === 'completed' || status === 'awaiting_report') {

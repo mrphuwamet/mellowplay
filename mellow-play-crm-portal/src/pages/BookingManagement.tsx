@@ -2239,6 +2239,11 @@ const BookingManagement = () => {
   const [forcePaidAt, setForcePaidAt] = useState('');
   const [forceStatusLoading, setForceStatusLoading] = useState(false);
   const [forceStatusError, setForceStatusError] = useState('');
+  // A move or a team change that would put a team past its quota is refused
+  // once, with the numbers, and then allowed on a second explicit press. Staff
+  // correcting records genuinely need to exceed a quota sometimes — what was
+  // wrong before was doing it without anyone being told.
+  const [teamQuotaWarning, setTeamQuotaWarning] = useState<string>('');
   const [forceStatusSuccess, setForceStatusSuccess] = useState(false);
 
   // Round/slot picker for the edit dialog — same date-chip + slot-button
@@ -2373,9 +2378,10 @@ const BookingManagement = () => {
     setForceScheduledAt(toDatetimeLocalValue(b.scheduled_at));
     setForcePaidAt('');
     setForceStatusError('');
+    setTeamQuotaWarning('');
   };
 
-  const submitForceStatus = async () => {
+  const submitForceStatus = async (overrideTeamQuota = false) => {
     if (!forceStatusBooking) return;
     if (usesReschedulePicker && (!rescheduleSelectedDate || !rescheduleSelectedSlot)) {
       setForceStatusError('กรุณาเลือกวันและรอบเวลา');
@@ -2383,9 +2389,11 @@ const BookingManagement = () => {
     }
     setForceStatusLoading(true);
     setForceStatusError('');
+    if (overrideTeamQuota) setTeamQuotaWarning('');
     try {
       await axios.patch(`${API_BASE}/bookings/${forceStatusBooking.id}/status`, {
         status: forceStatusValue,
+        overrideTeamQuota,
         scheduledAt: usesReschedulePicker
           ? `${rescheduleSelectedDate!.date} ${rescheduleSelectedSlot!.startTime}:00`
           : (forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined),
@@ -2410,7 +2418,7 @@ const BookingManagement = () => {
           const picked = editFamilyRoster.find(m => m.display === answersToSave[f.fieldKey]);
           if (picked?.name) answersToSave[`${f.fieldKey}__realname`] = picked.name;
         }
-        const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: answersToSave });
+        const formRes = await axios.put(`${API_BASE}/bookings/${forceStatusBooking.id}/form-answers`, { answers: answersToSave, overrideTeamQuota });
         if (!formRes.data.success) {
           setForceStatusError(formRes.data.message || 'บันทึกข้อมูลฟอร์มไม่สำเร็จ');
           fetchBookings();
@@ -2419,6 +2427,7 @@ const BookingManagement = () => {
       }
       setForceStatusBooking(null);
       setForceStatusSuccess(true);
+      setTeamQuotaWarning('');
       // If the current status tab no longer matches the new status, the
       // booking would silently vanish from the filtered list with no
       // feedback — reset to "all" so the admin can actually see the result.
@@ -2427,7 +2436,13 @@ const BookingManagement = () => {
       }
       fetchBookings();
     } catch (e: any) {
-      setForceStatusError(e.response?.data?.message || 'เกิดข้อผิดพลาด ไม่สามารถบันทึกได้');
+      // Not an error to report and move on from — an answer waiting on a
+      // decision, so it gets its own confirm rather than the red box.
+      if (e.response?.data?.error_code === 'TEAM_OVER_QUOTA') {
+        setTeamQuotaWarning(e.response.data.message || 'ทีมนี้จะเกินโควตา');
+      } else {
+        setForceStatusError(e.response?.data?.message || 'เกิดข้อผิดพลาด ไม่สามารถบันทึกได้');
+      }
     } finally {
       setForceStatusLoading(false);
     }
@@ -2760,6 +2775,20 @@ const BookingManagement = () => {
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
           </Typography>
           {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
+          {teamQuotaWarning && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="warning" size="small" variant="contained" disabled={forceStatusLoading}
+                  onClick={() => submitForceStatus(true)}>
+                  ยืนยัน บันทึกทั้งที่เกิน
+                </Button>
+              }
+            >
+              {teamQuotaWarning}
+            </Alert>
+          )}
           {isSuperAdmin ? (
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>สถานะ</InputLabel>
@@ -2913,7 +2942,10 @@ const BookingManagement = () => {
           </Button>
           )}
           <Button onClick={() => setForceStatusBooking(null)} disabled={forceStatusLoading}>ยกเลิก</Button>
-          <Button variant="contained" color="warning" onClick={submitForceStatus} disabled={forceStatusLoading}>
+          {/* Wrapped, not passed directly: onClick hands the handler a
+              MouseEvent, which as a positional argument would read as
+              "override the quota" on the very first press. */}
+          <Button variant="contained" color="warning" onClick={() => submitForceStatus()} disabled={forceStatusLoading}>
             {forceStatusLoading ? <CircularProgress size={18} /> : 'บันทึก'}
           </Button>
         </DialogActions>
