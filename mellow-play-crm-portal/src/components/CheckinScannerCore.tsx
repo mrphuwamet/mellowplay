@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import {
   Box, Paper, Typography, Avatar, Chip, Button, Alert, CircularProgress,
-  List, ListItem, ListItemText, Checkbox, Divider, Tabs, Tab, TextField,
+  List, ListItem, ListItemText, Checkbox, Divider, Tabs, Tab, TextField, Stack,
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon, CheckCircle as CheckIcon, Refresh as RescanIcon,
@@ -117,6 +117,8 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [togglingActionId, setTogglingActionId] = useState<number | null>(null);
+  const [surveyHistory, setSurveyHistory] = useState<any[] | null>(null);
+  const [surveyLoading, setSurveyLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
   const [phoneResults, setPhoneResults] = useState<PhoneSearchResult[] | null>(null);
@@ -286,6 +288,25 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
     }
   };
 
+  // Which survey/test forms these people have already answered, matched on
+  // their names and the account phone. A survey is filled in from a link, not
+  // from inside a booking, so there is no id joining the two — the desk asks
+  // "who has answered anything under these names?" and staff read the answer
+  // alongside the tick-boxes they were using as a memory aid before.
+  useEffect(() => {
+    if (!booking?.id) { setSurveyHistory(null); return; }
+    let cancelled = false;
+    setSurveyLoading(true);
+    client.get(`${API_BASE}/checkin/${booking.id}/survey-history`)
+      .then(res => { if (!cancelled) setSurveyHistory(res.data.success ? res.data.submissions : []); })
+      // A failure here must not look like "has not answered" — null is the
+      // "could not check" state and renders as such.
+      .catch(() => { if (!cancelled) setSurveyHistory(null); })
+      .finally(() => { if (!cancelled) setSurveyLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking?.id]);
+
   // Whatever the family filled in on the registration form for this
   // booking — staff previously only saw the lookup's own bare fields
   // (nickname/course/parent phone), with no way to see, say, which team
@@ -423,6 +444,17 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
 
       {booking && (
         <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box' }}>
+          {/* Read out loud across a desk and matched against a printed list,
+              so it is the largest thing on the card after the name. */}
+          <Box sx={{ mb: 1.5, px: 1.5, py: 1, borderRadius: 2, bgcolor: '#f4f1fe', border: '1px solid #e6e0fb' }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', lineHeight: 1 }}>
+              หมายเลขจอง
+            </Typography>
+            <Typography sx={{ fontWeight: 900, fontSize: 34, lineHeight: 1.1, letterSpacing: '-0.5px', color: '#5b3fd1' }}>
+              #{booking.id}
+            </Typography>
+          </Box>
+
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 2 }}>
             <Avatar src={booking.child_avatar || undefined} sx={{ width: 56, height: 56, bgcolor: 'primary.main', flexShrink: 0 }}>
               {attendeeName[0]}
@@ -473,6 +505,44 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
           )}
 
           <Divider sx={{ mb: 1 }} />
+
+          <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: '1px solid #eef0f3' }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+              แบบสอบถามที่ตอบแล้ว
+            </Typography>
+            {surveyLoading ? (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={14} />
+                <Typography variant="body2" color="text.secondary">กำลังค้นหา...</Typography>
+              </Stack>
+            ) : surveyHistory === null ? (
+              <Typography variant="body2" color="text.disabled">ตรวจสอบไม่ได้ในขณะนี้</Typography>
+            ) : surveyHistory.length === 0 ? (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip size="small" label="ยังไม่พบการตอบ" sx={{ fontWeight: 800, bgcolor: '#fdf1e7', color: '#a15c00' }} />
+                <Typography variant="caption" color="text.secondary">ค้นจากชื่อและเบอร์ในการจองนี้</Typography>
+              </Stack>
+            ) : (
+              <Stack spacing={1}>
+                {surveyHistory.map((sub: any) => (
+                  <Stack key={sub.id} direction="row" spacing={1} alignItems="flex-start">
+                    <Chip size="small" label="ตอบแล้ว" color="success" sx={{ fontWeight: 800, flexShrink: 0 }} />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: 'break-word' }}>{sub.form_name}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                        {[
+                          sub.respondent_name,
+                          new Date(String(sub.created_at).replace(' ', 'T') + 'Z')
+                            .toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }),
+                          sub.has_answer_key && sub.total_score != null ? `${sub.total_score}/${sub.max_score}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+          </Box>
 
           {booking.actions.length === 0 ? (
             <Typography variant="body2" color="text.disabled" sx={{ py: 2, textAlign: 'center' }}>

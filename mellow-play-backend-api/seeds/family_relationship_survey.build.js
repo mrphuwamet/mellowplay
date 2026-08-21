@@ -103,6 +103,15 @@ add(0, 'intro', 'paragraph',
 add(0, 'legend', 'paragraph', LEGEND_FULL, 0);
 
 add(0, 's1_head', 'heading', 'ส่วนที่ 1 ข้อมูลทั่วไปของผู้ตอบแบบสอบถาม', 0);
+// Who answered. Not on the paper form, which is handed in on paper and so
+// carries its identity in the act of handing it over — a link does not.
+// Without it the check-in desk cannot answer "has this family filled it in
+// yet?", which is the whole reason it is asked for.
+//
+// Phone left optional: the name is what the desk matches on, and a phone that
+// disagrees with the one on the booking would not help. Turn on
+// "บังคับกรอกเบอร์โทร" on this field if the matching needs to be tighter.
+add(0, 's1_who', 'identity', 'ข้อมูลผู้ตอบแบบสอบถาม', 1, undefined, { phoneRequired: false });
 add(0, 's1_role', 'radio', 'ผู้กรอกแบบฟอร์ม', 1,
   [...plain(['คุณแม่', 'คุณพ่อ', 'ผู้ปกครองอื่น ๆ (ปู่ ย่า ตา ยาย ฯลฯ)', 'เด็กผู้เข้าร่วมกิจกรรม']), other()]);
 add(0, 's1_age', 'radio', 'อายุ', 1,
@@ -187,6 +196,8 @@ const out = process.argv[2];
 fs.writeFileSync(out, lines.join('\n') + '\n', 'utf8');
 console.log(`wrote ${fields.length} fields across ${Object.keys(perPage).length} pages -> ${out}`);
 console.log('fields per page:', JSON.stringify(perPage));
-console.log('scored items:', fields.filter(f => f.config).length, '(expect 18 — ข้อ 1–18)');
+// Counts the rating ladder specifically — every field with a config is not the
+// same thing, now that the identity field carries one too.
+console.log('scored items:', fields.filter(f => f.config?.display === 'scale').length, '(expect 18 — ข้อ 1–18)');
 console.log('options with their own text box:',
   fields.filter(f => (f.options || []).some(o => o.allowText)).map(f => f.key).join(', '));

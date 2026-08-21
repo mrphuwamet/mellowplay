@@ -494,6 +494,9 @@ const CHECKIN_ACCESS_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/search-by-phone\/[^/]+$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin\/\d+\/actions\/\d+\/toggle$/ },
+  // Reachable from the shared check-in link, but the handler still requires a
+  // staff session — the allowlist only gets it past the blanket admin gate.
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/\d+\/survey-history$/ },
   // So the scanner can show a booking's full registration-form answers too,
   // not just its own lookup fields — same endpoint the CRM booking list's
   // "ดูข้อมูลเพิ่มเติม" button already uses.
@@ -974,6 +977,7 @@ app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.s
 app.get('/api/v1/admin/checkin/lookup/:token',        (c) => checkinController.lookup(c));
 app.get('/api/v1/admin/checkin/search-by-phone/:phone', (c) => checkinController.searchByPhone(c));
 app.post('/api/v1/admin/checkin/:bookingId/actions/:actionId/toggle', (c) => checkinController.toggleAction(c));
+app.get('/api/v1/admin/checkin/:bookingId/survey-history', (c) => checkinController.surveyHistory(c));
 
 // Distributable check-in links — a CRM admin creates a PIN-protected link
 // (see CHECKIN_ACCESS_ROUTES/verifyPin below) to hand to volunteers who

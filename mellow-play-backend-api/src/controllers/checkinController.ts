@@ -72,6 +72,71 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * "Has this family filled the survey in yet?" for the check-in card.
+   *
+   * Every name the booking knows is asked about — the account holder, the
+   * child on the seat, and each person the registration form names — because
+   * whoever answers a survey at the venue is any one of them, not reliably
+   * the account the seat was booked under.
+   *
+   * Staff-only: it reports one family's answers across every form, which is
+   * more than the token alone should unlock. The scanner passes its PIN
+   * session, same as toggling an action.
+   */
+  async surveyHistory(c: C) {
+    try {
+      if (!(await isStaffRequest(c))) {
+        return c.json({ success: false, message: 'ต้องเข้าสู่ระบบเจ้าหน้าที่' }, 403);
+      }
+      const bookingId = parseInt(c.req.param('bookingId'));
+      if (!bookingId) return c.json({ success: false, message: 'bookingId is required' }, 400);
+
+      const config = new ConfigService(c.env);
+      const booking = await config.db.prepare(`
+        SELECT b.id, b.form_submission_id, u.first_name, u.last_name, u.display_name, u.phone,
+               ch.name AS child_name, ch.nickname AS child_nickname
+          FROM Bookings b
+          LEFT JOIN Children ch ON ch.id = b.child_id
+          LEFT JOIN Users u ON u.id = ch.parent_id
+         WHERE b.id = ?
+      `).bind(bookingId).first<any>();
+      if (!booking) return c.json({ success: false, message: 'ไม่พบการจอง' }, 404);
+
+      const names: string[] = [
+        [booking.first_name, booking.last_name].filter(Boolean).join(' '),
+        booking.display_name,
+        booking.child_name,
+        booking.child_nickname,
+      ].filter(Boolean);
+
+      // The registration form's own people are the real attendees — the seat's
+      // system child is often a placeholder. __realname carries the full name
+      // behind a picker's display text (see the CRM booking list).
+      if (booking.form_submission_id) {
+        const sub = await config.db.prepare(
+          'SELECT answers_json FROM Form_Submissions WHERE id = ?'
+        ).bind(booking.form_submission_id).first<{ answers_json: string }>();
+        try {
+          const answers = JSON.parse(sub?.answers_json || '{}');
+          for (const [key, value] of Object.entries(answers)) {
+            if (typeof value !== 'string' || !value.trim()) continue;
+            if (!key.endsWith('__realname') && !/^[0-9a-f-]{8,}$/i.test(key)) continue;
+            names.push(value);
+            // A picker's display text is often "เลโอ (ปัณณพัฒน์ เย็นฉ่ำ)" — the
+            // name inside the brackets is what someone types into a form.
+            const inner = value.match(/\(([^)]+)\)/);
+            if (inner) names.push(inner[1]);
+            names.push(value.replace(/\s*\([^)]*\)\s*/g, ' ').trim());
+          }
+        } catch { /* malformed answers just narrow the search */ }
+      }
+
+      const submissions = await this.repo(c).findSurveyHistory(names, [booking.phone || '']);
+      return c.json({ success: true, submissions, matchedOn: { names: Array.from(new Set(names)) } });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async searchByPhone(c: C) {
     try {
       const phone = c.req.param('phone');

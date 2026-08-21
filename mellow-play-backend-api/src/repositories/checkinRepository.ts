@@ -82,6 +82,53 @@ export class CheckinRepository {
   // registration). Returns every one of that family's bookings (soonest
   // first) with each row's own qr_token, so picking one just re-runs
   // lookupByToken() — the same single code path either way finds a match.
+
+  /**
+   * Which survey/test forms these people have already answered.
+   *
+   * Matched on the respondent, not on the booking: a survey is filled in
+   * from a link, not from inside a booking, so there is no id joining the
+   * two. Both sides are normalised before comparing — a name typed with a
+   * double space, or a phone written with dashes, is the same person.
+   *
+   * Trial runs (is_test) never count: staff testing a form must not make a
+   * family look like they have already answered it.
+   */
+  async findSurveyHistory(names: string[], phones: string[]): Promise<any[]> {
+    const norm = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
+    // Capped so one booking with a long roster cannot build an unbounded
+    // statement; a family roster is a handful of people.
+    const nameList = Array.from(new Set(names.map(norm).filter(n => n.length > 1))).slice(0, 12);
+    const phoneList = Array.from(new Set(phones.map(p => p.replace(/[^0-9]/g, "")).filter(p => p.length >= 9))).slice(0, 4);
+    if (nameList.length === 0 && phoneList.length === 0) return [];
+
+    const clauses: string[] = [];
+    const binds: any[] = [];
+    if (nameList.length > 0) {
+      // TRIM+LOWER on the stored side, and a double-space squeeze, to mirror
+      // norm() above. Thai has no case, so LOWER only matters for latin names.
+      clauses.push(`REPLACE(LOWER(TRIM(s.respondent_name)), '  ', ' ') IN (${nameList.map(() => '?').join(',')})`);
+      binds.push(...nameList);
+    }
+    if (phoneList.length > 0) {
+      clauses.push(`REPLACE(REPLACE(REPLACE(s.respondent_phone, '-', ''), ' ', ''), '+66', '0') IN (${phoneList.map(() => '?').join(',')})`);
+      binds.push(...phoneList);
+    }
+
+    const { results } = await this.db.prepare(`
+      SELECT s.id, s.form_id, s.respondent_name, s.respondent_phone, s.created_at,
+             s.total_score, s.max_score, s.attempt_no, s.attempt_label,
+             f.name AS form_name, f.form_kind, f.has_answer_key
+        FROM Survey_Submissions s
+        JOIN Survey_Forms f ON f.id = s.form_id
+       WHERE COALESCE(s.is_test, 0) = 0
+         AND (${clauses.join(' OR ')})
+       ORDER BY s.created_at DESC
+       LIMIT 20
+    `).bind(...binds).all();
+    return results as any[];
+  }
+
   async searchByPhone(phone: string): Promise<any[]> {
     const { results } = await this.db.prepare(`
       SELECT b.id as booking_id, b.qr_token, b.scheduled_at, b.status,
