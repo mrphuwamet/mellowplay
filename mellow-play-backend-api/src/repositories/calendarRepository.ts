@@ -324,4 +324,34 @@ export class CalendarRepository {
   async deleteDayLabel(id: number): Promise<void> {
     await this.db.prepare('DELETE FROM Calendar_Day_Labels WHERE id=?').bind(id).run();
   }
+
+  /**
+   * Course ids that have at least one round still to come.
+   *
+   * One query for every course, rather than getUpcomingSlots per course: a
+   * caller that wants to *filter* a course list cannot afford one request
+   * each. It answers "is there a schedule at all", which is what a course
+   * list needs — a course with no calendar bound, or whose rules have all
+   * expired, sends anyone who taps it to an empty date picker.
+   *
+   * Deliberately NOT capacity-aware. Whether every round is full changes by
+   * the hour and would need the day-by-day slot expansion this avoids; a
+   * caller that needs remaining seats asks getUpcomingSlots for the one
+   * course the user actually opened.
+   */
+  async getCourseIdsWithUpcomingRounds(): Promise<number[]> {
+    // DATE('now','+7 hours') is Bangkok's today — the same shift the rest of
+    // the schedule queries use, so "today's round still counts" agrees here
+    // and in the slot list.
+    const { results } = await this.db.prepare(`
+      SELECT DISTINCT c.id AS id
+        FROM Courses c
+        JOIN Calendar_Slot_Rules r ON r.calendar_id = c.calendar_id
+       WHERE c.calendar_id IS NOT NULL
+         AND r.is_active = 1
+         AND (r.valid_until   IS NULL OR r.valid_until   >= DATE('now', '+7 hours'))
+         AND (r.specific_date IS NULL OR r.specific_date >= DATE('now', '+7 hours'))
+    `).all();
+    return (results as any[]).map(r => Number(r.id));
+  }
 }

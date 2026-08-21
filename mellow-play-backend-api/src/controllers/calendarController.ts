@@ -96,6 +96,13 @@ export class CalendarController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /** The set of courses worth offering: a schedule exists and has not run out. */
+  async getCoursesWithRounds(c: C) {
+    try {
+      return c.json({ success: true, courseIds: await this.repo(c).getCourseIdsWithUpcomingRounds() });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // ── Available Slots for a date ─────────────────────────────────────────────
   async getAvailableSlots(c: C) {
     try {

@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, ArrowRight, ClipboardList } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
 import apiClient from '../utils/apiClient';
+import { isChildAgeMismatch } from '../utils/childAge';
 import { useTranslation } from '../LanguageContext';
 import ChildAvatar from '../components/ChildAvatar';
 import AddChildModal from '../components/AddChildModal';
@@ -70,26 +71,6 @@ const calculateAge = (birthDateString: string, t: any) => {
   return `${years} ${t.booking?.year || 'ขวบ'} ${months > 0 ? `${months} ${t.booking?.month || 'เดือน'}` : ''}`;
 };
 
-// Plain numeric age in years — calculateAge above returns a formatted
-// "X ขวบ Y เดือน" display string, not something a min/max range check can
-// compare against.
-const getAgeYears = (birthDateString: string): number | null => {
-  if (!birthDateString) return null;
-  const birthDate = new Date(birthDateString);
-  if (isNaN(birthDate.getTime())) return null;
-  const today = new Date();
-  let years = today.getFullYear() - birthDate.getFullYear();
-  const months = today.getMonth() - birthDate.getMonth();
-  if (months < 0 || (months === 0 && today.getDate() < birthDate.getDate())) years--;
-  return years;
-};
-
-const isChildAgeMismatch = (dob: string, course: { age_min?: number; age_max?: number } | null): boolean => {
-  if (!course) return false;
-  const years = getAgeYears(dob);
-  if (years == null) return false;
-  return (course.age_min != null && years < course.age_min) || (course.age_max != null && years > course.age_max);
-};
 
 const formatDuration = (timeStr: string, lang: string) => {
   if (!timeStr) return '';

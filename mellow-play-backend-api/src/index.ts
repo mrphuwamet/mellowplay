@@ -475,6 +475,7 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
   // without a CRM session (see CheckinController.lookup).
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/upcoming$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/calendar-slots\/courses-with-rounds$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/bookings$/ },
   { method: 'DELETE', pattern: /^\/api\/v1\/admin\/bookings\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/coupon-types$/ },
@@ -888,6 +889,7 @@ app.get   ('/api/v1/admin/calendar-day-labels',      (c) => calendarController.g
 app.post  ('/api/v1/admin/calendar-day-labels',      (c) => calendarController.saveDayLabel(c));
 app.delete('/api/v1/admin/calendar-day-labels/:id',  (c) => calendarController.deleteDayLabel(c));
 app.get   ('/api/v1/admin/calendar-slots/upcoming', (c) => calendarController.getUpcomingSlots(c));
+app.get   ('/api/v1/admin/calendar-slots/courses-with-rounds', (c) => calendarController.getCoursesWithRounds(c));
 app.get   ('/api/v1/admin/calendar-slots/available',(c) => calendarController.getAvailableSlots(c));
 
 // ── Service Queue ───────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { stripHtml } from '../utils/stripHtml';
 import { getBookingPlace } from '../utils/bookingPlace';
 import { getBookingPeopleLabel, bookingMatchesPerson } from '../utils/bookingPeople';
+import { courseFitsAnyAge } from '../utils/childAge';
 
 const Roadmap = () => {
   const navigate = useNavigate();
@@ -66,6 +67,9 @@ const Roadmap = () => {
         const historyRes = await apiClient.get(`/profiles/bookings/history?userId=${userId}`);
         const upcomingRes = await apiClient.get(`/profiles/bookings/upcoming?userId=${userId}`);
         const allCoursesRes = await apiClient.get('/admin/courses');
+        // Which courses have a round still to come. One call for all of them —
+        // asking per course would be a request per candidate.
+        const withRoundsRes = await apiClient.get('/admin/calendar-slots/courses-with-rounds');
 
         const past = historyRes.data.success ? historyRes.data.bookings : [];
         const future = upcomingRes.data.success ? upcomingRes.data.bookings : [];
@@ -87,10 +91,29 @@ const Roadmap = () => {
         const upcomingCourseIds = new Set(relevantFuture.map((b: any) => b.course_id));
         const completedCourseIds = new Set(relevantPast.map((b: any) => b.course_id));
 
+        // Whose age the suggestions are for. A specific chip means that one
+        // person; "all" pools the family, so a course counts if it suits any
+        // member. The account holder's own birthday is not on file, so 'main'
+        // pools the family too rather than filtering by an age nobody knows.
+        const audienceDobs: (string | null | undefined)[] =
+          typeof filterChildId === 'number'
+            ? [kids.find(k => k.id === filterChildId)?.dob]
+            : kids.map(k => k.dob);
+
+        // A course with no schedule left sends whoever taps it to an empty date
+        // picker, so it is not a suggestion. Missing/failed response is treated
+        // as "no filter" rather than as "nothing is bookable" — a suggestion
+        // that turns out to be full beats an empty panel.
+        const bookableIds: Set<number> | null = withRoundsRes.data?.success
+          ? new Set<number>(withRoundsRes.data.courseIds || [])
+          : null;
+
         let availableCourses = [];
         if (allCoursesRes.data.success) {
           availableCourses = allCoursesRes.data.courses
             .filter((c: any) => !upcomingCourseIds.has(c.id))
+            .filter((c: any) => !bookableIds || bookableIds.has(c.id))
+            .filter((c: any) => courseFitsAnyAge(c, audienceDobs))
             .map((c: any) => ({ ...c, alreadyCompleted: completedCourseIds.has(c.id) }))
             .sort((a: any, b: any) => Number(a.alreadyCompleted) - Number(b.alreadyCompleted));
         }
@@ -105,7 +128,7 @@ const Roadmap = () => {
     };
 
     fetchData();
-  }, [kids.length, filterChildId]);
+  }, [kids, filterChildId]);
 
   if (kids.length === 0) {
     return (
