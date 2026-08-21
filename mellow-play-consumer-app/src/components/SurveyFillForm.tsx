@@ -64,6 +64,33 @@ const labelHtmlOf = (field: SurveyField): string | null => {
   } catch { return null; }
 };
 
+// A rating question drawn as one horizontal row of rungs instead of a stacked
+// list of options. It is a presentation flag on an ordinary radio field, not a
+// field type of its own, so the answer stored is still the option label and
+// everything downstream — scoring, CSV, the summary charts — is unchanged.
+const scaleConfigOf = (field: SurveyField): { low?: string; high?: string } | null => {
+  try {
+    const cfg = field.config_json ? JSON.parse(field.config_json) : null;
+    if (!cfg || cfg.display !== 'scale') return null;
+    return { low: cfg.scaleLowLabel, high: cfg.scaleHighLabel };
+  } catch { return null; }
+};
+
+// Mirrors fitsScaleRow() in
+// mellow-play-crm-portal/src/pages/SurveyManagement.tsx, which shows the author
+// which layout they are going to get. Change both together.
+//
+// The ceiling is about the phone, not about taste: seven cells across a 360px
+// screen leaves ~44px each, which is the smallest comfortable tap target, and a
+// caption longer than ten Thai characters cannot be read in a cell that narrow.
+// Past either limit the stacked list is the readable layout, so fall back to it
+// rather than shipping a row nobody can use.
+const SCALE_MAX_OPTIONS = 7;
+const SCALE_MAX_LABEL = 10;
+const fitsScaleRow = (opts: { label: string }[]): boolean =>
+  opts.length >= 2 && opts.length <= SCALE_MAX_OPTIONS &&
+  opts.every(o => (o.label || '').trim().length <= SCALE_MAX_LABEL);
+
 const SurveyFillForm: React.FC<Props> = ({
   form, answers, onChange, identity, onIdentityChange, accountName, accountPhone,
   isLoggedIn, onSubmit, submitting, lang,
@@ -286,6 +313,56 @@ const SurveyFillForm: React.FC<Props> = ({
                   <option value="">{lang === 'en' ? 'Select...' : 'เลือก...'}</option>
                   {options.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}
                 </select>
+              </div>
+            );
+          }
+          const scaleConfig = field.type === 'radio' ? scaleConfigOf(field) : null;
+          if (scaleConfig && fitsScaleRow(options)) {
+            // Sized down only once the row gets crowded — a five-rung scale, by
+            // far the common case, keeps type big enough to read at arm's length.
+            const dense = options.length > 5;
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
+                {labelEl}
+                {/* Repeated on every question on purpose. On paper the column
+                    headers sit once at the top of the table; on a phone the
+                    question that used to be row 7 is now a screen away from
+                    them, and having to scroll back to remember which end means
+                    "มากที่สุด" is exactly what makes these forms get abandoned. */}
+                {(scaleConfig.low || scaleConfig.high) && (
+                  <div className="flex justify-between items-end gap-2 mb-1.5 px-0.5">
+                    <span className="text-[11px] font-bold text-slate-400 leading-tight">{scaleConfig.low || ''}</span>
+                    <span className="text-[11px] font-bold text-slate-400 leading-tight text-right">{scaleConfig.high || ''}</span>
+                  </div>
+                )}
+                <div
+                  role="radiogroup" aria-label={field.label}
+                  className={`grid ${dense ? 'gap-1' : 'gap-1.5'}`}
+                  style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+                >
+                  {options.map(opt => {
+                    const chosen = value === opt.label;
+                    return (
+                      <button
+                        key={opt.label} type="button" role="radio" aria-checked={chosen}
+                        onClick={() => onChange(field.field_key, opt.label)}
+                        style={optionStyle(opt.color, chosen)}
+                        className={`min-h-[64px] px-1 py-2 rounded-xl font-black leading-tight break-words
+                          flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95
+                          ${dense ? 'text-[10px]' : 'text-[12px]'}
+                          ${opt.color ? '' : chosen ? 'bg-mellow-purple text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}
+                      >
+                        {/* Same reason as the stacked list: once options can
+                            carry their own colours, "which one did I pick" must
+                            not rest on colour alone. */}
+                        <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${chosen ? 'border-current' : 'border-slate-300'}`}>
+                          {chosen && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
+                        </span>
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             );
           }

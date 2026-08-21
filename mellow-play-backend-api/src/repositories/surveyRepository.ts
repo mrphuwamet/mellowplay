@@ -15,6 +15,12 @@ const isFieldScored = (configJson: string | null | undefined): boolean => {
 const isChoiceLike = (type: string): boolean =>
   type === 'select' || type === 'radio' || type === 'checkbox';
 
+// A rating scale's options are a ladder, not a set of alternatives: shuffling
+// "5,4,3,2,1" into "3,1,5,2,4" does not randomise the question, it destroys it.
+const isScaleDisplay = (configJson: string | null | undefined): boolean => {
+  try { return !!configJson && JSON.parse(configJson).display === 'scale'; } catch { return false; }
+};
+
 // Fields that anchor the ones around them: a heading introduces the questions
 // below it, a reading passage is what the questions after it are ABOUT, an
 // image is the thing a question refers to, and the "who's answering" block
@@ -135,7 +141,7 @@ export class SurveyRepository {
 
   private shuffleOptions(fields: any[]): any[] {
     return fields.map(f => {
-      if (!isChoiceLike(f.type) || !f.options_json) return f;
+      if (!isChoiceLike(f.type) || !f.options_json || isScaleDisplay(f.config_json)) return f;
       try {
         const options = JSON.parse(f.options_json);
         if (!Array.isArray(options) || options.length < 2) return f;

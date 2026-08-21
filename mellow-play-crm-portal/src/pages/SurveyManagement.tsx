@@ -91,7 +91,48 @@ interface FieldDraft {
    * called back about does, and asking politely gets it left blank.
    */
   phoneRequired?: boolean;
+  /**
+   * radio only — lay the options out as one horizontal rung row instead of a
+   * stacked list. Stored as config, not as its own field type, so scoring, CSV
+   * export, the answer-key stripping and the response charts all keep working
+   * on it unchanged: a scale IS a single-choice question, drawn differently.
+   */
+  display?: 'scale';
+  /** Optional captions for the two ends of the row ("น้อยที่สุด" … "มากที่สุด"). */
+  scaleLowLabel?: string;
+  scaleHighLabel?: string;
 }
+
+// Mirrors fitsScaleRow() in
+// mellow-play-consumer-app/src/components/SurveyFillForm.tsx. Change both or
+// the hint below starts lying about what the respondent will actually see.
+const SCALE_MAX_OPTIONS = 7;
+const SCALE_MAX_LABEL = 10;
+const fitsScaleRow = (opts: { label: string }[] | undefined): boolean =>
+  !!opts && opts.length >= 2 && opts.length <= SCALE_MAX_OPTIONS &&
+  opts.every(o => (o.label || '').trim().length <= SCALE_MAX_LABEL);
+
+// Filling five options and five point values by hand, once per question, is
+// the reason a 10-item evaluation form never got built. These write the whole
+// ladder in one click. Highest first, matching the paper forms these are
+// transcribed from, where column (5) sits on the left.
+const SCALE_PRESETS: { name: string; options: ScoredOption[]; low?: string; high?: string }[] = [
+  {
+    name: 'ตัวเลข 5–1',
+    options: [5, 4, 3, 2, 1].map(n => ({ label: String(n), points: n })),
+    low: 'เห็นด้วยมากที่สุด', high: 'เห็นด้วยน้อยที่สุด',
+  },
+  {
+    name: 'ระดับความเห็น',
+    options: [['มากที่สุด', 5], ['มาก', 4], ['ปานกลาง', 3], ['น้อย', 2], ['น้อยที่สุด', 1]]
+      .map(([label, points]) => ({ label: label as string, points: points as number })),
+  },
+  {
+    name: 'ระดับความพึงพอใจ',
+    options: [['พอใจมากที่สุด', 5], ['พอใจมาก', 4], ['ปานกลาง', 3], ['ไม่พอใจ', 2], ['ไม่พอใจเลย', 1]]
+      .map(([label, points]) => ({ label: label as string, points: points as number })),
+  },
+]
 
 interface ScoreRange {
   min: number;
@@ -288,6 +329,9 @@ const SurveyManagement = () => {
             imageUrl: config.imageUrl,
             labelHtml: config.labelHtml,
             phoneRequired: !!config.phoneRequired,
+            display: config.display === 'scale' ? 'scale' : undefined,
+            scaleLowLabel: config.scaleLowLabel,
+            scaleHighLabel: config.scaleHighLabel,
           };
         });
         const compacted = grouped.map(page => page.filter(Boolean));
@@ -321,6 +365,11 @@ const SurveyManagement = () => {
           ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
           ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
           ...(f.type === 'identity' ? { phoneRequired: !!f.phoneRequired } : {}),
+          ...(f.type === 'radio' && f.display === 'scale' ? {
+            display: 'scale',
+            scaleLowLabel: f.scaleLowLabel?.trim() || undefined,
+            scaleHighLabel: f.scaleHighLabel?.trim() || undefined,
+          } : {}),
           ...(f.labelHtml && stripHtml(f.labelHtml).trim() ? { labelHtml: f.labelHtml } : {}),
         }),
       })));
@@ -609,6 +658,24 @@ const SurveyManagement = () => {
                               label={<Typography variant="caption">บังคับกรอกเบอร์โทร</Typography>}
                             />
                           )}
+                          {field.type === 'radio' && (
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  size="small"
+                                  checked={field.display === 'scale'}
+                                  // Turning it on turns on scoring too: a scale
+                                  // with no points behind it produces no average,
+                                  // which is the only thing anyone reads a rating
+                                  // form's results for.
+                                  onChange={e => updateField(idx, e.target.checked
+                                    ? { display: 'scale', scored: true }
+                                    : { display: undefined })}
+                                />
+                              }
+                              label={<Typography variant="caption">แสดงเป็นสเกลแถวเดียว</Typography>}
+                            />
+                          )}
                         </Stack>
                         {field.labelHtml === undefined ? (
                           <TextField
@@ -649,6 +716,55 @@ const SurveyManagement = () => {
                         />
                         {field.type === 'image' && (
                           <ImageUploadField label="รูป" url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
+                        )}
+                        {field.type === 'radio' && field.display === 'scale' && (
+                          <Stack spacing={1.5} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#faf9ff', border: '1px solid #ece8fa' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                              สเกลนี้ใช้ตัวเลือกด้านล่างเป็นช่องให้กด เรียงจากซ้ายไปขวาตามลำดับที่กรอกไว้
+                            </Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                              {SCALE_PRESETS.map(p => (
+                                <Button
+                                  key={p.name} size="small" variant="outlined"
+                                  onClick={() => updateField(idx, {
+                                    options: p.options.map(o => ({ ...o })),
+                                    scored: true,
+                                    scaleLowLabel: p.low,
+                                    scaleHighLabel: p.high,
+                                  })}
+                                >{p.name}</Button>
+                              ))}
+                            </Stack>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                              <TextField
+                                size="small" label="ป้ายฝั่งซ้าย (ไม่บังคับ)" sx={{ flex: 1 }}
+                                value={field.scaleLowLabel || ''}
+                                onChange={e => updateField(idx, { scaleLowLabel: e.target.value })}
+                              />
+                              <TextField
+                                size="small" label="ป้ายฝั่งขวา (ไม่บังคับ)" sx={{ flex: 1 }}
+                                value={field.scaleHighLabel || ''}
+                                onChange={e => updateField(idx, { scaleHighLabel: e.target.value })}
+                              />
+                            </Stack>
+                            {/* Says what will actually happen on the phone rather
+                                than assuming the row always fits: long options
+                                fall back to the stacked list on their own. */}
+                            {fitsScaleRow(field.options) ? (
+                              <Alert severity="success" sx={{ py: 0.25 }}>
+                                <Typography variant="caption">
+                                  จะแสดงเป็นแถวเดียว {(field.options || []).length} ช่อง — กดได้สะดวกบนมือถือ
+                                </Typography>
+                              </Alert>
+                            ) : (
+                              <Alert severity="warning" sx={{ py: 0.25 }}>
+                                <Typography variant="caption">
+                                  ตัวเลือกยาวหรือมากเกินไป (เกิน {SCALE_MAX_OPTIONS} ช่อง หรือข้อความเกิน {SCALE_MAX_LABEL} ตัวอักษร)
+                                  จะแสดงเป็นรายการแนวตั้งแบบเดิมเพื่อให้ยังอ่านออกบนมือถือ
+                                </Typography>
+                              </Alert>
+                            )}
+                          </Stack>
                         )}
                         {isChoiceType(field.type) && (
                           <Stack spacing={1}>

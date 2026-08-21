@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Box, Paper, Typography, Stack, Chip, Button, Divider,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -59,6 +60,85 @@ const parseOptions = (f: DashboardField): string[] => {
   } catch {
     return []; // a malformed field shouldn't take the whole dashboard down
   }
+};
+
+// ── Rating-scale statistics ────────────────────────────────────────────────
+// "How many people picked each option" is not what an evaluation form is read
+// for. Its output is a mean per item, a standard deviation, and the band the
+// mean falls in — the three columns of the report table these forms end up in.
+// The bar chart under each question still answers "how many"; this answers
+// "how well", which is the question that was asked.
+
+const fieldConfig = (f: DashboardField): any => {
+  try { return f.config_json ? JSON.parse(f.config_json) : {}; } catch { return {}; }
+};
+
+/**
+ * Options paired with their answer-key points. Available here and not in the
+ * consumer app: the CRM endpoint returns the form unsanitised, while the public
+ * one strips points so a blank form never carries its own answer key.
+ */
+const parseScoredOptions = (f: DashboardField): { label: string; points: number }[] => {
+  try {
+    const parsed = f.options_json ? JSON.parse(f.options_json) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((o: any) => ({ label: String(o?.label ?? o), points: Number(o?.points) }))
+      .filter(o => !isNaN(o.points));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * A question worth averaging. `checkbox` is excluded on purpose: several picks
+ * at once have no single value to take a mean of, and summing their points
+ * would silently reward whoever ticked the most boxes.
+ */
+const isRatingField = (f: DashboardField): boolean => {
+  if (f.type !== 'radio' && f.type !== 'select') return false;
+  const cfg = fieldConfig(f);
+  if (cfg.display !== 'scale' && !cfg.scored) return false;
+  const opts = parseScoredOptions(f);
+  return opts.length >= 2 && opts.some(o => o.points !== 0);
+};
+
+// The five bands every Thai evaluation report interprets a mean against. They
+// are defined for a 1–5 instrument, so they are only ever applied to one: a 1–4
+// or 1–7 scale gets its mean and S.D. with no band rather than the wrong band.
+const LIKERT_BANDS: { min: number; label: string }[] = [
+  { min: 4.51, label: 'มากที่สุด' },
+  { min: 3.51, label: 'มาก' },
+  { min: 2.51, label: 'ปานกลาง' },
+  { min: 1.51, label: 'น้อย' },
+  { min: -Infinity, label: 'น้อยที่สุด' },
+];
+
+const bandFor = (mean: number, lowest: number, highest: number): string | null =>
+  lowest === 1 && highest === 5 ? (LIKERT_BANDS.find(b => mean >= b.min)?.label ?? null) : null;
+
+export interface RatingStats {
+  n: number;
+  mean: number;
+  /** Sample S.D. (n−1) — what a report quotes. null when one answer means no spread. */
+  sd: number | null;
+  band: string | null;
+}
+
+const ratingStats = (f: DashboardField, answered: any[]): RatingStats | null => {
+  const byLabel = new Map(parseScoredOptions(f).map(o => [o.label, o.points]));
+  // Answers whose option was renamed after they came in have no points to
+  // average and drop out — which is why n is reported per question, not once.
+  const nums = answered
+    .map(v => byLabel.get(String(v)))
+    .filter((n): n is number => typeof n === 'number');
+  if (nums.length === 0) return null;
+  const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+  const sd = nums.length > 1
+    ? Math.sqrt(nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1))
+    : null;
+  const points = Array.from(byLabel.values());
+  return { n: nums.length, mean, sd, band: bandFor(mean, Math.min(...points), Math.max(...points)) };
 };
 
 const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
@@ -255,6 +335,29 @@ const FormResponseDashboard = ({
     };
   }, [submissions, hasAnswerKey]);
 
+  // Every rating item's mean, plus the mean of those means — the line an
+  // evaluation report closes with. Item means are averaged unweighted: each
+  // question counts once, however many people happened to answer it, which is
+  // what "ค่าเฉลี่ยรวม" means on these forms.
+  const ratingSummary = useMemo(() => {
+    const rows = questions
+      .filter(isRatingField)
+      .map(f => ({
+        field: f,
+        stats: ratingStats(f, submissions.map(s => s.answers?.[f.field_key]).filter(isAnswered)),
+      }))
+      .filter((r): r is { field: DashboardField; stats: RatingStats } => r.stats !== null);
+    if (rows.length === 0) return null;
+    const overall = rows.reduce((a, r) => a + r.stats.mean, 0) / rows.length;
+    const allPoints = rows.flatMap(r => parseScoredOptions(r.field).map(o => o.points));
+    return { rows, overall, band: bandFor(overall, Math.min(...allPoints), Math.max(...allPoints)) };
+  }, [questions, submissions]);
+
+  const ratingByKey = useMemo(
+    () => new Map((ratingSummary?.rows || []).map(r => [r.field.field_key, r.stats])),
+    [ratingSummary]
+  );
+
   if (total === 0) {
     return (
       <Paper sx={{ p: 6, borderRadius: 4, border: '1px solid #eef0f3', boxShadow: 'none', textAlign: 'center' }}>
@@ -295,6 +398,52 @@ const FormResponseDashboard = ({
             จำนวนคนในแต่ละช่วงคะแนน ({scoreStats.count} คนที่มีคะแนน)
           </Typography>
           <BucketColumns rows={scoreStats.buckets} respondents={scoreStats.count} />
+        </Paper>
+      )}
+
+      {ratingSummary && (
+        <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid #eef0f3', boxShadow: 'none' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 0.5 }}>สรุปแบบประเมิน — ค่าเฉลี่ยรายข้อ</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            {ratingSummary.rows.length} ข้อที่ให้คะแนน · S.D. คำนวณแบบกลุ่มตัวอย่าง (n−1)
+            {ratingSummary.band
+              ? ' · แปลผลตามเกณฑ์สเกล 1–5'
+              : ' · สเกลนี้ไม่ใช่ 1–5 จึงไม่แปลผลเป็นระดับ'}
+          </Typography>
+          <Stack direction="row" useFlexGap flexWrap="wrap" gap={2} sx={{ mb: 2 }}>
+            <StatTile
+              label="ค่าเฉลี่ยรวมทุกข้อ"
+              value={ratingSummary.overall.toFixed(2)}
+              hint={ratingSummary.band ?? undefined}
+            />
+            <StatTile label="จำนวนข้อที่ประเมิน" value={ratingSummary.rows.length} />
+          </Stack>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 800, width: 52 }}>ข้อ</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>รายการประเมิน</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, width: 72 }}>n</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, width: 96 }}>ค่าเฉลี่ย</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, width: 88 }}>S.D.</TableCell>
+                  <TableCell sx={{ fontWeight: 800, width: 108 }}>ระดับ</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {ratingSummary.rows.map((r, i) => (
+                  <TableRow key={r.field.field_key} hover>
+                    <TableCell>{i + 1}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{r.field.label}</TableCell>
+                    <TableCell align="right">{r.stats.n}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>{r.stats.mean.toFixed(2)}</TableCell>
+                    <TableCell align="right">{r.stats.sd != null ? r.stats.sd.toFixed(2) : '-'}</TableCell>
+                    <TableCell>{r.stats.band ?? '-'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       )}
 
@@ -345,8 +494,17 @@ const FormResponseDashboard = ({
           body = <TextAnswers answers={answeredValues.map(v => (Array.isArray(v) ? v.join(', ') : String(v)))} />;
         }
 
+        const stats = ratingByKey.get(f.field_key);
+
         return (
           <QuestionCard key={f.field_key} label={f.label} typeLabel={typeLabel} answered={answered} total={total}>
+            {stats && (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                <Chip size="small" label={`ค่าเฉลี่ย ${stats.mean.toFixed(2)}`} sx={{ fontWeight: 800 }} color="primary" variant="outlined" />
+                <Chip size="small" label={`S.D. ${stats.sd != null ? stats.sd.toFixed(2) : '-'}`} sx={{ fontWeight: 700 }} variant="outlined" />
+                {stats.band && <Chip size="small" label={stats.band} sx={{ fontWeight: 700 }} variant="outlined" />}
+              </Stack>
+            )}
             {body}
           </QuestionCard>
         );
