@@ -2013,6 +2013,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                       onClick={() => { setDupDialogBooking(null); onEdit(dup); }}>
                       แก้ไข
                     </Button>
+                    {/* Same eligibility as the manage menu's ยกเลิก — only a
+                        still-active booking has a seat to release. Goes
+                        through onCancel's existing confirm dialog, so a
+                        mistap here can't cancel anything by itself. */}
+                    {['confirmed', 'confirmed_paid'].includes(dup.status) && (
+                      <Button size="small" variant="outlined" color="error" sx={{ borderRadius: 2, fontWeight: 700 }}
+                        onClick={() => { setDupDialogBooking(null); onCancel(dup.id); }}>
+                        ยกเลิก
+                      </Button>
+                    )}
                   </Stack>
                 </Paper>
               );
