@@ -91,8 +91,20 @@ const SurveyFillForm: React.FC<Props> = ({
   const totalPages = progressTotal ?? pages.length;
   const shownPage = progressOffset + pageIndex + 1;
 
+  // identity carries its own extra rule, so it cannot use the plain
+  // "is there a value" test the other types share.
+  const identityPhoneRequired = (f: SurveyField): boolean => {
+    try { return !!(f.config_json ? JSON.parse(f.config_json).phoneRequired : false); } catch { return false; }
+  };
+
   const isFieldFilled = (f: SurveyField) => {
-    if (f.type === 'identity') return identity.mode === 'prefill' ? !!accountName : !!identity.name.trim();
+    if (f.type === 'identity') {
+      // Prefill fills both from the account, so there is nothing to check
+      // beyond having an account name to fill from.
+      if (identity.mode === 'prefill') return !!accountName;
+      if (!identity.name.trim()) return false;
+      return !identityPhoneRequired(f) || !!identity.phone.trim();
+    }
     const v = answers[f.field_key];
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
     return v != null && String(v).trim() !== '';
@@ -223,9 +235,12 @@ const SurveyFillForm: React.FC<Props> = ({
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     <input type="text" value={identity.name} onChange={e => onIdentityChange({ ...identity, name: e.target.value })}
-                      placeholder={lang === 'en' ? 'Name' : 'ชื่อ'} className={inputClass} />
+                      placeholder={lang === 'en' ? 'Full name' : 'ชื่อ-สกุล'} className={inputClass} />
                     <input type="tel" value={identity.phone} onChange={e => onIdentityChange({ ...identity, phone: e.target.value })}
-                      placeholder={lang === 'en' ? 'Phone (optional)' : 'เบอร์โทร (ไม่บังคับ)'} className={inputClass} />
+                      placeholder={identityPhoneRequired(field)
+                        ? (lang === 'en' ? 'Phone' : 'เบอร์โทร')
+                        : (lang === 'en' ? 'Phone (optional)' : 'เบอร์โทร (ไม่บังคับ)')}
+                      className={inputClass} />
                   </div>
                 )}
               </div>

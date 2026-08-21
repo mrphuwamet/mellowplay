@@ -85,6 +85,12 @@ interface FieldDraft {
    * and the summary read — a chart axis full of <strong> tags helps nobody.
    */
   labelHtml?: string;
+  /**
+   * identity only — whether the respondent's phone number is compulsory.
+   * A feedback form does not need one; a form whose answers someone will be
+   * called back about does, and asking politely gets it left blank.
+   */
+  phoneRequired?: boolean;
 }
 
 interface ScoreRange {
@@ -281,6 +287,7 @@ const SurveyManagement = () => {
             scored: !!config.scored,
             imageUrl: config.imageUrl,
             labelHtml: config.labelHtml,
+            phoneRequired: !!config.phoneRequired,
           };
         });
         const compacted = grouped.map(page => page.filter(Boolean));
@@ -313,6 +320,7 @@ const SurveyManagement = () => {
         configJson: JSON.stringify({
           ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
           ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
+          ...(f.type === 'identity' ? { phoneRequired: !!f.phoneRequired } : {}),
           ...(f.labelHtml && stripHtml(f.labelHtml).trim() ? { labelHtml: f.labelHtml } : {}),
         }),
       })));
@@ -593,6 +601,12 @@ const SurveyManagement = () => {
                             <FormControlLabel
                               control={<Switch size="small" checked={!!field.scored} onChange={e => updateField(idx, { scored: e.target.checked })} />}
                               label={<Typography variant="caption">ให้คะแนน</Typography>}
+                            />
+                          )}
+                          {field.type === 'identity' && (
+                            <FormControlLabel
+                              control={<Switch size="small" checked={!!field.phoneRequired} onChange={e => updateField(idx, { phoneRequired: e.target.checked })} />}
+                              label={<Typography variant="caption">บังคับกรอกเบอร์โทร</Typography>}
                             />
                           )}
                         </Stack>
