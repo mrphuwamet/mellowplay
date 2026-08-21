@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { emptyIdentity, fullNameOf } from '../utils/respondentName';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -40,7 +41,7 @@ const SessionDetail = () => {
   const [session, setSession] = useState<any | null | undefined>(undefined);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [identity, setIdentity] = useState({ mode: (isLoggedIn ? 'prefill' : 'manual') as 'prefill' | 'manual', name: '', phone: '' });
+  const [identity, setIdentity] = useState(emptyIdentity(isLoggedIn));
   const [started, setStarted] = useState(false);
   const [checkingName, setCheckingName] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -78,11 +79,11 @@ const SessionDetail = () => {
 
   const resolvedName = identity.mode === 'prefill'
     ? (account.display_name || `${account.first_name || ''} ${account.last_name || ''}`.trim())
-    : identity.name.trim();
+    : fullNameOf(identity);
   const resolvedPhone = identity.mode === 'prefill' ? (account.phone || '') : identity.phone.trim();
 
   const handleStart = async () => {
-    if (!resolvedName) { setError(t('กรุณากรอกชื่อ', 'Please enter your name')); return; }
+    if (!resolvedName) { setError(t('กรุณากรอกชื่อและนามสกุล', 'Please enter your first and last name')); return; }
     setError('');
     if (!session?.requireUniqueName) { setStarted(true); return; }
 
@@ -195,10 +196,18 @@ const SessionDetail = () => {
             {resolvedName || '-'}{resolvedPhone ? ` · ${resolvedPhone}` : ''}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
-            <input type="text" value={identity.name} onChange={e => setIdentity({ ...identity, name: e.target.value })}
-              placeholder={t('ชื่อ', 'Name')}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all" />
+          <div className="space-y-2">
+            {/* ชื่อ and นามสกุล side by side, the phone on its own line: a phone
+                number is longer than either half of a name and gets cramped
+                sharing a row on a phone. */}
+            <div className="grid grid-cols-2 gap-2">
+              <input type="text" value={identity.firstName} onChange={e => setIdentity({ ...identity, firstName: e.target.value })}
+                placeholder={t('ชื่อ', 'First name')}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all" />
+              <input type="text" value={identity.lastName} onChange={e => setIdentity({ ...identity, lastName: e.target.value })}
+                placeholder={t('นามสกุล', 'Last name')}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all" />
+            </div>
             <input type="tel" value={identity.phone} onChange={e => setIdentity({ ...identity, phone: e.target.value })}
               placeholder={t('เบอร์โทร (ไม่บังคับ)', 'Phone (optional)')}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all" />

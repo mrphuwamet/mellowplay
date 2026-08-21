@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { scrollToTop } from '../utils/scrollToTop';
+import { RespondentIdentity, identityIsComplete } from '../utils/respondentName';
 
 interface SurveyField {
   id: number;
@@ -20,11 +21,7 @@ interface SurveyForm {
   fields: SurveyField[];
 }
 
-interface Identity {
-  mode: 'prefill' | 'manual';
-  name: string;
-  phone: string;
-}
+type Identity = RespondentIdentity;
 
 interface Props {
   form: SurveyForm;
@@ -141,11 +138,10 @@ const SurveyFillForm: React.FC<Props> = ({
 
   const isFieldFilled = (f: SurveyField) => {
     if (f.type === 'identity') {
-      // Prefill fills both from the account, so there is nothing to check
-      // beyond having an account name to fill from.
+      // Prefill fills every part from the account, so there is nothing to
+      // check beyond having an account name to fill from.
       if (identity.mode === 'prefill') return !!accountName;
-      if (!identity.name.trim()) return false;
-      return !identityPhoneRequired(f) || !!identity.phone.trim();
+      return identityIsComplete(identity, { phoneRequired: identityPhoneRequired(f) });
     }
     const v = answers[f.field_key];
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0 && otherBoxSatisfied(f);
@@ -289,10 +285,20 @@ const SurveyFillForm: React.FC<Props> = ({
                     {accountName || '-'}{accountPhone ? ` · ${accountPhone}` : ''}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="text" value={identity.name} onChange={e => onIdentityChange({ ...identity, name: e.target.value })}
-                      placeholder={lang === 'en' ? 'Full name' : 'ชื่อ-สกุล'} className={inputClass} />
-                    <input type="tel" value={identity.phone} onChange={e => onIdentityChange({ ...identity, phone: e.target.value })}
+                  <div className="space-y-2">
+                    {/* ชื่อ and สกุล side by side, the phone on its own line: a
+                        phone number is longer than either half of a name and
+                        gets cramped sharing a row on a phone. */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={identity.firstName}
+                        onChange={e => onIdentityChange({ ...identity, firstName: e.target.value })}
+                        placeholder={lang === 'en' ? 'First name' : 'ชื่อ'} className={inputClass} />
+                      <input type="text" value={identity.lastName}
+                        onChange={e => onIdentityChange({ ...identity, lastName: e.target.value })}
+                        placeholder={lang === 'en' ? 'Last name' : 'นามสกุล'} className={inputClass} />
+                    </div>
+                    <input type="tel" value={identity.phone}
+                      onChange={e => onIdentityChange({ ...identity, phone: e.target.value })}
                       placeholder={identityPhoneRequired(field)
                         ? (lang === 'en' ? 'Phone' : 'เบอร์โทร')
                         : (lang === 'en' ? 'Phone (optional)' : 'เบอร์โทร (ไม่บังคับ)')}

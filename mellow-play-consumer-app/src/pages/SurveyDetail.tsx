@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { emptyIdentity, fullNameOf } from '../utils/respondentName';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -31,7 +32,7 @@ const SurveyDetail = () => {
 
   const [form, setForm] = useState<any | null | undefined>(undefined);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [identity, setIdentity] = useState({ mode: (isLoggedIn ? 'prefill' : 'manual') as 'prefill' | 'manual', name: '', phone: '' });
+  const [identity, setIdentity] = useState(emptyIdentity(isLoggedIn));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; resultTextHtml?: string; imageUrl?: string } | null } | null>(null);
@@ -50,7 +51,7 @@ const SurveyDetail = () => {
     try {
       const res = await apiClient.post(`/surveys/${idOrSlug}/submit`, {
         answers,
-        respondentName: identity.mode === 'manual' ? identity.name.trim() || undefined : undefined,
+        respondentName: identity.mode === 'manual' ? fullNameOf(identity) || undefined : undefined,
         respondentPhone: identity.mode === 'manual' ? identity.phone.trim() || undefined : undefined,
         attemptLabel,
         isTest,
