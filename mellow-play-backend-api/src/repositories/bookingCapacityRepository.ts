@@ -232,19 +232,32 @@ export class BookingCapacityRepository {
       }
       if (fields.length === 0) continue;
 
+      // Which round a submission's team spot belongs to is derived from its
+      // LIVE bookings' scheduled_at, NOT Form_Submissions.scheduled_at: the
+      // submission's own copy is frozen at creation and rescheduling only
+      // updates Bookings, so counting against it kept a moved booking's team
+      // spot in its OLD round forever — a round read as over quota by exactly
+      // the entries that had been moved out of it. Same round source
+      // registrationFormRepository.getTeamCounts (the booking dialogs) uses,
+      // so the two screens can't disagree.
+      //
+      // DISTINCT so a multi-child checkout (sibling bookings sharing one
+      // submission) still counts ONE team spot per round, matching how the
+      // consumer flow enforces team capacity at booking time.
       const { results: submissions } = await this.db.prepare(`
-        SELECT fs.scheduled_at, fs.answers_json FROM Form_Submissions fs
+        SELECT DISTINCT fs.id AS submission_id, SUBSTR(b.scheduled_at, 1, 16) AS round_at, fs.answers_json
+        FROM Form_Submissions fs
+        JOIN Bookings b ON b.form_submission_id = fs.id AND b.status != 'cancelled'
         WHERE fs.course_id = ?
-          AND SUBSTR(fs.scheduled_at, 1, 10) >= ?
-          AND SUBSTR(fs.scheduled_at, 1, 10) <= ?
-          AND EXISTS (SELECT 1 FROM Bookings b WHERE b.form_submission_id = fs.id AND b.status != 'cancelled')
+          AND SUBSTR(b.scheduled_at, 1, 10) >= ?
+          AND SUBSTR(b.scheduled_at, 1, 10) <= ?
       `).bind(course.id, today, endDate).all<any>();
 
       // Keyed by round as well as by team: a team's capacity resets every
       // round, so counting a whole month against one ceiling would report a
       // team as full when it is empty for the round anyone is booking.
       //
-      // A submission's scheduled_at can carry seconds where the calendar's
+      // A booking's scheduled_at can carry seconds where the calendar's
       // round key does not, so both sides are cut to "YYYY-MM-DD HH:MM" before
       // they are compared — otherwise a round's own bookings would land under
       // a key nothing else uses and every team would look untouched.
@@ -252,7 +265,7 @@ export class BookingCapacityRepository {
       for (const row of submissions as any[]) {
         let answers: Record<string, any> = {};
         try { answers = JSON.parse(row.answers_json || '{}'); } catch { continue; }
-        const round = String(row.scheduled_at || '').slice(0, 16);
+        const round = String(row.round_at || '').slice(0, 16);
         for (const f of fields) {
           const chosen = answers[f.field_key];
           if (!chosen) continue;
