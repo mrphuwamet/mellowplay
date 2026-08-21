@@ -996,6 +996,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [manageMenu, setManageMenu] = useState<{ anchor: HTMLElement; booking: Booking } | null>(null);
   const [awardsBooking, setAwardsBooking] = useState<Booking | null>(null);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
+  // The booking whose "ซ้ำกับ #..." chip was clicked — opens the side-by-side
+  // duplicates dialog so staff can see WHAT is duplicated without hunting
+  // each partner booking down in the list one by one.
+  const [dupDialogBooking, setDupDialogBooking] = useState<Booking | null>(null);
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
@@ -1483,10 +1487,12 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   Says which booking it clashes with, because the next question
                   is always "the other one is which?" */}
               {duplicates.has(b.id) && (
-                <Tooltip title="มีชื่อซ้ำกับรายการอื่นในกิจกรรมนี้ (ไม่นับรายการที่ยกเลิก)">
+                <Tooltip title="มีชื่อซ้ำกับรายการอื่นในกิจกรรมนี้ (ไม่นับรายการที่ยกเลิก) — กดเพื่อเปรียบเทียบ">
                   <Chip
                     icon={<WarningIcon sx={{ fontSize: 14 }} />}
                     size="small" color="warning"
+                    clickable
+                    onClick={() => setDupDialogBooking(b)}
                     label={`ซ้ำกับ ${duplicates.get(b.id)!.map(id => `#${id}`).join(', ')}`}
                     sx={{ mt: 0.5, height: 20, fontSize: '11px', fontWeight: 800 }}
                   />
@@ -1941,6 +1947,82 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         }}
       />
       <ClassDetailDialog course={classDetailCourse} onClose={() => setClassDetailCourse(null)} />
+
+      {/* Duplicate comparison — opened from a card's "ซ้ำกับ #..." chip.
+          Every colliding booking laid out as its own block (the clicked one
+          first, marked), so what exactly repeats — same person, which
+          rounds, which teams — is readable in one place instead of hunting
+          each partner booking down in the list. */}
+      <Dialog open={!!dupDialogBooking} onClose={() => setDupDialogBooking(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" /> รายการที่ชื่อซ้ำกันในกิจกรรมนี้
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            ลงทะเบียนด้วยชื่อ-นามสกุลเดียวกันมากกว่า 1 รายการ (ไม่นับรายการที่ยกเลิกแล้ว) — เทียบรอบ/ทีม/สถานะของแต่ละรายการด้านล่าง
+          </Typography>
+          <Stack spacing={2}>
+            {(dupDialogBooking
+              ? [dupDialogBooking.id, ...(duplicates.get(dupDialogBooking.id) ?? [])]
+              : []
+            ).map(id => bookings.find(x => x.id === id)).filter((x): x is Booking => !!x).map(dup => {
+              const dupSi = getStatusInfo(dup.status);
+              const dupDt = new Date(dup.scheduled_at);
+              const dupTeam = getTeamLabel(dup);
+              const dupPeople = getFormPeople(dup);
+              const isClicked = dup.id === dupDialogBooking?.id;
+              return (
+                <Paper key={dup.id} variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: isClicked ? 'warning.main' : '#eef0f3' }}>
+                  <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                    <Typography sx={{ fontWeight: 900, fontSize: '16px' }}>#{dup.id}</Typography>
+                    {isClicked && <Chip label="รายการที่กดดู" size="small" color="warning" sx={{ height: 20, fontSize: '11px', fontWeight: 800 }} />}
+                    <Chip label={dupSi.label} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700, bgcolor: dupSi.bgColor, color: dupSi.fgColor }} />
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary', ml: 'auto' }}>
+                      {isNaN(dupDt.getTime())
+                        ? '-'
+                        : `${dupDt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })} · รอบ ${dup.slot_start_time?.slice(0, 5) || dupDt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`}
+                    </Typography>
+                  </Stack>
+                  {(dupPeople.length > 0
+                    ? dupPeople.map(p => ({ label: p.role === 'adult' ? 'ผู้ใหญ่' : 'เด็ก', text: formatPersonName(p.realName, p.display) }))
+                    : [
+                        { label: 'เด็ก', text: formatPersonName(dup.child_name, dup.child_nickname) },
+                        ...(dup.parent_name ? [{ label: 'ผู้ปกครอง', text: dup.parent_name }] : []),
+                      ]
+                  ).map((line, i) => (
+                    <Typography key={i} variant="body2" sx={{ fontWeight: 700, wordBreak: 'break-word' }}>
+                      <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>{line.label} : </Box>
+                      {line.text || '-'}
+                    </Typography>
+                  ))}
+                  {dupTeam && (
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: 'rgb(116, 82, 214)' }}>
+                      <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>ทีม : </Box>
+                      {dupTeam.value}
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    ลงทะเบียนเมื่อ {formatUtcDateTime(dup.created_at)}{dup.parent_phone ? ` · ${dup.parent_phone}` : ''}
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                    <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
+                      onClick={() => { setDupDialogBooking(null); setDetailBooking(dup); }}>
+                      ดูรายละเอียด
+                    </Button>
+                    <Button size="small" variant="outlined" color="warning" sx={{ borderRadius: 2, fontWeight: 700 }}
+                      onClick={() => { setDupDialogBooking(null); onEdit(dup); }}>
+                      แก้ไข
+                    </Button>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDupDialogBooking(null)} sx={{ fontWeight: 700 }}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
