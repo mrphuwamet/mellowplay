@@ -1,4 +1,5 @@
 import { API_URL, CONSUMER_APP_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 import { getCourseDetailUrl } from '../utils/courseLinks';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -601,13 +602,13 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
 
   const copyInviteLink = (link: any, which: 'short' | 'full' = 'short') => {
     const url = which === 'short' ? (inviteShortUrl(link) || inviteFullUrl(link)) : inviteFullUrl(link);
-    navigator.clipboard.writeText(url).catch(() => {});
+    void copyText(url);
     setCopiedInviteId(link.id);
     setTimeout(() => setCopiedInviteId(prev => (prev === link.id ? null : prev)), 1500);
   };
 
   const copyCourseLink = (course: any) => {
-    navigator.clipboard.writeText(getCourseDetailUrl(course)).then(() => {
+    void copyText(getCourseDetailUrl(course)).then(() => {
       setCopiedLinkId(course.id);
       setTimeout(() => setCopiedLinkId(prev => (prev === course.id ? null : prev)), 1500);
     }).catch(() => {});

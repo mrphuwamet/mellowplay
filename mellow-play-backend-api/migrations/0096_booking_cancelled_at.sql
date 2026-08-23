@@ -1,0 +1,17 @@
+-- When a registration was cancelled.
+--
+-- Applied by hand (never `d1 migrations apply` — d1_migrations is stale at
+-- 0066):
+--   npx wrangler d1 execute mellow_play_db_dev --remote --file migrations/0096_booking_cancelled_at.sql
+--   npx wrangler d1 execute mellow_play_db     --remote --file migrations/0096_booking_cancelled_at.sql
+--
+-- The list showed a "ยกเลิก" chip and nothing else — no way to tell a
+-- cancellation from this morning from one three weeks ago, which is the first
+-- thing anyone asks when a family rings about one.
+--
+-- Deliberately NOT backfilled. Every row cancelled before today has no record
+-- of when it happened; created_at would be the booking date and
+-- CURRENT_TIMESTAMP would say they were all cancelled the day this ran. Both
+-- are inventions. They stay NULL and the CRM shows nothing rather than a date
+-- that is not true.
+ALTER TABLE Bookings ADD COLUMN cancelled_at DATETIME;

@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 import TimeField24 from '../components/TimeField24';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -469,7 +470,7 @@ const CrmUserManagement = () => {
   const copyGeneratedLink = async () => {
     if (!generatedLink) return;
     try {
-      await navigator.clipboard.writeText(generatedLink.url);
+      await copyText(generatedLink.url);
       setLinkCopied(true);
     } catch {
       /* clipboard API unavailable — user can still select-and-copy manually */

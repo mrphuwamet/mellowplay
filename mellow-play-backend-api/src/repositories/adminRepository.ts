@@ -290,7 +290,7 @@ export class AdminRepository {
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
-        b.sponsor_tag, b.form_submission_id, b.staff_note,
+        b.sponsor_tag, b.form_submission_id, b.staff_note, b.cancelled_at,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,

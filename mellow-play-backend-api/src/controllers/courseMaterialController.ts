@@ -85,7 +85,7 @@ export class CourseMaterialController {
       }
 
       await this.repo(c).releaseStock(bookingId);
-      await config.db.prepare("UPDATE Bookings SET status='cancelled' WHERE id=?").bind(bookingId).run();
+      await config.db.prepare("UPDATE Bookings SET status='cancelled', cancelled_at=COALESCE(cancelled_at, datetime('now')) WHERE id=?").bind(bookingId).run();
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

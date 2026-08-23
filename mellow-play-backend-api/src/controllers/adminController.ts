@@ -2779,6 +2779,14 @@ export class AdminController {
       } else if (status === 'pending' || status === 'pending_payment') {
         sets.push("payment_status = 'pending'");
       }
+      // COALESCE so re-saving an already-cancelled booking keeps the date it
+      // was actually cancelled on, and cleared when it is brought back —
+      // a live booking carrying a cancellation date is worse than none.
+      if (status === 'cancelled') {
+        sets.push("cancelled_at = COALESCE(cancelled_at, datetime('now'))");
+      } else {
+        sets.push('cancelled_at = NULL');
+      }
       if (scheduledAt) {
         sets.push('scheduled_at = ?'); binds.push(scheduledAt);
         // slot_date/slot_start_time are separate columns from scheduled_at

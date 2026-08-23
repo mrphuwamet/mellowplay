@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { copyText } from '../utils/clipboard';
 import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle,
@@ -128,7 +129,7 @@ const PromotionManagement = () => {
     try { await axios.delete(`${API_URL}/api/v1/admin/promotions/${deleteTarget.id}`, { headers }); setDeleteDialogOpen(false); setDeleteTarget(null); fetchData(); } catch {}
   };
 
-  const copyCode = (p: Promotion) => { navigator.clipboard.writeText(p.code); setCopiedId(p.id); setTimeout(() => setCopiedId(null), 1500); };
+  const copyCode = (p: Promotion) => { void copyText(p.code); setCopiedId(p.id); setTimeout(() => setCopiedId(null), 1500); };
   const isExpired = (p: Promotion) => !!p.valid_until && new Date(p.valid_until + 'Z') < new Date();
   const isExhausted = (p: Promotion) => p.max_uses > 0 && p.current_uses >= p.max_uses;
   const getStatus = (p: Promotion) => {

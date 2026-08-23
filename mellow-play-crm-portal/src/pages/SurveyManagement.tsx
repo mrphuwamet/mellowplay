@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { copyText } from '../utils/clipboard';
 import { API_URL } from '../config';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -509,7 +510,7 @@ const SurveyManagement = () => {
 
   const copyLink = (form: any) => {
     const url = `${CONSUMER_APP_URL}/survey/${form.slug || form.id}`;
-    navigator.clipboard.writeText(url).then(() => setLinkCopied(true)).catch(() => {});
+    void copyText(url).then(done => { if (done) setLinkCopied(true); });
   };
 
   // Opens the real form, the way a respondent sees it — shuffling, scoring,

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { copyText } from '../utils/clipboard';
 import { API_URL } from '../config';
 import axios from 'axios';
 import {
@@ -138,7 +139,7 @@ const SessionManagement = ({
   };
 
   const copyLink = (s: any) => {
-    navigator.clipboard.writeText(`${CONSUMER_APP_URL}/session/${s.slug || s.id}`);
+    void copyText(`${CONSUMER_APP_URL}/session/${s.slug || s.id}`);
     setLinkCopied(true);
   };
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { copyText } from '../utils/clipboard';
 import {
   Box, Paper, Typography, Button, Alert, CircularProgress, Chip,
   List, ListItem, ListItemText, IconButton, Dialog, DialogTitle, DialogContent,
@@ -96,7 +97,7 @@ const AccessLinkPanel = () => {
   };
 
   const copyLink = async (token: string) => {
-    await navigator.clipboard.writeText(linkUrl(token));
+    await copyText(linkUrl(token));
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);
   };

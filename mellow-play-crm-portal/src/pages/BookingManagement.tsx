@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 import { formatBirthDate } from '../utils/dateFormat';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -82,6 +83,8 @@ interface Booking {
   sponsor_tag?: string;
   /** Staff's own note on this registration — a phone call, something to check. */
   staff_note?: string | null;
+  /** Null on anything cancelled before the column existed — see migration 0096. */
+  cancelled_at?: string | null;
   is_event?: number;
   is_service?: number;
   form_submission_id?: number;
@@ -1133,7 +1136,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       lines.push(`${b.parent_name || '-'} - ${phone}`);
     }
     if (lines.length === 0) return;
-    navigator.clipboard.writeText(lines.join('\n')).then(() => setContactsCopied(true)).catch(() => {});
+    void copyText(lines.join('\n')).then(done => { if (done) setContactsCopied(true); });
   };
 
   const filtered = useMemo(() => {
@@ -1288,6 +1291,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       'ยอดเงินที่ชำระ',
       'ช่องทางชำระเงิน',
       'Tag ที่มาของลิงก์',
+      'วันที่ยกเลิก',
       'โน้ตเจ้าหน้าที่'
     ];
 
@@ -1354,6 +1358,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
         b.payment_method || '-',
         b.sponsor_tag || '-',
+        b.cancelled_at ? formatUtcDateTime(b.cancelled_at) : '',
         // Exported alongside everything else: filtering the list by note and
         // then getting a file without it is the obvious next disappointment.
         b.staff_note || '',
@@ -1678,6 +1683,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2e7d32', fontWeight: 700 }}>
                   <PaymentsIcon sx={{ fontSize: 13 }} />
                   ชำระ {formatUtcDateTime(b.paid_at)}{b.paid_amount != null ? ` · ${b.paid_amount.toLocaleString('th-TH')} บาท` : ''}{b.payment_method ? ` · ${b.payment_method}` : ''}
+                </Typography>
+              )}
+              {/* Only ever shown when there is a real date. Anything cancelled
+                  before the column existed keeps its plain "ยกเลิก" chip rather
+                  than being given a day it did not happen on. */}
+              {b.status === 'cancelled' && b.cancelled_at && (
+                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#c62828', fontWeight: 700 }}>
+                  <CancelIcon sx={{ fontSize: 13 }} />
+                  ยกเลิกเมื่อ {formatUtcDateTime(b.cancelled_at)}
                 </Typography>
               )}
             </Box>

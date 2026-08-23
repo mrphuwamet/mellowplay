@@ -96,7 +96,7 @@ export class CalendarRepository {
       // ('pending', 'pending_payment') as well covers both spellings.
       await this.db.prepare(`
         UPDATE Bookings
-        SET status = 'cancelled', payment_status = 'expired'
+        SET status = 'cancelled', payment_status = 'expired', cancelled_at = COALESCE(cancelled_at, datetime('now'))
         WHERE (payment_status IN ('pending', 'pending_payment') OR status IN ('pending', 'pending_payment'))
           AND status != 'cancelled'
           AND created_at < datetime('now', '-15 minutes')

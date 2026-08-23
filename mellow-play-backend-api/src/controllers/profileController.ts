@@ -479,7 +479,7 @@ export class ProfileController {
 
       await db.prepare(`
         UPDATE Bookings 
-        SET status = 'cancelled', payment_status = 'cancelled'
+        SET status = 'cancelled', payment_status = 'cancelled', cancelled_at = COALESCE(cancelled_at, datetime('now'))
         WHERE id = ?
       `).bind(bookingId).run();
 

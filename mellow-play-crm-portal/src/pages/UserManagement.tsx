@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -2049,11 +2050,12 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             value={generatedResetLink}
             InputProps={{ readOnly: true }}
             size="small"
-            onClick={(e) => {
+            onClick={async (e) => {
               const target = e.target as HTMLInputElement;
-              target.select();
-              navigator.clipboard.writeText(generatedResetLink);
-              setSuccessMsg('คัดลอกลิงก์แล้ว');
+              target.select?.();
+              setSuccessMsg(await copyText(generatedResetLink)
+                ? 'คัดลอกลิงก์แล้ว'
+                : 'คัดลอกอัตโนมัติไม่ได้ — ลากคลุมข้อความแล้วกด Ctrl+C');
             }}
           />
         </DialogContent>
@@ -2061,10 +2063,16 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
           <Button onClick={() => setGeneratedResetLink('')}>ปิด</Button>
           <Button
             variant="contained"
-            onClick={() => {
-              navigator.clipboard.writeText(generatedResetLink);
-              setSuccessMsg('คัดลอกลิงก์แล้ว');
-              setGeneratedResetLink('');
+            onClick={async () => {
+              // The dialog used to close in the same breath as the copy was
+              // fired off, so a copy that failed took the link away with it and
+              // still said it had worked. It stays open unless the copy landed.
+              if (await copyText(generatedResetLink)) {
+                setSuccessMsg('คัดลอกลิงก์แล้ว');
+                setGeneratedResetLink('');
+              } else {
+                setSuccessMsg('คัดลอกอัตโนมัติไม่ได้ — ลากคลุมข้อความด้านบนแล้วกด Ctrl+C');
+              }
             }}
           >
             คัดลอกลิงก์

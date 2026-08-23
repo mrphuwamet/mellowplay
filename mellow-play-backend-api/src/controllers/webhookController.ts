@@ -290,7 +290,7 @@ export class WebhookController {
         // success webhook already landed) — never downgrade a real seat.
         for (const bid of bookingsToCancel) {
           await config.db.prepare(`
-            UPDATE Bookings SET status = 'cancelled', payment_status = 'cancelled'
+            UPDATE Bookings SET status = 'cancelled', payment_status = 'cancelled', cancelled_at = COALESCE(cancelled_at, datetime('now'))
             WHERE id = ? AND status NOT IN ('confirmed', 'confirmed_paid', 'completed', 'awaiting_report')
           `).bind(bid).run();
         }
