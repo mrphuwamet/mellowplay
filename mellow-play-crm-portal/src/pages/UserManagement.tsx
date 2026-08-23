@@ -2042,22 +2042,38 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             </Alert>
           )}
           <Typography variant="body2" sx={{ mb: 2 }}>
-            คัดลอกลิงก์นี้ส่งให้ลูกค้าทางไลน์หรือช่องทางอื่นได้เลย ลูกค้าเปิดลิงก์แล้วตั้ง PIN ใหม่ได้เอง
+            ส่งลิงก์นี้ให้ลูกค้าทางไลน์หรือช่องทางอื่นได้เลย ลูกค้าเปิดลิงก์แล้วตั้ง PIN ใหม่ได้เอง
             {resetLinkExpiry && ` · ลิงก์หมดอายุ ${new Date(resetLinkExpiry).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`}
           </Typography>
+
+          {/* The whole link, wrapped and always readable, rather than one line
+              scrolling inside a narrow box. A copy button can be refused by the
+              browser for reasons nobody at a counter can do anything about, so
+              the text itself is the thing that always works — selected on focus
+              so Ctrl+C is the only key anyone has to remember. */}
           <TextField
             fullWidth
+            multiline
+            minRows={2}
             value={generatedResetLink}
-            InputProps={{ readOnly: true }}
-            size="small"
-            onClick={async (e) => {
-              const target = e.target as HTMLInputElement;
-              target.select?.();
-              setSuccessMsg(await copyText(generatedResetLink)
-                ? 'คัดลอกลิงก์แล้ว'
-                : 'คัดลอกอัตโนมัติไม่ได้ — ลากคลุมข้อความแล้วกด Ctrl+C');
+            InputProps={{
+              readOnly: true,
+              sx: { fontFamily: 'monospace', fontSize: 13, bgcolor: '#f8f7ff', wordBreak: 'break-all' },
             }}
+            onFocus={e => e.target.select()}
+            onClick={e => (e.target as HTMLTextAreaElement).select?.()}
+            helperText="ลากคลุมข้อความแล้วกด Ctrl+C ได้ ถ้าปุ่มคัดลอกใช้ไม่ได้"
           />
+
+          {/* Opens the customer's own page in a new tab, which is also the
+              quickest way to confirm the link works before sending it. */}
+          <Button
+            size="small" startIcon={<LinkIcon fontSize="small" />}
+            href={generatedResetLink} target="_blank" rel="noopener noreferrer"
+            sx={{ mt: 1, fontWeight: 700 }}
+          >
+            เปิดลิงก์ทดสอบ
+          </Button>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setGeneratedResetLink('')}>ปิด</Button>
@@ -2071,7 +2087,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                 setSuccessMsg('คัดลอกลิงก์แล้ว');
                 setGeneratedResetLink('');
               } else {
-                setSuccessMsg('คัดลอกอัตโนมัติไม่ได้ — ลากคลุมข้อความด้านบนแล้วกด Ctrl+C');
+                // Kept open on failure: the box above is now the fallback, and
+                // closing the dialog would take it away.
+                setSuccessMsg('เบราว์เซอร์ไม่อนุญาตให้คัดลอกอัตโนมัติ — ลากคลุมข้อความในกล่องด้านบนแล้วกด Ctrl+C');
               }
             }}
           >

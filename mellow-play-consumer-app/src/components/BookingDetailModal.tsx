@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import CancelBookingNotice from './CancelBookingNotice';
 import LineContactLink from './LineContactLink';
 import { getBookingPlace } from '../utils/bookingPlace';
 import { formatTime24 } from '../utils/dateFormat';
@@ -360,16 +361,11 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           </div>
         </div>
 
-        {/* There is no self-service cancel, so the page has to say where to go
-            instead of leaving someone hunting for a button that is not there. */}
-        <div className="mt-5 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200/70">
-          <p className="text-xs font-medium text-slate-500 leading-relaxed text-center">
-            {lang === 'en' ? (
-              <>Need to cancel or reschedule? Message us on LINE <LineContactLink /></>
-            ) : (
-              <>หากต้องการยกเลิกหรือเลื่อนรอบ กรุณาติดต่อ LINE <LineContactLink /></>
-            )}
-          </p>
+        {/* Replaces the line of text that used to sit here. Reached from the
+            upcoming list, the home feed, explore and the learning path, so this
+            one button covers every screen a booking is opened from. */}
+        <div className="mt-5">
+          <CancelBookingNotice />
         </div>
 
         <button

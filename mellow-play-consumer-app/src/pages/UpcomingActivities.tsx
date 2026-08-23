@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import CancelBookingNotice from '../components/CancelBookingNotice';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Loader2, CalendarDays, Clock, MapPin, QrCode, Users } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -121,10 +122,14 @@ const UpcomingActivities = () => {
                     const place = getBookingPlace(b);
                     const status = BOOKING_STATUS_META[b.status];
                     return (
-                      <button
+                      <div
                         key={b.id}
+                        className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
+                      >
+                      <button
+                        type="button"
                         onClick={() => setSelected(b)}
-                        className="w-full text-left bg-white rounded-2xl border border-slate-100 shadow-sm p-3.5 flex gap-3 items-start active:scale-[0.99] transition-transform"
+                        className="w-full text-left p-3.5 flex gap-3 items-start active:scale-[0.99] transition-transform"
                       >
                         <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 shrink-0">
                           {b.course_thumbnail ? (
@@ -170,6 +175,13 @@ const UpcomingActivities = () => {
                           )}
                         </div>
                       </button>
+                      {/* Only on what is still to come — a class that already
+                          happened cannot be cancelled, and offering it there
+                          would just prompt a pointless message. */}
+                      <div className="border-t border-slate-100">
+                        <CancelBookingNotice compact />
+                      </div>
+                      </div>
                     );
                   })}
                 </div>
