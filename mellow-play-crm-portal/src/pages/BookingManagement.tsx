@@ -991,6 +991,11 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [fieldFilters, setFieldFilters] = useStickyState<Record<string, string[]>>('bookings.fieldFilters', {});
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
   const [dupesOnly, setDupesOnly] = useStickyState('bookings.dupesOnly', false);
+  const [notedOnly, setNotedOnly] = useStickyState('bookings.notedOnly', false);
+  // Counted across everything loaded, not the filtered view: a chip whose
+  // number changed as you filtered would be describing the result, not
+  // offering a filter.
+  const notedCount = useMemo(() => bookings.filter(b => !!b.staff_note?.trim()).length, [bookings]);
   // Computed over every booking on screen, not the filtered set: a duplicate
   // is a fact about the event, and hiding half a pair behind a filter would
   // make the other half stop looking like one.
@@ -1117,9 +1122,13 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       : bookings.filter(b => activeFilterFields.every(key =>
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
     const byDupes = dupesOnly ? byField.filter(b => duplicates.has(b.id)) : byField;
-    if (!search.trim()) return byDupes;
+    const byNoted = notedOnly ? byDupes.filter(b => !!b.staff_note?.trim()) : byDupes;
+    if (!search.trim()) return byNoted;
     const q = search.toLowerCase();
-    return byField.filter(b => {
+    // Filtered from byNoted, not byField: typing in the search box used to
+    // silently drop whichever chips were on, so a search inside "ชื่อซ้ำ"
+    // quietly went back to searching everything.
+    return byNoted.filter(b => {
       if (
         b.child_name?.toLowerCase().includes(q) ||
         b.child_nickname?.toLowerCase().includes(q) ||
@@ -1129,6 +1138,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         b.parent_email?.toLowerCase().includes(q) ||
         b.course_name?.toLowerCase().includes(q) ||
         b.branch_name?.toLowerCase().includes(q) ||
+        // What staff wrote about the call is as searchable as anything the
+        // customer typed — "ขอเลื่อน" is exactly the kind of thing someone
+        // comes back to this page looking for.
+        b.staff_note?.toLowerCase().includes(q) ||
         String(b.id).includes(q)
       ) return true;
       // The card now leads with the registration form's own answers (the
@@ -1139,7 +1152,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, duplicates]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, notedOnly, duplicates]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
@@ -1160,7 +1173,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, notedOnly, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -1252,7 +1265,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       'วันที่รับชำระเงิน',
       'ยอดเงินที่ชำระ',
       'ช่องทางชำระเงิน',
-      'Tag ที่มาของลิงก์'
+      'Tag ที่มาของลิงก์',
+      'โน้ตเจ้าหน้าที่'
     ];
 
     // Extra columns — every distinct field on whichever registration form
@@ -1318,6 +1332,9 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         b.paid_amount != null ? b.paid_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
         b.payment_method || '-',
         b.sponsor_tag || '-',
+        // Exported alongside everything else: filtering the list by note and
+        // then getting a file without it is the obvious next disappointment.
+        b.staff_note || '',
         ...dynamicValues,
       ];
     });
@@ -1717,7 +1734,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               // range and the view are scoping, not filters, and wiping those
               // from under someone who asked to clear a field filter is a
               // surprise they then have to undo.
-              onClick={() => { setFieldFilters({}); setDupesOnly(false); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
+              onClick={() => { setFieldFilters({}); setDupesOnly(false); setNotedOnly(false); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
             >
               ล้างตัวกรอง
             </Button>
@@ -1731,6 +1748,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               color={dupesOnly ? 'warning' : 'default'}
               variant={dupesOnly ? 'filled' : 'outlined'}
               onClick={() => setDupesOnly(v => !v)}
+              sx={{ fontWeight: 800 }}
+            />
+          )}
+          {/* Same rule as the duplicates chip: only offered when there is
+              something to find. */}
+          {notedCount > 0 && (
+            <Chip
+              icon={<NoteIcon />}
+              label={`มีโน้ต (${notedCount})`}
+              color={notedOnly ? 'warning' : 'default'}
+              variant={notedOnly ? 'filled' : 'outlined'}
+              onClick={() => setNotedOnly(v => !v)}
               sx={{ fontWeight: 800 }}
             />
           )}
