@@ -48,11 +48,16 @@ export class TournamentController {
       // Every round the course has, not only the ones that happen to have a
       // registrant in the current grouping — a heat is often created first.
       const rounds = await repo.getRounds(courseId);
+      // What the bracket should be built for. Falls back to the booking count
+      // for a round with no rule behind it (a one-off typed straight onto a
+      // booking), so a course with no calendar still gets a usable number.
+      const capacityCount = rounds.reduce(
+        (n, r) => n + (r.capacity != null ? Number(r.capacity) : Number(r.booking_count || 0)), 0);
 
       if (!tournament) {
         return c.json({
           success: true, tournament: null, tournaments, brackets: [], heats: [], entries: [],
-          options, teamFields, rounds, registrantCount: registrants.length,
+          options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
         });
       }
 
@@ -77,7 +82,7 @@ export class TournamentController {
         success: true,
         tournament, tournaments, brackets,
         heats: selected.heats, entries: selected.entries,
-        options, teamFields, rounds, registrantCount: registrants.length,
+        options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

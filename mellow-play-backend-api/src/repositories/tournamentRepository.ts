@@ -363,14 +363,37 @@ export class TournamentRepository {
    * concrete dates people are booked onto. Rounds with nobody in them are
    * still listed, because a heat can be created before its entrants are drawn.
    */
-  async getRounds(courseId: number): Promise<{ slot_date: string | null; slot_start_time: string | null; booking_count: number }[]> {
+  /**
+   * Every round this course runs, with how many are booked AND how many the
+   * room actually holds.
+   *
+   * A bracket is planned before the room is full — that is the point of
+   * planning it — so sizing it on who has registered so far produces a bracket
+   * that is wrong by the time the event starts. Capacity is the number that
+   * does not move.
+   *
+   * max_capacity + invite_capacity, because an invited guest takes a place in
+   * a heat exactly like anyone else.
+   */
+  async getRounds(courseId: number): Promise<{ slot_date: string | null; slot_start_time: string | null; booking_count: number; capacity: number | null }[]> {
     const { results } = await this.db.prepare(`
-      SELECT slot_date, slot_start_time, COUNT(*) AS booking_count
-      FROM Bookings
-      WHERE course_id = ? AND status != 'cancelled'
-      GROUP BY slot_date, slot_start_time
-      ORDER BY slot_date, slot_start_time
-    `).bind(courseId).all<any>();
+      SELECT b.slot_date, b.slot_start_time, COUNT(*) AS booking_count,
+             (SELECT r.max_capacity + COALESCE(r.invite_capacity, 0)
+                FROM Calendar_Slot_Rules r
+                JOIN Courses c ON c.calendar_id = r.calendar_id
+               WHERE c.id = ? AND r.is_active = 1
+                 AND SUBSTR(r.start_time, 1, 5) = SUBSTR(b.slot_start_time, 1, 5)
+                 AND (r.specific_date IS NULL OR r.specific_date = b.slot_date)
+                 AND (r.day_of_week IS NULL OR r.day_of_week = CAST(strftime('%w', b.slot_date) AS INTEGER))
+               -- A rule written for one specific date wins over the weekly one,
+               -- same precedence the schedule itself uses.
+               ORDER BY r.specific_date IS NULL
+               LIMIT 1) AS capacity
+      FROM Bookings b
+      WHERE b.course_id = ? AND b.status != 'cancelled'
+      GROUP BY b.slot_date, b.slot_start_time
+      ORDER BY b.slot_date, b.slot_start_time
+    `).bind(courseId, courseId).all<any>();
     return results;
   }
 

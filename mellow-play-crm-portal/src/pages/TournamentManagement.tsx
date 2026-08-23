@@ -158,10 +158,25 @@ const TournamentManagement: React.FC = () => {
   const [teamFields, setTeamFields] = useState<{ field_key: string; label: string }[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [genOpen, setGenOpen] = useState(false);
-  const [genForm, setGenForm] = useState({ per_heat: 4, advance_per_heat: 2, slot_date: '', slot_start_time: '', replace: true });
+  // 3 per heat with 1 going through — what these events are actually run as.
+  // 4-and-2 was a placeholder that had to be corrected on every bracket.
+  const [genForm, setGenForm] = useState({ per_heat: 3, advance_per_heat: 1, slot_date: '', slot_start_time: '', replace: true });
   const [registrantCount, setRegistrantCount] = useState(0);
+  // Seats, not sign-ups. A bracket is planned before the room fills — that is
+  // the point of planning it — so building it from who has registered so far
+  // produces a bracket that is wrong by the day of the event.
+  const [capacityCount, setCapacityCount] = useState(0);
 
   const [entryType, setEntryType] = useStickyState<EntryType>('tournaments.entryType', 'team');
+
+  /**
+   * How many the bracket is built for: every seat in the room, invited places
+   * included, because an invited guest takes a place in a heat like anyone
+   * else. Falls back to who has actually registered when a course has no
+   * schedule behind it to read a capacity from.
+   */
+  const bracketEntrantCount = capacityCount || (options[entryType] || []).length || registrantCount;
+
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [targetHeat, setTargetHeat] = useState<number | ''>('');
   const [roundFilter, setRoundFilter] = useStickyState<string>('tournaments.roundFilter', 'all');
@@ -225,6 +240,7 @@ const TournamentManagement: React.FC = () => {
       setTeamFields(data.teamFields || []);
       setRounds(data.rounds || []);
       setRegistrantCount(data.registrantCount || 0);
+      setCapacityCount(data.capacityCount || 0);
       setPicked(new Set());
       // No team field on this form means no team rows to show — start on the
       // grouping that always exists.
@@ -674,7 +690,7 @@ const TournamentManagement: React.FC = () => {
       const { data } = await axios.post(`${API_BASE}/tournaments/${genTarget ?? tournament.id}/generate`, {
         // The pool being drawn from decides the size of the first round, so the
         // count follows whichever grouping is selected on the left.
-        entrant_count: (options[entryType] || []).length || registrantCount,
+        entrant_count: bracketEntrantCount,
         per_heat: genForm.per_heat,
         advance_per_heat: genForm.advance_per_heat,
         slot_date: genForm.slot_date || null,
@@ -692,9 +708,9 @@ const TournamentManagement: React.FC = () => {
   // What the generator will produce, shown before it runs — a bracket is much
   // easier to agree with as "8 → 4 → 2 → 1" than as a paragraph of settings.
   const genPreview = useMemo(() => {
-    const perHeat = Math.max(2, Number(genForm.per_heat) || 4);
-    const advance = Math.min(Math.max(1, Number(genForm.advance_per_heat) || 2), perHeat - 1);
-    const entrants = (options[entryType] || []).length || registrantCount;
+    const perHeat = Math.max(2, Number(genForm.per_heat) || 3);
+    const advance = Math.min(Math.max(1, Number(genForm.advance_per_heat) || 1), perHeat - 1);
+    const entrants = bracketEntrantCount;
     const out: number[] = [];
     let remaining = Math.max(2, entrants);
     while (out.length < 8) {
@@ -706,7 +722,7 @@ const TournamentManagement: React.FC = () => {
       remaining = next;
     }
     return { entrants, out };
-  }, [genForm, options, entryType, registrantCount]);
+  }, [genForm, bracketEntrantCount]);
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -731,6 +747,7 @@ const TournamentManagement: React.FC = () => {
           {courseId !== '' && (
             <Typography variant="body2" color="text.secondary">
               ผู้ลงทะเบียน {registrantCount} คน
+              {capacityCount > 0 && ` · ที่นั่งรวมทุกรอบ ${capacityCount} ที่`}
             </Typography>
           )}
           {tournament && teamFields.length > 0 && (
