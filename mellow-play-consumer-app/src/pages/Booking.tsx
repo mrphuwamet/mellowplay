@@ -337,6 +337,11 @@ const Booking = () => {
   // indicator flash forward to "child" before the modal appears.
   const isGuest = localStorage.getItem('mellow_guest') === 'true';
   const [showGuestModal, setShowGuestModal] = useState(false);
+  // Courses this ACCOUNT has ever registered for, not this child — a family
+  // books under whoever, and the question being answered is "have we done this
+  // one before?", which is asked of the household.
+  const [bookedCourseIds, setBookedCourseIds] = useState<Set<number>>(new Set());
+  const [repeatWarningCourse, setRepeatWarningCourse] = useState<Course | null>(null);
   // Age outside the course's range is a soft warning, not a hard block —
   // this just gates the "Next step" button behind one explicit confirm.
   const [showAgeConfirm, setShowAgeConfirm] = useState(false);
@@ -381,6 +386,33 @@ const Booking = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Loaded when the page opens rather than when a course is picked: the check
+  // has to be ready at the moment someone taps ลงทะเบียน, and the other
+  // per-course fetch on this page only starts once a course is already chosen.
+  useEffect(() => {
+    const userJson = localStorage.getItem('mellow_user');
+    const userId = userJson ? JSON.parse(userJson).id : null;
+    if (!userId || isGuest) { setBookedCourseIds(new Set()); return; }
+    let cancelled = false;
+    Promise.all([
+      apiClient.get(`/profiles/bookings/history?userId=${userId}`),
+      apiClient.get(`/profiles/bookings/upcoming?userId=${userId}`),
+    ]).then(([historyRes, upcomingRes]) => {
+      if (cancelled) return;
+      const ids = new Set<number>();
+      for (const res of [historyRes, upcomingRes]) {
+        if (!res.data?.success) continue;
+        for (const b of res.data.bookings as any[]) {
+          // A cancelled registration is not one they have done.
+          if (b.status !== 'cancelled' && b.course_id) ids.add(Number(b.course_id));
+        }
+      }
+      setBookedCourseIds(ids);
+    }).catch(() => { /* the warning is a courtesy; never block booking over it */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest]);
+
   // Every "advance past course browsing" action funnels through here so the
   // guest gate is checked synchronously, before currentStepIndex ever
   // changes — this is what keeps the tab indicator from flashing forward.
@@ -389,6 +421,13 @@ const Booking = () => {
     setSelectedCourse(course);
     if (isGuest) {
       setShowGuestModal(true);
+      return;
+    }
+    // Asked once per attempt, and never for a course that allows repeats —
+    // a warning that fires on something explicitly designed to be repeated is
+    // noise, and noise is what gets clicked through without reading.
+    if (bookedCourseIds.has(course.id) && !course.allow_repeat) {
+      setRepeatWarningCourse(course);
       return;
     }
     // Index 1 is always the step right after course browsing — 'child' or
@@ -1877,6 +1916,46 @@ const Booking = () => {
           Framed as "have you signed up before?" with two equal paths rather
           than a single "go register" CTA, so booking reads as one continuous
           errand regardless of which path the parent is on. */}
+      {/* Not a block — a check. Booking a second time is a normal thing to do
+          (another child, another round), so the wording asks whether they meant
+          to rather than telling them off, and continuing is the filled button.
+          The other path goes to the list, which is what someone who has lost
+          track of what they booked actually wants. */}
+      <ResponsiveModal
+        isOpen={!!repeatWarningCourse}
+        onClose={() => setRepeatWarningCourse(null)}
+        variant="dialog"
+        size="sm"
+        className="text-center"
+      >
+        <h3 className="text-[20px] font-black text-slate-800 mb-2">
+          {lang === 'en' ? 'You have booked this one before' : 'บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว'}
+        </h3>
+        <p className="text-[15px] text-slate-500 font-medium mb-6 leading-relaxed">
+          {lang === 'en'
+            ? `"${repeatWarningCourse?.name ?? ''}" is already in this account's bookings. You can still book again — for another family member, or another round.`
+            : `"${repeatWarningCourse?.name ?? ''}" อยู่ในรายการที่บัญชีนี้ลงทะเบียนไว้แล้ว หากต้องการลงเพิ่มให้สมาชิกอีกคน หรือลงรอบอื่น ทำต่อได้เลยค่ะ`}
+        </p>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => {
+              const course = repeatWarningCourse;
+              setRepeatWarningCourse(null);
+              if (course) setCurrentStepIndex(1);
+            }}
+            className="h-[48px] bg-mellow-purple text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-mellow-purple/20 active:scale-95 transition-transform"
+          >
+            {lang === 'en' ? 'Book again' : 'ลงทะเบียนเพิ่ม'}
+          </button>
+          <button
+            onClick={() => { setRepeatWarningCourse(null); navigate('/upcoming'); }}
+            className="h-[48px] bg-slate-100 text-slate-600 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
+          >
+            {lang === 'en' ? 'See what I have booked' : 'ดูรายการที่ลงทะเบียนไว้'}
+          </button>
+        </div>
+      </ResponsiveModal>
+
       <ResponsiveModal
         isOpen={showGuestModal}
         onClose={() => { setShowGuestModal(false); setCurrentStepIndex(0); navigate('/booking', { replace: true }); }}
