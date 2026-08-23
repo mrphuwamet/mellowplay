@@ -9,6 +9,8 @@ import { SmsRepository } from '../repositories/smsRepository';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
+import { isValidPin, PIN_ERROR } from '../utils/pin';
 import { EmailService } from '../services/emailService';
 import { IMAGE_VIEWS, DEFAULT_FOCAL, POSTER_VIEW, clampZoom } from '../constants/imageViews';
 import { AuthService } from '../services/authService';
@@ -47,6 +49,12 @@ export class AdminController {
 
       if (!phone || !password || !firstName || !lastName) {
         return c.json({ success: false, message: 'phone, password, firstName, lastName required' }, 400);
+      }
+      // Checked here and not only in the form: this endpoint is reachable
+      // directly, and a PIN the server accepts is the PIN the customer is
+      // stuck with however well the form behaved.
+      if (!isValidPin(password)) {
+        return c.json({ success: false, message: PIN_ERROR }, 400);
       }
 
       const config = new ConfigService(c.env);
@@ -268,19 +276,22 @@ export class AdminController {
       const childId = parseInt(c.req.param('id'));
       const { nickname, gender, relation, name_en, membership_type, membership_expires_at, date_of_birth } = await c.req.json();
 
-      let birthDate: string | undefined;
-      if (date_of_birth) {
+      // '' means "clear it" and undefined means "leave it alone" — without the
+      // distinction a wrong birthday could be corrected but never removed.
+      let birthDate: string | null | undefined;
+      if (date_of_birth !== undefined) {
         const authHeader = c.req.header('Authorization');
         const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
         const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
         if (payload?.type !== 'admin' || payload?.role !== 'super_admin') {
           return c.json({ success: false, message: 'แก้วันเกิดได้เฉพาะ Super Admin' }, 403);
         }
+        const raw = String(date_of_birth).trim();
         // YYYY-MM-DD only — the column is a DATE and the HD chart reads it.
-        if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(date_of_birth))) {
+        if (raw !== '' && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(raw)) {
           return c.json({ success: false, message: 'รูปแบบวันเกิดไม่ถูกต้อง' }, 400);
         }
-        birthDate = String(date_of_birth);
+        birthDate = raw === '' ? null : raw;
       }
 
       await adminRepo.updateHdChild(childId, {
@@ -386,6 +397,21 @@ export class AdminController {
     }
   }
 
+  /**
+   * Issue a password-reset link for a customer.
+   *
+   * This used to be four lines that made a timestamp and returned
+   * "Reset link sent" — no token was stored, no email was sent, and nothing
+   * appeared in the email history because nothing had happened. The CRM then
+   * told staff the mail was on its way.
+   *
+   * Now it mirrors the CRM_Users flow that has worked all along: a token, a
+   * deadline, an email when there is an address to send to, and a row in
+   * Email_Logs either way. The link comes back in the response regardless, so
+   * staff can hand it over themselves — over LINE, or read out at the counter —
+   * which is the only route that works for the many customers with no email on
+   * file at all.
+   */
   async resetUserPassword(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -393,9 +419,89 @@ export class AdminController {
       const id = parseInt(c.req.param('id'));
       const user = await adminRepo.getUserById(id);
       if (!user) return c.json({ success: false, message: 'User not found' }, 404);
-      // TODO: integrate with email service to send reset link
+
+      const token = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      return c.json({ success: true, message: 'Reset link sent', expires_at: expiresAt });
+      await adminRepo.setUserResetToken(id, token, expiresAt);
+
+      const settings = new SettingsRepository(config.db);
+      const appUrl = (await settings.getOverridable('consumer_app_url', 'https://mellowplay.co')).replace(/\/+$/, '');
+      const resetLink = `${appUrl}/reset-password?token=${token}`;
+
+      let emailStatus: 'sent' | 'failed' | 'skipped' = 'skipped';
+      let emailDetail: string | null = 'ไม่มีอีเมลในระบบ';
+      if (user.email) {
+        const fromAddress = await settings.getOverridable('email_from_address', 'contact@mellowplay.co');
+        const fromName = await settings.getOverridable('email_from_name', 'Mellow Play');
+        const replyTo = await settings.getOverridable('email_reply_to', '');
+        const mailer = new EmailService(config.emailBinding, fromAddress, fromName, replyTo);
+        const subject = 'ตั้งรหัส PIN ใหม่ · Mellow Play';
+        const body = wrapEmailHtml(
+          `<p>สวัสดีค่ะ คุณ${[user.first_name, user.last_name].filter(Boolean).join(' ')}</p>
+           <p>กดลิงก์ด้านล่างเพื่อตั้งรหัส PIN ใหม่ ลิงก์นี้ใช้ได้ภายใน 24 ชั่วโมง</p>
+           <p><a href="${resetLink}">ตั้งรหัส PIN ใหม่</a></p>
+           <p>หากไม่ได้เป็นผู้ขอ ไม่ต้องดำเนินการใด ๆ รหัสเดิมยังใช้งานได้ตามปกติ</p>`,
+          await loadEmailTheme(settings)
+        );
+        const result = mailer.isConfigured
+          ? await mailer.sendMessage(user.email, subject, body)
+          : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };
+        emailStatus = result.ok ? 'sent' : 'failed';
+        emailDetail = result.detail ?? null;
+        // bodyHtml stays out of the log on purpose: it carries a live reset
+        // link, and a log table is the wrong place to keep one.
+        await new EmailLogRepository(config.db).log({
+          type: 'password_reset',
+          email: user.email,
+          subject,
+          bodyHtml: null,
+          status: result.ok ? 'sent' : 'failed',
+          providerMessageId: result.messageId ?? null,
+          providerDetail: result.detail ?? null,
+          sentBy: c.get('crmUser')?.userId ?? null,
+        });
+      }
+
+      // resetLink is named the same as the CRM_Users endpoint's field so the
+      // CRM can treat the two identically.
+      return c.json({
+        success: true,
+        resetLink,
+        reset_link: resetLink,
+        expires_at: expiresAt,
+        email: user.email || null,
+        emailStatus,
+        emailDetail,
+      });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  /** Cancel a pending reset — the CRM has always offered this; the route did not exist. */
+  async revokeUserResetToken(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      await new AdminRepository(config.db).clearUserResetToken(id);
+      return c.json({ success: true });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  /** Undo a delete, so a mistake does not have to be fixed with a re-registration. */
+  async restoreUser(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const crmUser = c.get('crmUser');
+      if (crmUser?.role !== 'super_admin') {
+        return c.json({ success: false, message: 'เฉพาะ Super Admin เท่านั้นที่กู้คืนบัญชีได้' }, 403);
+      }
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const result = await new AdminRepository(config.db).restoreUser(id);
+      if (result.ok !== true) return c.json({ success: false, message: result.reason }, 400);
+      return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

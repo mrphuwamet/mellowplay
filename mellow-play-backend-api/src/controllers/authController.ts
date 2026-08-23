@@ -8,6 +8,7 @@ import { UserRepository } from '../repositories/userRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
 import { sendAlert, sendNotification } from '../services/alertService';
 import { sendWelcomeEmail } from '../services/welcomeEmailService';
+import { isValidPin, PIN_ERROR } from '../utils/pin';
 import { enforceOtpRequestLimit, enforceOtpVerifyLimit, clearOtpVerifyAttempts } from '../services/otpRateLimiter';
 
 export class AuthController {
@@ -209,6 +210,51 @@ export class AuthController {
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
+  }
+
+  /**
+   * Check a reset link before showing the customer a form.
+   *
+   * Answers only "is this token usable", never who it belongs to: the link
+   * travels over LINE and email, and an expired one should not confirm whose
+   * account it was.
+   */
+  async checkResetToken(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const token = c.req.query('token') || '';
+      if (!token) return c.json({ success: false, message: 'ลิงก์ไม่ถูกต้อง' }, 400);
+      const config = new ConfigService(c.env);
+      const { AdminRepository } = await import('../repositories/adminRepository');
+      const match = await new AdminRepository(config.db).findUserByResetToken(token);
+      if (!match) return c.json({ success: false, message: 'ลิงก์ไม่ถูกต้องหรือถูกใช้ไปแล้ว' }, 400);
+      if (new Date(match.reset_token_expires_at) < new Date()) {
+        return c.json({ success: false, message: 'ลิงก์หมดอายุแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อขอลิงก์ใหม่' }, 400);
+      }
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /** Set a new PIN from a reset link. */
+  async resetPasswordWithToken(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const { token, password } = await c.req.json();
+      if (!token) return c.json({ success: false, message: 'ลิงก์ไม่ถูกต้อง' }, 400);
+      if (!isValidPin(password)) return c.json({ success: false, message: PIN_ERROR }, 400);
+
+      const config = new ConfigService(c.env);
+      const { AdminRepository } = await import('../repositories/adminRepository');
+      const adminRepo = new AdminRepository(config.db);
+      const match = await adminRepo.findUserByResetToken(token);
+      if (!match) return c.json({ success: false, message: 'ลิงก์ไม่ถูกต้องหรือถูกใช้ไปแล้ว' }, 400);
+      if (new Date(match.reset_token_expires_at) < new Date()) {
+        return c.json({ success: false, message: 'ลิงก์หมดอายุแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อขอลิงก์ใหม่' }, 400);
+      }
+
+      // Clearing the token is part of the same statement as setting the hash,
+      // so a link can never be spent twice.
+      await adminRepo.setUserPasswordAndClearToken(match.id, await AuthService.hashPassword(password));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
   async register(c: Context<{ Bindings: Bindings; Variables: Variables }>) {

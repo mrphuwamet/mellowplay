@@ -218,6 +218,12 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
   </Box>
 );
 
+// Mirrors mellow-play-backend-api/src/utils/pin.ts, which is what actually
+// enforces this. Here only so the form can say what is wrong before sending.
+const PIN_LENGTH = 6;
+const isValidPin = (pin: string) => new RegExp(`^[0-9]{${PIN_LENGTH}}$`).test(pin);
+const PIN_ERROR = 'PIN ต้องเป็นตัวเลข 6 หลักเท่านั้น';
+
 const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   // A birthday decides which courses a child is old enough for and which band
   // a report counts them under, so a wrong one cannot be left permanent. It
@@ -266,6 +272,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
 
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resetEmailOutcome, setResetEmailOutcome] = useState('');
+  const [resetLinkExpiry, setResetLinkExpiry] = useState('');
   const [revoking, setRevoking] = useState(false);
   const [generatedResetLink, setGeneratedResetLink] = useState('');
 
@@ -338,6 +346,10 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const handleCreateUser = async () => {
     if (!createForm.phone.trim() || !createForm.password.trim() || !createForm.first_name.trim() || !createForm.last_name.trim()) {
       setCreateError('กรุณากรอกเบอร์โทร, รหัส PIN, ชื่อ และนามสกุลให้ครบ');
+      return;
+    }
+    if (!isValidPin(createForm.password.trim())) {
+      setCreateError(PIN_ERROR);
       return;
     }
     setCreateSaving(true);
@@ -615,7 +627,10 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             membership_expires_at: c.membership_type === 'premium' ? c.membership_expires_at : null,
             // Only sent when this role may change it — the server checks the
             // token too, so a stray value here would be refused, not applied.
-            ...(canEditDob && c.date_of_birth ? { date_of_birth: c.date_of_birth } : {}),
+            // Sent even when empty: '' is how the server is told to clear the
+            // date, and skipping it meant a wrong birthday could be corrected
+            // but never removed.
+            ...(canEditDob ? { date_of_birth: c.date_of_birth ?? '' } : {}),
           })
         )
       );
@@ -724,16 +739,19 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
       const res = await axios.post(`${API_BASE}/users/${editUser.id}/reset-password`);
       setResetDialogOpen(false);
       const expiresAt = res.data.expires_at;
-      const resetLink = res.data.reset_link;
-      
-      if (resetLink) {
-        setGeneratedResetLink(resetLink);
-      } else {
-        const expiryNote = expiresAt
-          ? ` · ลิงก์หมดอายุ ${new Date(expiresAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
-          : '';
-        setSuccessMsg(`ส่งลิงก์ไปยัง ${editUser.email} แล้ว${expiryNote} — รหัสผ่านเดิมยังใช้งานได้จนกว่าจะรีเซ็ตสำเร็จ`);
-      }
+      const resetLink = res.data.reset_link || res.data.resetLink;
+
+      // The link always comes back now, so the copy dialog always opens —
+      // many customers have no email on file, and handing the link over on
+      // LINE is the only route that reaches them. What the email did is
+      // reported beside it instead of being assumed.
+      setResetEmailOutcome(
+        res.data.emailStatus === 'sent' ? `ส่งอีเมลไปที่ ${res.data.email} แล้ว`
+        : res.data.emailStatus === 'failed' ? `ส่งอีเมลไม่สำเร็จ (${res.data.emailDetail || 'ไม่ทราบสาเหตุ'}) — ใช้ลิงก์ด้านล่างส่งเองได้`
+        : 'บัญชีนี้ไม่มีอีเมลในระบบ — ส่งลิงก์ด้านล่างให้ลูกค้าโดยตรง'
+      );
+      setResetLinkExpiry(expiresAt || '');
+      setGeneratedResetLink(resetLink || '');
 
       setEditUser(prev => prev
         ? { ...prev, has_pending_reset: true, reset_token_expires_at: expiresAt ?? prev.reset_token_expires_at }
@@ -1981,10 +1999,16 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
 
       {/* Reset Link Dialog */}
       <Dialog open={!!generatedResetLink} onClose={() => setGeneratedResetLink('')} maxWidth="sm" fullWidth>
-        <DialogTitle>ลิงก์รีเซ็ตรหัสผ่าน</DialogTitle>
+        <DialogTitle>ลิงก์ตั้งรหัส PIN ใหม่</DialogTitle>
         <DialogContent dividers>
+          {resetEmailOutcome && (
+            <Alert severity={resetEmailOutcome.startsWith('ส่งอีเมลไปที่') ? 'success' : 'info'} sx={{ mb: 2 }}>
+              {resetEmailOutcome}
+            </Alert>
+          )}
           <Typography variant="body2" sx={{ mb: 2 }}>
-            คุณสามารถคัดลอกลิงก์ด้านล่างและส่งให้ผู้ใช้งานเพื่อรีเซ็ตรหัสผ่านได้โดยตรง:
+            คัดลอกลิงก์นี้ส่งให้ลูกค้าทางไลน์หรือช่องทางอื่นได้เลย ลูกค้าเปิดลิงก์แล้วตั้ง PIN ใหม่ได้เอง
+            {resetLinkExpiry && ` · ลิงก์หมดอายุ ${new Date(resetLinkExpiry).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`}
           </Typography>
           <TextField
             fullWidth
@@ -2054,8 +2078,20 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                 fullWidth
                 type="text"
                 value={createForm.password}
-                onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                helperText="ลูกค้าใช้เบอร์โทร + PIN นี้ล็อกอิน (แนะนำ 6 หลัก) เปลี่ยนภายหลังได้จาก 'ลืมรหัสผ่าน'"
+                // Filtered as it is typed rather than only rejected on submit:
+                // the rule is "digits, six of them", so anything else simply
+                // never appears in the box.
+                onChange={(e) => setCreateForm({
+                  ...createForm,
+                  password: e.target.value.replace(/[^0-9]/g, '').slice(0, PIN_LENGTH),
+                })}
+                inputProps={{ inputMode: 'numeric', maxLength: PIN_LENGTH }}
+                error={createForm.password !== '' && !isValidPin(createForm.password)}
+                helperText={
+                  createForm.password !== '' && !isValidPin(createForm.password)
+                    ? `กรอกอีก ${PIN_LENGTH - createForm.password.length} หลัก`
+                    : "ตัวเลข 6 หลัก · ลูกค้าใช้เบอร์โทร + PIN นี้ล็อกอิน เปลี่ยนภายหลังได้จาก 'ลืมรหัสผ่าน'"
+                }
               />
             </Grid>
             <Grid item xs={6}>

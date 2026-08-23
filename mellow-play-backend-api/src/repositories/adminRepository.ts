@@ -100,7 +100,9 @@ export class AdminRepository {
           SELECT 1 FROM Children ch WHERE ch.parent_id = u.id
             AND ch.membership_type = 'premium'
             AND (ch.membership_expires_at IS NULL OR ch.membership_expires_at > datetime('now'))
-        ) as has_premium_child
+        ) as has_premium_child,
+        CASE WHEN u.reset_token IS NOT NULL THEN 1 ELSE 0 END as has_pending_reset,
+        u.reset_token_expires_at
       FROM Users u
       WHERE u.deleted_at IS NULL
       ORDER BY u.created_at DESC
@@ -177,11 +179,11 @@ export class AdminRepository {
     `).bind(
       data.firstName ?? null, data.lastName ?? null,
       data.firstNameEn ?? null, data.lastNameEn ?? null, data.nickname ?? null,
-      data.prefix ?? null, data.dob ?? null, data.address ?? null,
+      data.prefix ?? null, blankToNull(data.dob), data.address ?? null,
       blankToNull(data.phone), blankToNull(data.email),
       data.relationship ?? null, data.lineId ?? null,
       data.pdpaConsent ? 1 : 0, data.marketingConsent != null ? (data.marketingConsent ? 1 : 0) : null,
-      data.applicationDate ?? null, data.profileImageUrl ?? null, data.displayName ?? null,
+      blankToNull(data.applicationDate), data.profileImageUrl ?? null, data.displayName ?? null,
       data.isCommunityAdmin ? 1 : 0,
       id
     ).run();
@@ -193,7 +195,7 @@ export class AdminRepository {
         await this.db.prepare(`
           INSERT INTO User_CRM_Children (user_id, full_name, full_name_en, nickname, gender, date_of_birth, relation)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, child.date_of_birth ?? null, child.relation ?? null).run();
+        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, blankToNull(child.date_of_birth), child.relation ?? null).run();
       }
     }
   }
@@ -209,14 +211,14 @@ export class AdminRepository {
   // too even though the Thai `name` itself stays locked.
   // membership_type/membership_expires_at live on Children itself (not
   // HD_Profiles), since premium status is per-child, not part of the HD chart.
-  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; nameEn?: string; membershipType?: string; membershipExpiresAt?: string | null; birthDate?: string }): Promise<void> {
+  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; nameEn?: string; membershipType?: string; membershipExpiresAt?: string | null; birthDate?: string | null }): Promise<void> {
     const child = await this.db.prepare('SELECT hd_profile_id FROM Children WHERE id = ?').bind(childId).first<{ hd_profile_id: number }>();
     if (!child) throw new Error('Child not found');
     // Separate statement, and only when a date was actually passed: this is the
     // one field on the row that other things are derived from (course age
     // ranges, and the HD chart columns cached beside it), so it must never be
     // written as a side effect of saving a nickname.
-    if (data.birthDate) {
+    if (data.birthDate !== undefined) {
       await this.db.prepare('UPDATE HD_Profiles SET birth_date = ? WHERE id = ?')
         .bind(data.birthDate, child.hd_profile_id).run();
     }
@@ -506,9 +508,91 @@ export class AdminRepository {
    * deleted_at instead — see migration 0086 for the one statement that brings
    * an account back.
    */
+  /**
+   * Soft-delete, and let go of the identifiers.
+   *
+   * phone and email are UNIQUE on Users. Leaving them on a deleted row meant
+   * the same family could never be re-added — "เบอร์นี้ถูกใช้งานแล้ว", against
+   * an account no screen can show. They move aside instead: the row keeps them
+   * in deleted_phone/deleted_email, so nothing is lost and restoring can put
+   * them back, while the unique index frees up straight away.
+   */
   async softDeleteUser(id: number): Promise<void> {
-    await this.db.prepare("UPDATE Users SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL")
-      .bind(id).run();
+    await this.db.prepare(`
+      UPDATE Users
+         SET deleted_at = datetime('now'),
+             deleted_phone = COALESCE(deleted_phone, phone),
+             deleted_email = COALESCE(deleted_email, email),
+             phone = NULL,
+             email = NULL,
+             reset_token = NULL,
+             reset_token_expires_at = NULL
+       WHERE id = ? AND deleted_at IS NULL
+    `).bind(id).run();
+  }
+
+  /**
+   * Put a deleted account back, identifiers and all.
+   *
+   * Refuses rather than half-restores when someone else has taken the phone or
+   * email in the meantime: an account silently restored without its login is
+   * worse than one that is still missing, and staff can clear the clash first.
+   */
+  async restoreUser(id: number): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const row = await this.db.prepare(
+      'SELECT deleted_phone, deleted_email FROM Users WHERE id = ? AND deleted_at IS NOT NULL'
+    ).bind(id).first<{ deleted_phone: string | null; deleted_email: string | null }>();
+    if (!row) return { ok: false, reason: 'ไม่พบบัญชีที่ถูกลบไว้' };
+
+    for (const [column, value, label] of [
+      ['phone', row.deleted_phone, 'เบอร์โทร'],
+      ['email', row.deleted_email, 'อีเมล'],
+    ] as [string, string | null, string][]) {
+      if (!value) continue;
+      const clash = await this.db.prepare(
+        `SELECT id FROM Users WHERE ` + column + ` = ? AND id != ?`
+      ).bind(value, id).first<{ id: number }>();
+      if (clash) return { ok: false, reason: `${label} ${value} ถูกใช้กับบัญชี #${clash.id} ไปแล้ว` };
+    }
+
+    await this.db.prepare(`
+      UPDATE Users
+         SET deleted_at = NULL,
+             phone = COALESCE(phone, deleted_phone),
+             email = COALESCE(email, deleted_email),
+             deleted_phone = NULL,
+             deleted_email = NULL
+       WHERE id = ?
+    `).bind(id).run();
+    return { ok: true };
+  }
+
+  // ── Customer password reset ───────────────────────────────────────────────
+  // The same two columns and the same shape as the CRM_Users flow above, which
+  // has worked for a long time. Users simply never got them, so the customer
+  // endpoint was a stub that reported success and did nothing.
+  async setUserResetToken(id: number, token: string, expiresAt: string): Promise<void> {
+    await this.db.prepare(
+      'UPDATE Users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?'
+    ).bind(token, expiresAt, id).run();
+  }
+
+  async clearUserResetToken(id: number): Promise<void> {
+    await this.db.prepare(
+      'UPDATE Users SET reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'
+    ).bind(id).run();
+  }
+
+  async findUserByResetToken(token: string): Promise<{ id: number; reset_token_expires_at: string } | null> {
+    return await this.db.prepare(
+      'SELECT id, reset_token_expires_at FROM Users WHERE reset_token = ? AND deleted_at IS NULL'
+    ).bind(token).first<{ id: number; reset_token_expires_at: string }>();
+  }
+
+  async setUserPasswordAndClearToken(id: number, passwordHash: string): Promise<void> {
+    await this.db.prepare(
+      'UPDATE Users SET password_hash = ?, reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'
+    ).bind(passwordHash, id).run();
   }
 
   async setCourseVisibility(id: number, isVisible: boolean): Promise<void> {

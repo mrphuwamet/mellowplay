@@ -9,6 +9,7 @@ import Rewards from './pages/Rewards';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import AddChild from './pages/AddChild';
 import ReportDetail from './pages/ReportDetail';
 import SurveyDetail from './pages/SurveyDetail';
@@ -119,6 +120,7 @@ const AppContent = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/add-child" element={<AddChild />} />
         <Route path="/" element={<Home />} />
         <Route path="/journey" element={<Roadmap />} />
