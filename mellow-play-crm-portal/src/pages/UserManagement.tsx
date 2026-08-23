@@ -21,6 +21,7 @@ import {
   Security as SecurityIcon,
   DeleteForever as DeleteForeverIcon,
   LockReset as LockResetIcon,
+  Link as LinkIcon,
   CameraAlt as CameraAltIcon,
   Add as AddIcon,
   PersonAdd as PersonAddIcon,
@@ -274,6 +275,28 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [resetting, setResetting] = useState(false);
   const [resetEmailOutcome, setResetEmailOutcome] = useState('');
   const [resetLinkExpiry, setResetLinkExpiry] = useState('');
+  const [fetchingLink, setFetchingLink] = useState(false);
+
+  /**
+   * Reopen the copy dialog for a reset that is already outstanding.
+   *
+   * Deliberately not "issue another one": the customer may already be holding
+   * the first link, and a new token would silently stop it working.
+   */
+  const showExistingResetLink = async () => {
+    if (!editUser) return;
+    setFetchingLink(true);
+    try {
+      const res = await axios.get(`${API_BASE}/users/${editUser.id}/reset-link`);
+      setResetEmailOutcome('');
+      setResetLinkExpiry(res.data.expires_at || '');
+      setGeneratedResetLink(res.data.resetLink);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ดึงลิงก์ไม่สำเร็จ');
+    } finally {
+      setFetchingLink(false);
+    }
+  };
   const [revoking, setRevoking] = useState(false);
   const [generatedResetLink, setGeneratedResetLink] = useState('');
 
@@ -1386,6 +1409,17 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                       รหัสผ่านเดิมยังใช้งานได้อยู่
                     </Typography>
+                    {/* The link is fetched on demand rather than kept in the
+                        page: it was only ever visible in the dialog that opened
+                        when it was issued, so closing that dialog lost it. */}
+                    <Button
+                      size="small" variant="outlined" color="warning" fullWidth
+                      startIcon={fetchingLink ? <CircularProgress size={14} color="inherit" /> : <LinkIcon fontSize="small" />}
+                      onClick={showExistingResetLink} disabled={fetchingLink}
+                      sx={{ mt: 1, borderRadius: 2, fontWeight: 700 }}
+                    >
+                      คัดลอกลิงก์ให้ลูกค้า
+                    </Button>
                   </Box>
                 )}
 

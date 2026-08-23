@@ -590,6 +590,12 @@ export class AdminRepository {
     ).bind(token, expiresAt, id).run();
   }
 
+  async getUserResetToken(id: number): Promise<{ reset_token: string; reset_token_expires_at: string } | null> {
+    return await this.db.prepare(
+      'SELECT reset_token, reset_token_expires_at FROM Users WHERE id = ? AND reset_token IS NOT NULL'
+    ).bind(id).first<{ reset_token: string; reset_token_expires_at: string }>();
+  }
+
   async clearUserResetToken(id: number): Promise<void> {
     await this.db.prepare(
       'UPDATE Users SET reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'

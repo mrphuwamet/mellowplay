@@ -1515,35 +1515,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   #{b.id}
                 </Box>
                 <span>{venueOf(b, courseMap)}</span>
-                {/* Always reachable, so writing the first note on a row is one
-                    click rather than a hunt through a menu. */}
-                <Tooltip title={b.staff_note ? 'แก้ไขโน้ต' : 'เพิ่มโน้ต (เช่น บันทึกการโทร)'}>
-                  <IconButton
-                    size="small" onClick={() => openNote(b)}
-                    sx={{ p: 0.25, color: b.staff_note ? 'warning.dark' : 'text.disabled' }}
-                  >
-                    <NoteIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
               </Typography>
-              {/* Shown in full on the list itself, not hidden behind the icon:
-                  the reason to write "โทรแล้ว ไม่รับ" is so the next person
-                  reads it without opening anything. */}
-              {b.staff_note && (
-                <Box
-                  onClick={() => openNote(b)}
-                  sx={{
-                    mt: 0.5, px: 1, py: 0.5, borderRadius: 1, cursor: 'pointer',
-                    bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
-                    display: 'flex', alignItems: 'flex-start', gap: 0.5,
-                  }}
-                >
-                  <NoteIcon sx={{ fontSize: 14, color: '#a15c00', mt: '1px', flexShrink: 0 }} />
-                  <Typography variant="caption" sx={{ fontWeight: 600, color: '#7a4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {b.staff_note}
-                  </Typography>
-                </Box>
-              )}
               {/* Registered twice for this event under the same full name.
                   Says which booking it clashes with, because the next question
                   is always "the other one is which?" */}
@@ -1558,6 +1530,47 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                     sx={{ mt: 0.5, height: 20, fontSize: '11px', fontWeight: 800 }}
                   />
                 </Tooltip>
+              )}
+            </Box>
+
+            {/* The note gets the empty run between the class and the status
+                rather than a line under the course name: it is the widest
+                unused space on the row, and a call note is a sentence, not a
+                label. Shown in full, not behind the icon — the reason to write
+                "โทรแล้ว ไม่รับสาย" is so the next person reads it without
+                opening anything.
+
+                The empty state is a button rather than nothing, so the space
+                says what it is for and the first note on a row is one click. */}
+            <Box sx={{ flex: '2 1 200px', minWidth: 0, alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
+              {b.staff_note ? (
+                <Box
+                  onClick={() => openNote(b)}
+                  title="แก้ไขโน้ต"
+                  sx={{
+                    width: '100%', px: 1, py: 0.75, borderRadius: 1.5, cursor: 'pointer',
+                    bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
+                    display: 'flex', alignItems: 'flex-start', gap: 0.75,
+                    '&:hover': { bgcolor: '#fff3d6' },
+                  }}
+                >
+                  <NoteIcon sx={{ fontSize: 15, color: '#a15c00', mt: '1px', flexShrink: 0 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: '#7a4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {b.staff_note}
+                  </Typography>
+                </Box>
+              ) : (
+                <Button
+                  size="small" startIcon={<NoteIcon sx={{ fontSize: 16 }} />}
+                  onClick={() => openNote(b)}
+                  sx={{
+                    color: 'text.disabled', fontWeight: 600, fontSize: '12px', textTransform: 'none',
+                    justifyContent: 'flex-start', borderRadius: 1.5, px: 1,
+                    '&:hover': { color: 'warning.dark', bgcolor: '#fff8e6' },
+                  }}
+                >
+                  เพิ่มโน้ต
+                </Button>
               )}
             </Box>
 
@@ -2092,6 +2105,21 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                     ลงทะเบียนเมื่อ {formatUtcDateTime(dup.created_at)}{dup.parent_phone ? ` · ${dup.parent_phone}` : ''}
                   </Typography>
+                  {/* Whichever duplicate someone already rang about is exactly
+                      what this dialog is for deciding between, so the note has
+                      to be here and not only back on the list. */}
+                  {dup.staff_note && (
+                    <Box sx={{
+                      mt: 1, px: 1, py: 0.75, borderRadius: 1.5,
+                      bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
+                      display: 'flex', alignItems: 'flex-start', gap: 0.75,
+                    }}>
+                      <NoteIcon sx={{ fontSize: 15, color: '#a15c00', mt: '1px', flexShrink: 0 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: '#7a4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {dup.staff_note}
+                      </Typography>
+                    </Box>
+                  )}
                   <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
                     <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
                       onClick={() => { setDupDialogBooking(null); setDetailBooking(dup); }}>

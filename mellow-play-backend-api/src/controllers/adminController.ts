@@ -501,6 +501,39 @@ export class AdminController {
     }
   }
 
+  /**
+   * The link for a reset that is already outstanding.
+   *
+   * Issuing one returns the link in that response, and it was only ever shown
+   * in the dialog that opened at that moment — close it, or reload, and the
+   * link was gone with no way back except issuing another one, which quietly
+   * invalidates the link the customer may already have been sent.
+   *
+   * The token is fetched for one account on request rather than being included
+   * in the users list: it is a live credential, and a list payload is the wrong
+   * place to spray one.
+   */
+  async getUserResetLink(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const row = await new AdminRepository(config.db).getUserResetToken(id);
+      if (!row) return c.json({ success: false, message: 'ไม่มีคำขอรีเซ็ตค้างอยู่' }, 404);
+      if (new Date(row.reset_token_expires_at) < new Date()) {
+        return c.json({ success: false, message: 'ลิงก์หมดอายุแล้ว กรุณาส่งลิงก์ใหม่' }, 410);
+      }
+      const settings = new SettingsRepository(config.db);
+      const appUrl = (await settings.getOverridable('consumer_app_url', 'https://mellowplay.co')).replace(/\/+$/, '');
+      return c.json({
+        success: true,
+        resetLink: `${appUrl}/reset-password?token=${row.reset_token}`,
+        expires_at: row.reset_token_expires_at,
+      });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   /** Cancel a pending reset — the CRM has always offered this; the route did not exist. */
   async revokeUserResetToken(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
