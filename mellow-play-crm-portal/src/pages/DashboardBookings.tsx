@@ -338,7 +338,12 @@ const DashboardBookings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <StatTile
                 label="ที่นั่งคงเหลือ"
-                value={fmt(view.remaining)}
+                // Through readSeats like every other number on this screen —
+                // this tile alone read the server's raw remaining (which never
+                // counts invite seats as taken), so with the VIP switch on it
+                // disagreed with the จองแล้ว tile and the table by exactly the
+                // invite-seat count (e.g. 131 vs 460-386=74).
+                value={fmt(readSeats(view, vipAsBooked).remaining)}
                 sub={<Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                   รอบที่เต็มแล้ว {fmt(view.fullRounds)} รอบ
                 </Typography>}
@@ -418,7 +423,7 @@ const DashboardBookings = () => {
                           <Typography variant="caption" color="text.secondary">{formatRound(r.date, r.startTime, r.endTime)}</Typography>
                         </Box>
                         <Chip
-                          size="small" label={`เหลือ ${fmt(r.remaining)} ที่`}
+                          size="small" label={`เหลือ ${fmt(readSeats(r, vipAsBooked).remaining)} ที่`}
                           sx={{ fontWeight: 800, bgcolor: '#fdecec', color: STATUS.critical }}
                         />
                       </Stack>
