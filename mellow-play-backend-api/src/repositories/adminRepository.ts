@@ -272,12 +272,25 @@ export class AdminRepository {
     await this.db.prepare('DELETE FROM User_Coupons WHERE id = ?').bind(id).run();
   }
 
+  /**
+   * A note staff leave on one registration — what was said on a phone call,
+   * what to check at the door.
+   *
+   * Kept apart from Bookings.notes, which is whatever the customer typed when
+   * they booked. Writing over that would destroy what the family asked for, and
+   * the two are read by different people for different reasons.
+   */
+  async setBookingStaffNote(id: number, note: string | null): Promise<void> {
+    await this.db.prepare('UPDATE Bookings SET staff_note = ? WHERE id = ?')
+      .bind(note, id).run();
+  }
+
   async getAllBookings(params?: { branchId?: string; startDate?: string; endDate?: string; pendingPayment?: boolean }): Promise<any[]> {
     let query = `
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
-        b.sponsor_tag, b.form_submission_id,
+        b.sponsor_tag, b.form_submission_id, b.staff_note,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,

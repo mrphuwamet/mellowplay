@@ -35,6 +35,7 @@ import {
   ForwardToInbox as ResendIcon,
   LocalActivity as StampIcon,
   ReportProblem as WarningIcon,
+  EditNote as NoteIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import axios from 'axios';
@@ -79,6 +80,8 @@ interface Booking {
   slot_date?: string;
   slot_start_time?: string;
   sponsor_tag?: string;
+  /** Staff's own note on this registration — a phone call, something to check. */
+  staff_note?: string | null;
   is_event?: number;
   is_service?: number;
   form_submission_id?: number;
@@ -966,7 +969,7 @@ const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose
   </Dialog>
 );
 
-const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses, submissionsMap }: {
+const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses, submissionsMap, onStaffNoteSaved }: {
   bookings: Booking[];
   onReport: (bs: Booking[]) => void;
   onCancel: (id: number) => void;
@@ -975,6 +978,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   onEdit: (b: Booking) => void;
   courses: Course[];
   submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>;
+  /** The parent owns the list, so it applies the saved note to it. */
+  onStaffNoteSaved: (id: number, note: string | null) => void;
 }) => {
   const [search, setSearch] = useStickyState('bookings.search', '');
   // Which fields are being filtered on, and to which values. Grouping was
@@ -1000,6 +1005,34 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // duplicates dialog so staff can see WHAT is duplicated without hunting
   // each partner booking down in the list one by one.
   const [dupDialogBooking, setDupDialogBooking] = useState<Booking | null>(null);
+  const [noteBooking, setNoteBooking] = useState<Booking | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState('');
+
+  const openNote = (b: Booking) => {
+    setNoteBooking(b);
+    setNoteText(b.staff_note || '');
+    setNoteError('');
+  };
+
+  const saveNote = async () => {
+    if (!noteBooking) return;
+    setNoteSaving(true);
+    setNoteError('');
+    try {
+      const res = await axios.put(API_BASE + '/bookings/' + noteBooking.id + '/staff-note', { note: noteText });
+      // Handed back to the parent, which owns the list, rather than refetching
+      // it: notes get written while working down a call list, and losing the
+      // scroll position on every save costs more than the note is worth.
+      onStaffNoteSaved(noteBooking.id, res.data?.staff_note ?? null);
+      setNoteBooking(null);
+    } catch (e: any) {
+      setNoteError(e?.response?.data?.message || 'บันทึกโน้ตไม่สำเร็จ');
+    } finally {
+      setNoteSaving(false);
+    }
+  };
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
@@ -1482,7 +1515,35 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   #{b.id}
                 </Box>
                 <span>{venueOf(b, courseMap)}</span>
+                {/* Always reachable, so writing the first note on a row is one
+                    click rather than a hunt through a menu. */}
+                <Tooltip title={b.staff_note ? 'แก้ไขโน้ต' : 'เพิ่มโน้ต (เช่น บันทึกการโทร)'}>
+                  <IconButton
+                    size="small" onClick={() => openNote(b)}
+                    sx={{ p: 0.25, color: b.staff_note ? 'warning.dark' : 'text.disabled' }}
+                  >
+                    <NoteIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
               </Typography>
+              {/* Shown in full on the list itself, not hidden behind the icon:
+                  the reason to write "โทรแล้ว ไม่รับ" is so the next person
+                  reads it without opening anything. */}
+              {b.staff_note && (
+                <Box
+                  onClick={() => openNote(b)}
+                  sx={{
+                    mt: 0.5, px: 1, py: 0.5, borderRadius: 1, cursor: 'pointer',
+                    bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
+                    display: 'flex', alignItems: 'flex-start', gap: 0.5,
+                  }}
+                >
+                  <NoteIcon sx={{ fontSize: 14, color: '#a15c00', mt: '1px', flexShrink: 0 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: '#7a4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {b.staff_note}
+                  </Typography>
+                </Box>
+              )}
               {/* Registered twice for this event under the same full name.
                   Says which booking it clashes with, because the next question
                   is always "the other one is which?" */}
@@ -1947,6 +2008,33 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         }}
       />
       <ClassDetailDialog course={classDetailCourse} onClose={() => setClassDetailCourse(null)} />
+
+      <Dialog open={!!noteBooking} onClose={() => !noteSaving && setNoteBooking(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>โน้ตของเจ้าหน้าที่ — #{noteBooking?.id}</DialogTitle>
+        <DialogContent dividers>
+          {noteError && <Alert severity="error" sx={{ mb: 2 }}>{noteError}</Alert>}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            เห็นเฉพาะเจ้าหน้าที่ ลูกค้าไม่เห็นข้อความนี้ · แยกจากหมายเหตุที่ลูกค้ากรอกตอนจอง
+          </Typography>
+          <TextField
+            fullWidth multiline minRows={4} autoFocus
+            placeholder="เช่น โทรแล้ว 21/8 ไม่รับสาย · ขอเลื่อนเป็นรอบบ่าย"
+            value={noteText}
+            onChange={e => setNoteText(e.target.value.slice(0, 1000))}
+            helperText={noteText.length + '/1000'}
+          />
+        </DialogContent>
+        <DialogActions>
+          {/* Clearing is emptying the box and saving — one action, not a second
+              button that means almost the same thing. */}
+          <Button onClick={() => setNoteText('')} disabled={noteSaving || !noteText}>ล้างข้อความ</Button>
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setNoteBooking(null)} disabled={noteSaving}>ยกเลิก</Button>
+          <Button variant="contained" onClick={saveNote} disabled={noteSaving}>
+            {noteSaving ? <CircularProgress size={18} /> : 'บันทึก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Duplicate comparison — opened from a card's "ซ้ำกับ #..." chip.
           Every colliding booking laid out as its own block (the clicked one
@@ -2686,7 +2774,8 @@ const BookingManagement = () => {
       ) : viewMode === 'week' ? (
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={(b) => openReport([b])} />
       ) : viewMode === 'list' ? (
-        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} submissionsMap={submissionsMap} />
+        <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} submissionsMap={submissionsMap}
+          onStaffNoteSaved={(id, note) => setBookings(prev => prev.map(x => x.id === id ? { ...x, staff_note: note } : x))} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} />
       )}

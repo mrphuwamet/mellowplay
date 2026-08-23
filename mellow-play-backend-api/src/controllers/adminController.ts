@@ -136,12 +136,35 @@ export class AdminController {
     }
   }
 
+  /**
+   * SQLite has no boolean, so every flag arrives as 0 or 1. Left as numbers,
+   * a guard of the form {user.is_banned && <Chip/>} renders a literal "0" on
+   * the page for everyone who is NOT banned — which is what appeared under
+   * ความปลอดภัย the moment has_pending_reset started coming from the database
+   * instead of being undefined.
+   *
+   * Coerced once here at the edge rather than at each guard: the next flag
+   * added to the query would otherwise arrive with the same trap set.
+   *
+   * marketing_consent is deliberately left out — it is a tri-state where null
+   * means "never asked", and !! would record that as a "no".
+   */
+  private static readonly BOOLEAN_USER_FLAGS = ['is_banned', 'has_pending_reset', 'has_premium_child', 'is_community_admin', 'phone_verified', 'email_verified', 'pdpa_consent'];
+
+  private booleanifyUser(user: Record<string, any>): Record<string, any> {
+    const out: Record<string, any> = { ...user };
+    for (const key of AdminController.BOOLEAN_USER_FLAGS) {
+      if (out[key] !== undefined && out[key] !== null) out[key] = !!out[key];
+    }
+    return out;
+  }
+
   async getUsers(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const users = await adminRepo.getAllUsers();
-      return c.json({ success: true, users });
+      return c.json({ success: true, users: (users as any[]).map(u => this.booleanifyUser(u)) });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
@@ -531,6 +554,22 @@ export class AdminController {
         success: true,
         name: [user.first_name, user.last_name].filter(Boolean).join(' '),
       });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  /** Save (or clear) the staff note on one booking. */
+  async setBookingStaffNote(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      const { note } = await c.req.json();
+      // Capped so a paste accident cannot put a novel in a table cell; long
+      // enough for what a phone call is worth writing down.
+      const trimmed = typeof note === 'string' ? note.trim().slice(0, 1000) : '';
+      await new AdminRepository(config.db).setBookingStaffNote(id, trimmed === '' ? null : trimmed);
+      return c.json({ success: true, staff_note: trimmed === '' ? null : trimmed });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

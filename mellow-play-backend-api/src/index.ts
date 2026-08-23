@@ -590,6 +590,7 @@ app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemS
 app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
 app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));
 app.delete('/api/v1/admin/bookings/:id', (c) => adminController.deleteBooking(c));
+app.put   ('/api/v1/admin/bookings/:id/staff-note', (c) => adminController.setBookingStaffNote(c));
 app.get('/api/v1/admin/crm-users', (c) => adminController.getCrmUsers(c));
 app.post('/api/v1/admin/crm-users', (c) => adminController.createCrmUser(c));
 app.put('/api/v1/admin/crm-users/:id', (c) => adminController.updateCrmUser(c));
