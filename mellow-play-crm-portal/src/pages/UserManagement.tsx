@@ -7,7 +7,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
   Chip, Avatar, Button, IconButton, InputAdornment,
   TextField, MenuItem, Select, FormControl, InputLabel,
-  Alert, Grid, Divider, Switch,
+  Alert, Grid, Divider, Switch, Stack,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Radio, RadioGroup, FormControlLabel, FormLabel,
 } from '@mui/material';
@@ -277,6 +277,8 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   const [resetEmailOutcome, setResetEmailOutcome] = useState('');
   const [resetLinkExpiry, setResetLinkExpiry] = useState('');
   const [fetchingLink, setFetchingLink] = useState(false);
+  const [pendingResetLink, setPendingResetLink] = useState('');
+  const [pendingLinkError, setPendingLinkError] = useState('');
 
   /**
    * Reopen the copy dialog for a reset that is already outstanding.
@@ -284,20 +286,27 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
    * Deliberately not "issue another one": the customer may already be holding
    * the first link, and a new token would silently stop it working.
    */
-  const showExistingResetLink = async () => {
-    if (!editUser) return;
+  /**
+   * The outstanding link, loaded with the account rather than behind a button.
+   *
+   * It was a button that opened a dialog, and a button that appears to do
+   * nothing — because the request failed, or because the error landed in an
+   * alert at the top of a page that is scrolled to the bottom — is
+   * indistinguishable from a broken one. The link is just there now, in a box,
+   * and any failure is reported in the same panel as the thing that failed.
+   */
+  useEffect(() => {
+    const id = editUser?.id;
+    if (!id || !editUser?.has_pending_reset) { setPendingResetLink(''); setPendingLinkError(''); return; }
+    let cancelled = false;
     setFetchingLink(true);
-    try {
-      const res = await axios.get(`${API_BASE}/users/${editUser.id}/reset-link`);
-      setResetEmailOutcome('');
-      setResetLinkExpiry(res.data.expires_at || '');
-      setGeneratedResetLink(res.data.resetLink);
-    } catch (e: any) {
-      setError(e?.response?.data?.message || 'ดึงลิงก์ไม่สำเร็จ');
-    } finally {
-      setFetchingLink(false);
-    }
-  };
+    setPendingLinkError('');
+    axios.get(`${API_BASE}/users/${id}/reset-link`)
+      .then(res => { if (!cancelled) setPendingResetLink(res.data?.resetLink || ''); })
+      .catch(e => { if (!cancelled) setPendingLinkError(e?.response?.data?.message || 'ดึงลิงก์ไม่สำเร็จ'); })
+      .finally(() => { if (!cancelled) setFetchingLink(false); });
+    return () => { cancelled = true; };
+  }, [editUser?.id, editUser?.has_pending_reset]);
   const [revoking, setRevoking] = useState(false);
   const [generatedResetLink, setGeneratedResetLink] = useState('');
 
@@ -1410,17 +1419,56 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                       รหัสผ่านเดิมยังใช้งานได้อยู่
                     </Typography>
-                    {/* The link is fetched on demand rather than kept in the
-                        page: it was only ever visible in the dialog that opened
-                        when it was issued, so closing that dialog lost it. */}
-                    <Button
-                      size="small" variant="outlined" color="warning" fullWidth
-                      startIcon={fetchingLink ? <CircularProgress size={14} color="inherit" /> : <LinkIcon fontSize="small" />}
-                      onClick={showExistingResetLink} disabled={fetchingLink}
-                      sx={{ mt: 1, borderRadius: 2, fontWeight: 700 }}
-                    >
-                      คัดลอกลิงก์ให้ลูกค้า
-                    </Button>
+                    {/* Visible without a click. A copy button can be refused by
+                        the browser for reasons nobody at a counter can act on,
+                        so the text itself is what always works — selected on
+                        focus, so Ctrl+C is the only key to remember. */}
+                    {fetchingLink && (
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                        <CircularProgress size={14} />
+                        <Typography variant="caption" color="text.secondary">กำลังดึงลิงก์...</Typography>
+                      </Stack>
+                    )}
+                    {pendingLinkError && (
+                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                        <Typography variant="caption">{pendingLinkError}</Typography>
+                      </Alert>
+                    )}
+                    {pendingResetLink && (
+                      <Box sx={{ mt: 1 }}>
+                        <TextField
+                          fullWidth multiline minRows={2} size="small"
+                          value={pendingResetLink}
+                          InputProps={{
+                            readOnly: true,
+                            sx: { fontFamily: 'monospace', fontSize: 11.5, bgcolor: '#fff', wordBreak: 'break-all' },
+                          }}
+                          onFocus={e => e.target.select()}
+                          onClick={e => (e.target as HTMLTextAreaElement).select?.()}
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          ลากคลุมข้อความแล้วกด Ctrl+C หรือกดปุ่มด้านล่าง
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Button
+                            size="small" variant="contained" color="warning" fullWidth
+                            startIcon={<LinkIcon fontSize="small" />}
+                            onClick={async () => setSuccessMsg(await copyText(pendingResetLink)
+                              ? 'คัดลอกลิงก์แล้ว'
+                              : 'เบราว์เซอร์ไม่อนุญาตให้คัดลอกอัตโนมัติ — ลากคลุมข้อความแล้วกด Ctrl+C')}
+                            sx={{ borderRadius: 2, fontWeight: 700 }}
+                          >
+                            คัดลอกลิงก์
+                          </Button>
+                          <Button
+                            size="small" href={pendingResetLink} target="_blank" rel="noopener noreferrer"
+                            sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: 'nowrap' }}
+                          >
+                            เปิดทดสอบ
+                          </Button>
+                        </Stack>
+                      </Box>
+                    )}
                   </Box>
                 )}
 
