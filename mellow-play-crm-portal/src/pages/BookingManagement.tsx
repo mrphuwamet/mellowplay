@@ -37,6 +37,7 @@ import {
   LocalActivity as StampIcon,
   ReportProblem as WarningIcon,
   EditNote as NoteIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import axios from 'axios';
@@ -512,6 +513,21 @@ const formatPhone = (phone?: string | null): string => {
  * branch is where an event is filed for accounting; an off-site event is filed
  * under one too, and showing that was telling staff the wrong address.
  */
+/**
+ * Does this note match what was typed?
+ *
+ * Every word has to appear, in any order — "โทร เลื่อน" finds
+ * "โทรแล้ว ขอเลื่อนรอบ", which a plain substring search does not. Notes are
+ * written as sentences by whoever took the call, so the order the words come
+ * back in is not something anyone can be expected to remember.
+ */
+const noteMatches = (note: string | null | undefined, query: string): boolean => {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const haystack = (note || '').toLowerCase();
+  return words.every(w => haystack.includes(w));
+};
+
 const venueOf = (b: Booking, courseMap?: Map<number, Course>): string => {
   const courseVenue = (courseMap?.get(b.course_id)?.location || '').trim();
   return courseVenue || b.branch_name || '-';
@@ -1016,10 +1032,9 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [fieldFilters, setFieldFilters] = useStickyState<Record<string, string[]>>('bookings.fieldFilters', {});
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
   const [dupesOnly, setDupesOnly] = useStickyState('bookings.dupesOnly', false);
-  const [notedOnly, setNotedOnly] = useStickyState('bookings.notedOnly', false);
-  // Counted across everything loaded, not the filtered view: a chip whose
-  // number changed as you filtered would be describing the result, not
-  // offering a filter.
+  const [noteQuery, setNoteQuery] = useStickyState('bookings.noteQuery', '');
+  // Counted across everything loaded, not the filtered view — it is the size of
+  // the haystack, so it must not shrink as you search it.
   const notedCount = useMemo(() => bookings.filter(b => !!b.staff_note?.trim()).length, [bookings]);
   // Computed over every booking on screen, not the filtered set: a duplicate
   // is a fact about the event, and hiding half a pair behind a filter would
@@ -1147,7 +1162,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       : bookings.filter(b => activeFilterFields.every(key =>
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
     const byDupes = dupesOnly ? byField.filter(b => duplicates.has(b.id)) : byField;
-    const byNoted = notedOnly ? byDupes.filter(b => !!b.staff_note?.trim()) : byDupes;
+    const byNoted = noteQuery.trim() ? byDupes.filter(b => noteMatches(b.staff_note, noteQuery)) : byDupes;
     if (!search.trim()) return byNoted;
     const q = search.toLowerCase();
     // Filtered from byNoted, not byField: typing in the search box used to
@@ -1177,7 +1192,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, notedOnly, duplicates]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
@@ -1198,7 +1213,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, notedOnly, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -1670,14 +1685,31 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             </IconButton>
           </Box>
 
-          {/* Booked-at / paid-at — the two timestamps this list was missing */}
-          {(b.created_at || b.paid_at) && (
+          {/* Booked-at / paid-at, and where the registration came from */}
+          {(b.created_at || b.paid_at || b.sponsor_tag) && (
             <Box sx={{ px: 2, pb: 1.5, mt: -0.5, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
               {b.created_at && (
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary', fontWeight: 600 }}>
                   <BookedAtIcon sx={{ fontSize: 13 }} />
                   วันที่ลงทะเบียน {formatUtcDateTime(b.created_at)}
                 </Typography>
+              )}
+              {/* Which link they came in through. The name alone — a chip
+                  labelled "Tag: x" spends half its width saying what the shape
+                  already says. */}
+              {b.sponsor_tag && (
+                <Box
+                  component="span"
+                  title="ที่มาของลิงก์ที่ใช้ลงทะเบียน"
+                  sx={{
+                    px: 1, py: 0.25, borderRadius: 1.5,
+                    bgcolor: '#eef2ff', border: '1px solid #dfe4ff', color: '#3f4bb8',
+                    fontSize: 11, fontWeight: 800, lineHeight: 1.6,
+                    maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {b.sponsor_tag}
+                </Box>
               )}
               {b.paid_at && (
                 <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2e7d32', fontWeight: 700 }}>
@@ -1770,7 +1802,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               // range and the view are scoping, not filters, and wiping those
               // from under someone who asked to clear a field filter is a
               // surprise they then have to undo.
-              onClick={() => { setFieldFilters({}); setDupesOnly(false); setNotedOnly(false); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
+              onClick={() => { setFieldFilters({}); setDupesOnly(false); setNoteQuery(''); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
             >
               ล้างตัวกรอง
             </Button>
@@ -1788,15 +1820,27 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             />
           )}
           {/* Same rule as the duplicates chip: only offered when there is
-              something to find. */}
+              something to search. */}
           {notedCount > 0 && (
-            <Chip
-              icon={<NoteIcon />}
-              label={`มีโน้ต (${notedCount})`}
-              color={notedOnly ? 'warning' : 'default'}
-              variant={notedOnly ? 'filled' : 'outlined'}
-              onClick={() => setNotedOnly(v => !v)}
-              sx={{ fontWeight: 800 }}
+            <TextField
+              size="small"
+              placeholder={`ค้นในโน้ต (${notedCount} รายการ)`}
+              value={noteQuery}
+              onChange={e => setNoteQuery(e.target.value)}
+              sx={{ minWidth: 200, flex: '1 1 200px' }}
+              InputProps={{
+                sx: { borderRadius: 2, fontWeight: 700, ...(noteQuery.trim() ? { bgcolor: '#fff8e6' } : {}) },
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <NoteIcon sx={{ fontSize: 18, color: noteQuery.trim() ? 'warning.dark' : 'text.disabled' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: noteQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setNoteQuery('')}><CloseIcon sx={{ fontSize: 16 }} /></IconButton>
+                  </InputAdornment>
+                ) : undefined,
+              }}
             />
           )}
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
