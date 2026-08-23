@@ -383,7 +383,36 @@ export class AdminController {
         display: cc.nickname || cc.full_name,
       }));
 
-      return c.json({ success: true, roster: [...hdRoster, ...crmRoster] });
+      // The account holder themselves. An account cannot exist without one, so
+      // "ไม่พบผู้ใหญ่ในครอบครัวของบัญชีนี้" was never a true statement — it
+      // meant only that this parent had never created an HD profile for
+      // themselves, which most never do. Without this the adult picker had
+      // nothing to offer and fell back to a free-text box on the one person the
+      // system is most certain about.
+      //
+      // id 0 because they are neither an HD_Profiles row nor a
+      // User_CRM_Children one; the other two use positive and negative ids.
+      const owner = await config.db.prepare(
+        'SELECT first_name, last_name, nickname, display_name, relationship FROM Users WHERE id = ? AND deleted_at IS NULL'
+      ).bind(userId).first<any>();
+      const ownerName = owner ? [owner.first_name, owner.last_name].filter(Boolean).join(' ').trim() : '';
+      const ownerRoster = ownerName ? [{
+        id: 0,
+        name: ownerName,
+        nickname: owner.nickname || owner.display_name || null,
+        // Their own stated relationship if they gave one, but never a blank —
+        // a blank relation is what the CRM reads as "this is a child".
+        relation: owner.relationship || 'account_owner',
+        isAccountOwner: true,
+        display: owner.nickname || owner.display_name || ownerName,
+      }] : [];
+
+      // Skipped when they already appear as an HD profile, which some parents
+      // do create — the same person twice in a dropdown is its own bug.
+      const seen = new Set([...hdRoster, ...crmRoster].map(m => String(m.name || '').trim().toLowerCase()));
+      const ownerFinal = ownerRoster.filter(o => !seen.has(o.name.trim().toLowerCase()));
+
+      return c.json({ success: true, roster: [...ownerFinal, ...hdRoster, ...crmRoster] });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

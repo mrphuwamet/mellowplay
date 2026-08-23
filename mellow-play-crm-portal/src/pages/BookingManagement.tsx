@@ -629,7 +629,7 @@ const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
 };
 
 interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; config_json?: string | null; value: any; }
-interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; relation?: string | null }
+interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; relation?: string | null; /** The Users row behind the account — always an adult, whatever relation says. */ isAccountOwner?: boolean }
 
 // One input per registration-form field type, mirroring what the consumer
 // app's DynamicRegistrationForm renders at submit time — lets staff correct
@@ -638,6 +638,30 @@ interface FamilyRosterMember { id: number; name: string; nickname: string | null
 // own family roster (see FamilyRosterMember/roster prop) — not free text —
 // so a correction can't end up naming someone who doesn't actually exist
 // in that account.
+/**
+ * Adult or child, from a relation field that has been free text for a long
+ * time: 'child', 'father', 'Mother', 'ลูก', 'หลาน', 'พี่ชาย', 'Friend', 'na',
+ * '' — all of them are really in there.
+ *
+ * The old rule was "anything that is not literally 'child' is an adult", which
+ * put ลูก and หลาน in the adult list and everyone with a blank relation in the
+ * child list. Known child words are matched instead, and the account holder is
+ * an adult whatever they wrote, because they are the account.
+ */
+const CHILD_RELATIONS = new Set([
+  'child', 'children', 'son', 'daughter', 'kid',
+  'ลูก', 'ลูกชาย', 'ลูกสาว', 'บุตร', 'หลาน', 'เด็ก',
+]);
+
+const isAdultMember = (m: FamilyRosterMember): boolean => {
+  if (m.isAccountOwner) return true;
+  const relation = String(m.relation || '').trim().toLowerCase();
+  // A blank relation stays a child, as it always has — the app asks for it when
+  // adding a child and not when the parent registers themselves.
+  if (!relation) return false;
+  return !CHILD_RELATIONS.has(relation);
+};
+
 const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number> }) => {
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
@@ -713,11 +737,9 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: {
     let pickerRole: string | undefined;
     try { pickerRole = field.config_json ? JSON.parse(field.config_json).role : undefined; } catch { /* an unreadable config just means no role filter */ }
     const rosterForRole = (roster ?? []).filter(m =>
-      pickerRole === 'adult'
-        ? !!(m.relation && m.relation !== 'child')
-        : pickerRole === 'child'
-          ? (!m.relation || m.relation === 'child')
-          : true);
+      pickerRole === 'adult' ? isAdultMember(m)
+        : pickerRole === 'child' ? !isAdultMember(m)
+        : true);
 
     if (rosterForRole.length > 0) {
       // The stored answer is already the resolved display text (nickname ||
