@@ -2106,19 +2106,41 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                     ลงทะเบียนเมื่อ {formatUtcDateTime(dup.created_at)}{dup.parent_phone ? ` · ${dup.parent_phone}` : ''}
                   </Typography>
                   {/* Whichever duplicate someone already rang about is exactly
-                      what this dialog is for deciding between, so the note has
-                      to be here and not only back on the list. */}
-                  {dup.staff_note && (
-                    <Box sx={{
-                      mt: 1, px: 1, py: 0.75, borderRadius: 1.5,
-                      bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
-                      display: 'flex', alignItems: 'flex-start', gap: 0.75,
-                    }}>
+                      what this dialog is for deciding between, so the note is
+                      both readable and writable here — the decision gets made
+                      on this screen, and the outcome is what wants recording.
+
+                      The rows are looked up from the live list on every render,
+                      so a note saved from the dialog stacked on top of this one
+                      appears here the moment it lands, with nothing to refresh. */}
+                  {dup.staff_note ? (
+                    <Box
+                      onClick={() => openNote(dup)}
+                      title="แก้ไขโน้ต"
+                      sx={{
+                        mt: 1, px: 1, py: 0.75, borderRadius: 1.5, cursor: 'pointer',
+                        bgcolor: '#fff8e6', border: '1px solid #f5e2b8',
+                        display: 'flex', alignItems: 'flex-start', gap: 0.75,
+                        '&:hover': { bgcolor: '#fff3d6' },
+                      }}
+                    >
                       <NoteIcon sx={{ fontSize: 15, color: '#a15c00', mt: '1px', flexShrink: 0 }} />
                       <Typography variant="caption" sx={{ fontWeight: 600, color: '#7a4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                         {dup.staff_note}
                       </Typography>
                     </Box>
+                  ) : (
+                    <Button
+                      size="small" startIcon={<NoteIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => openNote(dup)}
+                      sx={{
+                        mt: 1, color: 'text.disabled', fontWeight: 600, fontSize: '12px',
+                        textTransform: 'none', borderRadius: 1.5, px: 1,
+                        '&:hover': { color: 'warning.dark', bgcolor: '#fff8e6' },
+                      }}
+                    >
+                      เพิ่มโน้ต
+                    </Button>
                   )}
                   <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
                     <Button size="small" variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }}
