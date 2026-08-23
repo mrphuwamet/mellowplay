@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import LineContactLink from './LineContactLink';
 import { X, Phone, ShieldCheck, Loader2, ArrowRight } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
@@ -212,7 +213,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
               )}
             </p>
             <p className="text-center text-slate-300 text-[12px] font-bold">
-              {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
+              {lang === 'en' ? <>Still not receiving it? Contact admin via LINE: <LineContactLink /></> : <>หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: <LineContactLink /></>}
             </p>
           </form>
         )}
@@ -270,7 +271,7 @@ const PhoneChangeModal: React.FC<PhoneChangeModalProps> = ({ isOpen, onClose, on
               )}
             </p>
             <p className="text-center text-slate-300 text-[12px] font-bold">
-              {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
+              {lang === 'en' ? <>Still not receiving it? Contact admin via LINE: <LineContactLink /></> : <>หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: <LineContactLink /></>}
             </p>
           </form>
         )}

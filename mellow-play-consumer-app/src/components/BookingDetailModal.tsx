@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import LineContactLink from './LineContactLink';
 import { getBookingPlace } from '../utils/bookingPlace';
 import { formatTime24 } from '../utils/dateFormat';
 import { useNavigate } from 'react-router-dom';
@@ -229,8 +230,8 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
                     </p>
                     <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5">
                       {lang === 'en'
-                        ? 'May take 1-3 business days. Reach us on Line @mellowplay.'
-                        : 'อาจจะใช้เวลา 1-3 วันทำการ สอบถามเพิ่มเติมได้ที่ Line @mellowplay นะคะ'}
+                        ? <>May take 1-3 business days. Reach us on LINE <LineContactLink />.</>
+                        : <>อาจจะใช้เวลา 1-3 วันทำการ สอบถามเพิ่มเติมได้ที่ LINE <LineContactLink /> นะคะ</>}
                     </p>
                   </div>
                 </div>
@@ -359,9 +360,21 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ isOpen, onClose
           </div>
         </div>
 
+        {/* There is no self-service cancel, so the page has to say where to go
+            instead of leaving someone hunting for a button that is not there. */}
+        <div className="mt-5 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200/70">
+          <p className="text-xs font-medium text-slate-500 leading-relaxed text-center">
+            {lang === 'en' ? (
+              <>Need to cancel or reschedule? Message us on LINE <LineContactLink /></>
+            ) : (
+              <>หากต้องการยกเลิกหรือเลื่อนรอบ กรุณาติดต่อ LINE <LineContactLink /></>
+            )}
+          </p>
+        </div>
+
         <button
           onClick={onClose}
-          className="mt-6 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[16px] active:scale-[0.98] transition-all"
+          className="mt-3 w-full py-3.5 bg-slate-50 text-slate-500 rounded-xl font-black text-[16px] active:scale-[0.98] transition-all"
         >
           {lang === 'en' ? 'Close' : 'ปิดหน้านี้'}
         </button>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import LineContactLink from '../components/LineContactLink';
 import { useNavigate } from 'react-router-dom';
 import { Phone, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { Toast } from '../components/Toast';
@@ -217,9 +218,10 @@ const ForgotPassword = () => {
                 ? 'Self-service PIN reset is temporarily unavailable. Please contact admin via LINE to reset your PIN.'
                 : 'ระบบรีเซ็ต PIN ด้วยตัวเองปิดใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลเพื่อรีเซ็ตรหัสผ่านที่ LINE'}
             </p>
-            <div className="py-3 px-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-mellow-purple text-lg">
-              @mellowplay
-            </div>
+            {/* This is the whole point of the screen — someone locked out
+                being told where to go — so it is the tap target, not a label
+                to copy by hand. */}
+            <LineContactLink className="block py-3 px-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-mellow-purple text-lg active:scale-[0.98] transition-transform" />
             <button
               type="button"
               onClick={() => navigate('/login')}
@@ -274,7 +276,7 @@ const ForgotPassword = () => {
               )}
             </p>
             <p className="text-center text-slate-300 text-[12px] font-bold">
-              {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
+              {lang === 'en' ? <>Still not receiving it? Contact admin via LINE: <LineContactLink /></> : <>หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: <LineContactLink /></>}
             </p>
           </>
         )}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import LineContactLink from '../components/LineContactLink';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Phone, Mail, User, ChevronLeft, MessageCircle, AlertCircle, Plus, ArrowRight } from 'lucide-react';
 import { Toast } from '../components/Toast';
@@ -555,7 +556,7 @@ const Register = () => {
         )}
       </p>
       <p className="text-center text-slate-300 text-[12px] font-bold">
-        {lang === 'en' ? 'Still not receiving it? Contact admin via LINE: @mellowplay' : 'หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: @mellowplay'}
+        {lang === 'en' ? <>Still not receiving it? Contact admin via LINE: <LineContactLink /></> : <>หากไม่ได้รับ OTP กรุณาติดต่อผู้ดูแล LINE: <LineContactLink /></>}
       </p>
     </form>
   );
