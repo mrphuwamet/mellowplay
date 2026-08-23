@@ -13,6 +13,7 @@ import {
   Print as PrintIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import HeatCanvas from '../components/HeatCanvas';
 import { useStickyState } from '../utils/stickyState';
 import {
   ExportTable, ExportTemplate, ExportFormat, BracketPrintOptions, BracketOrientation,
@@ -51,6 +52,9 @@ interface Round {
 interface Heat {
   id: number;
   name: string;
+  /** Where the box sits on the canvas. null = never dragged, lay it out from the stage. */
+  pos_x?: number | null;
+  pos_y?: number | null;
   stage_index: number;
   stage_label: string | null;
   advance_count: number | null;
@@ -153,6 +157,13 @@ const TournamentManagement: React.FC = () => {
   const [confirmAction, setConfirmAction] = useState<{ title: string; body: string; run: () => Promise<void> } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [heats, setHeats] = useState<Heat[]>([]);
+  // The lines between heats — the advancement rule, now that it is data rather
+  // than arithmetic on stage numbers. Named apart from `links`, which is the
+  // printed sheet's SVG paths.
+  const [heatLinks, setHeatLinks] = useState<{ from_heat_id: number; to_heat_id: number }[]>([]);
+  // Canvas or the stacked list. The list is what works on a phone at an event,
+  // so it stays; the canvas is what the planning actually happens on.
+  const [canvasMode, setCanvasMode] = useStickyState('tournaments.canvas', true);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [options, setOptions] = useState<Record<EntryType, EntryOption[]>>({ team: [], family: [], person: [] });
   const [teamFields, setTeamFields] = useState<{ field_key: string; label: string }[]>([]);
@@ -235,6 +246,7 @@ const TournamentManagement: React.FC = () => {
       setBrackets(data.brackets || []);
       setSelectedTournamentId(data.tournament?.id ?? null);
       setHeats(data.heats || []);
+      setHeatLinks(data.links || []);
       setEntries(data.entries || []);
       setOptions(data.options);
       setTeamFields(data.teamFields || []);
@@ -403,6 +415,60 @@ const TournamentManagement: React.FC = () => {
       await axios.post(`${API_BASE}/tournaments/${owner}/heats`, { ...payload, sort_order: existing });
     }
     setHeatDialog({ open: false, editing: null, tournamentId: null });
+    load(Number(courseId));
+  };
+
+  // Applied to local state first so the box stays where it was dropped, then
+  // saved. A reload here would snap every box back for the length of a round
+  // trip, which reads as the drag having failed.
+  const saveHeatPositions = async (positions: { id: number; x: number; y: number }[]) => {
+    if (!tournament) return;
+    setHeats(prev => prev.map(h => {
+      const moved = positions.find(pp => pp.id === h.id);
+      return moved ? { ...h, pos_x: moved.x, pos_y: moved.y } : h;
+    }));
+    try { await axios.put(`${API_BASE}/tournaments/${tournament.id}/layout`, { positions }); }
+    catch { /* the next load restores what the server has */ }
+  };
+
+  const addHeatLink = async (fromId: number, toId: number) => {
+    const owner = heats.find(h => h.id === fromId);
+    if (!owner) return;
+    try {
+      await axios.post(`${API_BASE}/tournaments/${tournament?.id}/links`, { from_heat_id: fromId, to_heat_id: toId });
+      setHeatLinks(prev => prev.some(l => l.from_heat_id === fromId && l.to_heat_id === toId)
+        ? prev : [...prev, { from_heat_id: fromId, to_heat_id: toId }]);
+    } catch (e: any) {
+      // A refused line is a normal outcome (it would loop), not a failure to
+      // report as an error — the server explains and the canvas just does not
+      // draw it.
+      // No snackbar on this page — the confirm dialog is how it speaks, and a
+      // refused line only needs saying once.
+      setConfirmAction({
+        title: 'เชื่อมเส้นนี้ไม่ได้',
+        body: e?.response?.data?.message || 'เชื่อมเส้นไม่สำเร็จ',
+        run: async () => {},
+      });
+    }
+  };
+
+  const removeHeatLink = async (fromId: number, toId: number) => {
+    setHeatLinks(prev => prev.filter(l => !(l.from_heat_id === fromId && l.to_heat_id === toId)));
+    try { await axios.delete(`${API_BASE}/tournaments/${tournament?.id}/links`, { data: { from_heat_id: fromId, to_heat_id: toId } }); }
+    catch { load(Number(courseId)); }
+  };
+
+  /** Pulled out of an existing box, or dropped on empty canvas. */
+  const createHeatAt = async (pos: { x: number; y: number }, fromHeatId: number | null, tournamentId: number) => {
+    const existing = brackets.find(b => b.tournament.id === tournamentId)?.heats.length ?? 0;
+    const { data } = await axios.post(`${API_BASE}/tournaments/${tournamentId}/heats`, {
+      name: `Heat ${existing + 1}`, sort_order: existing, pos_x: pos.x, pos_y: pos.y,
+    });
+    const newId = data?.heatId ?? data?.id;
+    if (newId) {
+      await axios.put(`${API_BASE}/tournaments/${tournamentId}/layout`, { positions: [{ id: newId, x: pos.x, y: pos.y }] });
+      if (fromHeatId) await axios.post(`${API_BASE}/tournaments/${tournamentId}/links`, { from_heat_id: fromHeatId, to_heat_id: newId }).catch(() => {});
+    }
     load(Number(courseId));
   };
 
@@ -919,6 +985,10 @@ const TournamentManagement: React.FC = () => {
                       </Tooltip>
                     </Box>
                     <Stack direction="row" spacing={1}>
+                      <Button size="small" variant={canvasMode ? 'contained' : 'outlined'} color="secondary"
+                        onClick={() => setCanvasMode(v => !v)}>
+                        {canvasMode ? 'ดูเป็นรายการ' : 'ดูเป็นผัง'}
+                      </Button>
                       <Button size="small" variant="contained" startIcon={<BracketIcon />} onClick={() => { setGenTarget(view.tournament.id); setGenOpen(true); }}>
                         สร้างสายอัตโนมัติ
                       </Button>
@@ -927,6 +997,22 @@ const TournamentManagement: React.FC = () => {
                       </Button>
                     </Stack>
                   </Box>
+
+                  {canvasMode && (
+                    <HeatCanvas
+                      heats={view.heats as any}
+                      links={view.tournament.id === tournament?.id ? heatLinks : []}
+                      entries={view.entries as any}
+                      onMoveHeats={saveHeatPositions}
+                      onAddLink={addHeatLink}
+                      onDeleteLink={removeHeatLink}
+                      onCreateHeatAt={(pos, fromId) => createHeatAt(pos, fromId, view.tournament.id)}
+                      onEditHeat={id => { const h = view.heats.find((x: any) => x.id === id); if (h) openHeatDialog(h, view.tournament.id); }}
+                      onDeleteHeat={id => { const h = view.heats.find((x: any) => x.id === id); if (h) deleteHeat(h); }}
+                      onPickEntries={id => { const h = view.heats.find((x: any) => x.id === id); if (h) { setPickerHeat({ heat: h, tournamentId: view.tournament.id }); setPickerPicked(new Set()); setPickerSearch(''); } }}
+                    />
+                  )}
+                  {!canvasMode && (<>
 
               {view.heats.length === 0 && (
                 <Alert severity="info">
@@ -1123,6 +1209,7 @@ const TournamentManagement: React.FC = () => {
                   </Box>
                 ))}
               </Box>
+                  </>)}
                 </Paper>
               ))}
             </Grid>

@@ -142,6 +142,82 @@ export class TournamentRepository {
     ).run();
   }
 
+  // ── The canvas: where heats sit, and which feeds which ──────────────────
+
+  /** Every line in this bracket. The lines ARE the advancement rule now. */
+  async getLinks(tournamentId: number): Promise<{ id: number; from_heat_id: number; to_heat_id: number }[]> {
+    const { results } = await this.db.prepare(
+      'SELECT id, from_heat_id, to_heat_id FROM Tournament_Heat_Links WHERE tournament_id = ? ORDER BY id'
+    ).bind(tournamentId).all<any>();
+    return results;
+  }
+
+  /** Where one heat sends its qualifiers, in the order the lines were drawn. */
+  async getOutgoingLinks(heatId: number): Promise<{ to_heat_id: number }[]> {
+    const { results } = await this.db.prepare(
+      'SELECT to_heat_id FROM Tournament_Heat_Links WHERE from_heat_id = ? ORDER BY id'
+    ).bind(heatId).all<any>();
+    return results;
+  }
+
+  /**
+   * Draw a line. Returns false when it would be a loop or a duplicate rather
+   * than throwing: on the day of an event, a refused gesture is better than
+   * an error dialog.
+   */
+  async addLink(tournamentId: number, fromHeatId: number, toHeatId: number): Promise<boolean> {
+    if (fromHeatId === toHeatId) return false;
+    if (await this.linkWouldCycle(fromHeatId, toHeatId)) return false;
+    await this.db.prepare(
+      'INSERT OR IGNORE INTO Tournament_Heat_Links (tournament_id, from_heat_id, to_heat_id) VALUES (?, ?, ?)'
+    ).bind(tournamentId, fromHeatId, toHeatId).run();
+    return true;
+  }
+
+  /**
+   * Would drawing from -> to make a heat reachable from itself?
+   *
+   * Free lines mean nothing stops someone pointing the final back at the
+   * first round, and advancement walks these links — a cycle there is an
+   * event that never finishes.
+   */
+  private async linkWouldCycle(fromHeatId: number, toHeatId: number): Promise<boolean> {
+    const seen = new Set<number>([toHeatId]);
+    let frontier = [toHeatId];
+    // Bounded by the heat count, so a malformed graph cannot spin here.
+    for (let depth = 0; depth < 64 && frontier.length > 0; depth++) {
+      const next: number[] = [];
+      for (const id of frontier) {
+        const { results } = await this.db.prepare(
+          'SELECT to_heat_id FROM Tournament_Heat_Links WHERE from_heat_id = ?'
+        ).bind(id).all<any>();
+        for (const row of results as any[]) {
+          if (row.to_heat_id === fromHeatId) return true;
+          if (!seen.has(row.to_heat_id)) { seen.add(row.to_heat_id); next.push(row.to_heat_id); }
+        }
+      }
+      frontier = next;
+    }
+    return false;
+  }
+
+  async deleteLink(tournamentId: number, fromHeatId: number, toHeatId: number): Promise<void> {
+    await this.db.prepare(
+      'DELETE FROM Tournament_Heat_Links WHERE tournament_id = ? AND from_heat_id = ? AND to_heat_id = ?'
+    ).bind(tournamentId, fromHeatId, toHeatId).run();
+  }
+
+  /**
+   * Save where boxes were dragged to. Sent as a batch on drag end rather than
+   * per frame — a pointermove writes hundreds of times a second.
+   */
+  async setHeatPositions(tournamentId: number, positions: { id: number; x: number; y: number }[]): Promise<void> {
+    if (positions.length === 0) return;
+    await this.db.batch(positions.map(p => this.db.prepare(
+      'UPDATE Tournament_Heats SET pos_x = ?, pos_y = ? WHERE id = ? AND tournament_id = ?'
+    ).bind(p.x, p.y, p.id, tournamentId)));
+  }
+
   async getHeats(tournamentId: number): Promise<any[]> {
     const { results } = await this.db.prepare(
       'SELECT * FROM Tournament_Heats WHERE tournament_id = ? ORDER BY slot_date, slot_start_time, sort_order, id'

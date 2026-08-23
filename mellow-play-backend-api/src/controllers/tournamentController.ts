@@ -56,7 +56,7 @@ export class TournamentController {
 
       if (!tournament) {
         return c.json({
-          success: true, tournament: null, tournaments, brackets: [], heats: [], entries: [],
+          success: true, tournament: null, tournaments, brackets: [], heats: [], entries: [], links: [],
           options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
         });
       }
@@ -81,7 +81,7 @@ export class TournamentController {
       return c.json({
         success: true,
         tournament, tournaments, brackets,
-        heats: selected.heats, entries: selected.entries,
+        heats: selected.heats, entries: selected.entries, links: await repo.getLinks(tournament.id),
         options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
@@ -221,11 +221,14 @@ export class TournamentController {
         remaining = next;
       }
 
+      // Ids per stage, so the lines can be drawn once every heat exists.
+      const createdIds: number[][] = [];
       let created = 0;
       for (const [stageIndex, heatCount] of stages.entries()) {
         const label = stageLabel(stageIndex, heatCount, stages.length);
+        createdIds[stageIndex] = [];
         for (let i = 0; i < heatCount; i++) {
-          await repo.createHeat(tournamentId, {
+          createdIds[stageIndex].push(await repo.createHeat(tournamentId, {
             name: heatCount === 1 ? label : `${label} · ${i + 1}`,
             stageIndex,
             stageLabel: label,
@@ -234,8 +237,27 @@ export class TournamentController {
             sortOrder: i,
             slotDate: stageIndex === 0 ? (slot_date ?? null) : null,
             slotStartTime: stageIndex === 0 ? (slot_start_time ?? null) : null,
-          });
+          }));
           created++;
+        }
+      }
+
+      // The lines, drawn to match the layout just built. Advancement reads
+      // these and nothing else, so a generated bracket without them would be a
+      // set of heats that never feed each other.
+      //
+      // One line per advancing place: a heat sending two through gets two
+      // lines, to consecutive heats of the next stage, which is the rule the
+      // old stage arithmetic implemented and the only reading of the picture.
+      for (let stageIndex = 0; stageIndex + 1 < createdIds.length; stageIndex++) {
+        const from = createdIds[stageIndex];
+        const to = createdIds[stageIndex + 1];
+        if (!from?.length || !to?.length) continue;
+        for (const [pos, fromId] of from.entries()) {
+          const lines = Math.min(advance, to.length);
+          for (let i = 0; i < lines; i++) {
+            await repo.addLink(tournamentId, fromId, to[(pos + i) % to.length]);
+          }
         }
       }
 
@@ -251,6 +273,40 @@ export class TournamentController {
    * poured into the first one — the point of seeding is that the two fastest
    * entrants do not meet again in the round straight after.
    */
+  /** Draw a line between two heats. */
+  async addLink(c: C) {
+    try {
+      const tournamentId = parseInt(c.req.param('tournamentId'));
+      const { from_heat_id, to_heat_id } = await c.req.json();
+      const drawn = await this.repo(c).addLink(tournamentId, Number(from_heat_id), Number(to_heat_id));
+      if (!drawn) return c.json({ success: false, message: 'เชื่อมแบบนี้ไม่ได้ — จะทำให้สายวนกลับมาที่เดิม' }, 400);
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async deleteLink(c: C) {
+    try {
+      const tournamentId = parseInt(c.req.param('tournamentId'));
+      const { from_heat_id, to_heat_id } = await c.req.json();
+      await this.repo(c).deleteLink(tournamentId, Number(from_heat_id), Number(to_heat_id));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /** Save dragged positions, in one batch at the end of a drag. */
+  async saveLayout(c: C) {
+    try {
+      const tournamentId = parseInt(c.req.param('tournamentId'));
+      const { positions } = await c.req.json() as { positions: { id: number; x: number; y: number }[] };
+      if (!Array.isArray(positions)) return c.json({ success: false, message: 'positions is required' }, 400);
+      // Capped so one bad payload cannot become an unbounded batch.
+      await this.repo(c).setHeatPositions(tournamentId, positions.slice(0, 200).map(p => ({
+        id: Number(p.id), x: Number(p.x) || 0, y: Number(p.y) || 0,
+      })));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async advance(c: C) {
     try {
       const heatId = parseInt(c.req.param('heatId'));
@@ -258,9 +314,13 @@ export class TournamentController {
       const heat = await repo.getHeat(heatId);
       if (!heat) return c.json({ success: false, message: 'ไม่พบ Heat' }, 404);
 
-      const nextStage = await repo.getStageHeats(heat.tournament_id, heat.stage_index + 1);
-      if (nextStage.length === 0) {
-        return c.json({ success: false, message: 'ไม่มีรอบถัดไป — Heat นี้คือรอบสุดท้ายแล้ว' }, 400);
+      // Where this heat's qualifiers go is now whatever lines were drawn out
+      // of it, not arithmetic on stage numbers. That is what lets the picture
+      // be rearranged without changing who plays whom — and what makes a heat
+      // with no outgoing line simply a final.
+      const links = await repo.getOutgoingLinks(heatId);
+      if (links.length === 0) {
+        return c.json({ success: false, message: 'ไม่มีรอบถัดไป — Heat นี้ยังไม่ได้ลากเส้นไปที่ไหน' }, 400);
       }
 
       const take = heat.advance_count ?? 1;
@@ -270,15 +330,13 @@ export class TournamentController {
         return c.json({ success: false, message: 'ยังไม่ได้บันทึกผลของ Heat นี้' }, 400);
       }
 
-      // Offset by this heat's own position so heat 1's winner and heat 2's
-      // winner land in different heats of the next round.
-      const siblings = await repo.getStageHeats(heat.tournament_id, heat.stage_index);
-      const heatPos = Math.max(0, siblings.findIndex(h => h.id === heatId));
-
       let moved = 0;
       for (const [i, entry] of qualified.entries()) {
-        const target = nextStage[(heatPos + i) % nextStage.length];
-        if (await repo.addAdvancedEntry(heat.tournament_id, target.id, entry)) moved++;
+        // One qualifier per line, in the order the lines were drawn: a heat
+        // sending two through with two lines out sends one along each, which
+        // is the old behaviour and also the only reading of the picture.
+        const target = links[i % links.length];
+        if (await repo.addAdvancedEntry(heat.tournament_id, target.to_heat_id, entry)) moved++;
       }
       await repo.updateHeat(heatId, { status: 'done' });
       return c.json({ success: true, moved });
