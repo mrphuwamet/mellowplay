@@ -1,4 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import NewsFilterBar, { NewsKind } from '../components/NewsFilterBar';
+import HashtagText from '../components/HashtagText';
+import { hasHashtag, topHashtags } from '../utils/hashtags';
 import { formatTime24 } from '../utils/dateFormat';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag, CalendarClock } from 'lucide-react';
@@ -45,15 +48,26 @@ const Explore = () => {
   );
   const [videoModalUrl, setVideoModalUrl] = useState<string | null>(null);
   const [showShopSoon, setShowShopSoon] = useState(false);
+  // When each course next runs, so the catalogue can be ordered by "soonest"
+  // rather than by when it was added — which is the order a person browsing
+  // actually wants and the one the page did not have.
+  const [nextRoundByCourse, setNextRoundByCourse] = useState<Record<number, string>>({});
+  const [newsKind, setNewsKind] = useState<NewsKind>('all');
+  const [newsQuery, setNewsQuery] = useState('');
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
       apiClient.get('/admin/courses'),
       apiClient.get('/news-feed'),
+      apiClient.get('/admin/calendar-slots/courses-with-rounds'),
     ])
-      .then(([coursesRes, newsRes]) => {
+      .then(([coursesRes, newsRes, roundsRes]) => {
          if (coursesRes.data.success) setCourses(coursesRes.data.courses);
          if (newsRes.data.success) setNewsItems(newsRes.data.items);
+         // A missing map just means the catalogue falls back to newest-first.
+         // The ordering is a courtesy and must never hold the page up.
+         if (roundsRes.data?.success) setNextRoundByCourse(roundsRes.data.nextRoundByCourse || {});
       })
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
@@ -87,17 +101,57 @@ const Explore = () => {
   };
 
   const byNewest = (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  // Extra classes lead the row (leftmost) since they're time-limited/special;
-  // regular classes follow, each group still newest-first internally.
-  const byExtraFirstThenNewest = (a: any, b: any) => (Number(!!b.is_extraclass) - Number(!!a.is_extraclass)) || byNewest(a, b);
 
+  /**
+   * Soonest first, and anything with no date at all last.
+   *
+   * Not "newest first": a class added to the catalogue this morning that next
+   * runs in December is less use to someone browsing than one running on
+   * Saturday. Courses with no upcoming round sink rather than disappear —
+   * they are still real things to read about, just not things to plan around.
+   */
+  const bySoonest = (a: any, b: any) => {
+    const da = nextRoundByCourse[a.id];
+    const db = nextRoundByCourse[b.id];
+    if (da && db) return da.localeCompare(db) || byNewest(a, b);
+    if (da) return -1;
+    if (db) return 1;
+    return byNewest(a, b);
+  };
   // Events get their own dedicated section/page below, and Services are
   // booked through their own "Book Service" entry point — both excluded
   // here to avoid double-listing them in the general Classes carousel.
-  const allClasses = courses.filter(c => !c.is_event && !c.is_service && !isCourseExpired(c)).sort(byExtraFirstThenNewest);
-  const eventsOnly = courses.filter(c => c.is_event && !isCourseExpired(c)).sort(byNewest);
-  const newsOnly = newsItems.filter(n => n.type === 'news').sort(byNewest);
-  const mediaOnly = newsItems.filter(n => n.type === 'media').sort(byNewest);
+  // Extra classes still lead — they are time-limited and that is the point of
+  // them — but within each group it is soonest-first now, not newest-first.
+  const byExtraFirstThenSoonest = (a: any, b: any) =>
+    (Number(!!b.is_extraclass) - Number(!!a.is_extraclass)) || bySoonest(a, b);
+
+  const allClasses = courses.filter(c => !c.is_event && !c.is_service && !isCourseExpired(c)).sort(byExtraFirstThenSoonest);
+  const eventsOnly = courses.filter(c => c.is_event && !isCourseExpired(c)).sort(bySoonest);
+
+  // News stays newest-first: for an announcement, recency IS the relevance.
+  const newsSorted = useMemo(() => [...newsItems].sort(byNewest), [newsItems]);
+
+  const newsTags = useMemo(
+    () => topHashtags(newsSorted.flatMap(n => [n.content, n.content_en, n.title, n.title_en])),
+    [newsSorted]
+  );
+
+  const filteredNews = useMemo(() => {
+    const q = newsQuery.trim().toLowerCase();
+    return newsSorted.filter(n => {
+      if (newsKind !== 'all' && n.type !== newsKind) return false;
+      // Title as well as body: a tag in the headline is still a tag.
+      if (activeTag && !(hasHashtag(n.content, activeTag) || hasHashtag(n.content_en, activeTag)
+        || hasHashtag(n.title, activeTag) || hasHashtag(n.title_en, activeTag))) return false;
+      if (!q) return true;
+      return [n.title, n.title_en, n.content, n.content_en]
+        .some(v => String(v || '').toLowerCase().includes(q));
+    });
+  }, [newsSorted, newsKind, activeTag, newsQuery]);
+
+  const newsOnly = filteredNews.filter(n => n.type === 'news');
+  const mediaOnly = filteredNews.filter(n => n.type === 'media');
 
   const classesCarousel = useHorizontalCarousel(240, 16);
   const eventsCarousel = useHorizontalCarousel(240, 16);
@@ -160,8 +214,17 @@ const Explore = () => {
           )}
         </div>
         <div className="p-4">
-          <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">{title}</h4>
-          {content && <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug">{stripHtml(content)}</p>}
+          <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">
+            <HashtagText text={title} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
+          </h4>
+          {/* The excerpt is where tags usually sit, so this is the one that
+              matters most. stripHtml first: the tags are found in the text, and
+              a "#" inside markup is not one. */}
+          {content && (
+            <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug">
+              <HashtagText text={stripHtml(content)} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
+            </p>
+          )}
         </div>
       </div>
     );
@@ -352,6 +415,18 @@ const Explore = () => {
         )}
 
         {/* News Section */}
+        {(activeCategory === 'all' || activeCategory === 'news' || activeCategory === 'media') && newsSorted.length > 0 && (
+          <section className="mb-5">
+            <NewsFilterBar
+              kind={newsKind} onKind={setNewsKind}
+              query={newsQuery} onQuery={setNewsQuery}
+              tags={newsTags} activeTag={activeTag} onTag={setActiveTag}
+              resultCount={filteredNews.length}
+              lang={lang as 'th' | 'en'}
+            />
+          </section>
+        )}
+
         {(activeCategory === 'all' || activeCategory === 'news') && newsOnly.length > 0 && (
           <section className="mb-8">
              <div className="flex justify-between items-end mb-4 px-1 gap-2">

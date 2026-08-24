@@ -339,6 +339,23 @@ export class CalendarRepository {
    * caller that needs remaining seats asks getUpcomingSlots for the one
    * course the user actually opened.
    */
+  /** Which calendar each of these courses reads its schedule from. */
+  async getCourseCalendars(courseIds: number[]): Promise<{ course_id: number; calendar_id: number }[]> {
+    if (courseIds.length === 0) return [];
+    // Chunked at 90: D1 caps bound parameters at 100 per statement, and a
+    // catalogue can outgrow that.
+    const out: { course_id: number; calendar_id: number }[] = [];
+    for (let i = 0; i < courseIds.length; i += 90) {
+      const chunk = courseIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(
+        `SELECT id AS course_id, calendar_id FROM Courses
+          WHERE calendar_id IS NOT NULL AND id IN (${chunk.map(() => '?').join(',')})`
+      ).bind(...chunk).all<any>();
+      out.push(...(results as any[]));
+    }
+    return out;
+  }
+
   async getCourseIdsWithUpcomingRounds(): Promise<number[]> {
     // DATE('now','+7 hours') is Bangkok's today — the same shift the rest of
     // the schedule queries use, so "today's round still counts" agrees here

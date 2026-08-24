@@ -96,10 +96,41 @@ export class CalendarController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
-  /** The set of courses worth offering: a schedule exists and has not run out. */
+  /**
+   * The set of courses worth offering, and when each one next runs.
+   *
+   * The date is what lets a listing be ordered by "soonest first", which is the
+   * order anyone browsing actually wants — a class next week matters more than
+   * one added to the catalogue last week. Sorting by created_at, which is what
+   * the app did, answers a question nobody asked.
+   *
+   * Resolved per calendar rather than per course: courses share calendars, so a
+   * catalogue of twenty can be a handful of expansions. getUpcomingSlots is
+   * reused rather than reimplemented, so "the next round" means here exactly
+   * what it means on the booking screen — holidays and full rounds included.
+   */
   async getCoursesWithRounds(c: C) {
     try {
-      return c.json({ success: true, courseIds: await this.repo(c).getCourseIdsWithUpcomingRounds() });
+      const repo = this.repo(c);
+      const courseIds = await repo.getCourseIdsWithUpcomingRounds();
+      const calendars = await repo.getCourseCalendars(courseIds);
+
+      const firstByCalendar = new Map<number, string>();
+      for (const calendarId of new Set(calendars.map(x => x.calendar_id))) {
+        // 90 days, the same window the booking screen uses, so a monthly course
+        // is not reported as having nothing coming up.
+        const upcoming = await repo.getUpcomingSlots(calendarId, 90);
+        const first = (upcoming as any[]).find(d => (d.slots || []).length > 0);
+        if (first?.date) firstByCalendar.set(calendarId, first.date);
+      }
+
+      const nextRoundByCourse: Record<number, string> = {};
+      for (const row of calendars) {
+        const date = firstByCalendar.get(row.calendar_id);
+        if (date) nextRoundByCourse[row.course_id] = date;
+      }
+
+      return c.json({ success: true, courseIds, nextRoundByCourse });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
