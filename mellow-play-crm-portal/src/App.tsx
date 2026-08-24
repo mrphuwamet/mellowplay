@@ -37,6 +37,8 @@ import {
   ExpandLess,
   ExpandMore,
   Menu as MenuIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
   HistoryEdu as ReportIcon,
   Logout as LogoutIcon,
   MonetizationOn as IncentiveIcon,
@@ -146,6 +148,9 @@ const SalesDashboard = lazy(() => import('./pages/SalesDashboard'));
 const TagAttributionDashboard = lazy(() => import('./pages/TagAttributionDashboard'));
 
 const drawerWidth = 280;
+// Collapsed keeps the icons: a rail you can still navigate from beats a
+// sidebar that disappears and has to be summoned back to move anywhere.
+const drawerCollapsedWidth = 76;
 
 // Static path lists per group, used only to decide which group should
 // auto-expand for the current URL — kept separate from the permission-
@@ -316,6 +321,12 @@ const AppContent = () => {
   const [roleLabelsMap, setRoleLabelsMap] = useState<Record<string, string>>(getRoleLabels());
   const [crmUnlocked, setCrmUnlocked] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Kept in localStorage, not state alone: someone who collapses the menu to
+  // get room for a canvas wants it collapsed on the next page too, and on the
+  // next visit.
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('crm_nav_collapsed') === '1');
+  useEffect(() => { localStorage.setItem('crm_nav_collapsed', navCollapsed ? '1' : '0'); }, [navCollapsed]);
+  const navWidth = navCollapsed ? drawerCollapsedWidth : drawerWidth;
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const [key, paths] of Object.entries(GROUP_PATHS)) {
@@ -826,7 +837,7 @@ const AppContent = () => {
           </Toolbar>
         </AppBar>
 
-        <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
+        <Box component="nav" sx={{ width: { sm: navWidth }, flexShrink: { sm: 0 }, transition: 'width 0.2s' }}>
           {/* Mobile: temporary/overlay drawer, toggled by the hamburger above */}
           <Drawer
             variant="temporary"
@@ -848,7 +859,20 @@ const AppContent = () => {
               display: { xs: 'none', sm: 'block' },
               '& .MuiDrawer-paper': {
                 boxSizing: 'border-box',
-                width: drawerWidth,
+                width: navWidth,
+                overflowX: 'hidden',
+                transition: 'width 0.2s',
+                // Collapsed by hiding the labels rather than by rebuilding the
+                // menu: the nav logic — groups, active state, permissions — is
+                // the part worth not touching, and what is left is exactly the
+                // icon rail with its behaviour intact.
+                ...(navCollapsed ? {
+                  '& .MuiListItemText-root': { display: 'none' },
+                  '& .MuiListItemIcon-root': { minWidth: 0, justifyContent: 'center' },
+                  '& .MuiListItemButton-root': { justifyContent: 'center', px: 1 },
+                  '& .MuiCollapse-root': { display: 'none' },
+                  '& [data-nav-label]': { display: 'none' },
+                } : {}),
                 borderRight: isDarkMode ? 'none' : '1px solid #f1f3f9',
                 borderRadius: '0 24px 24px 0',
                 boxShadow: isDarkMode ? '10px 0 30px rgba(0,0,0,0.1)' : '5px 0 20px rgba(0,0,0,0.02)',
@@ -858,9 +882,27 @@ const AppContent = () => {
           >
             {drawer}
           </Drawer>
+
+          {/* Sits on the sidebar's own edge rather than in a toolbar: the
+              control belongs to the thing it moves, and the edge is where the
+              hand already is when the sidebar is in the way. */}
+          <IconButton
+            onClick={() => setNavCollapsed(v => !v)}
+            title={navCollapsed ? 'ขยายเมนู' : 'หุบเมนู'}
+            sx={{
+              display: { xs: 'none', sm: 'flex' },
+              position: 'fixed', top: 18, left: navWidth - 14, zIndex: theme => theme.zIndex.drawer + 2,
+              width: 28, height: 28, bgcolor: 'background.paper',
+              border: '1px solid', borderColor: 'divider', boxShadow: 2,
+              transition: 'left 0.2s',
+              '&:hover': { bgcolor: 'background.paper' },
+            }}
+          >
+            {navCollapsed ? <ChevronRightIcon sx={{ fontSize: 18 }} /> : <ChevronLeftIcon sx={{ fontSize: 18 }} />}
+          </IconButton>
         </Box>
 
-        <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, sm: 4 }, width: { sm: `calc(100% - ${drawerWidth}px)` }, minWidth: 0 }}>
+        <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, sm: 4 }, width: { sm: `calc(100% - ${navWidth}px)` }, minWidth: 0, transition: 'width 0.2s' }}>
           {/* Spacer matching the fixed mobile AppBar's height, so content
               doesn't render underneath it — invisible on sm+ since the
               AppBar itself is hidden there. */}

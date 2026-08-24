@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import {
   Add as AddIcon,
+  OpenInFull as ExpandIcon,
+  CloseFullscreen as CollapseIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   CenterFocusStrong as FitIcon,
@@ -85,6 +87,19 @@ const HeatCanvas: React.FC<{
   const [dragging, setDragging] = useState<{ id: number; grabDx: number; grabDy: number } | null>(null);
   const [panning, setPanning] = useState<Point | null>(null);
   const [linking, setLinking] = useState<{ fromId: number; at: Point } | null>(null);
+  // Full-screen rather than a taller box: a bracket is wide, and the useful
+  // gesture is "give me the whole screen for a minute", not "give me 200 more
+  // pixels forever".
+  const [expanded, setExpanded] = useState(false);
+
+  // Escape leaves full screen. Anything that takes over the screen needs the
+  // key everyone already tries.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
 
   const entriesByHeat = useMemo(() => {
     const map = new Map<number, CanvasEntry[]>();
@@ -174,11 +189,20 @@ const HeatCanvas: React.FC<{
     .filter(x => x.from && x.to) as { l: CanvasLink; from: CanvasHeat; to: CanvasHeat }[];
 
   return (
-    <Box sx={{ position: 'relative', border: '1px solid #eef0f3', borderRadius: 3, overflow: 'hidden', bgcolor: '#fbfbfd' }}>
+    <Box sx={{
+      position: expanded ? 'fixed' : 'relative',
+      ...(expanded ? { inset: 0, zIndex: 1400, borderRadius: 0 } : { borderRadius: 3 }),
+      border: '1px solid #eef0f3', overflow: 'hidden', bgcolor: '#fbfbfd',
+    }}>
       <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 3, display: 'flex', gap: 0.5, bgcolor: 'white', borderRadius: 2, boxShadow: 1, p: 0.5 }}>
         <Tooltip title="ย่อ"><IconButton size="small" onClick={() => setZoom(z => Math.max(0.4, z - 0.15))}><ZoomOutIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="ขยาย"><IconButton size="small" onClick={() => setZoom(z => Math.min(1.6, z + 0.15))}><ZoomInIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="กลับไปมุมมองเริ่มต้น"><IconButton size="small" onClick={fit}><FitIcon fontSize="small" /></IconButton></Tooltip>
+        <Tooltip title={expanded ? 'ออกจากเต็มจอ (Esc)' : 'ขยายเต็มจอ'}>
+          <IconButton size="small" onClick={() => setExpanded(v => !v)}>
+            {expanded ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
         <Button size="small" startIcon={<AddIcon />} onClick={() => onCreateHeatAt({ x: snap(-pan.x / zoom + 60), y: snap(-pan.y / zoom + 60) }, null)} sx={{ fontWeight: 700 }}>
           เพิ่ม Heat
         </Button>
@@ -192,12 +216,19 @@ const HeatCanvas: React.FC<{
 
       <Box
         ref={wrapRef}
-        onPointerDown={e => { if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.bg) setPanning({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
+        // Pan from anywhere that is not a box. The old test asked whether the
+        // pointer landed on this exact element, which the transformed layer
+        // covers — so most of the canvas did not drag, which reads as the
+        // canvas being stuck rather than as a rule about where to grab.
+        onPointerDown={e => {
+          if ((e.target as HTMLElement).closest('[data-heat-box]')) return;
+          setPanning({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+        }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
         sx={{
-          position: 'relative', height: 620, overflow: 'hidden',
+          position: 'relative', height: expanded ? '100vh' : 'min(72vh, 760px)', overflow: 'hidden',
           cursor: panning ? 'grabbing' : 'grab', touchAction: 'none',
           backgroundImage: 'radial-gradient(#e3e5ee 1px, transparent 1px)',
           backgroundSize: `${GRID * 2 * zoom}px ${GRID * 2 * zoom}px`,
@@ -242,6 +273,7 @@ const HeatCanvas: React.FC<{
             return (
               <Box
                 key={h.id}
+                data-heat-box="1"
                 sx={{
                   position: 'absolute', left: p.x, top: p.y, width: BOX_W, minHeight: heightOf(rows.length),
                   bgcolor: 'white', borderRadius: 2, border: '1.5px solid', borderColor: isFinal ? '#f0b400' : '#e5e2f5',

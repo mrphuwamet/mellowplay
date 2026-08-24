@@ -11,6 +11,7 @@ import {
   Person as PersonIcon, AutoAwesome as AutoIcon, Edit as EditIcon,
   AccountTree as BracketIcon, DoubleArrow as AdvanceIcon, SportsScore as FlagIcon,
   Print as PrintIcon,
+  ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import HeatCanvas from '../components/HeatCanvas';
@@ -164,6 +165,9 @@ const TournamentManagement: React.FC = () => {
   // Canvas or the stacked list. The list is what works on a phone at an event,
   // so it stays; the canvas is what the planning actually happens on.
   const [canvasMode, setCanvasMode] = useStickyState('tournaments.canvas', true);
+  // The start list is needed while filling heats and is in the way once they
+  // are full — so it folds instead of being a permanent third of the screen.
+  const [rosterOpen, setRosterOpen] = useStickyState('tournaments.rosterOpen', true);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [options, setOptions] = useState<Record<EntryType, EntryOption[]>>({ team: [], family: [], person: [] });
   const [teamFields, setTeamFields] = useState<{ field_key: string; label: string }[]>([]);
@@ -849,10 +853,37 @@ const TournamentManagement: React.FC = () => {
           {notice && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
 
           <Grid container spacing={2}>
-            {/* Left: who is still unplaced, in whichever shape is being drawn. */}
-            <Grid item xs={12} md={4}>
+            {/* Left: who is still unplaced, in whichever shape is being drawn.
+                Folded to a thin strip rather than removed — a panel that
+                vanishes leaves nothing to click to bring it back, and the
+                count on the strip is worth seeing even while it is shut. */}
+            {!rosterOpen && (
+              <Grid item xs={12} md="auto">
+                <Paper
+                  onClick={() => setRosterOpen(true)}
+                  sx={{
+                    p: 1, borderRadius: 3, position: 'sticky', top: 16, cursor: 'pointer',
+                    display: 'flex', md: { flexDirection: 'column' }, alignItems: 'center', gap: 1,
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                >
+                  <Tooltip title="เปิดรายชื่อที่รอจัดการ">
+                    <ChevronRightIcon fontSize="small" />
+                  </Tooltip>
+                  <Typography variant="caption" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    รอจัดการ {available.length}
+                  </Typography>
+                </Paper>
+              </Grid>
+            )}
+            <Grid item xs={12} md={4} sx={{ display: rosterOpen ? undefined : 'none' }}>
               <Paper sx={{ p: 2, borderRadius: 3, position: 'sticky', top: 16 }}>
-                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>รอจัดการ</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={800}>รอจัดการ</Typography>
+                  <Tooltip title="ซ่อนรายชื่อ เพื่อให้ผังกว้างขึ้น">
+                    <IconButton size="small" onClick={() => setRosterOpen(false)}><ChevronLeftIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                </Box>
 
                 <ToggleButtonGroup
                   exclusive size="small" fullWidth value={entryType} sx={{ mb: 1.5 }}
@@ -955,7 +986,7 @@ const TournamentManagement: React.FC = () => {
                 separate brackets meet each other, so keeping them all on one
                 page is the point — a chooser showing one at a time cannot say
                 where a cross-bracket final happens. */}
-            <Grid item xs={12} md={8}>
+            <Grid item xs={12} md={rosterOpen ? 8 : true} sx={{ minWidth: 0 }}>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                 <Button size="small" startIcon={<AddIcon />} onClick={() => createTournament(`สายที่ ${tournaments.length + 1}`)}>
                   เพิ่มสาย
