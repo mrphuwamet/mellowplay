@@ -234,7 +234,7 @@ export class CertificateRepository {
   async bookingIdsForRound(courseId: number, slotDate: string, slotStartTime: string): Promise<number[]> {
     const { results } = await this.db.prepare(`
       SELECT id FROM Bookings
-       WHERE course_id = ? AND status != 'cancelled'
+       WHERE course_id = ? AND status NOT IN ('cancelled', 'no_show')
          AND slot_date = ? AND SUBSTR(slot_start_time, 1, 5) = SUBSTR(?, 1, 5)
     `).bind(courseId, slotDate, slotStartTime).all<{ id: number }>();
     return (results as any[]).map(r => Number(r.id));

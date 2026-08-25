@@ -1,5 +1,6 @@
 import { CertificateRepository } from '../repositories/certificateRepository';
 import { resolveCertificateValues } from './certificateVariables';
+import { isAbsent } from './attendanceService';
 
 /**
  * Issuing a certificate — the one path, wherever the trigger came from.
@@ -39,7 +40,7 @@ export interface IssueResult {
   issued: boolean;          // false = already had one, or could not be issued
   certificateId?: number;
   /** Why not, when issued is false. 'exists' is the ordinary, harmless case. */
-  reason?: 'exists' | 'no_booking' | 'no_template';
+  reason?: 'exists' | 'no_booking' | 'no_template' | 'absent';
   /** For naming the item that still needs a design chosen. */
   courseId?: number;
   courseName?: string | null;
@@ -53,6 +54,11 @@ export async function issueForBooking(
   const repo = new CertificateRepository(db);
   const src = await repo.getIssueSource(opts.bookingId);
   if (!src) return { issued: false, reason: 'no_booking' };
+
+  // Checked here rather than only in the callers, so the four ways of issuing
+  // one — a single row, a whole round, the check-in tick, "จบคลาส" — cannot
+  // disagree about who was actually there.
+  if (isAbsent(src.status)) return { issued: false, reason: 'absent' };
 
   const templateId = opts.templateId ?? await repo.resolveTemplateId(Number(src.course_id));
 
@@ -110,7 +116,7 @@ export async function autoIssue(
   const row = await db.prepare(`
     SELECT co.certificate_auto FROM Bookings b
       JOIN Courses co ON co.id = b.course_id
-     WHERE b.id = ? AND b.status != 'cancelled'
+     WHERE b.id = ? AND b.status NOT IN ('cancelled', 'no_show')
   `).bind(opts.bookingId).first<{ certificate_auto: string | null }>();
 
   if (!row || row.certificate_auto !== opts.moment) return { issued: false };

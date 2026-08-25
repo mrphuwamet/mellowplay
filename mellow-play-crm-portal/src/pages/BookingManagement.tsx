@@ -112,6 +112,11 @@ interface Booking {
   slot_date?: string;
   slot_start_time?: string;
   sponsor_tag?: string;
+  /** When someone recorded that they never arrived — see migration 0102. */
+  no_show_at?: string | null;
+  /** Check-in steps ticked, and how many steps the item has. */
+  checkin_done?: number;
+  checkin_total?: number;
   /** Staff's own note on this registration — a phone call, something to check. */
   staff_note?: string | null;
   /** Null on anything cancelled before the column existed — see migration 0096. */
@@ -190,6 +195,7 @@ const STATUS_META: Record<string, { label: string; color: string; fgColor: strin
   pending_payment:{ label: 'รอชำระเงิน',   color: 'warning', fgColor: '#e65100', bgColor: 'rgba(230,81,0,0.1)' },
   awaiting_report:{ label: 'รอกรอกรายงาน', color: 'warning', fgColor: '#b45309', bgColor: 'rgba(180,83,9,0.1)' },
   cancelled:      { label: 'ยกเลิก',      color: 'error',   fgColor: '#c62828', bgColor: 'rgba(198,40,40,0.1)' },
+  no_show:        { label: 'ไม่มาตามนัด', color: 'default', fgColor: '#616161', bgColor: 'rgba(97,97,97,0.12)' },
 };
 
 const getStatusInfo = (status: string) =>
@@ -210,6 +216,7 @@ const STATUS_FILTERS = [
   { key: 'awaiting_report', label: 'รอกรอกรายงาน' },
   { key: 'completed',     label: 'เสร็จสิ้น' },
   { key: 'cancelled',     label: 'ยกเลิก' },
+  { key: 'no_show',       label: 'ไม่มาตามนัด' },
 ];
 
 // ─── BookingItem (row in list) ───────────────────────────────────────────────
@@ -1040,7 +1047,7 @@ const ClassDetailDialog = ({ course, onClose }: { course: Course | null; onClose
   </Dialog>
 );
 
-const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses, submissionsMap, onStaffNoteSaved }: {
+const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, onEdit, courses, submissionsMap, onStaffNoteSaved, onRefresh }: {
   bookings: Booking[];
   onReport: (bs: Booking[]) => void;
   onCancel: (id: number) => void;
@@ -1051,6 +1058,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   submissionsMap: Record<string, { answers: Record<string, any>; fields: { field_key: string; type: string; label: string; config_json?: string | null }[] }>;
   /** The parent owns the list, so it applies the saved note to it. */
   onStaffNoteSaved: (id: number, note: string | null) => void;
+  /** Marking a no-show changes status server-side; the list has to re-read. */
+  onRefresh: () => void;
 }) => {
   const [search, setSearch] = useStickyState('bookings.search', '');
   // Which fields are being filtered on, and to which values. Grouping was
@@ -1063,6 +1072,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
   const [dupesOnly, setDupesOnly] = useStickyState('bookings.dupesOnly', false);
   const [noteQuery, setNoteQuery] = useStickyState('bookings.noteQuery', '');
+  // Three groups, not two: "came but did not finish the steps" is its own list
+  // of people to chase, not a rounding error on either side.
+  const [checkinFilter, setCheckinFilter] = useStickyState<'all' | 'in' | 'partial' | 'out'>('bookings.checkinFilter', 'all');
+  const [markingNoShow, setMarkingNoShow] = useState(false);
   // Counted across everything loaded, not the filtered view — it is the size of
   // the haystack, so it must not shrink as you search it.
   const notedCount = useMemo(() => bookings.filter(b => !!b.staff_note?.trim()).length, [bookings]);
@@ -1211,12 +1224,22 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
     const byDupes = dupesOnly ? byField.filter(b => duplicates.has(b.id)) : byField;
     const byNoted = noteQuery.trim() ? byDupes.filter(b => noteMatches(b.staff_note, noteQuery)) : byDupes;
-    if (!search.trim()) return byNoted;
+    const byCheckin = checkinFilter === 'all' ? byNoted : byNoted.filter(b => {
+      const done = b.checkin_done ?? 0;
+      const total = b.checkin_total ?? 0;
+      if (checkinFilter === 'in') return done > 0;
+      if (checkinFilter === 'out') return done === 0;
+      // 'partial' only means anything where the item HAS steps; an item with
+      // none can never be partly checked in, and listing everyone there would
+      // answer a question nobody asked.
+      return total > 0 && done > 0 && done < total;
+    });
+    if (!search.trim()) return byCheckin;
     const q = search.toLowerCase();
     // Filtered from byNoted, not byField: typing in the search box used to
     // silently drop whichever chips were on, so a search inside "ชื่อซ้ำ"
     // quietly went back to searching everything.
-    return byNoted.filter(b => {
+    return byCheckin.filter(b => {
       if (
         b.child_name?.toLowerCase().includes(q) ||
         b.child_nickname?.toLowerCase().includes(q) ||
@@ -1240,7 +1263,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates, checkinFilter]);
 
   /**
    * Issue for these bookings.
@@ -1380,6 +1403,28 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     } finally { setPrintingBatch(false); }
   };
 
+  /**
+   * Record that these people did not turn up.
+   *
+   * NOT the cancel button. Cancelling refunds a coupon and releases the seat,
+   * which is right when someone tells us in advance and wrong when they simply
+   * never arrived — they took the seat and nobody else could have it.
+   */
+  const setNoShow = async (ids: number[], clear = false) => {
+    if (ids.length === 0) return;
+    setMarkingNoShow(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/checkin/no-show`, { booking_ids: ids, clear });
+      if (!data.success) { setIssueResult(data.message || 'บันทึกไม่สำเร็จ'); return; }
+      setIssueResult(clear
+        ? `ยกเลิกเครื่องหมายไม่มา ${data.changed} รายการ`
+        : `ทำเครื่องหมายไม่มาตามนัด ${data.changed} รายการ${data.skipped > 0 ? ` · ข้าม ${data.skipped} (ยกเลิกไปแล้ว)` : ''}`);
+      onRefresh();
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'บันทึกไม่สำเร็จ');
+    } finally { setMarkingNoShow(false); }
+  };
+
   const copyCertificateLink = async (bookingId: number) => {
     const cert = certByBooking[bookingId];
     if (!cert) return;
@@ -1406,7 +1451,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, checkinFilter, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -1948,6 +1993,28 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   ยกเลิกเมื่อ {formatUtcDateTime(b.cancelled_at)}
                 </Typography>
               )}
+              {b.status === 'no_show' && b.no_show_at && (
+                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#616161', fontWeight: 700 }}>
+                  <EventBusyIcon sx={{ fontSize: 13 }} />
+                  ไม่มาตามนัด · บันทึกเมื่อ {formatUtcDateTime(b.no_show_at)}
+                </Typography>
+              )}
+              {/* Progress, not controls. Ticking a step means "I saw this
+                  happen", which belongs at the door — corrections go through
+                  the detail dialog. Hidden for items with no steps at all. */}
+              {(b.checkin_total ?? 0) > 0 && b.status !== 'cancelled' && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 700,
+                    color: (b.checkin_done ?? 0) === 0 ? 'text.disabled'
+                      : (b.checkin_done ?? 0) >= (b.checkin_total ?? 0) ? '#2e7d32' : '#b45309',
+                  }}
+                >
+                  <CheckCircleIcon sx={{ fontSize: 13 }} />
+                  เช็คอิน {b.checkin_done ?? 0}/{b.checkin_total}
+                </Typography>
+              )}
             </Box>
           )}
         </Box>
@@ -2065,6 +2132,19 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               }}
             />
           )}
+          <FormControl size="small" sx={{ minWidth: 170, flex: '0 1 170px' }}>
+            <InputLabel sx={{ fontWeight: 700 }}>การเช็คอิน</InputLabel>
+            <Select
+              label="การเช็คอิน" value={checkinFilter}
+              onChange={e => setCheckinFilter(e.target.value as any)}
+              sx={{ fontWeight: 700, borderRadius: 2 }}
+            >
+              <MenuItem value="all">ทั้งหมด</MenuItem>
+              <MenuItem value="in">เช็คอินแล้ว</MenuItem>
+              <MenuItem value="partial">เช็คอินไม่ครบ</MenuItem>
+              <MenuItem value="out">ยังไม่เช็คอิน</MenuItem>
+            </Select>
+          </FormControl>
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>
             <InputLabel sx={{ fontWeight: 700 }}>เรียงลำดับ</InputLabel>
             <Select value={sortKey} onChange={e => setSortKey(e.target.value)} label="เรียงลำดับ" sx={{ borderRadius: 2, fontWeight: 700 }}>
@@ -2151,6 +2231,17 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 sx={{ borderRadius: 2, fontWeight: 700 }}
               >
                 พิมพ์เกียรติบัตรที่เลือก
+              </Button>
+              {/* Not "cancel": no coupon goes back, the seat stays used, and
+                  the history still says what actually happened. */}
+              <Button
+                size="small" variant="outlined"
+                startIcon={markingNoShow ? <CircularProgress size={14} color="inherit" /> : <EventBusyIcon />}
+                onClick={() => setNoShow(selectedBookings.filter(b => b.status !== 'cancelled' && b.status !== 'no_show').map(b => b.id))}
+                disabled={markingNoShow}
+                sx={{ borderRadius: 2, fontWeight: 700, color: '#616161', borderColor: '#bdbdbd' }}
+              >
+                ทำเครื่องหมายว่าไม่มา
               </Button>
               <Button
                 size="small"
@@ -3281,7 +3372,8 @@ const BookingManagement = () => {
         <WeekView bookings={filteredBookings} weekStart={getWeekStart(currentDate)} onReport={(b) => openReport([b])} />
       ) : viewMode === 'list' ? (
         <ListView bookings={filteredBookings} onReport={openReport} onCancel={handleCancel} onBulkCancel={handleBulkCancel} onMarkComplete={handleMarkComplete} onEdit={openForceStatus} courses={courses} submissionsMap={submissionsMap}
-          onStaffNoteSaved={(id, note) => setBookings(prev => prev.map(x => x.id === id ? { ...x, staff_note: note } : x))} />
+          onStaffNoteSaved={(id, note) => setBookings(prev => prev.map(x => x.id === id ? { ...x, staff_note: note } : x))}
+          onRefresh={fetchBookings} />
       ) : (
         <MonthView bookings={filteredBookings} date={currentDate} onReport={(b) => openReport([b])} />
       )}

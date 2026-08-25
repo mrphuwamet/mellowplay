@@ -5,6 +5,7 @@ import { CheckinRepository } from '../repositories/checkinRepository';
 import { AuthService } from '../services/authService';
 import { awardParticipation, revokeParticipation } from '../services/stampService';
 import { autoIssue as autoIssueCertificate, revokeAutoIssued as revokeAutoIssuedCertificate } from '../services/certificateService';
+import { markNoShow, clearNoShow } from '../services/attendanceService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -146,12 +147,77 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /** Mark a set of bookings as no-shows, or take the mark back. */
+  async setNoShow(c: C) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const body = await c.req.json();
+      const ids: number[] = Array.isArray(body.booking_ids) ? body.booking_ids.map(Number) : [];
+      if (ids.length === 0) return c.json({ success: false, message: 'ยังไม่ได้เลือกรายการ' }, 400);
+
+      const actorId = c.get('crmUser')?.userId ?? null;
+      const res = body.clear === true
+        ? await clearNoShow(db, ids)
+        : await markNoShow(db, ids, actorId);
+
+      return c.json({ success: true, changed: res.changed, skipped: ids.length - res.changed });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * A round's attendance, and whether closing it off makes sense.
+   *
+   * `suggest` is false when nobody was ticked in at all — that means the round
+   * was never run through the scanner, NOT that nobody came. Marking a whole
+   * round absent on that basis would take away everyone's certificate.
+   */
+  async roundAttendance(c: C) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const courseId = parseInt(c.req.query('course_id') || '');
+      const slotDate = c.req.query('slot_date') || '';
+      const slotStart = c.req.query('slot_start_time') || '';
+      if (!courseId || !slotDate) return c.json({ success: false, message: 'ต้องระบุรอบ' }, 400);
+
+      const { results } = await db.prepare(`
+        SELECT b.id, b.status, b.slot_start_time,
+               COALESCE(NULLIF(hp.nickname, ''), hp.name) AS who,
+               (SELECT COUNT(*) FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS ticks
+          FROM Bookings b
+          LEFT JOIN Children ch ON ch.id = b.child_id
+          LEFT JOIN HD_Profiles hp ON hp.id = ch.hd_profile_id
+         WHERE b.course_id = ? AND b.slot_date = ?
+           AND (? = '' OR SUBSTR(b.slot_start_time, 1, 5) = SUBSTR(?, 1, 5))
+           AND b.status != 'cancelled'
+         ORDER BY who
+      `).bind(courseId, slotDate, slotStart, slotStart).all<any>();
+
+      const rows = results as any[];
+      const arrived = rows.filter(r => Number(r.ticks) > 0);
+      const missing = rows.filter(r => Number(r.ticks) === 0 && r.status !== 'no_show');
+
+      return c.json({
+        success: true,
+        bookings: rows,
+        arrived: arrived.length,
+        total: rows.length,
+        missing: missing.map(r => ({ id: r.id, who: r.who })),
+        suggest: arrived.length > 0 && missing.length > 0,
+      });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async toggleAction(c: C) {
     try {
       const bookingId = parseInt(c.req.param('bookingId'));
       const actionId = parseInt(c.req.param('actionId'));
       const checkedByCrmUserId = c.get('crmUser')?.userId ?? null;
       const checked = await this.repo(c).toggleAction(bookingId, actionId, checkedByCrmUserId);
+
+      // Someone standing at the door being ticked in is stronger evidence than
+      // a button pressed at six o'clock. Arriving forty minutes late is the
+      // ordinary case, not an edge one, so the scan simply undoes the mark.
+      if (checked) await clearNoShow(new ConfigService(c.env).db, [bookingId]);
 
       // Turning up is what earns the stamp, and the first ticked item at the
       // door is the moment we know they turned up. Unticking the last one undoes

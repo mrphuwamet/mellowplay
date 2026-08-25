@@ -17,6 +17,9 @@ import { computeStampExpiry } from '../utils/stampExpiry';
 
 export type StampSource = 'checkin' | 'completion' | 'manual';
 
+/** Statuses meaning nobody was there to be given anything. */
+const ABSENT = ['cancelled', 'no_show'];
+
 export interface AwardResult {
   awarded: boolean;      // false = already had one, nothing changed
   stampId?: number;
@@ -32,6 +35,7 @@ interface BookingRow {
   calendar_id: number | null;
   slot_date: string | null;
   slot_start_time: string | null;
+  status?: string | null;
 }
 
 /**
@@ -144,9 +148,14 @@ export async function awardParticipation(
   args: { bookingId: number; source: StampSource; actorId?: number | null; note?: string | null },
 ): Promise<AwardResult> {
   const booking = await db.prepare(
-    'SELECT id, child_id, course_id, calendar_id, slot_date, slot_start_time FROM Bookings WHERE id = ?'
+    'SELECT id, child_id, course_id, calendar_id, slot_date, slot_start_time, status FROM Bookings WHERE id = ?'
   ).bind(args.bookingId).first<BookingRow>();
   if (!booking?.child_id || !booking?.course_id) return { awarded: false };
+
+  // Stamps, points and medals are all for having been there. Checked here, at
+  // the single award path, so the door, "จบคลาส" and a manual grant cannot
+  // disagree about it.
+  if (ABSENT.includes(String(booking.status ?? ''))) return { awarded: false };
 
   const existing = await db.prepare(
     'SELECT id, visit_number FROM Stamps WHERE child_id = ? AND booking_id = ? AND revoked_at IS NULL'

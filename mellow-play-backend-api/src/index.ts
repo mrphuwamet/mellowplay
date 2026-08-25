@@ -1005,6 +1005,8 @@ app.get('/api/v1/admin/sms/non-registered-members', (c) => smsController.getNonR
 app.get('/api/v1/admin/sms/unsent-confirmations', (c) => smsController.getUnsentConfirmations(c));
 app.post('/api/v1/admin/sms/resend-confirmation', (c) => smsController.resendConfirmation(c));
 
+app.post('/api/v1/admin/checkin/no-show',             (c) => checkinController.setNoShow(c));
+app.get('/api/v1/admin/checkin/round-attendance',     (c) => checkinController.roundAttendance(c));
 app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.getActions(c));
 app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));
 app.get('/api/v1/admin/checkin/lookup/:token',        (c) => checkinController.lookup(c));

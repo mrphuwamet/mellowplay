@@ -290,7 +290,12 @@ export class AdminRepository {
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
         b.calendar_id, b.slot_date, b.slot_start_time, b.payment_status, b.notes, b.created_at,
-        b.sponsor_tag, b.form_submission_id, b.staff_note, b.cancelled_at,
+        b.sponsor_tag, b.form_submission_id, b.staff_note, b.cancelled_at, b.no_show_at,
+        -- Check-in progress, as two numbers rather than the log itself: the
+        -- list only ever shows "3/4" and filters on it, and joining the whole
+        -- log would multiply every booking row by its ticks.
+        (SELECT COUNT(*) FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checkin_done,
+        (SELECT COUNT(*) FROM Course_Checkin_Actions a WHERE a.course_id = b.course_id) AS checkin_total,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,
