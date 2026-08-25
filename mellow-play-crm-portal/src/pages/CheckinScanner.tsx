@@ -205,7 +205,7 @@ const CheckinScanner = () => {
 
       <AccessLinkPanel />
 
-      <CheckinScannerCore client={axios} />
+      <CheckinScannerCore client={axios} canCloseRound />
     </Box>
   );
 };

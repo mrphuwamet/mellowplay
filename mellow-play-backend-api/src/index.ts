@@ -499,6 +499,10 @@ const ADMIN_PUBLIC_ROUTES: { method: string; pattern: RegExp }[] = [
 const CHECKIN_ACCESS_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/lookup\/[^/]+$/ },
   { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/search-by-phone\/[^/]+$/ },
+  // The roster and the day's rounds — read-only. Marking a whole round absent
+  // stays out of reach of a shared link on purpose.
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/rounds$/ },
+  { method: 'GET', pattern: /^\/api\/v1\/admin\/checkin\/round-attendance$/ },
   { method: 'POST', pattern: /^\/api\/v1\/admin\/checkin\/\d+\/actions\/\d+\/toggle$/ },
   // Reachable from the shared check-in link, but the handler still requires a
   // staff session — the allowlist only gets it past the blanket admin gate.
@@ -1006,6 +1010,7 @@ app.get('/api/v1/admin/sms/unsent-confirmations', (c) => smsController.getUnsent
 app.post('/api/v1/admin/sms/resend-confirmation', (c) => smsController.resendConfirmation(c));
 
 app.post('/api/v1/admin/checkin/no-show',             (c) => checkinController.setNoShow(c));
+app.get('/api/v1/admin/checkin/rounds',               (c) => checkinController.rounds(c));
 app.get('/api/v1/admin/checkin/round-attendance',     (c) => checkinController.roundAttendance(c));
 app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.getActions(c));
 app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));

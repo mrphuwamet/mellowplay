@@ -147,6 +147,39 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * The rounds running on a day, for the scanner to be pointed at one.
+   *
+   * Without this the scanner is purely reactive — it knows whatever was just
+   * scanned and nothing about the session being run, so it can never answer the
+   * question staff actually keep asking, which is who has NOT arrived.
+   */
+  async rounds(c: C) {
+    try {
+      const db = new ConfigService(c.env).db;
+      // Bangkok, not UTC: a round at 9am here must not be listed under
+      // yesterday because the server thinks it is still 02:00.
+      const date = c.req.query('date')
+        || (await db.prepare("SELECT DATE('now','+7 hours') AS d").first<any>())?.d;
+
+      const { results } = await db.prepare(`
+        SELECT b.course_id, b.slot_date, SUBSTR(b.slot_start_time, 1, 5) AS slot_start_time,
+               co.name AS course_name,
+               COUNT(*) AS booked,
+               SUM(CASE WHEN EXISTS (
+                 SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
+               ) THEN 1 ELSE 0 END) AS arrived
+          FROM Bookings b
+          JOIN Courses co ON co.id = b.course_id
+         WHERE b.slot_date = ? AND b.status != 'cancelled'
+         GROUP BY b.course_id, b.slot_date, SUBSTR(b.slot_start_time, 1, 5)
+         ORDER BY slot_start_time, co.name
+      `).bind(date).all<any>();
+
+      return c.json({ success: true, date, rounds: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   /** Mark a set of bookings as no-shows, or take the mark back. */
   async setNoShow(c: C) {
     try {
@@ -180,7 +213,7 @@ export class CheckinController {
       if (!courseId || !slotDate) return c.json({ success: false, message: 'ต้องระบุรอบ' }, 400);
 
       const { results } = await db.prepare(`
-        SELECT b.id, b.status, b.slot_start_time,
+        SELECT b.id, b.qr_token, b.status, b.slot_start_time,
                COALESCE(NULLIF(hp.nickname, ''), hp.name) AS who,
                (SELECT COUNT(*) FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS ticks
           FROM Bookings b

@@ -9,6 +9,7 @@ import {
   Phone as PhoneIcon, ReportProblem as WarningIcon,
 } from '@mui/icons-material';
 import { AxiosInstance } from 'axios';
+import CheckinRoundPanel from './CheckinRoundPanel';
 import { API_URL } from '../config';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -97,6 +98,12 @@ interface Props {
   // Called on a 401/403 from any of the calls below — the public
   // PIN-gated page uses this to drop back to the PIN screen.
   onUnauthorized?: () => void;
+  /**
+   * Whether this screen may close a round off by marking everyone who did not
+   * arrive. False for the PIN-link page: a link that gets forwarded around
+   * should not be able to take a whole session's certificates away.
+   */
+  canCloseRound?: boolean;
 }
 
 // Camera-based scanner (html5-qrcode) rather than a QR-encoded deep link —
@@ -136,7 +143,7 @@ export function extractToken(raw: string): string {
   return decodeURIComponent(afterPath.split(/[?#]/)[0].split(',')[0].trim());
 }
 
-const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
+const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseRound = false }) => {
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [booking, setBooking] = useState<CheckinBooking | null>(null);
   const [loading, setLoading] = useState(false);
@@ -146,6 +153,9 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   // Folded by default. The pinned answers are the ones anyone needs while a
   // family is standing there; the other eighteen are for looking something up.
   const [allAnswersOpen, setAllAnswersOpen] = useState(false);
+  // Bumped after every tick so the roster's counter follows along without the
+  // panel having to poll for it.
+  const [rosterKey, setRosterKey] = useState(0);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
@@ -168,7 +178,10 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
     if (status === 401 || status === 403) onUnauthorized?.();
   };
 
-  const lookupToken = async (token: string) => {
+  const lookupToken = async (token: string, force = false) => {
+    // The repeat guard is for a code sitting in front of the lens, not for a
+    // deliberate second tap on the same name.
+    if (force) lastScannedRef.current = null;
     if (token === lastScannedRef.current) return; // same code still in frame
     lastScannedRef.current = token;
     pauseCamera();
@@ -308,6 +321,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
             ? { ...a, checked_at: res.data.checked ? new Date().toISOString() : null }
             : a),
         } : prev);
+        setRosterKey(k => k + 1);
       }
     } catch (e: any) {
       handleRequestError(e, 'ไม่สามารถบันทึกได้');
@@ -374,6 +388,18 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   return (
     <Box>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>{error}</Alert>}
+
+      {/* Above the scanner, because it is the thing that gives the screen a
+          subject: which round is being run. Hidden once a booking is open so
+          the card has the phone to itself. */}
+      {!booking && (
+        <CheckinRoundPanel
+          client={client}
+          canClose={canCloseRound}
+          refreshKey={rosterKey}
+          onPick={token => { void lookupToken(token, true); }}
+        />
+      )}
 
       {!booking && (
         <Tabs value={mode} onChange={(_, v) => switchMode(v)} sx={{ mb: 2, minHeight: 40 }}>
