@@ -133,6 +133,7 @@ import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
 import StampImageManagement from './pages/StampImageManagement';
 import TournamentManagement from './pages/TournamentManagement';
+import CertificateDesigner from './pages/CertificateDesigner';
 import BookingAnnouncer from './pages/BookingAnnouncer';
 import { SystemLogs } from './pages/SystemLogs';
 import { ApiCallLogs } from './pages/ApiCallLogs';
@@ -1108,6 +1109,7 @@ const AppContent = () => {
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />
             <Route path="/crm/booking-announcer" element={protect('bookings', <BookingAnnouncer />)} />
             <Route path="/crm/tournaments"       element={protect('bookings', <TournamentManagement />)} />
+            <Route path="/crm/certificates"     element={protect('bookings', <CertificateDesigner />)} />
             <Route path="/crm/sms-notifications" element={protect('bookings', <SmsNotifications />)} />
             <Route path="/crm/packages" element={protect('packages', <PackageManagement />)} />
             <Route path="/crm/users" element={protect('crm_users', <CrmUserManagement />)} />

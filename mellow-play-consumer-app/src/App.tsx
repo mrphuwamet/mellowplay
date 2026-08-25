@@ -10,6 +10,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import CertificateView from './pages/CertificateView';
+import CertificateVerify from './pages/CertificateVerify';
 import AddChild from './pages/AddChild';
 import ReportDetail from './pages/ReportDetail';
 import SurveyDetail from './pages/SurveyDetail';
@@ -121,6 +123,9 @@ const AppContent = () => {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Both public: a certificate is shown to people with no account here. */}
+        <Route path="/certificate/:code" element={<CertificateView />} />
+        <Route path="/verify/:code" element={<CertificateVerify />} />
         <Route path="/add-child" element={<AddChild />} />
         <Route path="/" element={<Home />} />
         <Route path="/journey" element={<Roadmap />} />
