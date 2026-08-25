@@ -2,6 +2,10 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { CertificateRepository } from '../repositories/certificateRepository';
+import { SettingsRepository } from '../repositories/settingsRepository';
+import { EmailService } from '../services/emailService';
+import { EmailLogRepository } from '../repositories/emailLogRepository';
+import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -131,6 +135,73 @@ export class CertificateController {
       }
 
       return c.json({ success: true, issued, skipped, total: bookingIds.length });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Email the certificate — as a link, never as an attachment.
+   *
+   * A link can be reopened, reprinted and forwarded; an attached PDF is one
+   * copy that ages in an inbox, and it is also what makes a message look like
+   * spam. The link is returned in the response too, so staff can hand it over
+   * on LINE for the many families with no email on file — which is the only
+   * route that reaches them at all.
+   */
+  async sendEmail(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const repo = new CertificateRepository(config.db);
+      const cert = await repo.getWithRecipientEmail(parseInt(c.req.param('id')));
+      if (!cert) return c.json({ success: false, message: 'ไม่พบเกียรติบัตรนี้' }, 404);
+      if (cert.revoked_at) return c.json({ success: false, message: 'เกียรติบัตรนี้ถูกยกเลิกแล้ว' }, 400);
+
+      const settings = new SettingsRepository(config.db);
+      const appUrl = (await settings.getOverridable('consumer_app_url', 'https://mellowplay.co')).replace(/\/+$/, '');
+      const link = `${appUrl}/certificate/${cert.public_code}`;
+
+      if (!cert.parent_email) {
+        // Not an error: most families have no address on file, and the link is
+        // still the useful half of the answer.
+        return c.json({ success: true, link, emailStatus: 'skipped', message: 'บัญชีนี้ไม่มีอีเมลในระบบ — ใช้ลิงก์ส่งเองได้' });
+      }
+
+      const fromAddress = await settings.getOverridable('email_from_address', 'contact@mellowplay.co');
+      const fromName = await settings.getOverridable('email_from_name', 'Mellow Play');
+      const replyTo = await settings.getOverridable('email_reply_to', '');
+      const mailer = new EmailService(config.emailBinding, fromAddress, fromName, replyTo);
+
+      const subject = `เกียรติบัตร ${cert.course_name || ''} · ${cert.recipient_name}`.trim();
+      const body = wrapEmailHtml(
+        `<p>สวัสดีค่ะ</p>
+         <p>เกียรติบัตรของ <strong>${cert.recipient_name}</strong> จากกิจกรรม
+         <strong>${cert.course_name || ''}</strong> พร้อมแล้วค่ะ</p>
+         <p><a href="${link}">เปิดเกียรติบัตร</a></p>
+         <p>เปิดลิงก์แล้วกด “บันทึกเป็น PDF” เพื่อเก็บไฟล์ไว้ หรือสั่งพิมพ์ได้เลยค่ะ</p>`,
+        await loadEmailTheme(settings)
+      );
+
+      const result = mailer.isConfigured
+        ? await mailer.sendMessage(cert.parent_email, subject, body)
+        : { ok: false, detail: 'ยังไม่ได้ตั้งค่า Email Sending', messageId: undefined as string | undefined };
+
+      await new EmailLogRepository(config.db).log({
+        bookingId: cert.booking_id ?? null,
+        type: 'certificate',
+        email: cert.parent_email,
+        subject,
+        bodyHtml: body,
+        status: result.ok ? 'sent' : 'failed',
+        providerMessageId: result.messageId ?? null,
+        providerDetail: result.detail ?? null,
+        sentBy: c.get('crmUser')?.userId ?? null,
+      });
+
+      return c.json({
+        success: true, link,
+        emailStatus: result.ok ? 'sent' : 'failed',
+        email: cert.parent_email,
+        emailDetail: result.detail ?? null,
+      });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

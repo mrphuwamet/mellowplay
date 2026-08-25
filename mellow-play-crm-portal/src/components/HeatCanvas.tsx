@@ -191,7 +191,12 @@ const HeatCanvas: React.FC<{
   return (
     <Box sx={{
       position: expanded ? 'fixed' : 'relative',
-      ...(expanded ? { inset: 0, zIndex: 1400, borderRadius: 0 } : { borderRadius: 3 }),
+      // Above the app bar and the drawer, but BELOW the modal layer (1300).
+      // Every dialog reached from inside the canvas — เลือกผู้เข้าแข่งขัน, แก้ไข Heat,
+      // ลบ — is portalled to the body, so a canvas stacked over the modal layer
+      // paints across the dialog that just opened: the click registers, the
+      // dialog mounts, and nothing appears on screen.
+      ...(expanded ? { inset: 0, zIndex: (t: any) => t.zIndex.drawer + 50, borderRadius: 0 } : { borderRadius: 3 }),
       border: '1px solid #eef0f3', overflow: 'hidden', bgcolor: '#fbfbfd',
     }}>
       <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 3, display: 'flex', gap: 0.5, bgcolor: 'white', borderRadius: 2, boxShadow: 1, p: 0.5 }}>

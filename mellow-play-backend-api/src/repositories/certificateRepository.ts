@@ -179,6 +179,16 @@ export class CertificateRepository {
     ).bind(code).first();
   }
 
+  /** One certificate with the address to send it to. */
+  async getWithRecipientEmail(id: number): Promise<any | null> {
+    return await this.db.prepare(`
+      SELECT c.*, u.email AS parent_email, u.first_name, u.last_name
+        FROM Certificates c
+        LEFT JOIN Users u ON u.id = c.user_id AND u.deleted_at IS NULL
+       WHERE c.id = ?
+    `).bind(id).first();
+  }
+
   async revoke(id: number, reason: string | null): Promise<void> {
     await this.db.prepare(
       "UPDATE Certificates SET revoked_at = datetime('now'), revoke_reason = ? WHERE id = ? AND revoked_at IS NULL"

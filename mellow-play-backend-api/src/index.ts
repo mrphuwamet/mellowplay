@@ -681,6 +681,7 @@ app.put   ('/api/v1/admin/certificate-bindings',       (c) => certificateControl
 app.post  ('/api/v1/admin/certificates/issue',         (c) => certificateController.issue(c));
 app.post  ('/api/v1/admin/certificates/for-bookings',  (c) => certificateController.listForBookings(c));
 app.post  ('/api/v1/admin/certificates/:id/revoke',    (c) => certificateController.revoke(c));
+app.post  ('/api/v1/admin/certificates/:id/send',      (c) => certificateController.sendEmail(c));
 
 // Public: the printable page and the verification page both read this, and
 // neither can require a login — a certificate is meant to be shown to people

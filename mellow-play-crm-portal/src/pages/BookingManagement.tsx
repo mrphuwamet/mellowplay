@@ -32,6 +32,7 @@ import {
   Info as InfoIcon,
   MenuBook as CourseIcon,
   Email as EmailIcon,
+  ContentCopy as CopyIcon,
   Payments as PaymentsIcon,
   EventAvailable as BookedAtIcon,
   ForwardToInbox as ResendIcon,
@@ -1137,7 +1138,9 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // Certificates already issued for what is on screen, keyed by booking. Loaded
   // for the visible rows rather than all of them: this list can be a thousand
   // long and the answer is only needed for what someone can actually see.
-  const [certByBooking, setCertByBooking] = useState<Record<number, { public_code: string }>>({});
+  const [certByBooking, setCertByBooking] = useState<Record<number, { id: number; public_code: string }>>({});
+  // What happened to the last send, shown in the same snackbar as issuing.
+  const [certSending, setCertSending] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const [issueResult, setIssueResult] = useState('');
   const toggleSelected = (id: number) => setSelectedIds(prev => {
@@ -1230,6 +1233,38 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     } catch (e: any) {
       setIssueResult(e?.response?.data?.message || 'ออกเกียรติบัตรไม่สำเร็จ');
     } finally { setIssuing(false); }
+  };
+
+  /**
+   * Email the certificate, and put the link on the clipboard either way.
+   *
+   * Most families have no email address on file — for them the link is the
+   * whole answer, because it goes out on LINE by hand. So the copy happens
+   * whether or not the send does, and the message says which of the two
+   * actually reached them.
+   */
+  const sendCertificate = async (bookingId: number) => {
+    const cert = certByBooking[bookingId];
+    if (!cert) return;
+    setCertSending(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/certificates/${cert.id}/send`, {});
+      if (!data.success) { setIssueResult(data.message || 'ส่งเกียรติบัตรไม่สำเร็จ'); return; }
+      const copied = data.link ? await copyText(data.link) : false;
+      const tail = copied ? ' · คัดลอกลิงก์แล้ว' : '';
+      if (data.emailStatus === 'sent') setIssueResult(`ส่งอีเมลถึง ${data.email} แล้ว${tail}`);
+      else if (data.emailStatus === 'skipped') setIssueResult(`บัญชีนี้ไม่มีอีเมลในระบบ — ส่งลิงก์ทางไลน์ได้เลย${tail}`);
+      else setIssueResult(`ส่งอีเมลไม่สำเร็จ (${data.emailDetail || 'ไม่ทราบสาเหตุ'}) — ส่งลิงก์เองได้${tail}`);
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'ส่งเกียรติบัตรไม่สำเร็จ');
+    } finally { setCertSending(false); }
+  };
+
+  const copyCertificateLink = async (bookingId: number) => {
+    const cert = certByBooking[bookingId];
+    if (!cert) return;
+    const link = `${CONSUMER_APP_URL}/certificate/${cert.public_code}`;
+    setIssueResult(await copyText(link) ? 'คัดลอกลิงก์เกียรติบัตรแล้ว' : link);
   };
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
@@ -2185,6 +2220,28 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               ออกเกียรติบัตร
             </MenuItem>
           )
+        )}
+        {/* The two ways a certificate actually reaches a family: by email when
+            we hold an address, and by a link pasted into LINE when we do not —
+            which is the more common of the two. */}
+        {manageMenu && certByBooking[manageMenu.booking.id] && (
+          <MenuItem
+            disabled={certSending}
+            onClick={() => { if (manageMenu) void sendCertificate(manageMenu.booking.id); closeManageMenu(); }}
+            sx={{ gap: 1.25, fontWeight: 600 }}
+          >
+            <EmailIcon fontSize="small" sx={{ color: 'secondary.main' }} />
+            ส่งเกียรติบัตรทางอีเมล
+          </MenuItem>
+        )}
+        {manageMenu && certByBooking[manageMenu.booking.id] && (
+          <MenuItem
+            onClick={() => { if (manageMenu) void copyCertificateLink(manageMenu.booking.id); closeManageMenu(); }}
+            sx={{ gap: 1.25, fontWeight: 600 }}
+          >
+            <CopyIcon fontSize="small" sx={{ color: 'secondary.main' }} />
+            คัดลอกลิงก์เกียรติบัตร
+          </MenuItem>
         )}
         {manageMenu && manageMenu.booking.status !== 'cancelled' && (
           <MenuItem onClick={() => { setResendTarget([manageMenu.booking]); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>

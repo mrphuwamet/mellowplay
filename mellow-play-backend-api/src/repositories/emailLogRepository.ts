@@ -1,4 +1,4 @@
-export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset' | 'welcome' | 'broadcast';
+export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset' | 'welcome' | 'broadcast' | 'certificate';
 
 export interface EmailLogEntry {
   bookingId?: number | null;
