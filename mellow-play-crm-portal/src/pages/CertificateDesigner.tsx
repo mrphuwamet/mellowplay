@@ -77,6 +77,9 @@ const CertificateDesigner = () => {
   const [previewBooking, setPreviewBooking] = useState<any | null>(null);
   const [previewValues, setPreviewValues] = useState<Record<string, string> | null>(null);
   const [printing, setPrinting] = useState(false);
+  // Separate from the background's upload state: both can be in flight and the
+  // spinner has to sit on the one that is actually working.
+  const [uploadingField, setUploadingField] = useState(false);
 
   const load = async (keepId?: number) => {
     const { data } = await axios.get(`${API_BASE}/certificate-templates`);
@@ -164,12 +167,34 @@ const CertificateDesigner = () => {
     if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('folder', 'certificates');
-      const { data } = await axios.post(`${API_URL}/api/v1/admin/upload`, fd);
-      if (data.success) setBackground(data.url);
+      const url = await uploadImage(file);
+      if (url) setBackground(url);
+      else setNotice('อัปโหลดพื้นหลังไม่สำเร็จ');
+    } catch (e: any) {
+      setNotice(e?.response?.data?.message || 'อัปโหลดพื้นหลังไม่สำเร็จ');
     } finally { setUploading(false); }
+  };
+
+  /** Uploads and returns the URL, or null. Shared by the background and by
+   *  the image boxes, so there is one upload path rather than two. */
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'certificates');
+    const { data } = await axios.post(`${API_URL}/api/v1/admin/upload`, fd);
+    return data.success ? String(data.url) : null;
+  };
+
+  const uploadFieldImage = async (id: string, file?: File) => {
+    if (!file) return;
+    setUploadingField(true);
+    try {
+      const url = await uploadImage(file);
+      if (url) patch(id, { value: url });
+      else setNotice('อัปโหลดรูปไม่สำเร็จ');
+    } catch (e: any) {
+      setNotice(e?.response?.data?.message || 'อัปโหลดรูปไม่สำเร็จ');
+    } finally { setUploadingField(false); }
   };
 
   const save = async () => {
@@ -471,9 +496,46 @@ const CertificateDesigner = () => {
                   value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })} />
               )}
               {sel.type === 'image' && (
-                <TextField size="small" label="ลิงก์รูป" fullWidth
-                  value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })}
-                  helperText="อัปโหลดที่คลังรูปแล้ววางลิงก์ที่นี่" />
+                <Stack spacing={1}>
+                  {sel.value && (
+                    <Box sx={{
+                      p: 1, border: '1px solid #e4e6f0', borderRadius: 2,
+                      display: 'flex', justifyContent: 'center',
+                      // A signature on white artwork is invisible on a white
+                      // swatch — the chequerboard shows what is transparent.
+                      backgroundImage: 'repeating-conic-gradient(#f4f5f9 0% 25%, #fff 0% 50%)',
+                      backgroundSize: '14px 14px',
+                    }}>
+                      <img src={sel.value} alt="" style={{ maxWidth: '100%', maxHeight: 110, display: 'block' }} />
+                    </Box>
+                  )}
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <label htmlFor={`cert-img-${sel.id}`} style={{ flex: 1 }}>
+                      <input
+                        id={`cert-img-${sel.id}`} type="file" accept="image/*" hidden
+                        onChange={e => { void uploadFieldImage(sel.id, e.target.files?.[0]); e.target.value = ''; }}
+                      />
+                      <Button
+                        component="span" size="small" variant="outlined" fullWidth
+                        startIcon={uploadingField ? <CircularProgress size={14} /> : <ImageIcon />}
+                      >
+                        {sel.value ? 'เปลี่ยนรูป' : 'อัปโหลดรูป / ลายเซ็น'}
+                      </Button>
+                    </label>
+                    {sel.value && (
+                      <Tooltip title="เอารูปออก">
+                        <IconButton size="small" color="error" onClick={() => patch(sel.id, { value: '' })}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
+                  <TextField
+                    size="small" label="หรือวางลิงก์รูป" fullWidth
+                    value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })}
+                    helperText="ไฟล์ PNG พื้นหลังโปร่งใสจะวางบนลายเกียรติบัตรได้สวยที่สุด"
+                  />
+                </Stack>
               )}
 
               {sel.type !== 'qr' && sel.type !== 'image' && (

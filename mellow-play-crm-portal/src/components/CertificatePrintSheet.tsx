@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { CONSUMER_APP_URL } from '../config';
 import { CertField, CertValueMap, parseFields, fieldText } from '../utils/certificateLayout';
@@ -116,9 +117,14 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
 };
 
 /**
- * Rendered inside the CRM and revealed only by the print stylesheet, rather
- * than written into a popup window: a popup gets blocked, loses the app's Thai
+ * Rendered into the CRM and revealed only by the print stylesheet, rather than
+ * written into a popup window: a popup gets blocked, loses the app's Thai
  * fonts, and would need its own copy of the field renderer above.
+ *
+ * Portalled to <body> and not left where it is written. The stylesheet hides
+ * the app by matching body's own children, and inside the React tree this
+ * sheet sits under <div id="root"> — so that rule would hide the sheet's own
+ * ancestor and print a blank page, however visible the sheet itself was.
  */
 const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => {
   if (items.length === 0) return null;
@@ -126,7 +132,7 @@ const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => 
   const w = Number(first?.page_width) || 297;
   const h = Number(first?.page_height) || 210;
 
-  return (
+  return createPortal(
     <div id="certificate-print-root">
       <style>{`
         @media screen { #certificate-print-root { display: none; } }
@@ -150,7 +156,8 @@ const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => 
         }
       `}</style>
       {items.map(item => <CertificatePage key={item.id} item={item} />)}
-    </div>
+    </div>,
+    document.body
   );
 };
 
