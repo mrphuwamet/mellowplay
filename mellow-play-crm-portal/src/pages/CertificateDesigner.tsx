@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Box, Paper, Typography, Button, IconButton, TextField, MenuItem, Select,
   FormControl, InputLabel, Stack, Divider, Alert, Tooltip, CircularProgress,
   ToggleButton, ToggleButtonGroup, Slider, ListSubheader, Autocomplete,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon,
@@ -17,6 +19,7 @@ import {
 } from '../utils/certificateLayout';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import RuleEditor from '../components/CertificateRuleEditor';
+import { useUnsavedChanges } from '../utils/unsavedChanges';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -60,6 +63,10 @@ const CertificateDesigner = () => {
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState(false);
 
+  // The raw one on purpose: this is the navigation that happens *after* the
+  // question has been answered, so it must not be asked again.
+  const rawNavigate = useNavigate();
+
   const pageRef = useRef<HTMLDivElement>(null);
   const [renderWidth, setRenderWidth] = useState(760);
 
@@ -81,6 +88,15 @@ const CertificateDesigner = () => {
   // spinner has to sit on the one that is actually working.
   const [uploadingField, setUploadingField] = useState(false);
 
+  // What the template looked like when it was last loaded or saved. Comparing
+  // against a snapshot rather than setting a flag on every edit means undoing a
+  // change back to where it started counts as clean, which is what someone who
+  // just undid it expects.
+  const [savedSnapshot, setSavedSnapshot] = useState('');
+  // Where they were trying to go, or what they were trying to do, held while
+  // the question is on screen.
+  const [pending, setPending] = useState<{ label: string; run: () => void } | null>(null);
+
   const load = async (keepId?: number) => {
     const { data } = await axios.get(`${API_BASE}/certificate-templates`);
     if (!data.success) return;
@@ -89,14 +105,26 @@ const CertificateDesigner = () => {
     if (pick) applyTemplate(pick);
   };
 
+  const snapshotOf = (v: {
+    name: string; background: string | null; pageW: number; pageH: number; fields: CertField[];
+  }) => JSON.stringify(v);
+
   const applyTemplate = (t: any) => {
+    const next = {
+      name: t.name || '',
+      background: t.background_url || null,
+      pageW: Number(t.page_width) || 297,
+      pageH: Number(t.page_height) || 210,
+      fields: parseFields(t.fields_json),
+    };
     setActiveId(t.id);
-    setName(t.name || '');
-    setBackground(t.background_url || null);
-    setPageW(Number(t.page_width) || 297);
-    setPageH(Number(t.page_height) || 210);
-    setFields(parseFields(t.fields_json));
+    setName(next.name);
+    setBackground(next.background);
+    setPageW(next.pageW);
+    setPageH(next.pageH);
+    setFields(next.fields);
     setSelected(null);
+    setSavedSnapshot(snapshotOf(next));
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -143,6 +171,33 @@ const CertificateDesigner = () => {
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, [activeId]);
+
+  const currentSnapshot = snapshotOf({ name, background, pageW, pageH, fields });
+  const dirty = savedSnapshot !== '' && currentSnapshot !== savedSnapshot;
+
+  const askBeforeLeaving = useCallback((to: any) => {
+    setPending({ label: 'ออกจากหน้านี้', run: () => rawNavigate(to) });
+  }, [rawNavigate]);
+
+  useUnsavedChanges(dirty, askBeforeLeaving);
+
+  /** Runs the action now if nothing would be lost, or asks first if it would. */
+  const guarded = (label: string, action: () => void) => () => {
+    if (!dirty) { action(); return; }
+    setPending({ label, run: action });
+  };
+
+  const startNewTemplate = () => {
+    const blank = { name: 'แบบใหม่', background: null as string | null, pageW: 297, pageH: 210, fields: [] as CertField[] };
+    setActiveId(null);
+    setName(blank.name);
+    setBackground(blank.background);
+    setPageW(blank.pageW);
+    setPageH(blank.pageH);
+    setFields(blank.fields);
+    setSelected(null);
+    setSavedSnapshot(snapshotOf(blank));
+  };
 
   const height = renderWidth * (pageH / pageW);
   const sel = fields.find(f => f.id === selected) || null;
@@ -207,13 +262,20 @@ const CertificateDesigner = () => {
         page_width: pageW, page_height: pageH,
         fields_json: JSON.stringify(fields),
       };
+      // Held in a local, not read back off state: setActiveId has not landed
+      // by the time load() runs, so reloading by the state value would fail to
+      // find the template just created and quietly show a different one — which
+      // reads as the work having been lost.
+      let savedId = activeId;
       if (activeId) await axios.put(`${API_BASE}/certificate-templates/${activeId}`, payload);
       else {
         const { data } = await axios.post(`${API_BASE}/certificate-templates`, payload);
-        setActiveId(data.id);
+        savedId = Number(data.id);
+        setActiveId(savedId);
       }
       setNotice('บันทึกแล้ว');
-      await load(activeId ?? undefined);
+      setSavedSnapshot(currentSnapshot);
+      await load(savedId ?? undefined);
     } catch (e: any) {
       setNotice(e?.response?.data?.message || 'บันทึกไม่สำเร็จ');
     } finally { setSaving(false); }
@@ -340,22 +402,29 @@ const CertificateDesigner = () => {
             <InputLabel>แบบเกียรติบัตร</InputLabel>
             <Select
               label="แบบเกียรติบัตร" value={activeId ?? ''}
-              onChange={e => { const t = templates.find(x => x.id === Number(e.target.value)); if (t) applyTemplate(t); }}
+              onChange={e => {
+                const t = templates.find(x => x.id === Number(e.target.value));
+                if (t) guarded('เปลี่ยนไปแบบอื่น', () => applyTemplate(t))();
+              }}
             >
               {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
             </Select>
           </FormControl>
           <Button
             variant="outlined" startIcon={<AddIcon />}
-            onClick={() => { setActiveId(null); setName('แบบใหม่'); setBackground(null); setFields([]); setSelected(null); }}
+            onClick={guarded('เริ่มแบบใหม่', startNewTemplate)}
           >
             แบบใหม่
           </Button>
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={printPreview} disabled={printing}>
             พิมพ์ตัวอย่าง
           </Button>
-          <Button variant="contained" startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />} onClick={save} disabled={saving}>
-            บันทึก
+          <Button
+            variant="contained" color={dirty ? 'warning' : 'primary'}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+            onClick={save} disabled={saving}
+          >
+            {dirty ? 'บันทึก (ยังไม่ได้บันทึก)' : 'บันทึก'}
           </Button>
         </Stack>
       </Stack>
@@ -593,6 +662,33 @@ const CertificateDesigner = () => {
       {/* Hidden on screen; the print stylesheet inside it hides everything else
           when the dialog opens. Same component the booking list prints with. */}
       <CertificatePrintSheet items={printItems} />
+
+      {/* Asked only for moves inside the CRM. Refreshing or closing the tab is
+          the browser's own prompt — no site has been allowed to word that one
+          for years. */}
+      <Dialog open={!!pending} onClose={() => setPending(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยังไม่ได้บันทึกการแก้ไข</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2">
+            การแก้ไขแบบเกียรติบัตรนี้ยังไม่ถูกบันทึก ถ้า{pending?.label}ตอนนี้ สิ่งที่แก้ไว้จะหายไป
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPending(null)}>อยู่หน้านี้ต่อ</Button>
+          <Button
+            color="error"
+            onClick={() => { const run = pending?.run; setSavedSnapshot(currentSnapshot); setPending(null); run?.(); }}
+          >
+            ไม่บันทึก
+          </Button>
+          <Button
+            variant="contained" disabled={saving}
+            onClick={async () => { const run = pending?.run; await save(); setPending(null); run?.(); }}
+          >
+            บันทึกแล้วไปต่อ
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { useGuardedNavigate } from './utils/unsavedChanges';
 import {
   Alert,
   AppBar,
@@ -344,7 +345,10 @@ const AppContent = () => {
     return initial;
   });
   const location = useLocation();
-  const navigate = useNavigate();
+  // Guarded, so every menu item, breadcrumb and logo click below asks a screen
+  // with unsaved work before walking away from it. One line rather than a
+  // check at each of the dozen call sites, none of which would be remembered.
+  const navigate = useGuardedNavigate();
 
   useEffect(() => {
     for (const [key, paths] of Object.entries(GROUP_PATHS)) {
