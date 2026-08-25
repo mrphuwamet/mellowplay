@@ -147,7 +147,7 @@ const TournamentManagement: React.FC = () => {
   const [tournaments, setTournaments] = useState<any[]>([]);
   // Every bracket with its own heats and entries. Winners of separate brackets
   // meet each other, which cannot be planned one bracket at a time.
-  const [brackets, setBrackets] = useState<{ tournament: any; heats: Heat[]; entries: Entry[] }[]>([]);
+  const [brackets, setBrackets] = useState<{ tournament: any; heats: Heat[]; entries: Entry[]; links?: { from_heat_id: number; to_heat_id: number }[] }[]>([]);
   const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<any>(null);
@@ -556,34 +556,28 @@ const TournamentManagement: React.FC = () => {
 
       for (const view of bracketViews) {
         const container = bracketRefs.current[view.tournament.id];
-        if (!container || view.stages.length < 2) continue;
+        if (!container || (view.links || []).length === 0) continue;
         const base = container.getBoundingClientRect();
         const lines: { id: string; d: string }[] = [];
 
-        for (let s = 0; s < view.stages.length - 1; s++) {
-          const from = view.stages[s];
-          const to = view.stages[s + 1];
-          from.heats.forEach((heat, i) => {
-            const advance = heat.advance_count ?? 1;
-            const targets = new Set<number>();
-            for (let j = 0; j < advance; j++) targets.add((i + j) % to.heats.length);
-
-            const a = heatRefs.current[heat.id]?.getBoundingClientRect();
-            if (!a) return;
-            targets.forEach(t => {
-              const b = heatRefs.current[to.heats[t].id]?.getBoundingClientRect();
-              if (!b) return;
-              const x1 = a.right - base.left;
-              const y1 = a.top - base.top + a.height / 2;
-              const x2 = b.left - base.left;
-              const y2 = b.top - base.top + b.height / 2;
-              const mid = x1 + (x2 - x1) / 2;
-              // Square elbows rather than curves — a bracket is read as columns
-              // and rails, and a diagonal makes two boxes look adjacent when
-              // they are a whole round apart.
-              lines.push({ id: `${heat.id}-${to.heats[t].id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
-            });
-          });
+        // The lines that actually exist, not a rule about which ones ought
+        // to. Since migration 0097 a bracket's routes are rows in
+        // Tournament_Heat_Links, drawn by hand on the canvas — deriving them
+        // here from stage arithmetic drew a different bracket from the one
+        // staff arranged, and did it convincingly.
+        for (const link of (view.links || [])) {
+          const a = heatRefs.current[link.from_heat_id]?.getBoundingClientRect();
+          const b = heatRefs.current[link.to_heat_id]?.getBoundingClientRect();
+          if (!a || !b) continue;
+          const x1 = a.right - base.left;
+          const y1 = a.top - base.top + a.height / 2;
+          const x2 = b.left - base.left;
+          const y2 = b.top - base.top + b.height / 2;
+          const mid = x1 + (x2 - x1) / 2;
+          // Square elbows rather than curves — a bracket is read as columns
+          // and rails, and a diagonal makes two boxes look adjacent when they
+          // are a whole round apart.
+          lines.push({ id: `${link.from_heat_id}-${link.to_heat_id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
         }
         next[view.tournament.id] = lines;
       }
@@ -697,12 +691,16 @@ const TournamentManagement: React.FC = () => {
             .filter(Boolean).join(' · '),
           withResults,
           orientation,
+          // Same rows the canvas and the list view draw from — three pictures
+          // of one bracket, or it is not one bracket.
+          links: (view.links || []).map((l: any) => ({ from: l.from_heat_id, to: l.to_heat_id })),
           // Laid out from the data, not captured off the screen: the printed
           // sheet has no buttons on it and breaks where paper breaks.
           stages: view.stages.map(stage => ({
             label: stage.label,
             isFinal: stage.isFinal,
             heats: stage.heats.map(heat => ({
+              id: heat.id,
               name: heat.name,
               when: heat.slot_date ? roundLabel(heat.slot_date, heat.slot_start_time) : null,
               note: heat.note,

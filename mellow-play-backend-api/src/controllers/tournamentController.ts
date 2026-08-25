@@ -67,10 +67,18 @@ export class TournamentController {
       // rather than one per bracket.
       const brackets = [];
       for (const t of tournaments) {
-        const [heats, entries] = await Promise.all([repo.getHeats(t.id), repo.getEntries(t.id)]);
+        const [heats, entries, links] = await Promise.all([
+          repo.getHeats(t.id), repo.getEntries(t.id), repo.getLinks(t.id),
+        ]);
         brackets.push({
           tournament: t,
           heats,
+          // Each bracket carries its OWN lines. Without them the list view and
+          // the printed sheet had to guess which heat feeds which, and both
+          // guessed with the pre-0097 rule — so the picture on the canvas, the
+          // picture in the list, and the picture on paper were three different
+          // brackets.
+          links,
           // An entry knows the bookings behind it now, not the ones behind it
           // when it was drawn — see bookingIdsForEntry.
           entries: entries.map(e => ({ ...e, booking_ids: bookingIdsForEntry(e, registrants) })),

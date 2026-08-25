@@ -155,6 +155,8 @@ export interface PrintEntry {
 }
 
 export interface PrintHeat {
+  /** Heat id, so the explicit links below can name it. */
+  id?: number;
   name: string;
   when?: string | null;
   note?: string | null;
@@ -182,6 +184,16 @@ export interface BracketPrintOptions {
    * upside-down pyramid, which is how a bracket is usually drawn on a wall.
    */
   orientation: BracketOrientation;
+  /**
+   * Which heat feeds which, as drawn on the canvas.
+   *
+   * Given rather than derived. The old arithmetic — winner j of heat i goes to
+   * heat i+j — was the rule before the routes became editable, and printing it
+   * hands someone a sheet that disagrees with the screen they arranged it on.
+   * Absent or empty falls back to that arithmetic, for a bracket old enough to
+   * have no rows.
+   */
+  links?: { from: number; to: number }[];
 }
 
 // Every measurement the chart is laid out with. Fixed rather than left to the
@@ -220,7 +232,12 @@ const cardHeight = (heat: PrintHeat, withResults: boolean): number => {
  * which is what gives a bracket its shape, and a line runs from each card to
  * the card its winners feed — the same mapping the advance action uses.
  */
-function layoutChart(stages: PrintStage[], orientation: BracketOrientation, withResults: boolean) {
+function layoutChart(
+  stages: PrintStage[],
+  orientation: BracketOrientation,
+  withResults: boolean,
+  explicitLinks?: { from: number; to: number }[],
+) {
   const heights = stages.map(stage => stage.heats.map(h => cardHeight(h, withResults)));
   const vertical = orientation === 'vertical';
 
@@ -248,9 +265,45 @@ function layoutChart(stages: PrintStage[], orientation: BracketOrientation, with
     };
   }));
 
-  // Winner j of heat i lands in next-round heat i+j — the rule the board and
-  // the advance action already follow, so the printed lines are the real route.
   const links: string[] = [];
+
+  // An elbow between two boxes, whichever way round the page runs.
+  const elbow = (from: { x: number; y: number; w: number; h: number }, to: { x: number; y: number; w: number; h: number }) => {
+    if (vertical) {
+      const x1 = from.x + from.w / 2, y1 = from.y + from.h;
+      const x2 = to.x + to.w / 2, y2 = to.y;
+      const mid = y1 + (y2 - y1) / 2;
+      return `M ${x1} ${y1} V ${mid} H ${x2} V ${y2}`;
+    }
+    const x1 = from.x + from.w, y1 = from.y + from.h / 2;
+    const x2 = to.x, y2 = to.y + to.h / 2;
+    const mid = x1 + (x2 - x1) / 2;
+    return `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`;
+  };
+
+  if (explicitLinks && explicitLinks.length > 0) {
+    // Where each heat ended up, by id, so a line can be drawn between any two
+    // boxes rather than only between neighbouring columns.
+    const boxById = new Map<number, { x: number; y: number; w: number; h: number }>();
+    stages.forEach((stage, si) => stage.heats.forEach((heat, hi) => {
+      if (heat.id != null) boxById.set(heat.id, boxes[si][hi]);
+    }));
+    for (const l of explicitLinks) {
+      const from = boxById.get(l.from);
+      const to = boxById.get(l.to);
+      if (from && to) links.push(elbow(from, to));
+    }
+    const width0 = vertical
+      ? crossSpan
+      : stages.length * CHART.cardWidth + (stages.length - 1) * CHART.gap;
+    const height0 = vertical
+      ? stages.reduce((y, _s, i) => y + CHART.headerHeight + Math.max(...heights[i]) + CHART.gap, 0) - CHART.gap
+      : CHART.headerHeight + crossSpan;
+    return { boxes, links, width: width0, height: height0 };
+  }
+
+  // Fallback for a bracket drawn before the routes became editable: winner j of
+  // heat i lands in next-round heat i+j.
   for (let si = 0; si < stages.length - 1; si++) {
     const next = stages[si + 1];
     stages[si].heats.forEach((heat, hi) => {
@@ -299,7 +352,7 @@ function layoutChart(stages: PrintStage[], orientation: BracketOrientation, with
 export function buildBracketChartHtml(opts: BracketPrintOptions): string {
   const { title, subtitle, stages, withResults, orientation } = opts;
   const vertical = orientation === 'vertical';
-  const { boxes, links, width, height } = layoutChart(stages, orientation, withResults);
+  const { boxes, links, width, height } = layoutChart(stages, orientation, withResults, opts.links);
 
   const entryRow = (e: PrintEntry, i: number): string => {
     const rank = withResults && e.rank && RANK_STYLE[e.rank] ? RANK_STYLE[e.rank] : null;
