@@ -68,6 +68,7 @@ import {
   Flag as CommunityModerationMenuIcon,
   Campaign as AdsMenuIcon,
   Grade as StampImageMenuIcon,
+  WorkspacePremium as CertificateMenuIcon,
   TrendingUp as SalesMenuIcon,
   EventSeat as BookingOverviewMenuIcon,
   Link as TagAttributionMenuIcon,
@@ -163,7 +164,7 @@ const drawerCollapsedWidth = 72;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/bookings', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/booking-announcer', '/crm/tournaments', '/crm/sms-notifications'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/booking-announcer', '/crm/tournaments', '/crm/certificates', '/crm/sms-notifications'],
   marketing: ['/crm/broadcasts', '/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -467,6 +468,7 @@ const AppContent = () => {
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
       { text: 'ประกาศการจองใหม่', icon: <AnnouncerMenuIcon />, path: '/crm/booking-announcer', feature: 'bookings' },
       { text: 'จัดการแข่งขัน', icon: <TournamentMenuIcon />, path: '/crm/tournaments', feature: 'bookings' },
+      { text: 'ออกแบบเกียรติบัตร', icon: <CertificateMenuIcon />, path: '/crm/certificates', feature: 'bookings' },
       { text: 'การแจ้งเตือน', icon: <SmsMenuIcon />, path: '/crm/sms-notifications', feature: 'bookings' },
       { text: 'สแกน QR เช็คอิน', icon: <CheckinScannerMenuIcon />, path: '/crm/checkin-scanner', feature: 'bookings' },
     ]);
