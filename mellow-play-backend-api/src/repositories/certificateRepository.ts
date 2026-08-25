@@ -14,10 +14,22 @@ export class CertificateRepository {
   }
 
   // ── Templates ───────────────────────────────────────────────────────────
-  async listTemplates(): Promise<any[]> {
-    const { results } = await this.db.prepare(
-      'SELECT * FROM Certificate_Templates WHERE is_active = 1 ORDER BY id'
-    ).all();
+  /**
+   * Every template, with what depends on it.
+   *
+   * The two counts are what makes deleting safe to offer: a template nothing
+   * was ever issued from is genuinely disposable, and one that has certificates
+   * behind it is the artwork those certificates reprint from.
+   */
+  async listTemplates(includeInactive = false): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT t.*,
+             (SELECT COUNT(*) FROM Certificates c WHERE c.template_id = t.id) AS issued_count,
+             (SELECT COUNT(*) FROM Certificate_Template_Bindings b WHERE b.template_id = t.id) AS binding_count
+        FROM Certificate_Templates t
+       WHERE (? = 1 OR t.is_active = 1)
+       ORDER BY t.is_active DESC, t.id
+    `).bind(includeInactive ? 1 : 0).all();
     return results;
   }
 
@@ -57,6 +69,30 @@ export class CertificateRepository {
   /** Soft, so certificates issued from it keep pointing at their artwork. */
   async deactivateTemplate(id: number): Promise<void> {
     await this.db.prepare('UPDATE Certificate_Templates SET is_active = 0 WHERE id = ?').bind(id).run();
+  }
+
+  async reactivateTemplate(id: number): Promise<void> {
+    await this.db.prepare('UPDATE Certificate_Templates SET is_active = 1 WHERE id = ?').bind(id).run();
+  }
+
+  async countIssuedFrom(id: number): Promise<number> {
+    const row = await this.db.prepare(
+      'SELECT COUNT(*) AS n FROM Certificates WHERE template_id = ?'
+    ).bind(id).first<{ n: number }>();
+    return Number(row?.n ?? 0);
+  }
+
+  /**
+   * Gone for good. Only ever reached when nothing was issued from it.
+   *
+   * Certificates.template_id is ON DELETE SET NULL, so removing a template that
+   * HAS been used would not fail — it would quietly strip the artwork off every
+   * certificate already in a family's hands, and they would reprint blank. That
+   * is the whole reason the caller checks first.
+   */
+  async hardDeleteTemplate(id: number): Promise<void> {
+    await this.db.prepare('DELETE FROM Certificate_Template_Bindings WHERE template_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM Certificate_Templates WHERE id = ?').bind(id).run();
   }
 
   // ── Bindings ────────────────────────────────────────────────────────────

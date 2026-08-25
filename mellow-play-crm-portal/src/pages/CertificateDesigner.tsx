@@ -5,7 +5,7 @@ import {
   Box, Paper, Typography, Button, IconButton, TextField, MenuItem, Select,
   FormControl, InputLabel, Stack, Divider, Alert, Tooltip, CircularProgress,
   ToggleButton, ToggleButtonGroup, Slider, ListSubheader, Autocomplete,
-  FormHelperText,
+  FormHelperText, Tabs, Tab,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
@@ -20,6 +20,7 @@ import {
 } from '../utils/certificateLayout';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import RuleEditor from '../components/CertificateRuleEditor';
+import CertificateTemplateList from '../components/CertificateTemplateList';
 import { useUnsavedChanges } from '../utils/unsavedChanges';
 import {
   FontChoice, GOOGLE_FONTS, SYSTEM_FONTS, DEFAULT_FONT,
@@ -105,9 +106,10 @@ const CertificateDesigner = () => {
   // Where they were trying to go, or what they were trying to do, held while
   // the question is on screen.
   const [pending, setPending] = useState<{ label: string; run: () => void } | null>(null);
+  const [tab, setTab] = useState<'design' | 'list'>('design');
 
   const load = async (keepId?: number) => {
-    const { data } = await axios.get(`${API_BASE}/certificate-templates`);
+    const { data } = await axios.get(`${API_BASE}/certificate-templates`, { params: { all: 1 } });
     if (!data.success) return;
     setTemplates(data.templates || []);
     const pick = data.templates.find((t: any) => t.id === (keepId ?? activeId)) || data.templates[0];
@@ -421,7 +423,9 @@ const CertificateDesigner = () => {
                 if (t) guarded('เปลี่ยนไปแบบอื่น', () => applyTemplate(t))();
               }}
             >
-              {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              {templates.filter(t => t.is_active || t.id === activeId).map(t => (
+                <MenuItem key={t.id} value={t.id}>{t.name}{t.is_active ? '' : ' (ปิดใช้งาน)'}</MenuItem>
+              ))}
             </Select>
           </FormControl>
           <Button
@@ -445,7 +449,24 @@ const CertificateDesigner = () => {
 
       {notice && <Alert severity={notice === 'บันทึกแล้ว' ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
 
-      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start">
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, minHeight: 40 }}>
+        <Tab value="design" label="ออกแบบ" sx={{ minHeight: 40, fontWeight: 700 }} />
+        <Tab value="list" label={`รายการแบบ (${templates.length})`} sx={{ minHeight: 40, fontWeight: 700 }} />
+      </Tabs>
+
+      {tab === 'list' && (
+        <CertificateTemplateList
+          templates={templates as any}
+          onEdit={t => { const full = templates.find(x => x.id === t.id); if (full) { applyTemplate(full); setTab('design'); } }}
+          onNew={() => { startNewTemplate(); setTab('design'); }}
+          onChanged={() => load(activeId ?? undefined)}
+        />
+      )}
+
+      <Stack
+        direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start"
+        sx={{ display: tab === 'design' ? 'flex' : 'none' }}
+      >
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, flex: 1, minWidth: 0 }}>
           {/* Preview source. Sitting above the page rather than in the sidebar
               because it changes what the whole page says, not one box. */}

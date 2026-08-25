@@ -686,6 +686,7 @@ app.post  ('/api/v1/admin/certificates/issue',         (c) => certificateControl
 app.post  ('/api/v1/admin/certificates/for-bookings',  (c) => certificateController.listForBookings(c));
 app.post  ('/api/v1/admin/certificates/:id/revoke',    (c) => certificateController.revoke(c));
 app.post  ('/api/v1/admin/certificates/:id/send',      (c) => certificateController.sendEmail(c));
+app.put   ('/api/v1/admin/certificate-templates/:id/active', (c) => certificateController.setTemplateActive(c));
 app.get   ('/api/v1/admin/certificates/sample-bookings', (c) => certificateController.sampleBookings(c));
 app.get   ('/api/v1/admin/certificates/preview/:bookingId', (c) => certificateController.previewValues(c));
 app.post  ('/api/v1/admin/certificates/print-batch',   (c) => certificateController.printBatch(c));

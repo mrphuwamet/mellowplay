@@ -36,7 +36,12 @@ export class CertificateController {
   async listTemplates(c: C) {
     try {
       const repo = this.repo(c);
-      return c.json({ success: true, templates: await repo.listTemplates(), bindings: await repo.listBindings() });
+      const includeInactive = c.req.query('all') === '1';
+      return c.json({
+        success: true,
+        templates: await repo.listTemplates(includeInactive),
+        bindings: await repo.listBindings(),
+      });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -67,9 +72,39 @@ export class CertificateController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * Delete a template outright, or refuse and say why.
+   *
+   * Only ever deletes one nothing was issued from. A template with
+   * certificates behind it is the artwork those certificates reprint from —
+   * Certificates.template_id is ON DELETE SET NULL, so the delete would
+   * succeed and strip the design off documents already in families' hands.
+   * Retiring one of those is what ปิดใช้งาน is for, and it stays available.
+   */
   async deleteTemplate(c: C) {
     try {
-      await this.repo(c).deactivateTemplate(parseInt(c.req.param('id')));
+      const repo = this.repo(c);
+      const id = parseInt(c.req.param('id'));
+      const issued = await repo.countIssuedFrom(id);
+      if (issued > 0) {
+        return c.json({
+          success: false,
+          issued,
+          message: `ลบไม่ได้ — เคยออกเกียรติบัตรจากแบบนี้ไปแล้ว ${issued} ใบ ใช้ “ปิดใช้งาน” แทนเพื่อไม่ให้เลือกใช้ต่อ`,
+        }, 409);
+      }
+      await repo.hardDeleteTemplate(id);
+      return c.json({ success: true, deleted: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /** Retire a template that HAS been used, or bring one back. */
+  async setTemplateActive(c: C) {
+    try {
+      const repo = this.repo(c);
+      const id = parseInt(c.req.param('id'));
+      const { active } = await c.req.json();
+      if (active) await repo.reactivateTemplate(id); else await repo.deactivateTemplate(id);
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
