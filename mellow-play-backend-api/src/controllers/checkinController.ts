@@ -226,10 +226,16 @@ export class CheckinController {
       const { results } = await db.prepare(`
         SELECT b.id, b.qr_token, b.status, b.slot_start_time,
                COALESCE(NULLIF(hp.nickname, ''), hp.name) AS who,
+               hp.name AS full_name, hp.nickname AS nickname,
+               -- The phone is how staff find someone whose QR will not open,
+               -- and how they tell two children with the same nickname apart.
+               u.phone AS parent_phone,
+               TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS parent_name,
                (SELECT COUNT(*) FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS ticks
           FROM Bookings b
           LEFT JOIN Children ch ON ch.id = b.child_id
           LEFT JOIN HD_Profiles hp ON hp.id = ch.hd_profile_id
+          LEFT JOIN Users u ON u.id = ch.parent_id
          WHERE b.course_id = ? AND b.slot_date = ?
            AND (? = '' OR SUBSTR(b.slot_start_time, 1, 5) = SUBSTR(?, 1, 5))
            AND b.status != 'cancelled'

@@ -30,7 +30,7 @@ const linkUrl = (token: string) => `${window.location.origin}/checkin-access/${t
 // shouldn't get a real CRM login — see CheckinAccessScanner.tsx for the
 // public page those links open, and CheckinScannerCore.tsx for the scanner
 // UI shared between this CRM page and that public one.
-const AccessLinkPanel = () => {
+const AccessLinkPanel = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const [links, setLinks] = useState<AccessLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +53,7 @@ const AccessLinkPanel = () => {
     }
   };
 
-  useEffect(() => { loadLinks(); }, []);
+  useEffect(() => { if (open) loadLinks(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [open]);
 
   const openDialog = () => {
     setLabel('');
@@ -109,14 +109,14 @@ const AccessLinkPanel = () => {
   };
 
   return (
-    <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 640, mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LinkIcon sx={{ color: 'primary.main' }} fontSize="small" />
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>ลิงก์แจกจ่ายให้ผู้ช่วยเช็คอิน</Typography>
-        </Box>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 800 }}>
+        <LinkIcon sx={{ color: 'primary.main' }} fontSize="small" />
+        ลิงก์แจกจ่ายให้ผู้ช่วยเช็คอิน
+        <Box sx={{ flex: 1 }} />
         <Button size="small" startIcon={<AddIcon />} onClick={openDialog}>สร้างลิงก์ใหม่</Button>
-      </Box>
+      </DialogTitle>
+      <DialogContent dividers>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         แจกให้ผู้ช่วยหน้างานได้ ไม่ต้องมีบัญชี CRM ใส่ PIN ครั้งแรกแล้วใช้ได้ 24 ชม.
       </Typography>
@@ -191,19 +191,33 @@ const AccessLinkPanel = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>ปิด</Button>
+      </DialogActions>
+    </Dialog>
   );
 };
 
 const CheckinScanner = () => {
+  const [linksOpen, setLinksOpen] = useState(false);
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
         <ScanIcon sx={{ color: 'primary.main' }} />
         <Typography variant="h5" sx={{ fontWeight: 800 }}>สแกน QR เช็คอิน</Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button
+          size="small" variant="outlined" startIcon={<LinkIcon />}
+          onClick={() => setLinksOpen(true)}
+          sx={{ borderRadius: 2, fontWeight: 700 }}
+        >
+          ลิงก์ผู้ช่วย
+        </Button>
       </Box>
 
-      <AccessLinkPanel />
+      <AccessLinkPanel open={linksOpen} onClose={() => setLinksOpen(false)} />
 
       <CheckinScannerCore client={axios} canCloseRound />
     </Box>

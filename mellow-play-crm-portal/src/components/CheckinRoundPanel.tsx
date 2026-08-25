@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Box, Paper, Typography, Button, Stack, MenuItem, Select, FormControl, InputLabel,
   TextField, Chip, LinearProgress, Alert, List, ListItemButton, ListItemText,
-  CircularProgress, ToggleButton, ToggleButtonGroup,
+  CircularProgress, ToggleButton, ToggleButtonGroup, InputAdornment, IconButton, Tooltip,
 } from '@mui/material';
 import {
   EventBusy as AbsentIcon, CheckCircle as ArrivedIcon, Refresh as RefreshIcon,
   QrCode2 as QrIcon, ContentCopy as CopyIcon, Print as PrintIcon,
+  Search as SearchIcon, Close as CloseIcon,
+  ChevronLeft as PrevIcon, ChevronRight as NextIcon,
 } from '@mui/icons-material';
 import { Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { QRCodeSVG } from 'qrcode.react';
@@ -43,8 +45,15 @@ interface RosterRow {
   qr_token: string;
   status: string;
   who: string | null;
+  full_name: string | null;
+  nickname: string | null;
+  parent_phone: string | null;
+  parent_name: string | null;
   ticks: number;
 }
+
+/** Ten fits a phone without scrolling the page away from the scanner. */
+const PER_PAGE = 10;
 
 const todayInBangkok = () => {
   const now = new Date(Date.now() + 7 * 60 * 60 * 1000);
@@ -74,6 +83,8 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   const [sessionId, setSessionId] = useState<number | ''>('');
   const [token, setToken] = useState('');
   const [making, setMaking] = useState(false);
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     client.get(`${API_BASE}/checkin/rounds`, { params: { date } })
@@ -97,12 +108,23 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   }, [client]);
 
   useEffect(() => { void loadRoster(picked); }, [picked, loadRoster, refreshKey]);
+  useEffect(() => { setPage(1); }, [query, show, picked]);
 
   const rows = roster || [];
   const arrived = rows.filter(r => r.ticks > 0);
   const missing = rows.filter(r => r.ticks === 0 && r.status !== 'no_show');
   const marked = rows.filter(r => r.status === 'no_show');
-  const listed = show === 'missing' ? [...missing, ...marked] : rows;
+
+  // Searched over everything a person at a door might be asked for: either
+  // name, the parent's, the phone, or the booking number they were read out.
+  const q = query.trim().toLowerCase();
+  const matches = (r: RosterRow) => !q || [
+    r.who, r.full_name, r.nickname, r.parent_name, r.parent_phone, String(r.id),
+  ].some(v => String(v ?? '').toLowerCase().includes(q));
+
+  const listed = (show === 'missing' ? [...missing, ...marked] : rows).filter(matches);
+  const pageCount = Math.max(1, Math.ceil(listed.length / PER_PAGE));
+  const pageRows = listed.slice((Math.min(page, pageCount) - 1) * PER_PAGE, Math.min(page, pageCount) * PER_PAGE);
 
   const openQr = async () => {
     setQrOpen(true);
@@ -204,9 +226,9 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
               <Button size="small" startIcon={<QrIcon />} onClick={() => void openQr()}>
                 QR แบบสอบถาม
               </Button>
-              <Button size="small" startIcon={<RefreshIcon />} onClick={() => void loadRoster(picked)}>
-                รีเฟรช
-              </Button>
+              <Tooltip title="รีเฟรชรายชื่อ">
+                <IconButton size="small" onClick={() => void loadRoster(picked)}><RefreshIcon fontSize="small" /></IconButton>
+              </Tooltip>
             </Stack>
             <LinearProgress
               variant="determinate"
@@ -239,43 +261,92 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
             </Alert>
           )}
 
-          <ToggleButtonGroup
-            exclusive size="small" fullWidth value={show}
-            onChange={(_, v) => v && setShow(v)}
-            sx={{ mb: 1 }}
-          >
-            <ToggleButton value="missing">ยังไม่มา ({missing.length + marked.length})</ToggleButton>
-            <ToggleButton value="all">ทั้งหมด ({rows.length})</ToggleButton>
-          </ToggleButtonGroup>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
+            <ToggleButtonGroup
+              exclusive size="small" value={show}
+              onChange={(_, v) => v && setShow(v)}
+              sx={{ flexShrink: 0 }}
+            >
+              <ToggleButton value="missing" sx={{ px: 1.5 }}>ยังไม่มา ({missing.length + marked.length})</ToggleButton>
+              <ToggleButton value="all" sx={{ px: 1.5 }}>ทั้งหมด ({rows.length})</ToggleButton>
+            </ToggleButtonGroup>
+            <TextField
+              size="small" fullWidth value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="ค้นหาชื่อ · เบอร์โทร · เลขที่จอง"
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: 'text.disabled' }} /></InputAdornment>,
+                endAdornment: query ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setQuery('')}><CloseIcon sx={{ fontSize: 16 }} /></IconButton>
+                  </InputAdornment>
+                ) : undefined,
+              }}
+            />
+          </Stack>
 
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
           ) : listed.length === 0 ? (
             <Typography variant="body2" color="text.disabled" sx={{ textAlign: 'center', py: 2 }}>
-              {show === 'missing' ? 'มาครบทุกคนแล้ว' : 'ไม่มีรายชื่อในรอบนี้'}
+              {q ? 'ไม่พบชื่อที่ค้นหา' : show === 'missing' ? 'มาครบทุกคนแล้ว' : 'ไม่มีรายชื่อในรอบนี้'}
             </Typography>
           ) : (
-            <List dense disablePadding sx={{ maxHeight: 320, overflowY: 'auto' }}>
-              {listed.map(r => (
-                <ListItemButton
-                  key={r.id}
-                  onClick={() => onPick(r.qr_token)}
-                  sx={{ borderRadius: 2, mb: 0.5, bgcolor: r.ticks > 0 ? 'rgba(46,125,50,0.06)' : undefined }}
-                >
-                  <ListItemText
-                    primary={r.who || `#${r.id}`}
-                    secondary={`#${r.id}`}
-                    primaryTypographyProps={{ fontWeight: 700 }}
-                    secondaryTypographyProps={{ variant: 'caption' }}
-                  />
-                  {r.status === 'no_show' ? (
-                    <Chip size="small" label="ไม่มาตามนัด" sx={{ fontWeight: 700, bgcolor: 'rgba(97,97,97,0.12)', color: '#616161' }} />
-                  ) : r.ticks > 0 ? (
-                    <ArrivedIcon fontSize="small" sx={{ color: '#2e7d32' }} />
-                  ) : null}
-                </ListItemButton>
-              ))}
-            </List>
+            <>
+              <List dense disablePadding>
+                {pageRows.map(r => {
+                  // Nickname first because it is what a family answers to, with
+                  // the full name beside it: two children called เป้ยเป้ย in one
+                  // round is the ordinary case, not the unlucky one.
+                  const full = (r.full_name || '').trim();
+                  const nick = (r.nickname || '').trim();
+                  return (
+                    <ListItemButton
+                      key={r.id}
+                      onClick={() => onPick(r.qr_token)}
+                      sx={{ borderRadius: 2, mb: 0.5, alignItems: 'flex-start', bgcolor: r.ticks > 0 ? 'rgba(46,125,50,0.06)' : undefined }}
+                    >
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, flexWrap: 'wrap' }}>
+                            <Typography component="span" sx={{ fontWeight: 800 }}>{nick || full || `#${r.id}`}</Typography>
+                            {nick && full && full !== nick && (
+                              <Typography component="span" variant="caption" color="text.secondary">{full}</Typography>
+                            )}
+                          </Box>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                            #{r.id}
+                            {r.parent_phone ? ` · ${r.parent_phone}` : ''}
+                            {r.parent_name ? ` · ${r.parent_name}` : ''}
+                          </Typography>
+                        }
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                      {r.status === 'no_show' ? (
+                        <Chip size="small" label="ไม่มาตามนัด" sx={{ mt: 0.5, fontWeight: 700, bgcolor: 'rgba(97,97,97,0.12)', color: '#616161' }} />
+                      ) : r.ticks > 0 ? (
+                        <ArrivedIcon fontSize="small" sx={{ mt: 0.75, color: '#2e7d32' }} />
+                      ) : null}
+                    </ListItemButton>
+                  );
+                })}
+              </List>
+              {pageCount > 1 && (
+                <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} sx={{ mt: 1 }}>
+                  <IconButton size="small" disabled={page <= 1} onClick={() => setPage(p2 => p2 - 1)}>
+                    <PrevIcon fontSize="small" />
+                  </IconButton>
+                  <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                    {Math.min(page, pageCount)} / {pageCount}
+                  </Typography>
+                  <IconButton size="small" disabled={page >= pageCount} onClick={() => setPage(p2 => p2 + 1)}>
+                    <NextIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              )}
+            </>
           )}
 
           <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
