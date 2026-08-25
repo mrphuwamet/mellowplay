@@ -40,6 +40,7 @@ import {
   ReportProblem as WarningIcon,
   EditNote as NoteIcon,
   Close as CloseIcon,
+  Block as RevokeIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import axios from 'axios';
@@ -1141,6 +1142,12 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [certByBooking, setCertByBooking] = useState<Record<number, { id: number; public_code: string }>>({});
   // What happened to the last send, shown in the same snackbar as issuing.
   const [certSending, setCertSending] = useState(false);
+  // Revoking asks for a reason, so a dialog rather than a menu item that fires
+  // straight away — this one invalidates a document a family may already have
+  // printed, and it deserves the pause.
+  const [revokeTarget, setRevokeTarget] = useState<Booking | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [revoking, setRevoking] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const [issueResult, setIssueResult] = useState('');
   const toggleSelected = (id: number) => setSelectedIds(prev => {
@@ -1258,6 +1265,30 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     } catch (e: any) {
       setIssueResult(e?.response?.data?.message || 'ส่งเกียรติบัตรไม่สำเร็จ');
     } finally { setCertSending(false); }
+  };
+
+  /**
+   * Revoke, then forget the code.
+   *
+   * The link keeps working and says “ถูกยกเลิกแล้ว” rather than 404ing: a
+   * family who was sent a certificate in error deserves an answer when they
+   * open it, not a dead page that looks like our site is broken.
+   */
+  const revokeCertificate = async () => {
+    if (!revokeTarget) return;
+    const cert = certByBooking[revokeTarget.id];
+    if (!cert) return;
+    setRevoking(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/certificates/${cert.id}/revoke`, { reason: revokeReason.trim() || null });
+      if (!data.success) { setIssueResult(data.message || 'ยกเลิกเกียรติบัตรไม่สำเร็จ'); return; }
+      setCertByBooking(prev => { const next = { ...prev }; delete next[revokeTarget.id]; return next; });
+      setIssueResult('ยกเลิกเกียรติบัตรแล้ว — ออกใบใหม่ได้ทันที');
+      setRevokeTarget(null);
+      setRevokeReason('');
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'ยกเลิกเกียรติบัตรไม่สำเร็จ');
+    } finally { setRevoking(false); }
   };
 
   const copyCertificateLink = async (bookingId: number) => {
@@ -2243,6 +2274,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             คัดลอกลิงก์เกียรติบัตร
           </MenuItem>
         )}
+        {manageMenu && certByBooking[manageMenu.booking.id] && (
+          <MenuItem
+            onClick={() => { if (manageMenu) { setRevokeTarget(manageMenu.booking); setRevokeReason(''); } closeManageMenu(); }}
+            sx={{ gap: 1.25, fontWeight: 600, color: 'error.main' }}
+          >
+            <RevokeIcon fontSize="small" color="error" />
+            ยกเลิกเกียรติบัตร
+          </MenuItem>
+        )}
         {manageMenu && manageMenu.booking.status !== 'cancelled' && (
           <MenuItem onClick={() => { setResendTarget([manageMenu.booking]); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
             <ResendIcon fontSize="small" color="primary" />
@@ -2296,6 +2336,35 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         message={issueResult}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      <Dialog open={!!revokeTarget} onClose={() => !revoking && setRevokeTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>ยกเลิกเกียรติบัตร — #{revokeTarget?.id}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            ลิงก์เดิมจะยังเปิดได้ แต่จะขึ้นว่า “เกียรติบัตรนี้ถูกยกเลิกแล้ว” —
+            ครอบครัวที่เคยได้รับลิงก์ไปจะได้เห็นคำตอบ ไม่ใช่หน้าว่าง
+            หลังยกเลิกแล้วออกใบใหม่ให้การจองนี้ได้ทันที
+          </Typography>
+          <TextField
+            fullWidth multiline minRows={2} autoFocus
+            label="เหตุผล (ไม่บังคับ)"
+            placeholder="เช่น สะกดชื่อผิด · ออกผิดคน"
+            value={revokeReason}
+            onChange={e => setRevokeReason(e.target.value)}
+            helperText="เก็บไว้ในระบบเพื่อให้ย้อนดูได้ว่าทำไมถึงยกเลิก ลูกค้าไม่เห็นข้อความนี้"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevokeTarget(null)} disabled={revoking}>ไม่ยกเลิก</Button>
+          <Button
+            onClick={() => void revokeCertificate()}
+            color="error" variant="contained" disabled={revoking}
+            startIcon={revoking ? <CircularProgress size={14} color="inherit" /> : <RevokeIcon />}
+          >
+            ยกเลิกเกียรติบัตร
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!noteBooking} onClose={() => !noteSaving && setNoteBooking(null)} maxWidth="sm" fullWidth>
         <DialogTitle>โน้ตของเจ้าหน้าที่ — #{noteBooking?.id}</DialogTitle>

@@ -6,22 +6,9 @@ import { SettingsRepository } from '../repositories/settingsRepository';
 import { EmailService } from '../services/emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
+import { issueForBooking } from '../services/certificateService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
-
-// Ambiguous characters left out on purpose (0/O, 1/I/L): a code gets read off a
-// printed page and typed in by hand at least some of the time.
-const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-
-/**
- * Random, not sequential. A running number in the URL would turn one shared
- * certificate into a directory of everyone who attended, since the next code
- * along is always a guess away.
- */
-const generatePublicCode = (): string => {
-  const bytes = crypto.getRandomValues(new Uint8Array(10));
-  return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
-};
 
 export class CertificateController {
   private repo(c: C) { return new CertificateRepository(new ConfigService(c.env).db); }
@@ -103,35 +90,17 @@ export class CertificateController {
       if (bookingIds.length === 0) return c.json({ success: false, message: 'ไม่พบการจองที่จะออกเกียรติบัตร' }, 400);
 
       const issuedBy = c.get('crmUser')?.userId ?? null;
-      const year = new Date().getFullYear() + 543; // ปีพุทธศักราช, which is what goes on the page
       let issued = 0;
       let skipped = 0;
 
       for (const bookingId of bookingIds) {
-        const src = await repo.getIssueSource(bookingId);
-        if (!src) { skipped++; continue; }
-
-        const templateId = body.template_id
-          ? Number(body.template_id)
-          : await repo.resolveTemplateId(Number(src.course_id));
-
-        // Nickname first: it is the name a child is called and the one a family
-        // expects to see. The full name is the fallback, never a blank.
-        const recipient = String(src.child_nickname || src.child_name || '').trim() || 'ผู้เข้าร่วมกิจกรรม';
-
-        const created = await repo.issue({
-          templateId,
+        const res = await issueForBooking(config.db, {
           bookingId,
-          childId: src.child_id ?? null,
-          userId: src.user_id ?? null,
-          recipientName: recipient,
-          courseName: src.course_name ?? null,
-          eventDate: src.scheduled_at ? String(src.scheduled_at).slice(0, 10) : null,
-          serial: await repo.nextSerial(year),
-          publicCode: generatePublicCode(),
+          templateId: body.template_id ? Number(body.template_id) : undefined,
+          source: 'manual',
           issuedBy,
         });
-        if (created) issued++; else skipped++;
+        if (res.issued) issued++; else skipped++;
       }
 
       return c.json({ success: true, issued, skipped, total: bookingIds.length });

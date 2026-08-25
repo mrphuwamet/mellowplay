@@ -9,7 +9,7 @@ import CourseMaterialsTab from '../components/CourseMaterialsTab';
 import {
   Typography, Box, CircularProgress,
   Grid, Button, Chip,
-  TextField, MenuItem, Select, FormControl, InputLabel, InputAdornment,
+  TextField, MenuItem, Select, FormControl, InputLabel, InputAdornment, FormHelperText,
   IconButton, Paper, Stack, Alert, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, ListItemButton, ListItemIcon, Divider,
@@ -349,8 +349,8 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // because they are saved through their own endpoint — the course
   // insert/update already carries ~60 parameters and does not need two more.
   const [stampDesigns, setStampDesigns] = useState<any[]>([]);
-  const [rewardSettings, setRewardSettings] = useState<{ design_id: number | null; participation_badge_tier: number | null }>({
-    design_id: null, participation_badge_tier: null,
+  const [rewardSettings, setRewardSettings] = useState<{ design_id: number | null; participation_badge_tier: number | null; certificate_auto: string | null }>({
+    design_id: null, participation_badge_tier: null, certificate_auto: null,
   });
   const [rewardRounds, setRewardRounds] = useState<any[]>([]);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -1081,7 +1081,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     axios.get(`${API_BASE}/stamp-designs`)
       .then(({ data }) => { if (data.success) setStampDesigns(data.designs); })
       .catch(() => setStampDesigns([]));
-    setRewardSettings({ design_id: null, participation_badge_tier: null });
+    setRewardSettings({ design_id: null, participation_badge_tier: null, certificate_auto: null });
     setRewardRounds([]);
 
     if (course) {
@@ -1093,6 +1093,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           setRewardSettings({
             design_id: data.design_id ?? null,
             participation_badge_tier: data.participation_badge_tier ?? null,
+            certificate_auto: data.certificate_auto ?? null,
           });
           setRewardRounds(data.rounds || []);
         })
@@ -1685,6 +1686,28 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       <MenuItem value={2}>อันดับ 2</MenuItem>
                       <MenuItem value={1}>อันดับ 1</MenuItem>
                     </Select>
+                  </FormControl>
+                </Grid>
+
+                {/* When this item prints certificates by itself. Off by default,
+                    because a certificate carries a child's name and a date —
+                    it should be issued when someone means to, not as a side
+                    effect of an item being created. */}
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>ออกเกียรติบัตรอัตโนมัติ</InputLabel>
+                    <Select
+                      label="ออกเกียรติบัตรอัตโนมัติ"
+                      value={rewardSettings.certificate_auto ?? ''}
+                      onChange={e => setRewardSettings(s => ({ ...s, certificate_auto: e.target.value === '' ? null : String(e.target.value) }))}
+                    >
+                      <MenuItem value="">ไม่ออกอัตโนมัติ (กดออกเองจากรายการลงทะเบียน)</MenuItem>
+                      <MenuItem value="checkin">เมื่อเช็คอินหน้างาน — สำหรับงานวันเดียว</MenuItem>
+                      <MenuItem value="completion">เมื่อกดจบคลาส — สำหรับคลาสที่เรียนจบเป็นรอบ</MenuItem>
+                    </Select>
+                    <FormHelperText>
+                      ออกให้ใบเดียวต่อการจอง กดซ้ำหรือเช็คอินซ้ำก็ไม่ออกเพิ่ม · ถ้าเลือก “เมื่อเช็คอิน” แล้วยกเลิกการเช็คอินทั้งหมด ใบที่ออกจากประตูจะถูกเพิกถอนให้
+                    </FormHelperText>
                   </FormControl>
                 </Grid>
 

@@ -4,6 +4,7 @@ import { ConfigService } from '../services/configService';
 import { CheckinRepository } from '../repositories/checkinRepository';
 import { AuthService } from '../services/authService';
 import { awardParticipation, revokeParticipation } from '../services/stampService';
+import { autoIssue as autoIssueCertificate, revokeAutoIssued as revokeAutoIssuedCertificate } from '../services/certificateService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -163,8 +164,12 @@ export class CheckinController {
 
       if (checked) {
         await awardParticipation(db, { bookingId, source: 'checkin', actorId: checkedByCrmUserId });
+        // Only for items set to hand out certificates at the door — see
+        // Courses.certificate_auto.
+        await autoIssueCertificate(db, { bookingId, moment: 'checkin', actorId: checkedByCrmUserId });
       } else if ((remaining?.n ?? 0) === 0) {
         await revokeParticipation(db, { bookingId, actorId: checkedByCrmUserId, source: 'checkin' });
+        await revokeAutoIssuedCertificate(db, { bookingId, source: 'checkin' });
       }
 
       return c.json({ success: true, checked });

@@ -469,14 +469,17 @@ export class RewardsController {
     try {
       const config = new ConfigService(c.env);
       const courseId = parseInt(c.req.param('courseId'));
-      const { design_id, participation_badge_tier } = await c.req.json();
+      const { design_id, participation_badge_tier, certificate_auto } = await c.req.json();
 
       const tier = participation_badge_tier ? Number(participation_badge_tier) : null;
       if (tier !== null && ![1, 2, 3].includes(tier)) {
         return c.json({ success: false, message: 'tier ต้องเป็น 1, 2 หรือ 3' }, 400);
       }
-      await config.db.prepare('UPDATE Courses SET participation_badge_tier = ? WHERE id = ?')
-        .bind(tier, courseId).run();
+      // NULL is off. Validated here because the column carries no CHECK — see
+      // migration 0100 for why it deliberately does not.
+      const auto = certificate_auto === 'checkin' || certificate_auto === 'completion' ? certificate_auto : null;
+      await config.db.prepare('UPDATE Courses SET participation_badge_tier = ?, certificate_auto = ? WHERE id = ?')
+        .bind(tier, auto, courseId).run();
 
       if (design_id) {
         await config.db.prepare(`
@@ -498,7 +501,7 @@ export class RewardsController {
       const config = new ConfigService(c.env);
       const courseId = parseInt(c.req.param('courseId'));
       const course = await config.db.prepare(
-        'SELECT participation_badge_tier, stamps_on_completion, stamp_expiry_months, calendar_id FROM Courses WHERE id = ?'
+        'SELECT participation_badge_tier, certificate_auto, stamps_on_completion, stamp_expiry_months, calendar_id FROM Courses WHERE id = ?'
       ).bind(courseId).first<any>();
       const binding = await config.db.prepare(
         "SELECT design_id FROM Stamp_Design_Bindings WHERE scope = 'course' AND ref_id = ?"
@@ -519,6 +522,7 @@ export class RewardsController {
       return c.json({
         success: true,
         participation_badge_tier: course?.participation_badge_tier ?? null,
+        certificate_auto: course?.certificate_auto ?? null,
         design_id: binding?.design_id ?? null,
         stamps_on_completion: course?.stamps_on_completion ?? 0,
         rounds,

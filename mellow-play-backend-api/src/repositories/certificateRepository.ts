@@ -125,6 +125,7 @@ export class CertificateRepository {
     templateId: number | null; bookingId: number | null; childId: number | null; userId: number | null;
     recipientName: string; courseName: string | null; eventDate: string | null;
     serial: string | null; publicCode: string; issuedBy: number | null;
+    source?: string;
   }): Promise<number | null> {
     // OR IGNORE, not a pre-check: "issue for this whole round" is pressed
     // twice by people who are not sure it worked the first time, and the
@@ -132,12 +133,12 @@ export class CertificateRepository {
     const res = await this.db.prepare(`
       INSERT OR IGNORE INTO Certificates
         (template_id, booking_id, child_id, user_id, recipient_name, course_name,
-         event_date, serial, public_code, issued_by_crm_user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         event_date, serial, public_code, issued_by_crm_user_id, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.templateId, data.bookingId, data.childId, data.userId,
       data.recipientName, data.courseName, data.eventDate,
-      data.serial, data.publicCode, data.issuedBy,
+      data.serial, data.publicCode, data.issuedBy, data.source ?? 'manual',
     ).run();
     const id = Number(res.meta.last_row_id);
     return res.meta.changes > 0 ? id : null;

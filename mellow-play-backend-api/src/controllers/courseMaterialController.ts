@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { awardParticipation } from '../services/stampService';
+import { autoIssue as autoIssueCertificate } from '../services/certificateService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -46,6 +47,14 @@ export class CourseMaterialController {
       await awardParticipation(config.db, {
         bookingId,
         source: 'completion',
+        actorId: c.get('crmUser')?.userId ?? null,
+      });
+
+      // And the certificate, for items set to give one when the class is
+      // finished. Idempotent, so a class marked finished twice still gives one.
+      await autoIssueCertificate(config.db, {
+        bookingId,
+        moment: 'completion',
         actorId: c.get('crmUser')?.userId ?? null,
       });
 
