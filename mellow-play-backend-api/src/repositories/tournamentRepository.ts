@@ -124,9 +124,16 @@ export class TournamentRepository {
   async update(id: number, patch: {
     name?: string; description?: string | null; teamFieldKey?: string | null;
     format?: string; advancePerHeat?: number;
+    entryLevel?: string | null; entryScope?: string | null;
+    scopeSlotDate?: string | null; scopeSlotStartTime?: string | null;
   }): Promise<void> {
     // COALESCE on everything the caller may not be sending: the bracket
     // generator only knows about format/advance, and must not wipe the name.
+    //
+    // The two scope slots are the exception — they are set to NULL on purpose
+    // when a bracket switches to covering every round, and COALESCE would keep
+    // a stale date on a draw that no longer has one. They travel with
+    // entryScope, so they are only written when it is.
     await this.db.prepare(`
       UPDATE Tournaments SET
         name = COALESCE(?, name),
@@ -134,11 +141,19 @@ export class TournamentRepository {
         team_field_key = COALESCE(?, team_field_key),
         format = COALESCE(?, format),
         advance_per_heat = COALESCE(?, advance_per_heat),
+        entry_level = COALESCE(?, entry_level),
+        entry_scope = COALESCE(?, entry_scope),
+        scope_slot_date = CASE WHEN ? IS NULL THEN scope_slot_date ELSE ? END,
+        scope_slot_start_time = CASE WHEN ? IS NULL THEN scope_slot_start_time ELSE ? END,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       patch.name ?? null, patch.description ?? null, patch.teamFieldKey ?? null,
-      patch.format ?? null, patch.advancePerHeat ?? null, id,
+      patch.format ?? null, patch.advancePerHeat ?? null,
+      patch.entryLevel ?? null, patch.entryScope ?? null,
+      patch.entryScope ?? null, patch.scopeSlotDate ?? null,
+      patch.entryScope ?? null, patch.scopeSlotStartTime ?? null,
+      id,
     ).run();
   }
 

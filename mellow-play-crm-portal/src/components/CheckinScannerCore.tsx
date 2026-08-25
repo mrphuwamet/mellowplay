@@ -402,18 +402,16 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
     <Box>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>{error}</Alert>}
 
-      {/* Above the scanner, because it is the thing that gives the screen a
-          subject: which round is being run. Hidden once a booking is open so
-          the card has the phone to itself. */}
-      {!booking && (
-        <CheckinRoundPanel
-          client={client}
-          canClose={canCloseRound}
-          refreshKey={rosterKey}
-          onPick={token => { void lookupToken(token, true); }}
-        />
-      )}
-
+      {/* The round picker on top, then the scanner and the roster side by
+          side. The scanner goes in as children so it is never unmounted —
+          html5-qrcode's pause/resume act on one exact DOM element. */}
+      <CheckinRoundPanel
+        client={client}
+        canClose={canCloseRound}
+        refreshKey={rosterKey}
+        hidden={!!booking}
+        onPick={token => { void lookupToken(token, true); }}
+      >
       {!booking && (
         <Tabs value={mode} onChange={(_, v) => switchMode(v)} sx={{ mb: 2, minHeight: 40 }}>
           <Tab value="scan" label="สแกน QR" icon={<ScanIcon fontSize="small" />} iconPosition="start" sx={{ minHeight: 40 }} />
@@ -425,7 +423,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
           showing or manual mode is active) — html5-qrcode's pause/resume
           act on this exact DOM element, so conditionally unmounting it
           would break resume(). */}
-      <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box', display: (booking || mode !== 'scan') ? 'none' : 'block' }}>
+      <Paper sx={{ p: 3, borderRadius: 3, width: '100%', boxSizing: 'border-box', display: (booking || mode !== 'scan') ? 'none' : 'block' }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           ส่อง QR Code ของผู้เข้าร่วมที่ได้รับหลังจองสำเร็จ หรือยิงด้วยเครื่องสแกน
         </Typography>
@@ -465,7 +463,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
       </Paper>
 
       {!booking && mode === 'manual' && (
-        <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box' }}>
+        <Paper sx={{ p: 3, borderRadius: 3, width: '100%', boxSizing: 'border-box' }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             กรอกเบอร์โทรศัพท์ของผู้ปกครองเพื่อค้นหาการจอง
           </Typography>
@@ -511,6 +509,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
           )}
         </Paper>
       )}
+      </CheckinRoundPanel>
 
       {booking && (
         <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 480, width: '100%', boxSizing: 'border-box' }}>

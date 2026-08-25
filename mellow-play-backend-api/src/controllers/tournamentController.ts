@@ -205,16 +205,44 @@ export class TournamentController {
   async generate(c: C) {
     try {
       const tournamentId = parseInt(c.req.param('tournamentId'));
-      const { entrant_count, per_heat, advance_per_heat, slot_date, slot_start_time, replace } = await c.req.json() as {
-        entrant_count: number; per_heat: number; advance_per_heat: number;
+      const {
+        entrant_count, per_heat, advance_per_heat, slot_date, slot_start_time, replace,
+        entry_level, entry_scope, auto_fill,
+      } = await c.req.json() as {
+        entrant_count?: number; per_heat: number; advance_per_heat: number;
         slot_date?: string | null; slot_start_time?: string | null; replace?: boolean;
+        entry_level?: EntryType; entry_scope?: 'round' | 'all'; auto_fill?: boolean;
       };
 
       const perHeat = Math.max(2, Number(per_heat) || 4);
       const advance = Math.min(Math.max(1, Number(advance_per_heat) || 2), perHeat - 1);
-      const entrants = Math.max(2, Number(entrant_count) || 0);
 
       const repo = this.repo(c);
+      const tourney = await repo.getById(tournamentId);
+      if (!tourney) return c.json({ success: false, message: 'ไม่พบสายการแข่งขันนี้' }, 404);
+
+      const level: EntryType = (entry_level || tourney.entry_level || 'team') as EntryType;
+      const scope = entry_scope || tourney.entry_scope || 'round';
+
+      /**
+       * Who is actually in this draw.
+       *
+       * Counted here rather than taken from the caller, because the number is
+       * exactly what differs between levels: twenty-four bookings can be six
+       * teams, and a bracket built for the wrong one is either two thirds
+       * empty or three times too small.
+       */
+      const registrants = await repo.getRegistrants(tourney.course_id, tourney.team_field_key || null);
+      const pool = buildEntryOptions(registrants)[level].filter(o =>
+        scope !== 'round' || !slot_date || (
+          o.slotDate === slot_date
+          && (!slot_start_time || String(o.slotStartTime || '').slice(0, 5) === String(slot_start_time).slice(0, 5))
+        ));
+
+      // The caller may still ask for a bigger draw than the pool — an event
+      // holding places for entrants who sign up on the day.
+      const entrants = Math.max(2, Number(entrant_count) || pool.length || 0);
+
       if (replace) await repo.deleteAllHeats(tournamentId);
 
       const stages: number[] = [];
@@ -270,8 +298,43 @@ export class TournamentController {
         }
       }
 
-      await this.repo(c).update(tournamentId, { advancePerHeat: advance, format: 'bracket' });
-      return c.json({ success: true, stages, created });
+      /**
+       * Put the pool into the first round's heats, one at a time across the
+       * heats rather than filling each in turn.
+       *
+       * Dealing round-robin down a name-sorted list separates the entrants who
+       * would otherwise land together — the ones registered by the same school,
+       * the siblings, the alphabetical neighbours — which is the whole point of
+       * a draw. Filling heat one to capacity first does the opposite.
+       */
+      let filled = 0;
+      if (auto_fill && createdIds[0]?.length) {
+        const firstRound = createdIds[0];
+        for (const [i, option] of pool.entries()) {
+          if (i >= firstRound.length * perHeat) break; // a bigger pool than the draw holds
+          try {
+            await repo.addEntry(tournamentId, firstRound[i % firstRound.length], {
+              entryType: level,
+              refKey: option.refKey,
+              label: option.label,
+              subLabel: option.subLabel ?? null,
+              sortOrder: Math.floor(i / firstRound.length),
+            });
+            filled++;
+          } catch {
+            // The one-entry-per-tournament index: someone already placed by
+            // hand simply stays where they are.
+          }
+        }
+      }
+
+      await this.repo(c).update(tournamentId, {
+        advancePerHeat: advance, format: 'bracket',
+        entryLevel: level, entryScope: scope,
+        scopeSlotDate: scope === 'round' ? (slot_date ?? null) : null,
+        scopeSlotStartTime: scope === 'round' ? (slot_start_time ?? null) : null,
+      });
+      return c.json({ success: true, stages, created, filled, poolSize: pool.length });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

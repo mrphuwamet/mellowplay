@@ -60,7 +60,7 @@ const todayInBangkok = () => {
   return now.toISOString().slice(0, 10);
 };
 
-const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
+const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, children }: {
   client: AxiosInstance;
   /** Tapping a name loads that booking through the same path a scan uses. */
   onPick: (qrToken: string) => void;
@@ -68,6 +68,15 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   canClose: boolean;
   /** Bumped by the parent after a tick, so the roster reflects it. */
   refreshKey: number;
+  /**
+   * The scanner sits in the left column of this panel rather than beside it.
+   *
+   * It has to stay mounted whatever else the screen does — html5-qrcode's
+   * pause/resume act on one exact DOM element — so it is passed in as children
+   * and rendered unconditionally, while everything around it hides.
+   */
+  hidden?: boolean;
+  children?: React.ReactNode;
 }) => {
   const [date, setDate] = useState(todayInBangkok());
   const [rounds, setRounds] = useState<RoundOption[]>([]);
@@ -179,8 +188,9 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: picked ? 2 : 0 }}>
+    <Box>
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2, display: hidden ? 'none' : 'block' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
         <TextField
           type="date" size="small" label="วันที่" value={date}
           onChange={e => setDate(e.target.value)}
@@ -213,8 +223,19 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
           วันนี้ยังไม่มีรอบที่มีคนจอง
         </Typography>
       )}
+    </Paper>
 
-      {picked && (
+    {/* Scanner on the left, who is still missing on the right — the two things
+        someone at a door looks at alternately, so stacking them meant scrolling
+        between every family. */}
+    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+      <Box sx={{ width: { xs: '100%', md: 480 }, flexShrink: 0 }}>{children}</Box>
+
+      <Paper
+        variant="outlined"
+        sx={{ p: 2, borderRadius: 3, flex: 1, minWidth: 0, width: '100%', display: hidden || !picked ? 'none' : 'block' }}
+      >
+        {picked && (
         <>
           <Box sx={{ mb: 1.5 }}>
             <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 0.5 }}>
@@ -353,7 +374,9 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
             กดที่ชื่อเพื่อเปิดเหมือนสแกน QR — ใช้ตอนมือถือลูกค้าเปิด QR ไม่ได้
           </Typography>
         </>
-      )}
+        )}
+      </Paper>
+    </Stack>
 
       <Dialog open={qrOpen} onClose={() => setQrOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>QR แบบสอบถามของรอบนี้</DialogTitle>
@@ -410,7 +433,7 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
           <Button onClick={() => setQrOpen(false)}>ปิด</Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </Box>
   );
 };
 
