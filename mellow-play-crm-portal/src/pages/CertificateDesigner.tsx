@@ -5,6 +5,7 @@ import {
   Box, Paper, Typography, Button, IconButton, TextField, MenuItem, Select,
   FormControl, InputLabel, Stack, Divider, Alert, Tooltip, CircularProgress,
   ToggleButton, ToggleButtonGroup, Slider, ListSubheader, Autocomplete,
+  FormHelperText,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
@@ -20,6 +21,10 @@ import {
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import RuleEditor from '../components/CertificateRuleEditor';
 import { useUnsavedChanges } from '../utils/unsavedChanges';
+import {
+  FontChoice, GOOGLE_FONTS, SYSTEM_FONTS, DEFAULT_FONT,
+  fontStack, ensureFontLoaded, queryMachineFonts,
+} from '../utils/certificateFonts';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -87,6 +92,10 @@ const CertificateDesigner = () => {
   // Separate from the background's upload state: both can be in flight and the
   // spinner has to sit on the one that is actually working.
   const [uploadingField, setUploadingField] = useState(false);
+  // Only what this machine has, and only once someone asks — the browser puts
+  // a permission prompt in front of it, so it cannot be read on page load.
+  const [machineFonts, setMachineFonts] = useState<FontChoice[] | null>(null);
+  const [fontNotice, setFontNotice] = useState('');
 
   // What the template looked like when it was last loaded or saved. Comparing
   // against a snapshot rather than setting a flag on every edit means undoing a
@@ -198,6 +207,10 @@ const CertificateDesigner = () => {
     setSelected(null);
     setSavedSnapshot(snapshotOf(blank));
   };
+
+  useEffect(() => {
+    for (const f of fields) ensureFontLoaded(f.fontFamily);
+  }, [fields]);
 
   const height = renderWidth * (pageH / pageW);
   const sel = fields.find(f => f.id === selected) || null;
@@ -377,6 +390,7 @@ const CertificateDesigner = () => {
           ...common,
           fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px`,
           fontWeight: f.fontWeight || 400,
+          fontFamily: fontStack(f.fontFamily),
           color: f.color || '#172038',
           lineHeight: 1.25,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -614,6 +628,59 @@ const CertificateDesigner = () => {
                     <Slider size="small" min={8} max={72} value={sel.fontSize || 16}
                       onChange={(_, v) => patch(sel.id, { fontSize: v as number })} />
                   </Box>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>ฟอนต์</InputLabel>
+                    <Select
+                      label="ฟอนต์"
+                      value={sel.fontFamily || DEFAULT_FONT}
+                      onChange={e => { const v = String(e.target.value); ensureFontLoaded(v); patch(sel.id, { fontFamily: v }); }}
+                      renderValue={v => <span style={{ fontFamily: fontStack(String(v)) }}>{String(v)}</span>}
+                    >
+                      <ListSubheader>ฟอนต์ออนไลน์ (เห็นเหมือนกันทุกเครื่อง)</ListSubheader>
+                      {GOOGLE_FONTS.map(f => (
+                        <MenuItem key={f.name} value={f.name} onMouseEnter={() => ensureFontLoaded(f.name)}>
+                          <span style={{ fontFamily: fontStack(f.name) }}>{f.label}</span>
+                        </MenuItem>
+                      ))}
+                      <ListSubheader>ฟอนต์ในเครื่อง</ListSubheader>
+                      {(machineFonts ?? SYSTEM_FONTS).map(f => (
+                        <MenuItem key={f.name} value={f.name}>
+                          <span style={{ fontFamily: fontStack(f.name) }}>{f.label}</span>
+                        </MenuItem>
+                      ))}
+                      {/* A font chosen on another machine must survive being
+                          re-opened on one that does not have it. */}
+                      {sel.fontFamily
+                        && !GOOGLE_FONTS.some(f => f.name === sel.fontFamily)
+                        && !(machineFonts ?? SYSTEM_FONTS).some(f => f.name === sel.fontFamily) && (
+                        <MenuItem value={sel.fontFamily}>{sel.fontFamily} (ไม่มีในเครื่องนี้)</MenuItem>
+                      )}
+                    </Select>
+                    <FormHelperText>
+                      {GOOGLE_FONTS.some(f => f.name === (sel.fontFamily || DEFAULT_FONT))
+                        ? 'โหลดจากอินเทอร์เน็ต — ใบที่พิมพ์และที่ผู้ปกครองเปิดดูจะเหมือนกัน'
+                        : 'ต้องมีฟอนต์นี้ในเครื่องที่สั่งพิมพ์ด้วย ไม่งั้นจะเปลี่ยนเป็นฟอนต์อื่นเงียบ ๆ'}
+                    </FormHelperText>
+                  </FormControl>
+
+                  <Button
+                    size="small"
+                    onClick={async () => {
+                      const list = await queryMachineFonts();
+                      if (list.length === 0) {
+                        setFontNotice('เบราว์เซอร์นี้ไม่ให้อ่านรายชื่อฟอนต์ในเครื่อง (ใช้ Chrome หรือกดอนุญาต) — เลือกจากรายการที่มีให้ได้');
+                        return;
+                      }
+                      setMachineFonts(list);
+                      setFontNotice(`พบฟอนต์ในเครื่อง ${list.length} แบบ`);
+                    }}
+                  >
+                    ดึงฟอนต์จากเครื่องนี้
+                  </Button>
+                  {fontNotice && (
+                    <Typography variant="caption" color="text.secondary">{fontNotice}</Typography>
+                  )}
+
                   <ToggleButtonGroup exclusive size="small" fullWidth value={sel.fontWeight || 400}
                     onChange={(_, v) => v && patch(sel.id, { fontWeight: v })}>
                     <ToggleButton value={400}>ปกติ</ToggleButton>

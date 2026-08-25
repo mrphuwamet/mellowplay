@@ -5,6 +5,7 @@ import apiClient from '../utils/apiClient';
 import {
   CertField, CertTemplate, parseFields, ptToPx, fieldText, formatCertDate,
 } from '../utils/certificateLayout';
+import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
 
 /**
  * One certificate, as a page you can read and as a page you can print.
@@ -74,6 +75,10 @@ const CertificateView: React.FC = () => {
   const pageW = template?.page_width || 297;
   const pageH = template?.page_height || 210;
   const fields = parseFields(template?.fields_json);
+  // The template names the typeface; this page has to go and get it, or a
+  // certificate designed in Kanit reaches the family in whatever their phone
+  // happens to default to.
+  useEffect(() => { for (const f of fields) ensureFontLoaded(f.fontFamily); }, [template?.fields_json]);
   const height = renderWidth * (pageH / pageW);
   const verifyUrl = `${window.location.origin}/verify/${cert.public_code}`;
 
@@ -125,7 +130,7 @@ const CertificateView: React.FC = () => {
           fontWeight: f.fontWeight || 400,
           color: f.color || '#172038',
           lineHeight: 1.25,
-          fontFamily: f.fontFamily || undefined,
+          fontFamily: fontStack(f.fontFamily),
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }}

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { CONSUMER_APP_URL } from '../config';
 import { CertField, CertValueMap, parseFields, fieldText } from '../utils/certificateLayout';
+import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
 
 /**
  * A stack of certificates laid out for paper.
@@ -90,7 +91,7 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
           fontSize: `${f.fontSize || 16}pt`,
           fontWeight: f.fontWeight || 400,
           color: f.color || '#172038',
-          fontFamily: f.fontFamily || undefined,
+          fontFamily: fontStack(f.fontFamily),
           lineHeight: 1.25,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -131,6 +132,14 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
  * ancestor and print a blank page, however visible the sheet itself was.
  */
 const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => {
+  // Fetched before the dialog opens, not after: a print that starts while a
+  // font is still downloading prints the fallback.
+  useEffect(() => {
+    for (const item of items) {
+      for (const f of parseFields(item.template?.fields_json)) ensureFontLoaded(f.fontFamily);
+    }
+  }, [items]);
+
   if (items.length === 0) return null;
   const first = items[0].template;
   const w = Number(first?.page_width) || 297;

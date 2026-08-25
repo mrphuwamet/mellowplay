@@ -4,6 +4,7 @@ import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControl, Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, TextField,
   ToggleButton, ToggleButtonGroup, Tooltip, Typography, Checkbox, ListItemText, OutlinedInput,
+  FormHelperText,
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon, EmojiEvents as TrophyIcon,
@@ -175,7 +176,18 @@ const TournamentManagement: React.FC = () => {
   const [genOpen, setGenOpen] = useState(false);
   // 3 per heat with 1 going through — what these events are actually run as.
   // 4-and-2 was a placeholder that had to be corrected on every bracket.
-  const [genForm, setGenForm] = useState({ per_heat: 3, advance_per_heat: 1, slot_date: '', slot_start_time: '', replace: true });
+  const [genForm, setGenForm] = useState({
+    per_heat: 3, advance_per_heat: 1, slot_date: '', slot_start_time: '', replace: true,
+    // 'round' by default: a competition is run round by round, and pooling
+    // every round of an event into one draw puts Saturday and Sunday in the
+    // same heat.
+    entry_scope: 'round' as 'round' | 'all',
+    entry_level: 'team' as EntryType,
+    auto_fill: true,
+    // Blank means "however many are actually in the pool". Typed only for an
+    // event holding places for entrants who sign up on the day.
+    entrant_count: '' as string,
+  });
   const [registrantCount, setRegistrantCount] = useState(0);
   // Seats, not sign-ups. A bracket is planned before the room fills — that is
   // the point of planning it — so building it from who has registered so far
@@ -191,6 +203,21 @@ const TournamentManagement: React.FC = () => {
    * schedule behind it to read a capacity from.
    */
   const bracketEntrantCount = capacityCount || (options[entryType] || []).length || registrantCount;
+
+  /**
+   * Who the generator will actually draw from, at the level and round chosen
+   * in the dialog.
+   *
+   * Counted here from the same options the server counts from, so the "8 → 4 →
+   * 2 → 1" preview describes the bracket that is about to exist rather than one
+   * based on a different grouping entirely.
+   */
+  const genPool = useMemo(() => (options[genForm.entry_level] || []).filter(o => {
+    if (genForm.entry_scope !== 'round' || !genForm.slot_date) return true;
+    if (o.slotDate !== genForm.slot_date) return false;
+    if (!genForm.slot_start_time) return true;
+    return String(o.slotStartTime || '').slice(0, 5) === genForm.slot_start_time.slice(0, 5);
+  }), [options, genForm.entry_level, genForm.entry_scope, genForm.slot_date, genForm.slot_start_time]);
 
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [targetHeat, setTargetHeat] = useState<number | ''>('');
@@ -761,17 +788,23 @@ const TournamentManagement: React.FC = () => {
     setSaving(true);
     try {
       const { data } = await axios.post(`${API_BASE}/tournaments/${genTarget ?? tournament.id}/generate`, {
-        // The pool being drawn from decides the size of the first round, so the
-        // count follows whichever grouping is selected on the left.
-        entrant_count: bracketEntrantCount,
+        // Blank means "as many as are really there" — the server counts the
+        // pool itself, which is the only place that can get it right.
+        entrant_count: genForm.entrant_count ? Number(genForm.entrant_count) : undefined,
         per_heat: genForm.per_heat,
         advance_per_heat: genForm.advance_per_heat,
         slot_date: genForm.slot_date || null,
         slot_start_time: genForm.slot_start_time || null,
         replace: genForm.replace,
+        entry_level: genForm.entry_level,
+        entry_scope: genForm.entry_scope,
+        auto_fill: genForm.auto_fill,
       });
       setGenOpen(false);
-      setNotice(`สร้างสายแล้ว ${data.created} Heat · ${data.stages.join(' → ')} Heat ต่อรอบ`);
+      setNotice(
+        `สร้างสายแล้ว ${data.created} Heat · ${data.stages.join(' → ')} Heat ต่อรอบ`
+        + (data.filled ? ` · ใส่รายชื่อให้ ${data.filled} รายการ` : '')
+      );
       load(Number(courseId));
     } catch (e: any) {
       setNotice(e.response?.data?.message || 'สร้างสายไม่สำเร็จ');
@@ -783,7 +816,7 @@ const TournamentManagement: React.FC = () => {
   const genPreview = useMemo(() => {
     const perHeat = Math.max(2, Number(genForm.per_heat) || 3);
     const advance = Math.min(Math.max(1, Number(genForm.advance_per_heat) || 1), perHeat - 1);
-    const entrants = bracketEntrantCount;
+    const entrants = genForm.entrant_count ? Number(genForm.entrant_count) : (genPool.length || bracketEntrantCount);
     const out: number[] = [];
     let remaining = Math.max(2, entrants);
     while (out.length < 8) {
@@ -795,7 +828,7 @@ const TournamentManagement: React.FC = () => {
       remaining = next;
     }
     return { entrants, out };
-  }, [genForm, bracketEntrantCount]);
+  }, [genForm, bracketEntrantCount, genPool]);
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -1466,6 +1499,39 @@ const TournamentManagement: React.FC = () => {
         <DialogTitle>สร้างสายการแข่งขัน</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {/* What the draw is a draw OF. The count differs enormously between
+                these — twenty-four bookings can be six teams — which is why the
+                generator counts the pool itself rather than being told. */}
+            <FormControl fullWidth size="small">
+              <InputLabel>แข่งกันในระดับ</InputLabel>
+              <Select
+                label="แข่งกันในระดับ" value={genForm.entry_level}
+                onChange={e => setGenForm(f => ({ ...f, entry_level: e.target.value as EntryType }))}
+              >
+                <MenuItem value="team" disabled={teamFields.length === 0}>
+                  ทีม{teamFields.length === 0 ? ' (ฟอร์มนี้ไม่มีช่องทีม)' : ''}
+                </MenuItem>
+                <MenuItem value="family">ครอบครัว (1 ใบลงทะเบียน = 1 รายการ)</MenuItem>
+                <MenuItem value="person">รายคน (1 การจอง = 1 รายการ)</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth size="small">
+              <InputLabel>ขอบเขต</InputLabel>
+              <Select
+                label="ขอบเขต" value={genForm.entry_scope}
+                onChange={e => setGenForm(f => ({ ...f, entry_scope: e.target.value as 'round' | 'all' }))}
+              >
+                <MenuItem value="round">เฉพาะรอบที่เลือก</MenuItem>
+                <MenuItem value="all">รวมทุกรอบของกิจกรรมนี้</MenuItem>
+              </Select>
+              <FormHelperText>
+                {genForm.entry_scope === 'round'
+                  ? 'ปกติใช้อันนี้ — แข่งกันเป็นรอบ ๆ'
+                  : 'คนละวันจะมาอยู่ Heat เดียวกันได้ ใช้เมื่อรวมทุกรอบเป็นสายเดียวจริง ๆ'}
+              </FormHelperText>
+            </FormControl>
+
             <TextField
               label="จำนวนต่อ Heat" type="number" fullWidth
               value={genForm.per_heat}
@@ -1477,10 +1543,30 @@ const TournamentManagement: React.FC = () => {
               onChange={e => setGenForm(f => ({ ...f, advance_per_heat: Number(e.target.value) }))}
               helperText="เช่น 2 = ที่ 1 กับที่ 2 ของแต่ละ Heat ได้ไปต่อ"
             />
+            <FormControl fullWidth size="small">
+              <InputLabel>รอบ</InputLabel>
+              <Select
+                label="รอบ"
+                value={genForm.slot_date ? `${genForm.slot_date}|${genForm.slot_start_time}` : ''}
+                onChange={e => {
+                  const [d, t] = String(e.target.value).split('|');
+                  setGenForm(f => ({ ...f, slot_date: d || '', slot_start_time: t || '' }));
+                }}
+              >
+                <MenuItem value="">ไม่ระบุรอบ</MenuItem>
+                {rounds.map((r: any) => (
+                  <MenuItem key={`${r.slot_date}|${r.start_time}`} value={`${r.slot_date}|${String(r.start_time).slice(0, 5)}`}>
+                    {r.slot_date} · {String(r.start_time).slice(0, 5)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
             <TextField
-              label="วันที่ของรอบแรก (ไม่บังคับ)" type="date" fullWidth InputLabelProps={{ shrink: true }}
-              value={genForm.slot_date}
-              onChange={e => setGenForm(f => ({ ...f, slot_date: e.target.value }))}
+              label="จำนวนผู้เข้าแข่ง (เว้นว่าง = ตามจริง)" type="number" fullWidth
+              value={genForm.entrant_count}
+              onChange={e => setGenForm(f => ({ ...f, entrant_count: e.target.value }))}
+              helperText={`ตอนนี้มีจริง ${genPool.length} รายการ — กรอกเองเมื่อกันที่ไว้ให้คนสมัครหน้างาน`}
             />
 
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
@@ -1491,6 +1577,16 @@ const TournamentManagement: React.FC = () => {
                 {genPreview.out.map(n => `${n} Heat`).join('  →  ')}
               </Typography>
             </Paper>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Checkbox checked={genForm.auto_fill} onChange={e => setGenForm(f => ({ ...f, auto_fill: e.target.checked }))} />
+              <Box>
+                <Typography variant="body2">ใส่รายชื่อลง Heat ให้เลย</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  แจกวนทีละคนไปทุก Heat ไม่ใช่เติมทีละ Heat จนเต็ม — คนที่จัดมือไว้แล้วจะไม่ถูกย้าย
+                </Typography>
+              </Box>
+            </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Checkbox checked={genForm.replace} onChange={e => setGenForm(f => ({ ...f, replace: e.target.checked }))} />
