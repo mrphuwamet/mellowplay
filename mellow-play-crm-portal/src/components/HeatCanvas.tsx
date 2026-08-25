@@ -292,8 +292,13 @@ const HeatCanvas: React.FC<{
                 >
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography sx={{ fontWeight: 800, fontSize: 13, lineHeight: 1.3, wordBreak: 'break-word' }}>{h.name}</Typography>
+                    {/* "ผ่าน 2" on its own reads as a status, not a rule.
+                        Spelled out, it says what it decides. */}
                     <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600 }}>
-                      {rows.length} รายการ{h.advance_count ? ` · ผ่าน ${h.advance_count}` : ''}
+                      {rows.length} รายการ
+                      {h.advance_count
+                        ? ` · ผ่านเข้ารอบ ${h.advance_count} อันดับ`
+                        : ' · รอบสุดท้าย'}
                     </Typography>
                   </Box>
                   <IconButton size="small" sx={{ p: 0.25 }} onPointerDown={e => e.stopPropagation()} onClick={() => onEditHeat(h.id)}><EditIcon sx={{ fontSize: 15 }} /></IconButton>

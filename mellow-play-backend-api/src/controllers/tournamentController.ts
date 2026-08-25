@@ -143,6 +143,7 @@ export class TournamentController {
         status: body.status,
         note: body.note ?? null,
         sortOrder: body.sort_order,
+        advanceCount: body.advance_count ?? null,
       });
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }

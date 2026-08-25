@@ -295,18 +295,20 @@ export class TournamentRepository {
   async updateHeat(id: number, patch: {
     name?: string; slotDate?: string | null; slotStartTime?: string | null;
     capacity?: number | null; status?: string; note?: string | null; sortOrder?: number;
+    advanceCount?: number | null;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Tournament_Heats SET
         name = COALESCE(?, name),
         slot_date = ?, slot_start_time = ?, capacity = ?,
         status = COALESCE(?, status), note = ?,
-        sort_order = COALESCE(?, sort_order)
+        sort_order = COALESCE(?, sort_order),
+        advance_count = ?
       WHERE id = ?
     `).bind(
       patch.name ?? null, patch.slotDate ?? null, patch.slotStartTime ?? null,
       patch.capacity ?? null, patch.status ?? null, patch.note ?? null,
-      patch.sortOrder ?? null, id,
+      patch.sortOrder ?? null, patch.advanceCount ?? null, id,
     ).run();
   }
 

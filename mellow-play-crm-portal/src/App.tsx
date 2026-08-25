@@ -19,6 +19,9 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Stack,
+  Menu,
+  MenuItem,
   Toolbar,
   Typography,
   CircularProgress,
@@ -150,7 +153,7 @@ const TagAttributionDashboard = lazy(() => import('./pages/TagAttributionDashboa
 const drawerWidth = 280;
 // Collapsed keeps the icons: a rail you can still navigate from beats a
 // sidebar that disappears and has to be summoned back to move anywhere.
-const drawerCollapsedWidth = 76;
+const drawerCollapsedWidth = 72;
 
 // Static path lists per group, used only to decide which group should
 // auto-expand for the current URL — kept separate from the permission-
@@ -327,6 +330,10 @@ const AppContent = () => {
   const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('crm_nav_collapsed') === '1');
   useEffect(() => { localStorage.setItem('crm_nav_collapsed', navCollapsed ? '1' : '0'); }, [navCollapsed]);
   const navWidth = navCollapsed ? drawerCollapsedWidth : drawerWidth;
+  const [railFlyout, setRailFlyout] = useState<{ anchorEl: HTMLElement; group: MenuGroupConfig } | null>(null);
+  // A flyout anchored to a button that is about to be replaced by the full menu
+  // would hang in mid-air, so opening the sidebar closes it.
+  useEffect(() => { if (!navCollapsed) setRailFlyout(null); }, [navCollapsed]);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const [key, paths] of Object.entries(GROUP_PATHS)) {
@@ -523,6 +530,160 @@ const AppContent = () => {
     hasPermission(feature) ? element : <AccessDenied />;
 
   const roleInfo = getRoleInfo(currentUser?.role || '');
+
+  /**
+   * The sidebar at 72px.
+   *
+   * A group cannot show its children below itself here — there is no room for
+   * their labels — so it opens them in a flyout instead, which is what every
+   * icon rail that has grouped navigation does. Built from the same
+   * menuEntries as the full menu, so permissions, locking and active state are
+   * decided in exactly one place.
+   */
+  const railButton = (opts: {
+    key: string; icon: React.ReactNode; label: string; active: boolean;
+    onClick: (e: React.MouseEvent<HTMLElement>) => void;
+  }) => (
+    <Tooltip key={opts.key} title={opts.label} placement="right" arrow>
+      <IconButton
+        onClick={opts.onClick}
+        sx={{
+          width: 44, height: 44, borderRadius: 2.5, position: 'relative',
+          color: opts.active
+            ? (isDarkMode ? 'white' : 'primary.main')
+            : (isDarkMode ? 'rgba(255,255,255,0.65)' : 'text.secondary'),
+          bgcolor: opts.active
+            ? (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(116,82,214,0.10)')
+            : 'transparent',
+          // A left accent as well as a tint: at this size the tint alone is
+          // easy to miss, and which section you are in is the one thing the
+          // rail still has to say.
+          '&::before': opts.active ? {
+            content: '""', position: 'absolute', left: -10, top: 10, bottom: 10,
+            width: 3, borderRadius: 3, bgcolor: isDarkMode ? 'secondary.main' : 'primary.main',
+          } : undefined,
+          '&:hover': { bgcolor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(116,82,214,0.06)' },
+        }}
+      >
+        {opts.icon}
+      </IconButton>
+    </Tooltip>
+  );
+
+  const collapsedDrawer = (
+    <Box sx={{
+      height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center',
+      bgcolor: isDarkMode ? '#1e293b' : 'white',
+      color: isDarkMode ? 'white' : 'text.primary',
+    }}>
+      {/* The logo box, not the wordmark: a 48px-wide lockup in a 72px rail is
+          the cropped mess this replaces. */}
+      <Box sx={{ py: 2.5 }}>
+        <Box
+          onClick={() => navigate('/crm')}
+          sx={{
+            width: 40, height: 40, borderRadius: 2.5, cursor: 'pointer',
+            bgcolor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(116,82,214,0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <img src={logo} alt="Mellow Play" style={{ width: 26, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+        </Box>
+      </Box>
+
+      <Tooltip title={`${currentUser?.fullName || currentUser?.name || 'Admin'} · ${roleInfo.label}`} placement="right" arrow>
+        <Avatar
+          onClick={() => navigate('/profile')}
+          sx={{
+            bgcolor: isDarkMode ? 'secondary.main' : 'primary.main',
+            width: 36, height: 36, fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', mb: 1.5,
+          }}
+        >
+          {currentUser?.fullName?.[0] || currentUser?.name?.[0] || 'A'}
+        </Avatar>
+      </Tooltip>
+
+      <Divider flexItem sx={{ mx: 1.5, opacity: 0.5, bgcolor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'divider' }} />
+
+      <Stack spacing={0.5} alignItems="center" sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', py: 1.5, width: '100%', '&::-webkit-scrollbar': { width: 0 } }}>
+        {menuEntries.map(entry => {
+          if ((entry as MenuGroupConfig).type === 'group') {
+            const group = entry as MenuGroupConfig;
+            return railButton({
+              key: group.groupKey,
+              icon: group.icon,
+              label: group.label,
+              active: group.children.some(ch => location.pathname === ch.path),
+              onClick: e => setRailFlyout({ anchorEl: e.currentTarget, group }),
+            });
+          }
+          const item = entry as MenuItemConfig;
+          return railButton({
+            key: item.text,
+            icon: item.icon,
+            label: item.text,
+            active: location.pathname === item.path,
+            onClick: () => navigate(item.path),
+          });
+        })}
+      </Stack>
+
+      <Divider flexItem sx={{ mx: 1.5, opacity: 0.5, bgcolor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'divider' }} />
+
+      <Stack spacing={1} alignItems="center" sx={{ py: 2 }}>
+        <Tooltip title={isPosMode ? 'สลับไปโหมด CRM' : 'สลับไปโหมด POS'} placement="right" arrow>
+          <IconButton
+            onClick={() => {
+              if (isPosMode) { setIsPosMode(false); navigate('/crm'); }
+              else { setCrmUnlocked(false); setIsPosMode(true); navigate('/pos'); }
+            }}
+            sx={{
+              width: 44, height: 44, borderRadius: 2.5, color: 'white',
+              bgcolor: isDarkMode ? 'secondary.main' : 'primary.main',
+              '&:hover': { bgcolor: isDarkMode ? 'secondary.dark' : 'primary.dark' },
+            }}
+          >
+            <SwitchIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="ออกจากระบบ" placement="right" arrow>
+          <IconButton onClick={handleLogout} sx={{ width: 44, height: 44, borderRadius: 2.5, color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'text.secondary' }}>
+            <LogoutIcon />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+
+      {/* The children a group would have shown below itself, shown beside it
+          instead. Labels are the whole point of opening it, so they are here in
+          full — locking and all. */}
+      <Menu
+        open={!!railFlyout}
+        anchorEl={railFlyout?.anchorEl}
+        onClose={() => setRailFlyout(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        MenuListProps={{ dense: true }}
+        slotProps={{ paper: { sx: { ml: 1, minWidth: 220, borderRadius: 2.5 } } }}
+      >
+        <Typography variant="caption" sx={{ px: 2, py: 1, display: 'block', fontWeight: 800, color: 'text.disabled' }}>
+          {railFlyout?.group.label}
+        </Typography>
+        {(railFlyout?.group.children || []).map(child => (
+          <MenuItem
+            key={child.text}
+            disabled={!!child.locked}
+            selected={location.pathname === child.path}
+            onClick={() => { if (!child.locked) { navigate(child.path); setRailFlyout(null); } }}
+            sx={{ borderRadius: 1.5, mx: 0.5, fontWeight: 600, fontSize: '0.85rem' }}
+          >
+            <ListItemIcon sx={{ minWidth: 32, color: 'inherit' }}>{child.icon}</ListItemIcon>
+            {child.text}
+            {child.locked && <LockMenuIcon sx={{ fontSize: 15, opacity: 0.6, ml: 'auto' }} />}
+          </MenuItem>
+        ))}
+      </Menu>
+    </Box>
+  );
 
   const drawer = (
     <Box
@@ -862,17 +1023,10 @@ const AppContent = () => {
                 width: navWidth,
                 overflowX: 'hidden',
                 transition: 'width 0.2s',
-                // Collapsed by hiding the labels rather than by rebuilding the
-                // menu: the nav logic — groups, active state, permissions — is
-                // the part worth not touching, and what is left is exactly the
-                // icon rail with its behaviour intact.
-                ...(navCollapsed ? {
-                  '& .MuiListItemText-root': { display: 'none' },
-                  '& .MuiListItemIcon-root': { minWidth: 0, justifyContent: 'center' },
-                  '& .MuiListItemButton-root': { justifyContent: 'center', px: 1 },
-                  '& .MuiCollapse-root': { display: 'none' },
-                  '& [data-nav-label]': { display: 'none' },
-                } : {}),
+                // Collapsed is a different component, not this one with its
+                // labels hidden — see collapsedDrawer. Squeezing the full menu
+                // into 76px left a cropped logo, a three-line title, an empty
+                // user card and a stack of orphaned expand arrows.
                 borderRight: isDarkMode ? 'none' : '1px solid #f1f3f9',
                 borderRadius: '0 24px 24px 0',
                 boxShadow: isDarkMode ? '10px 0 30px rgba(0,0,0,0.1)' : '5px 0 20px rgba(0,0,0,0.02)',
@@ -880,7 +1034,7 @@ const AppContent = () => {
             }}
             open
           >
-            {drawer}
+            {navCollapsed ? collapsedDrawer : drawer}
           </Drawer>
 
           {/* Sits on the sidebar's own edge rather than in a toolbar: the

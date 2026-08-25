@@ -197,7 +197,7 @@ const TournamentManagement: React.FC = () => {
   const [roundFilter, setRoundFilter] = useStickyState<string>('tournaments.roundFilter', 'all');
 
   const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null; tournamentId: number | null }>({ open: false, editing: null, tournamentId: null });
-  const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '' });
+  const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '', advance_count: '' });
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
   const [notice, setNotice] = useState<string>('');
@@ -398,8 +398,9 @@ const TournamentManagement: React.FC = () => {
         name: heat.name, slot_date: heat.slot_date || '',
         slot_start_time: heat.slot_start_time || '', capacity: heat.capacity ? String(heat.capacity) : '',
         note: heat.note || '',
+        advance_count: heat.advance_count ? String(heat.advance_count) : '',
       }
-      : { name: `Heat ${heats.length + 1}`, slot_date: '', slot_start_time: '', capacity: '', note: '' });
+      : { name: `Heat ${heats.length + 1}`, slot_date: '', slot_start_time: '', capacity: '', note: '', advance_count: '' });
     setHeatDialog({ open: true, editing: heat, tournamentId: tournamentId ?? tournament?.id ?? null });
   };
 
@@ -411,6 +412,10 @@ const TournamentManagement: React.FC = () => {
       slot_start_time: heatForm.slot_start_time || null,
       capacity: heatForm.capacity ? Number(heatForm.capacity) : null,
       note: heatForm.note.trim() || null,
+      // Blank means "this is a final" — nobody advances out of it. Until now
+      // this could only be set when the bracket was generated and never
+      // afterwards, so a heat created by hand had no way to send anyone on.
+      advance_count: heatForm.advance_count ? Number(heatForm.advance_count) : null,
     };
     if (heatDialog.editing) await axios.put(`${API_BASE}/tournament-heats/${heatDialog.editing.id}`, payload);
     else {
@@ -1518,6 +1523,16 @@ const TournamentManagement: React.FC = () => {
               label="จำนวนที่รับ (ไม่บังคับ)" type="number" fullWidth
               value={heatForm.capacity} onChange={e => setHeatForm(f => ({ ...f, capacity: e.target.value }))}
               helperText="ใส่ไว้เพื่อเตือนเมื่อจัดเกิน — ระบบไม่ได้ห้ามใส่เกิน"
+            />
+            {/* This is the "ผ่าน 2" on the canvas box. It could only be set
+                when a bracket was generated and never afterwards, so a heat
+                added by hand had no way to send anyone onward at all. */}
+            <TextField
+              label="ผ่านเข้ารอบถัดไปกี่อันดับ" type="number" fullWidth
+              value={heatForm.advance_count}
+              onChange={e => setHeatForm(f => ({ ...f, advance_count: e.target.value }))}
+              inputProps={{ min: 1, max: 20 }}
+              helperText="เช่น 2 = ที่ 1 และที่ 2 ของ Heat นี้ได้ไปต่อ · เว้นว่างถ้าเป็นรอบสุดท้าย ไม่มีใครไปต่อ"
             />
             <TextField
               label="โน้ต" fullWidth multiline minRows={3}
