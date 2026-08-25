@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Gift, AlertCircle, Star, History, X, Check, Lock, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Gift, AlertCircle, Star, History, X, Check, Lock, User, Award } from 'lucide-react';
 import { getCourseDetailPath } from '../utils/courseLinks';
 import { useChildStore } from '../store/useChildStore';
 import { useTranslation } from '../LanguageContext';
@@ -586,6 +586,26 @@ const Rewards = () => {
               </div>
             )}
       </ResponsiveModal>
+
+      {/* Certificates live on their own page rather than as a fourth section
+          here: a certificate is a full sheet, and stacking several under the
+          stamps would bury both. This is the door to them. */}
+      <div className="px-4 pb-6">
+        <button
+          type="button"
+          onClick={() => navigate('/my-certificates')}
+          className="w-full bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3 active:scale-[0.99] transition-transform"
+        >
+          <div className="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+            <Award size={20} className="text-amber-500" />
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-[15px] font-black text-slate-800">เกียรติบัตรของฉัน</p>
+            <p className="text-[12px] font-medium text-slate-400">ดู ดาวน์โหลด และแชร์ให้คนอื่นดูได้</p>
+          </div>
+          <ChevronRight size={18} className="text-slate-300 shrink-0" />
+        </button>
+      </div>
     </div>
   );
 };

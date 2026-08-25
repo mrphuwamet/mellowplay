@@ -25,6 +25,7 @@ import {
   EventBusy as EventBusyIcon,
   AdminPanelSettings as ForceStatusIcon,
   MoreVert as MoreVertIcon,
+  WorkspacePremium as CertIcon,
   Edit as EditIcon,
   Cake as CakeIcon,
   Phone as PhoneIcon,
@@ -47,6 +48,8 @@ import { AddBookingDialog, CourseDetailPanel } from '../components/AddBookingDia
 import { downloadCsv } from '../utils/csvExport';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
+// Where a certificate is read — the customer app, not the CRM.
+const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -1131,6 +1134,12 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // paginated/grouped on screen, so "select all" and the CSV export button
   // right next to it always mean the same universe of rows.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Certificates already issued for what is on screen, keyed by booking. Loaded
+  // for the visible rows rather than all of them: this list can be a thousand
+  // long and the answer is only needed for what someone can actually see.
+  const [certByBooking, setCertByBooking] = useState<Record<number, { public_code: string }>>({});
+  const [issuing, setIssuing] = useState(false);
+  const [issueResult, setIssueResult] = useState('');
   const toggleSelected = (id: number) => setSelectedIds(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -1194,6 +1203,35 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     });
   }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates]);
 
+  /**
+   * Issue for these bookings.
+   *
+   * Safe to press twice — the server keeps one live certificate per booking —
+   * so the button never has to be disabled while someone wonders whether the
+   * first press worked.
+   */
+  const issueCertificates = async (ids: number[]) => {
+    if (ids.length === 0) return;
+    setIssuing(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/certificates/issue`, { booking_ids: ids });
+      if (data.success) {
+        const res = await axios.post(`${API_BASE}/certificates/for-bookings`, { booking_ids: ids });
+        if (res.data?.success) {
+          setCertByBooking(prev => ({
+            ...prev,
+            ...Object.fromEntries((res.data.certificates || []).map((c: any) => [c.booking_id, c])),
+          }));
+        }
+        setIssueResult(data.skipped > 0
+          ? `ออกเกียรติบัตรใหม่ ${data.issued} ใบ · อีก ${data.skipped} รายการมีอยู่แล้ว`
+          : `ออกเกียรติบัตร ${data.issued} ใบเรียบร้อย`);
+      }
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'ออกเกียรติบัตรไม่สำเร็จ');
+    } finally { setIssuing(false); }
+  };
+
   const allFilteredSelected = filtered.length > 0 && filtered.every(b => selectedIds.has(b.id));
   const someFilteredSelected = filtered.some(b => selectedIds.has(b.id));
   const toggleSelectAll = () => setSelectedIds(allFilteredSelected ? new Set() : new Set(filtered.map(b => b.id)));
@@ -1220,6 +1258,23 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     const start = (page - 1) * pageSize;
     return sorted.slice(start, start + pageSize);
   }, [sorted, page, pageSize]);
+
+  useEffect(() => {
+    const ids = paginated.map(b => b.id);
+    if (ids.length === 0) { setCertByBooking({}); return; }
+    let cancelled = false;
+    axios.post(`${API_BASE}/certificates/for-bookings`, { booking_ids: ids })
+      .then(res => {
+        if (cancelled || !res.data?.success) return;
+        setCertByBooking(Object.fromEntries((res.data.certificates || []).map((c: any) => [c.booking_id, c])));
+      })
+      // Silent: a tick that fails to appear is a smaller problem than an error
+      // banner over a list someone is trying to work down.
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paginated]);
+
 
   // Grouping shows the FULL filtered/sorted set (pagination and grouping
   // don't compose cleanly — see the note rendered near the pagination
@@ -1602,6 +1657,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 The empty state is a button rather than nothing, so the space
                 says what it is for and the first note on a row is one click. */}
             <Box sx={{ flex: '2 1 200px', minWidth: 0, alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
+              {certByBooking[b.id] && (
+                <Tooltip title="ออกเกียรติบัตรแล้ว — กดเพื่อเปิด">
+                  <IconButton
+                    size="small" component="a"
+                    href={`${CONSUMER_APP_URL}/certificate/${certByBooking[b.id].public_code}`}
+                    target="_blank" rel="noopener noreferrer"
+                    sx={{ p: 0.25, mr: 0.5, color: 'secondary.main', alignSelf: 'flex-start' }}
+                  >
+                    <CertIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
               {b.staff_note ? (
                 <Box
                   onClick={() => openNote(b)}
@@ -1913,6 +1980,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           {selectedIds.size > 0 && (
             <>
               <Button
+                size="small" variant="outlined" color="secondary"
+                startIcon={issuing ? <CircularProgress size={14} color="inherit" /> : <CertIcon />}
+                onClick={() => issueCertificates(selectedBookings.filter(b => b.status !== 'cancelled').map(b => b.id))}
+                disabled={issuing}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                ออกเกียรติบัตร
+              </Button>
+              <Button
                 size="small"
                 variant="outlined"
                 color="success"
@@ -2085,6 +2161,31 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           <EditIcon fontSize="small" color="primary" />
           แก้ไข
         </MenuItem>
+        {/* Opens the certificate when there is one, issues it when there is
+            not — one entry, because "does this booking have a certificate" is
+            not a question staff should have to answer before clicking. */}
+        {manageMenu && manageMenu.booking.status !== 'cancelled' && (
+          certByBooking[manageMenu.booking.id] ? (
+            <MenuItem
+              component="a"
+              href={`${CONSUMER_APP_URL}/certificate/${certByBooking[manageMenu.booking.id].public_code}`}
+              target="_blank" rel="noopener noreferrer"
+              onClick={closeManageMenu}
+              sx={{ gap: 1.25, fontWeight: 600 }}
+            >
+              <CertIcon fontSize="small" sx={{ color: 'secondary.main' }} />
+              เปิดเกียรติบัตร
+            </MenuItem>
+          ) : (
+            <MenuItem
+              onClick={() => { if (manageMenu) issueCertificates([manageMenu.booking.id]); closeManageMenu(); }}
+              sx={{ gap: 1.25, fontWeight: 600 }}
+            >
+              <CertIcon fontSize="small" sx={{ color: 'secondary.main' }} />
+              ออกเกียรติบัตร
+            </MenuItem>
+          )
+        )}
         {manageMenu && manageMenu.booking.status !== 'cancelled' && (
           <MenuItem onClick={() => { setResendTarget([manageMenu.booking]); closeManageMenu(); }} sx={{ gap: 1.25, fontWeight: 600 }}>
             <ResendIcon fontSize="small" color="primary" />
@@ -2130,6 +2231,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         }}
       />
       <ClassDetailDialog course={classDetailCourse} onClose={() => setClassDetailCourse(null)} />
+
+      <Snackbar
+        open={!!issueResult}
+        autoHideDuration={5000}
+        onClose={() => setIssueResult('')}
+        message={issueResult}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       <Dialog open={!!noteBooking} onClose={() => !noteSaving && setNoteBooking(null)} maxWidth="sm" fullWidth>
         <DialogTitle>โน้ตของเจ้าหน้าที่ — #{noteBooking?.id}</DialogTitle>
