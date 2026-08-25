@@ -45,6 +45,7 @@ import {
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
+import BookingNoteBox from '../components/BookingNoteBox';
 import { parseFields, fieldText, CERT_VARIABLES, FORM_PREFIX } from '../utils/certificateLayout';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
@@ -1123,33 +1124,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // each partner booking down in the list one by one.
   const [dupDialogBooking, setDupDialogBooking] = useState<Booking | null>(null);
   const [noteBooking, setNoteBooking] = useState<Booking | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [noteSaving, setNoteSaving] = useState(false);
-  const [noteError, setNoteError] = useState('');
 
-  const openNote = (b: Booking) => {
-    setNoteBooking(b);
-    setNoteText(b.staff_note || '');
-    setNoteError('');
-  };
-
-  const saveNote = async () => {
-    if (!noteBooking) return;
-    setNoteSaving(true);
-    setNoteError('');
-    try {
-      const res = await axios.put(API_BASE + '/bookings/' + noteBooking.id + '/staff-note', { note: noteText });
-      // Handed back to the parent, which owns the list, rather than refetching
-      // it: notes get written while working down a call list, and losing the
-      // scroll position on every save costs more than the note is worth.
-      onStaffNoteSaved(noteBooking.id, res.data?.staff_note ?? null);
-      setNoteBooking(null);
-    } catch (e: any) {
-      setNoteError(e?.response?.data?.message || 'บันทึกโน้ตไม่สำเร็จ');
-    } finally {
-      setNoteSaving(false);
-    }
-  };
+  // Editing and saving live in BookingNoteBox, which the check-in card uses
+  // too — the note a family gets is one field, so it has one implementation.
+  const openNote = (b: Booking) => setNoteBooking(b);
   const [classDetailCourse, setClassDetailCourse] = useState<Course | null>(null);
   const closeManageMenu = () => setManageMenu(null);
 
@@ -2645,30 +2623,28 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!noteBooking} onClose={() => !noteSaving && setNoteBooking(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!noteBooking} onClose={() => setNoteBooking(null)} maxWidth="sm" fullWidth>
         <DialogTitle>โน้ตของเจ้าหน้าที่ — #{noteBooking?.id}</DialogTitle>
         <DialogContent dividers>
-          {noteError && <Alert severity="error" sx={{ mb: 2 }}>{noteError}</Alert>}
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-            เห็นเฉพาะเจ้าหน้าที่ ลูกค้าไม่เห็นข้อความนี้ · แยกจากหมายเหตุที่ลูกค้ากรอกตอนจอง
-          </Typography>
-          <TextField
-            fullWidth multiline minRows={4} autoFocus
-            placeholder="เช่น โทรแล้ว 21/8 ไม่รับสาย · ขอเลื่อนเป็นรอบบ่าย"
-            value={noteText}
-            onChange={e => setNoteText(e.target.value.slice(0, 1000))}
-            helperText={noteText.length + '/1000'}
-          />
+          {noteBooking && (
+            <BookingNoteBox
+              client={axios}
+              bookingId={noteBooking.id}
+              initialNote={noteBooking.staff_note}
+              autoFocus
+              onSaved={note => {
+                // Handed to the parent, which owns the list, rather than
+                // refetching it: notes get written while working down a call
+                // list, and losing the scroll position on every save costs more
+                // than the note is worth.
+                onStaffNoteSaved(noteBooking.id, note);
+                setNoteBooking(null);
+              }}
+            />
+          )}
         </DialogContent>
         <DialogActions>
-          {/* Clearing is emptying the box and saving — one action, not a second
-              button that means almost the same thing. */}
-          <Button onClick={() => setNoteText('')} disabled={noteSaving || !noteText}>ล้างข้อความ</Button>
-          <Box sx={{ flex: 1 }} />
-          <Button onClick={() => setNoteBooking(null)} disabled={noteSaving}>ยกเลิก</Button>
-          <Button variant="contained" onClick={saveNote} disabled={noteSaving}>
-            {noteSaving ? <CircularProgress size={18} /> : 'บันทึก'}
-          </Button>
+          <Button onClick={() => setNoteBooking(null)}>ปิด</Button>
         </DialogActions>
       </Dialog>
 

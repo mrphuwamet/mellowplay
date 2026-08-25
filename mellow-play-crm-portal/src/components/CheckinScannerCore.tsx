@@ -7,9 +7,12 @@ import {
 import {
   QrCodeScanner as ScanIcon, CheckCircle as CheckIcon, Refresh as RescanIcon,
   Phone as PhoneIcon, ReportProblem as WarningIcon, EventBusy as AbsentIcon,
+  EmojiEvents as MedalIcon,
 } from '@mui/icons-material';
 import { AxiosInstance } from 'axios';
 import CheckinRoundPanel from './CheckinRoundPanel';
+import BookingNoteBox from './BookingNoteBox';
+import BookingAwardsDialog from './stamps/BookingAwardsDialog';
 import { API_URL } from '../config';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -38,6 +41,7 @@ interface CheckinBooking {
   parent_last_name?: string;
   parent_phone?: string;
   form_submission_id?: number;
+  staff_note?: string | null;
   actions: CheckinAction[];
   /** Staff-only, and absent for a first-time attendee. */
   no_show_history?: { missed: number; of: number } | null;
@@ -101,9 +105,12 @@ interface Props {
   // PIN-gated page uses this to drop back to the PIN screen.
   onUnauthorized?: () => void;
   /**
-   * Whether this screen may close a round off by marking everyone who did not
-   * arrive. False for the PIN-link page: a link that gets forwarded around
-   * should not be able to take a whole session's certificates away.
+   * Whether this screen is running inside the CRM with a real staff session.
+   *
+   * False for the PIN-link page, which gates the three things a forwarded link
+   * should not carry: closing a round off, the internal staff note, and
+   * awarding medals. Everything a volunteer at a door actually needs — the
+   * roster, the card, ticking people in — stays available either way.
    */
   canCloseRound?: boolean;
 }
@@ -158,6 +165,10 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
   // Bumped after every tick so the roster's counter follows along without the
   // panel having to poll for it.
   const [rosterKey, setRosterKey] = useState(0);
+  const [awardsOpen, setAwardsOpen] = useState(false);
+  // The card's own copy, so saving updates what is on screen without reloading
+  // the booking out from under whoever is reading it.
+  const [note, setNote] = useState<string | null>(null);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
@@ -191,7 +202,7 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
     setError(null);
     try {
       const res = await client.get(`${API_BASE}/checkin/lookup/${encodeURIComponent(token)}`);
-      if (res.data.success) setBooking(res.data.booking);
+      if (res.data.success) { setBooking(res.data.booking); setNote(res.data.booking?.staff_note ?? null); }
     } catch (e: any) {
       handleRequestError(e, 'ไม่พบข้อมูลการจองสำหรับ QR นี้');
     } finally {
@@ -645,6 +656,43 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
               </Stack>
             )}
           </Box>
+
+          {/* CRM only. A note is what WE wrote about a family, and medals are
+              a result being recorded — neither belongs to a link that gets
+              forwarded around a group chat. */}
+          {canCloseRound && (
+            <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: '1px solid #eef0f3' }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
+                โน้ตของเจ้าหน้าที่
+              </Typography>
+              <BookingNoteBox
+                client={client}
+                bookingId={booking.id}
+                initialNote={note}
+                minRows={2}
+                onSaved={setNote}
+              />
+            </Box>
+          )}
+
+          {canCloseRound && (
+            <Button
+              fullWidth variant="outlined" startIcon={<MedalIcon />}
+              onClick={() => setAwardsOpen(true)}
+              sx={{ mb: 2, borderRadius: 2, fontWeight: 700 }}
+            >
+              แสตมป์ · เหรียญรางวัล
+            </Button>
+          )}
+
+          {canCloseRound && awardsOpen && (
+            <BookingAwardsDialog
+              bookingId={booking.id}
+              childName={attendeeName}
+              courseName={booking.course_name}
+              onClose={() => setAwardsOpen(false)}
+            />
+          )}
 
           {booking.actions.length === 0 ? (
             <Typography variant="body2" color="text.disabled" sx={{ py: 2, textAlign: 'center' }}>

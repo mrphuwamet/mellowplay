@@ -67,7 +67,9 @@ export class CheckinController {
       // without ever setting crmUser, so trusting the context would strip the
       // fields from the scanner too.
       if (!(await isStaffRequest(c))) {
-        const { parent_first_name, parent_last_name, parent_phone, ...publicBooking } = result;
+        // staff_note goes with them: it is what we wrote about this family,
+        // not what they told us, and an emailed QR link gets forwarded.
+        const { parent_first_name, parent_last_name, parent_phone, staff_note, ...publicBooking } = result;
         return c.json({ success: true, booking: publicBooking });
       }
 

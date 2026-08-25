@@ -29,6 +29,7 @@ export class CheckinRepository {
   async lookupByToken(token: string): Promise<any | null> {
     const booking = await this.db.prepare(`
       SELECT b.id, b.qr_token, b.child_id, b.course_id, b.scheduled_at, b.status, b.form_submission_id,
+             b.staff_note,
         c.name as course_name, c.is_event, c.is_service,
         hp.name as child_name, hp.name_en as child_name_en, hp.nickname as child_nickname, ch.avatar as child_avatar,
         u.first_name as parent_first_name, u.last_name as parent_last_name, u.phone as parent_phone
