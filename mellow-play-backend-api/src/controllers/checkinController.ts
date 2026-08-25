@@ -5,7 +5,7 @@ import { CheckinRepository } from '../repositories/checkinRepository';
 import { AuthService } from '../services/authService';
 import { awardParticipation, revokeParticipation } from '../services/stampService';
 import { autoIssue as autoIssueCertificate, revokeAutoIssued as revokeAutoIssuedCertificate } from '../services/certificateService';
-import { markNoShow, clearNoShow } from '../services/attendanceService';
+import { markNoShow, clearNoShow, noShowHistory } from '../services/attendanceService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -70,7 +70,16 @@ export class CheckinController {
         const { parent_first_name, parent_last_name, parent_phone, ...publicBooking } = result;
         return c.json({ success: true, booking: publicBooking });
       }
-      return c.json({ success: true, booking: result });
+
+      // How often this child has failed to turn up lately. Staff-only, and on
+      // the card rather than in a report — a count nobody opens changes
+      // nothing, while seeing it while the family is at the door is something
+      // someone can act on. Never sent to whoever merely holds the token.
+      const history = result.child_id
+        ? await noShowHistory(new ConfigService(c.env).db, Number(result.child_id))
+        : null;
+
+      return c.json({ success: true, booking: { ...result, no_show_history: history } });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

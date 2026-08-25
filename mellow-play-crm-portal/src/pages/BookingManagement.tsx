@@ -45,6 +45,7 @@ import {
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
+import { parseFields, fieldText, CERT_VARIABLES, FORM_PREFIX } from '../utils/certificateLayout';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -62,6 +63,34 @@ const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'h
  * below — which is all their templates could reference anyway, so they still
  * print correctly rather than printing blanks.
  */
+/**
+ * Which boxes on a certificate would come out empty.
+ *
+ * Run before the paper does. A template can print any answer from the
+ * registration form, and a family that skipped that question leaves a gap in
+ * the middle of the page — which is only ever discovered after forty sheets
+ * have gone through the printer.
+ *
+ * Uses the same renderer the sheet does, so what it checks is what will print,
+ * not an approximation of it.
+ */
+const blankFieldsOf = (item: PrintableCertificate): string[] => {
+  const fields = parseFields(item.template?.fields_json);
+  return fields
+    .filter(f => f.type === 'field' && !fieldText(f, item.values).trim())
+    .map(f => variableLabel(f.value));
+};
+
+/** A variable named the way staff would say it, never the raw key. */
+const variableLabel = (key: string): string => {
+  const builtIn = CERT_VARIABLES.find(v => v.key === key);
+  if (builtIn) return builtIn.label;
+  // The form field labels are not on this page, so the key is all there is —
+  // at least strip the prefix rather than showing "form:relation" to someone
+  // who never chose that name.
+  return key.startsWith(FORM_PREFIX) ? `คำตอบในฟอร์ม: ${key.slice(FORM_PREFIX.length)}` : key;
+};
+
 const certValuesOf = (c: any): Record<string, string> => {
   const base: Record<string, string> = {
     recipient_name: String(c.recipient_name ?? ''),
@@ -1187,6 +1216,9 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // certificates, not state the page needs afterwards.
   const [printItems, setPrintItems] = useState<PrintableCertificate[]>([]);
   const [printingBatch, setPrintingBatch] = useState(false);
+  // Held between "we found gaps" and "print anyway", so the second press does
+  // not have to fetch everything again.
+  const [blankWarning, setBlankWarning] = useState<{ items: PrintableCertificate[]; blanks: { id: number | string; missing: string[] }[] } | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<Booking | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
   const [revoking, setRevoking] = useState(false);
@@ -1357,7 +1389,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
    * because printing still never issues: issuing is what assigns the number,
    * and a print dialog is no place to do something there is no undoing.
    */
-  const printCertificates = async (ids: number[]) => {
+  const printCertificates = async (ids: number[], skipBlankCheck = false) => {
     if (ids.length === 0) return;
     setPrintingBatch(true);
     try {
@@ -1385,6 +1417,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           : 'ไม่มีรายการที่พิมพ์ได้');
         return;
       }
+      const blanks = items
+        .map(it => ({ id: it.id, missing: blankFieldsOf(it) }))
+        .filter(x => x.missing.length > 0);
+      if (blanks.length > 0 && !skipBlankCheck) {
+        setBlankWarning({ items, blanks });
+        return;
+      }
+
       setPrintItems(items);
 
       const notes: string[] = [];
@@ -2538,6 +2578,42 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
       {/* Hidden on screen; its own stylesheet hides the rest of the CRM when
           the print dialog opens. Same component the designer previews with. */}
+      <Dialog open={!!blankWarning} onClose={() => setBlankWarning(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>มีช่องที่จะพิมพ์ออกมาว่าง</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            {blankWarning?.blanks.length} ใบมีช่องที่ไม่มีข้อมูล — ส่วนใหญ่เกิดจากครอบครัวไม่ได้ตอบคำถามข้อนั้นในฟอร์ม
+            แก้ได้ที่ “ดูข้อมูลเพิ่มเติม” ของรายการนั้น แล้วค่อยพิมพ์ใหม่
+          </Typography>
+          <Box sx={{ maxHeight: 220, overflowY: 'auto' }}>
+            {blankWarning?.blanks.map(b => (
+              <Typography key={String(b.id)} variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
+                {String(b.id).startsWith('draft-') ? `การจอง #${String(b.id).slice(6)}` : `เกียรติบัตร #${b.id}`}
+                {' — '}
+                <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>{b.missing.join(', ')}</Box>
+              </Typography>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBlankWarning(null)}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const items = blankWarning?.items || [];
+              setBlankWarning(null);
+              setPrintItems(items);
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                window.print();
+                setPrintItems([]);
+              }));
+            }}
+          >
+            พิมพ์ทั้งที่ว่าง
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <CertificatePrintSheet items={printItems} />
 
       <Dialog open={!!revokeTarget} onClose={() => !revoking && setRevokeTarget(null)} maxWidth="xs" fullWidth>

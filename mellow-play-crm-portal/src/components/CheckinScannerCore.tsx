@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon, CheckCircle as CheckIcon, Refresh as RescanIcon,
-  Phone as PhoneIcon, ReportProblem as WarningIcon,
+  Phone as PhoneIcon, ReportProblem as WarningIcon, EventBusy as AbsentIcon,
 } from '@mui/icons-material';
 import { AxiosInstance } from 'axios';
 import CheckinRoundPanel from './CheckinRoundPanel';
@@ -39,6 +39,8 @@ interface CheckinBooking {
   parent_phone?: string;
   form_submission_id?: number;
   actions: CheckinAction[];
+  /** Staff-only, and absent for a first-time attendee. */
+  no_show_history?: { missed: number; of: number } | null;
 }
 
 interface FormAnswerField {
@@ -534,6 +536,17 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
             <Typography variant="body2" color="text.secondary" sx={{ display: 'block', mb: 2, wordBreak: 'break-word' }}>
               ผู้ปกครอง: {[booking.parent_first_name, booking.parent_last_name].filter(Boolean).join(' ')} · {booking.parent_phone}
             </Typography>
+          )}
+
+          {/* Only when it has actually happened, and only when it is more than
+              a one-off: "ไม่มา 1 จาก 5" is noise on a card someone reads in
+              three seconds, while a pattern is worth a phone call. */}
+          {(booking.no_show_history?.missed ?? 0) >= 2 && (
+            <Alert severity="info" icon={<AbsentIcon />} sx={{ mb: 2, borderRadius: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                เคยไม่มาตามนัด {booking.no_show_history!.missed} จาก {booking.no_show_history!.of} ครั้งล่าสุด
+              </Typography>
+            </Alert>
           )}
 
           {/* Above everything else on the card, including the fold. */}
