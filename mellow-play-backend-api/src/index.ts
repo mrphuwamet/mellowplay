@@ -30,6 +30,7 @@ import { OrderController } from './controllers/orderController';
 import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { RewardsController } from './controllers/rewardsController';
+import { CertificateController } from './controllers/certificateController';
 import { TournamentController } from './controllers/tournamentController';
 import { NewsFeedController } from './controllers/newsFeedController';
 import { CourseEngagementController } from './controllers/courseEngagementController';
@@ -69,6 +70,7 @@ const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const rewardsController        = new RewardsController();
 const tournamentController     = new TournamentController();
+const certificateController    = new CertificateController();
 const newsFeedController       = new NewsFeedController();
 const courseEngagementController = new CourseEngagementController();
 const communityController      = new CommunityController();
@@ -669,6 +671,22 @@ app.get   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentContro
 app.put   ('/api/v1/admin/courses/:courseId/tournament', (c) => tournamentController.createOrUpdate(c));
 app.post  ('/api/v1/admin/tournaments/:tournamentId/heats', (c) => tournamentController.createHeat(c));
 app.post  ('/api/v1/admin/tournaments/:tournamentId/generate', (c) => tournamentController.generate(c));
+
+// ── E-certificates ─────────────────────────────────────────────────────────
+app.get   ('/api/v1/admin/certificate-templates',      (c) => certificateController.listTemplates(c));
+app.post  ('/api/v1/admin/certificate-templates',      (c) => certificateController.createTemplate(c));
+app.put   ('/api/v1/admin/certificate-templates/:id',  (c) => certificateController.updateTemplate(c));
+app.delete('/api/v1/admin/certificate-templates/:id',  (c) => certificateController.deleteTemplate(c));
+app.put   ('/api/v1/admin/certificate-bindings',       (c) => certificateController.setBinding(c));
+app.post  ('/api/v1/admin/certificates/issue',         (c) => certificateController.issue(c));
+app.post  ('/api/v1/admin/certificates/for-bookings',  (c) => certificateController.listForBookings(c));
+app.post  ('/api/v1/admin/certificates/:id/revoke',    (c) => certificateController.revoke(c));
+
+// Public: the printable page and the verification page both read this, and
+// neither can require a login — a certificate is meant to be shown to people
+// who have no account here.
+app.get   ('/api/v1/certificates/:code',               (c) => certificateController.getPublic(c));
+app.get   ('/api/v1/my-certificates',                  (c) => certificateController.listMine(c));
 app.post  ('/api/v1/admin/tournaments/:tournamentId/links',  (c) => tournamentController.addLink(c));
 app.delete('/api/v1/admin/tournaments/:tournamentId/links',  (c) => tournamentController.deleteLink(c));
 app.put   ('/api/v1/admin/tournaments/:tournamentId/layout', (c) => tournamentController.saveLayout(c));
