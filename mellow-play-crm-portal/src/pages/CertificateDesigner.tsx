@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   Box, Paper, Typography, Button, IconButton, TextField, MenuItem, Select,
   FormControl, InputLabel, Stack, Divider, Alert, Tooltip, CircularProgress,
-  ToggleButton, ToggleButtonGroup, Slider,
+  ToggleButton, ToggleButtonGroup, Slider, ListSubheader, Autocomplete,
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon,
@@ -12,8 +12,11 @@ import {
 } from '@mui/icons-material';
 import { API_URL } from '../config';
 import {
-  CertField, CERT_VARIABLES, parseFields, ptToPx, fieldText,
+  CertField, CertRule, CERT_VARIABLES, FORM_PREFIX,
+  parseFields, ptToPx, fieldText,
 } from '../utils/certificateLayout';
+import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
+import RuleEditor from '../components/CertificateRuleEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -60,6 +63,21 @@ const CertificateDesigner = () => {
   const pageRef = useRef<HTMLDivElement>(null);
   const [renderWidth, setRenderWidth] = useState(760);
 
+  // Which registration form's answers this template may print. A template is
+  // not owned by one form — it is picked here only so the variable list has
+  // real questions in it instead of asking anyone to type a field key.
+  const [forms, setForms] = useState<any[]>([]);
+  const [formId, setFormId] = useState<number | ''>('');
+  const [formFields, setFormFields] = useState<{ key: string; label: string }[]>([]);
+
+  // Preview against a real booking rather than invented samples: the questions
+  // that matter — does the longest real name fit, is this date the right one —
+  // cannot be answered by a placeholder.
+  const [sampleBookings, setSampleBookings] = useState<any[]>([]);
+  const [previewBooking, setPreviewBooking] = useState<any | null>(null);
+  const [previewValues, setPreviewValues] = useState<Record<string, string> | null>(null);
+  const [printing, setPrinting] = useState(false);
+
   const load = async (keepId?: number) => {
     const { data } = await axios.get(`${API_BASE}/certificate-templates`);
     if (!data.success) return;
@@ -79,6 +97,39 @@ const CertificateDesigner = () => {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/registration-forms`)
+      .then(({ data }) => setForms(data.forms || data.registrationForms || []))
+      .catch(() => { /* the built-in variables still work without a form */ });
+    axios.get(`${API_BASE}/certificates/sample-bookings`)
+      .then(({ data }) => setSampleBookings(data.bookings || []))
+      .catch(() => { /* fall back to the sample values */ });
+  }, []);
+
+  // The chosen form's questions, as variables.
+  useEffect(() => {
+    if (!formId) { setFormFields([]); return; }
+    axios.get(`${API_BASE}/registration-forms/${formId}`)
+      .then(({ data }) => {
+        const raw = data.form?.fields || data.fields || [];
+        setFormFields(
+          raw
+            // Headings and images carry no answer, so they are not variables.
+            .filter((f: any) => !['heading', 'paragraph', 'image'].includes(f.type))
+            .map((f: any) => ({ key: `${FORM_PREFIX}${f.field_key}`, label: f.label || f.field_key }))
+        );
+      })
+      .catch(() => setFormFields([]));
+  }, [formId]);
+
+  // Real values for the chosen booking, from the same resolver the issuer uses.
+  useEffect(() => {
+    if (!previewBooking) { setPreviewValues(null); return; }
+    axios.get(`${API_BASE}/certificates/preview/${previewBooking.id}`)
+      .then(({ data }) => setPreviewValues(data.success ? data.values : null))
+      .catch(() => setPreviewValues(null));
+  }, [previewBooking]);
 
   useEffect(() => {
     const measure = () => {
@@ -143,10 +194,46 @@ const CertificateDesigner = () => {
     } finally { setSaving(false); }
   };
 
-  const sampleData = useMemo(
-    () => Object.fromEntries(CERT_VARIABLES.map(v => [v.key, v.sample])),
-    []
+  /** Everything the designer offers: built-ins, then the chosen form's own questions. */
+  const allVariables = useMemo(
+    () => [...CERT_VARIABLES.map(v => ({ key: v.key, label: v.label })), ...formFields],
+    [formFields]
   );
+
+  /**
+   * What the canvas prints. A real booking when one is chosen, invented samples
+   * otherwise — and sample-filling is off for a real booking on purpose: a blank
+   * means that family genuinely did not answer, which is exactly what the
+   * designer needs to see before the sheet is printed.
+   */
+  const previewData = useMemo(
+    () => previewValues ?? Object.fromEntries(CERT_VARIABLES.map(v => [v.key, v.sample])),
+    [previewValues]
+  );
+  const usingReal = !!previewValues;
+
+  const printItems: PrintableCertificate[] = useMemo(() => [{
+    id: 'preview',
+    template: { background_url: background, page_width: pageW, page_height: pageH, fields_json: JSON.stringify(fields) },
+    values: previewData,
+  }], [background, pageW, pageH, fields, previewData]);
+
+  /**
+   * Print what is on the canvas, without issuing anything.
+   *
+   * A preview must never create a certificate: issuing is what assigns a serial
+   * number, and there is no taking that back from a print dialog.
+   */
+  const printPreview = () => {
+    setPrinting(true);
+    // One frame, so the print-only sheet is in the DOM before the dialog opens.
+    requestAnimationFrame(() => {
+      window.print();
+      setPrinting(false);
+    });
+  };
+
+  const patchRules = (id: string, rules: CertRule[]) => patch(id, { rules });
 
   const renderField = (f: CertField) => {
     const isSel = f.id === selected;
@@ -208,7 +295,7 @@ const CertificateDesigner = () => {
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}
       >
-        {fieldText(f, sampleData, true) || '—'}
+        {fieldText(f, previewData, !usingReal) || '—'}
       </Box>
     );
   };
@@ -219,7 +306,8 @@ const CertificateDesigner = () => {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800 }}>ออกแบบเกียรติบัตร</Typography>
           <Typography variant="body2" color="text.secondary">
-            อัปโหลดพื้นหลัง แล้วลากกล่องไปวางตรงที่ต้องการ · ตัวอักษรที่เห็นเป็นข้อมูลตัวอย่าง
+            อัปโหลดพื้นหลัง แล้วลากกล่องไปวางตรงที่ต้องการ ·{' '}
+            {usingReal ? 'กำลังแสดงข้อมูลจริงจากการจองที่เลือก' : 'ตัวอักษรที่เห็นเป็นข้อมูลตัวอย่าง'}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
@@ -238,6 +326,9 @@ const CertificateDesigner = () => {
           >
             แบบใหม่
           </Button>
+          <Button variant="outlined" startIcon={<PrintIcon />} onClick={printPreview} disabled={printing}>
+            พิมพ์ตัวอย่าง
+          </Button>
           <Button variant="contained" startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />} onClick={save} disabled={saving}>
             บันทึก
           </Button>
@@ -248,6 +339,41 @@ const CertificateDesigner = () => {
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start">
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, flex: 1, minWidth: 0 }}>
+          {/* Preview source. Sitting above the page rather than in the sidebar
+              because it changes what the whole page says, not one box. */}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
+            <Autocomplete
+              size="small" fullWidth options={sampleBookings} value={previewBooking}
+              onChange={(_, v) => setPreviewBooking(v)}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              getOptionLabel={(o: any) => `#${o.id} ${o.who || ''} — ${o.course_name || ''}`.trim()}
+              renderInput={params => (
+                <TextField {...params} label="ดูตัวอย่างด้วยข้อมูลจริงจากการจอง"
+                  placeholder="ค้นหาชื่อ หรือหมายเลขการจอง" />
+              )}
+              renderOption={(props, o: any) => (
+                <li {...props} key={o.id}>
+                  <Stack sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>#{o.id} {o.who || '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {o.course_name || ''}{o.form_submission_id ? ' · มีคำตอบจากฟอร์ม' : ' · ไม่มีคำตอบจากฟอร์ม'}
+                    </Typography>
+                  </Stack>
+                </li>
+              )}
+            />
+            <FormControl size="small" sx={{ minWidth: { sm: 240 } }}>
+              <InputLabel>ตัวแปรจากฟอร์มลงทะเบียน</InputLabel>
+              <Select
+                label="ตัวแปรจากฟอร์มลงทะเบียน" value={formId}
+                onChange={e => setFormId(e.target.value === '' ? '' : Number(e.target.value))}
+              >
+                <MenuItem value="">ไม่ใช้คำตอบจากฟอร์ม</MenuItem>
+                {forms.map((f: any) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Stack>
+
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
             <Button size="small" startIcon={<VarIcon />} onClick={() => setFields(f => [...f, newField('field')])}>ช่องตัวแปร</Button>
             <Button size="small" startIcon={<TextIcon />} onClick={() => setFields(f => [...f, newField('text')])}>ข้อความ</Button>
@@ -316,12 +442,29 @@ const CertificateDesigner = () => {
           {sel && (
             <Stack spacing={1.5}>
               {sel.type === 'field' && (
-                <FormControl size="small" fullWidth>
-                  <InputLabel>ตัวแปร</InputLabel>
-                  <Select label="ตัวแปร" value={sel.value} onChange={e => patch(sel.id, { value: String(e.target.value) })}>
-                    {CERT_VARIABLES.map(v => <MenuItem key={v.key} value={v.key}>{v.label}</MenuItem>)}
-                  </Select>
-                </FormControl>
+                <>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>ตัวแปร</InputLabel>
+                    <Select label="ตัวแปร" value={sel.value} onChange={e => patch(sel.id, { value: String(e.target.value) })}>
+                      <ListSubheader>ข้อมูลพื้นฐาน</ListSubheader>
+                      {CERT_VARIABLES.map(v => <MenuItem key={v.key} value={v.key}>{v.label}</MenuItem>)}
+                      {formFields.length > 0 && <ListSubheader>คำตอบจากฟอร์มลงทะเบียน</ListSubheader>}
+                      {formFields.map(v => <MenuItem key={v.key} value={v.key}>{v.label}</MenuItem>)}
+                      {/* A key from a form that is not the one being browsed
+                          right now must still survive being re-selected. */}
+                      {sel.value.startsWith(FORM_PREFIX) && !formFields.some(v => v.key === sel.value) && (
+                        <MenuItem value={sel.value}>{sel.value.slice(FORM_PREFIX.length)} (จากฟอร์มอื่น)</MenuItem>
+                      )}
+                    </Select>
+                  </FormControl>
+
+                  <RuleEditor
+                    field={sel}
+                    variables={allVariables}
+                    values={previewData}
+                    onChange={rules => patchRules(sel.id, rules)}
+                  />
+                </>
               )}
               {sel.type === 'text' && (
                 <TextField size="small" label="ข้อความ" fullWidth multiline minRows={2}
@@ -384,6 +527,10 @@ const CertificateDesigner = () => {
           </Stack>
         </Paper>
       </Stack>
+
+      {/* Hidden on screen; the print stylesheet inside it hides everything else
+          when the dialog opens. Same component the booking list prints with. */}
+      <CertificatePrintSheet items={printItems} />
     </Box>
   );
 };

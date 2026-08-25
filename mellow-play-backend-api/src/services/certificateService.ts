@@ -1,4 +1,5 @@
 import { CertificateRepository } from '../repositories/certificateRepository';
+import { resolveCertificateValues } from './certificateVariables';
 
 /**
  * Issuing a certificate — the one path, wherever the trigger came from.
@@ -55,6 +56,13 @@ export async function issueForBooking(
   const recipient = String(src.child_nickname || src.child_name || '').trim() || 'ผู้เข้าร่วมกิจกรรม';
 
   const year = new Date().getFullYear() + 543; // ปีพุทธศักราช, which is what goes on the page
+  const serial = await repo.nextSerial(year);
+  const publicCode = generatePublicCode();
+
+  // Frozen here, so a template that later references a new form answer does not
+  // retro-fill certificates issued before anyone was asked that question.
+  const values = await resolveCertificateValues(db, opts.bookingId, { serial, publicCode });
+
   const id = await repo.issue({
     templateId,
     bookingId: opts.bookingId,
@@ -63,10 +71,11 @@ export async function issueForBooking(
     recipientName: recipient,
     courseName: src.course_name ?? null,
     eventDate: src.scheduled_at ? String(src.scheduled_at).slice(0, 10) : null,
-    serial: await repo.nextSerial(year),
-    publicCode: generatePublicCode(),
+    serial,
+    publicCode,
     issuedBy: opts.issuedBy ?? null,
     source: opts.source ?? 'manual',
+    valuesJson: JSON.stringify(values),
   });
   return id == null ? { issued: false } : { issued: true, certificateId: id };
 }

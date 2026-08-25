@@ -682,6 +682,9 @@ app.post  ('/api/v1/admin/certificates/issue',         (c) => certificateControl
 app.post  ('/api/v1/admin/certificates/for-bookings',  (c) => certificateController.listForBookings(c));
 app.post  ('/api/v1/admin/certificates/:id/revoke',    (c) => certificateController.revoke(c));
 app.post  ('/api/v1/admin/certificates/:id/send',      (c) => certificateController.sendEmail(c));
+app.get   ('/api/v1/admin/certificates/sample-bookings', (c) => certificateController.sampleBookings(c));
+app.get   ('/api/v1/admin/certificates/preview/:bookingId', (c) => certificateController.previewValues(c));
+app.post  ('/api/v1/admin/certificates/print-batch',   (c) => certificateController.printBatch(c));
 
 // Public: the printable page and the verification page both read this, and
 // neither can require a login — a certificate is meant to be shown to people

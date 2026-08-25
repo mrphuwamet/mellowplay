@@ -77,11 +77,16 @@ const CertificateView: React.FC = () => {
   const height = renderWidth * (pageH / pageW);
   const verifyUrl = `${window.location.origin}/verify/${cert.public_code}`;
 
-  const data = {
+  // The whole frozen map, so a template may print any answer from the
+  // registration form. Dates are formatted inside fieldText now, not here —
+  // formatting one of them early would double-format it.
+  const data: Record<string, string> = {
     recipient_name: cert.recipient_name,
     course_name: cert.course_name,
-    event_date: formatCertDate(cert.event_date),
+    event_date: cert.event_date,
     serial: cert.serial,
+    public_code: cert.public_code,
+    ...(cert.values || {}),
   };
 
   const renderField = (f: CertField) => {

@@ -7,8 +7,27 @@ import { EmailService } from '../services/emailService';
 import { EmailLogRepository } from '../repositories/emailLogRepository';
 import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
 import { issueForBooking } from '../services/certificateService';
+import { resolveCertificateValues, BUILT_IN_VARIABLES } from '../services/certificateVariables';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
+
+/** The frozen variable map, with the pre-0101 columns as the fallback. */
+const safeValues = (cert: any): Record<string, string> => {
+  const base = {
+    recipient_name: String(cert.recipient_name ?? ""),
+    course_name: String(cert.course_name ?? ""),
+    event_date: String(cert.event_date ?? ""),
+    serial: String(cert.serial ?? ""),
+    public_code: String(cert.public_code ?? ""),
+  };
+  try {
+    const parsed = JSON.parse(cert.values_json || "{}");
+    return parsed && typeof parsed === "object" ? { ...base, ...parsed } : base;
+  } catch {
+    // A malformed map costs the extra variables, not the certificate.
+    return base;
+  }
+};
 
 export class CertificateController {
   private repo(c: C) { return new CertificateRepository(new ConfigService(c.env).db); }
@@ -174,6 +193,80 @@ export class CertificateController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * The variable values for one real booking, for the designer's preview.
+   *
+   * The same resolver the issuer uses, so what staff arrange against a real
+   * family's data is exactly what the printed certificate will carry. A second
+   * implementation for previewing would drift, and the drift would only ever
+   * be found on paper.
+   */
+  async previewValues(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const bookingId = parseInt(c.req.param('bookingId'));
+      const values = await resolveCertificateValues(config.db, bookingId);
+      if (Object.keys(values).length === 0) {
+        return c.json({ success: false, message: 'ไม่พบการจองนี้' }, 404);
+      }
+      return c.json({ success: true, values, builtIns: BUILT_IN_VARIABLES });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Recent bookings to preview against, newest first.
+   *
+   * Bookings that carry a form submission come first: a template that prints
+   * form answers looks empty against a booking that has none, which reads as a
+   * broken template rather than as an unlucky choice of sample.
+   */
+  async sampleBookings(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const courseId = parseInt(c.req.query('course_id') || '') || null;
+      const q = (c.req.query('q') || '').trim();
+      const { results } = await config.db.prepare(`
+        SELECT b.id, b.scheduled_at, b.form_submission_id,
+               COALESCE(NULLIF(hp.nickname, ''), hp.name) AS who,
+               co.name AS course_name
+          FROM Bookings b
+          LEFT JOIN Children ch ON ch.id = b.child_id
+          LEFT JOIN HD_Profiles hp ON hp.id = ch.hd_profile_id
+          LEFT JOIN Courses co ON co.id = b.course_id
+         WHERE b.status != 'cancelled'
+           AND (? IS NULL OR b.course_id = ?)
+           AND (? = '' OR hp.name LIKE ? OR hp.nickname LIKE ? OR CAST(b.id AS TEXT) = ?)
+         ORDER BY (b.form_submission_id IS NULL), b.id DESC
+         LIMIT 30
+      `).bind(courseId, courseId, q, `%${q}%`, `%${q}%`, q).all();
+      return c.json({ success: true, bookings: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Everything needed to print a stack of certificates in one go.
+   *
+   * Returns only bookings that already hold a live certificate, and says how
+   * many did not — printing must never quietly issue, because issuing is what
+   * assigns a serial number and there is no undoing that from a print dialog.
+   */
+  async printBatch(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const body = await c.req.json();
+      const ids = Array.isArray(body.booking_ids) ? body.booking_ids.map(Number) : [];
+      if (ids.length === 0) return c.json({ success: false, message: 'ยังไม่ได้เลือกรายการ' }, 400);
+
+      const certificates = await new CertificateRepository(config.db).listForPrinting(ids);
+      const found = new Set(certificates.map((x: any) => Number(x.booking_id)));
+      return c.json({
+        success: true,
+        certificates,
+        missing: ids.filter((id: number) => !found.has(id)),
+      });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   /** Which of these bookings already have one — for the ticks in the CRM list. */
   async listForBookings(c: C) {
     try {
@@ -217,6 +310,9 @@ export class CertificateController {
           public_code: cert.public_code,
           issued_at: cert.issued_at,
           revoked: !!cert.revoked_at,
+          // Rows issued before values_json existed fall back to the three
+          // columns below, which is all their templates could reference.
+          values: safeValues(cert),
         },
         template: template ? {
           background_url: template.background_url,

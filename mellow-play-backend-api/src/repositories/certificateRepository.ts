@@ -126,6 +126,7 @@ export class CertificateRepository {
     recipientName: string; courseName: string | null; eventDate: string | null;
     serial: string | null; publicCode: string; issuedBy: number | null;
     source?: string;
+    valuesJson?: string | null;
   }): Promise<number | null> {
     // OR IGNORE, not a pre-check: "issue for this whole round" is pressed
     // twice by people who are not sure it worked the first time, and the
@@ -133,12 +134,13 @@ export class CertificateRepository {
     const res = await this.db.prepare(`
       INSERT OR IGNORE INTO Certificates
         (template_id, booking_id, child_id, user_id, recipient_name, course_name,
-         event_date, serial, public_code, issued_by_crm_user_id, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         event_date, serial, public_code, issued_by_crm_user_id, source, values_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.templateId, data.bookingId, data.childId, data.userId,
       data.recipientName, data.courseName, data.eventDate,
       data.serial, data.publicCode, data.issuedBy, data.source ?? 'manual',
+      data.valuesJson ?? null,
     ).run();
     const id = Number(res.meta.last_row_id);
     return res.meta.changes > 0 ? id : null;
@@ -178,6 +180,28 @@ export class CertificateRepository {
     return await this.db.prepare(
       'SELECT * FROM Certificates WHERE public_code = ?'
     ).bind(code).first();
+  }
+
+  /**
+   * Live certificates for these bookings, with their template — everything one
+   * print run needs, in one round trip rather than one per sheet.
+   */
+  async listForPrinting(bookingIds: number[]): Promise<any[]> {
+    if (bookingIds.length === 0) return [];
+    const out: any[] = [];
+    // Chunked at 90: D1 caps bound parameters at 100 per statement.
+    for (let i = 0; i < bookingIds.length; i += 90) {
+      const chunk = bookingIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(`
+        SELECT c.*, t.background_url, t.page_width, t.page_height, t.fields_json
+          FROM Certificates c
+          LEFT JOIN Certificate_Templates t ON t.id = c.template_id
+         WHERE c.revoked_at IS NULL AND c.booking_id IN (${chunk.map(() => '?').join(',')})
+         ORDER BY c.id
+      `).bind(...chunk).all();
+      out.push(...(results as any[]));
+    }
+    return out;
   }
 
   /** One certificate with the address to send it to. */

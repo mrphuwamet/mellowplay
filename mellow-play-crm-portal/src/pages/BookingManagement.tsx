@@ -41,8 +41,10 @@ import {
   EditNote as NoteIcon,
   Close as CloseIcon,
   Block as RevokeIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
+import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import axios from 'axios';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -52,6 +54,29 @@ import { downloadCsv } from '../utils/csvExport';
 const API_BASE = `${API_URL}/api/v1/admin`;
 // Where a certificate is read — the customer app, not the CRM.
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
+
+/**
+ * What a certificate prints, from its own frozen values.
+ *
+ * Certificates issued before values_json existed carry only the four columns
+ * below — which is all their templates could reference anyway, so they still
+ * print correctly rather than printing blanks.
+ */
+const certValuesOf = (c: any): Record<string, string> => {
+  const base: Record<string, string> = {
+    recipient_name: String(c.recipient_name ?? ''),
+    course_name: String(c.course_name ?? ''),
+    event_date: String(c.event_date ?? ''),
+    serial: String(c.serial ?? ''),
+    public_code: String(c.public_code ?? ''),
+  };
+  try {
+    const parsed = JSON.parse(c.values_json || '{}');
+    return parsed && typeof parsed === 'object' ? { ...base, ...parsed } : base;
+  } catch {
+    return base;
+  }
+};
 
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -1145,6 +1170,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // Revoking asks for a reason, so a dialog rather than a menu item that fires
   // straight away — this one invalidates a document a family may already have
   // printed, and it deserves the pause.
+  // Held only while the print dialog is open, then dropped: this is a stack of
+  // certificates, not state the page needs afterwards.
+  const [printItems, setPrintItems] = useState<PrintableCertificate[]>([]);
+  const [printingBatch, setPrintingBatch] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<Booking | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
   const [revoking, setRevoking] = useState(false);
@@ -1289,6 +1318,52 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     } catch (e: any) {
       setIssueResult(e?.response?.data?.message || 'ยกเลิกเกียรติบัตรไม่สำเร็จ');
     } finally { setRevoking(false); }
+  };
+
+  /**
+   * Print every selected booking's certificate as one stack of pages.
+   *
+   * Only bookings that already hold a live certificate are printed, and the
+   * rest are named in the message rather than issued on the way past: issuing
+   * is what assigns a serial number, and a print dialog is no place to do
+   * something there is no undoing.
+   */
+  const printCertificates = async (ids: number[]) => {
+    if (ids.length === 0) return;
+    setPrintingBatch(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/certificates/print-batch`, { booking_ids: ids });
+      if (!data.success) { setIssueResult(data.message || 'พิมพ์ไม่สำเร็จ'); return; }
+
+      const items: PrintableCertificate[] = (data.certificates || []).map((c: any) => ({
+        id: c.id,
+        template: {
+          background_url: c.background_url,
+          page_width: c.page_width,
+          page_height: c.page_height,
+          fields_json: c.fields_json,
+        },
+        values: certValuesOf(c),
+        verifyUrl: `${CONSUMER_APP_URL}/verify/${c.public_code}`,
+      }));
+
+      if (items.length === 0) {
+        setIssueResult('รายการที่เลือกยังไม่มีเกียรติบัตร — กดออกเกียรติบัตรก่อน');
+        return;
+      }
+      setPrintItems(items);
+      const missing = (data.missing || []).length;
+      if (missing > 0) setIssueResult(`พิมพ์ ${items.length} ใบ · อีก ${missing} รายการยังไม่มีเกียรติบัตร`);
+
+      // Two frames: one for the sheet to mount, one for its images and QR
+      // codes to be laid out before the dialog freezes the page.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        window.print();
+        setPrintItems([]);
+      }));
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'พิมพ์ไม่สำเร็จ');
+    } finally { setPrintingBatch(false); }
   };
 
   const copyCertificateLink = async (bookingId: number) => {
@@ -2055,6 +2130,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 ออกเกียรติบัตร
               </Button>
               <Button
+                size="small" variant="outlined" color="secondary"
+                startIcon={printingBatch ? <CircularProgress size={14} color="inherit" /> : <PrintIcon />}
+                onClick={() => printCertificates(selectedBookings.map(b => b.id))}
+                disabled={printingBatch}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                พิมพ์เกียรติบัตรที่เลือก
+              </Button>
+              <Button
                 size="small"
                 variant="outlined"
                 color="success"
@@ -2276,6 +2360,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         )}
         {manageMenu && certByBooking[manageMenu.booking.id] && (
           <MenuItem
+            disabled={printingBatch}
+            onClick={() => { if (manageMenu) void printCertificates([manageMenu.booking.id]); closeManageMenu(); }}
+            sx={{ gap: 1.25, fontWeight: 600 }}
+          >
+            <PrintIcon fontSize="small" sx={{ color: 'secondary.main' }} />
+            พิมพ์เกียรติบัตร
+          </MenuItem>
+        )}
+        {manageMenu && certByBooking[manageMenu.booking.id] && (
+          <MenuItem
             onClick={() => { if (manageMenu) { setRevokeTarget(manageMenu.booking); setRevokeReason(''); } closeManageMenu(); }}
             sx={{ gap: 1.25, fontWeight: 600, color: 'error.main' }}
           >
@@ -2336,6 +2430,10 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         message={issueResult}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      {/* Hidden on screen; its own stylesheet hides the rest of the CRM when
+          the print dialog opens. Same component the designer previews with. */}
+      <CertificatePrintSheet items={printItems} />
 
       <Dialog open={!!revokeTarget} onClose={() => !revoking && setRevokeTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>ยกเลิกเกียรติบัตร — #{revokeTarget?.id}</DialogTitle>

@@ -1,8 +1,8 @@
 /**
  * Turning a stored certificate layout into positioned boxes.
  *
- * Mirrored in mellow-play-crm-portal/src/utils/certificateLayout.ts, which the
- * design canvas previews with. The two must agree exactly or a
+ * Mirrored in mellow-play-consumer-app/src/utils/certificateLayout.ts, which
+ * renders the page a family actually opens. The two must agree exactly or a
  * certificate looks one way in the designer and another when it prints —
  * change both together.
  *
@@ -13,13 +13,112 @@
 
 export type FieldType = 'text' | 'field' | 'qr' | 'image';
 
-/** The variables a certificate can print. Values come from the issued row. */
+/** Answers from the registration form are namespaced so they can never collide
+ *  with a built-in variable added later. */
+export const FORM_PREFIX = 'form:';
+
+/**
+ * The variables every certificate can print, whatever form the booking used.
+ * A template may also reference `form:<field_key>` for any answer on the
+ * booking's registration form — those are offered by the designer from the
+ * form's own field list rather than hard-coded here.
+ */
 export const CERT_VARIABLES: { key: string; label: string; sample: string }[] = [
-  { key: 'recipient_name', label: 'ชื่อผู้รับ', sample: 'น้องกระถิน' },
+  { key: 'recipient_name', label: 'ชื่อผู้รับ (ชื่อเล่นถ้ามี)', sample: 'น้องกระถิน' },
+  { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก', sample: 'เด็กหญิงกระถิน ใจดี' },
+  { key: 'child_nickname', label: 'ชื่อเล่น', sample: 'กระถิน' },
+  { key: 'child_gender', label: 'เพศ', sample: 'female' },
+  { key: 'child_birth_date', label: 'วันเกิด', sample: '2018-04-12' },
+  { key: 'parent_name', label: 'ชื่อผู้ปกครอง', sample: 'สมหญิง ใจดี' },
   { key: 'course_name', label: 'ชื่อกิจกรรม', sample: 'ครอบครัวทันโลก Family Fact or Fake' },
-  { key: 'event_date', label: 'วันที่จัดกิจกรรม', sample: '6 กันยายน 2569' },
+  { key: 'course_location', label: 'สถานที่', sample: 'Mellow Play สาขาราชพฤกษ์' },
+  { key: 'event_date', label: 'วันที่จัดกิจกรรม', sample: '2026-09-06' },
   { key: 'serial', label: 'เลขที่เกียรติบัตร', sample: 'MP-2569-0001' },
+  { key: 'public_code', label: 'รหัสตรวจสอบ', sample: 'K7M2QX9BTR' },
+  { key: 'booking_id', label: 'หมายเลขการจอง', sample: '10482' },
+  { key: 'issued_date', label: 'วันที่ออกเกียรติบัตร', sample: '2026-09-08' },
 ];
+
+/** Variables printed as a Thai long date rather than the raw ISO value. */
+const DATE_VARIABLES = new Set(['event_date', 'issued_date', 'child_birth_date']);
+
+// ── Conditional text ───────────────────────────────────────────────────────
+
+export type RuleOp = 'eq' | 'ne' | 'contains' | 'in' | 'empty' | 'not_empty';
+
+export interface RuleCondition {
+  /** Which variable to test — any key, not only the one the field prints. */
+  variable: string;
+  op: RuleOp;
+  /** Ignored by `empty` / `not_empty`. `in` takes a comma-separated list. */
+  value?: string;
+}
+
+export interface CertRule {
+  /** Absent = the default line, which is why order matters. */
+  when?: RuleCondition | null;
+  /** Output template. `{{variable}}` is replaced with that variable's value. */
+  text: string;
+}
+
+export const RULE_OPS: { op: RuleOp; label: string; needsValue: boolean }[] = [
+  { op: 'eq', label: 'เท่ากับ', needsValue: true },
+  { op: 'ne', label: 'ไม่เท่ากับ', needsValue: true },
+  { op: 'contains', label: 'มีคำว่า', needsValue: true },
+  { op: 'in', label: 'เป็นหนึ่งใน (คั่นด้วย ,)', needsValue: true },
+  { op: 'empty', label: 'ไม่ได้กรอก', needsValue: false },
+  { op: 'not_empty', label: 'กรอกแล้ว', needsValue: false },
+];
+
+const norm = (s: string) => String(s ?? '').trim().toLowerCase();
+
+const conditionHolds = (cond: RuleCondition, values: CertValueMap): boolean => {
+  const actual = norm(String(values[cond.variable] ?? ''));
+  const expected = norm(cond.value ?? '');
+  switch (cond.op) {
+    case 'eq': return actual === expected;
+    case 'ne': return actual !== expected;
+    case 'contains': return expected !== '' && actual.includes(expected);
+    case 'in': return expected.split(',').map(norm).filter(Boolean).includes(actual);
+    case 'empty': return actual === '';
+    case 'not_empty': return actual !== '';
+    default: return false;
+  }
+};
+
+const INTERPOLATE = /\{\{\s*([^}]+?)\s*\}\}/g;
+
+/** `{{variable}}` → its value. An unknown name becomes empty, not the literal. */
+export const interpolate = (template: string, values: CertValueMap, useSamples = false): string =>
+  String(template ?? '').replace(INTERPOLATE, (_m, name: string) =>
+    displayValue(String(name).trim(), values, useSamples));
+
+/**
+ * The first rule whose condition holds wins; a rule with no condition is the
+ * default and ends the list. Top-to-bottom, first match — the order people
+ * already expect from every rule list they have used.
+ */
+export const applyRules = (
+  rules: CertRule[] | undefined | null,
+  values: CertValueMap,
+  fallback: string,
+  useSamples = false,
+): string => {
+  if (!Array.isArray(rules) || rules.length === 0) return fallback;
+  for (const rule of rules) {
+    if (!rule) continue;
+    if (!rule.when || conditionHolds(rule.when, values)) {
+      return interpolate(rule.text || '', values, useSamples);
+    }
+  }
+  // Every rule had a condition and none held: print the plain value rather
+  // than nothing, so a half-finished rule list never blanks a name.
+  return fallback;
+};
+
+// ── Fields ─────────────────────────────────────────────────────────────────
+
+export type CertValueMap = Record<string, string | null | undefined>;
 
 export interface CertField {
   id: string;
@@ -36,6 +135,8 @@ export interface CertField {
   color?: string;
   align?: 'left' | 'center' | 'right';
   fontFamily?: string;
+  /** Conditional text. Empty or absent = print the variable as it is. */
+  rules?: CertRule[];
 }
 
 export interface CertTemplate {
@@ -66,17 +167,31 @@ export const parseFields = (fieldsJson?: string | null): CertField[] => {
 export const ptToPx = (pt: number, pageWidthMm: number, renderedWidthPx: number): number =>
   (pt * 25.4 / 72) * (renderedWidthPx / pageWidthMm);
 
+/** One variable as it should read on the page — dates in Thai, the rest raw. */
+export const displayValue = (key: string, values: CertValueMap, useSamples = false): string => {
+  const raw = values[key];
+  const text = raw == null ? '' : String(raw);
+  if (text === '' && useSamples) {
+    const sample = CERT_VARIABLES.find(v => v.key === key)?.sample;
+    if (sample) return DATE_VARIABLES.has(key) ? formatCertDate(sample) : sample;
+    return key.startsWith(FORM_PREFIX) ? '(คำตอบจากฟอร์ม)' : '';
+  }
+  return DATE_VARIABLES.has(key) ? formatCertDate(text) : text;
+};
+
 /** What a field prints, given an issued certificate's own frozen values. */
 export const fieldText = (
   field: CertField,
-  data: Record<string, string | null | undefined>,
+  values: CertValueMap,
   useSamples = false
 ): string => {
-  if (field.type !== 'field') return field.value || '';
-  const value = data[field.value];
-  if (value) return String(value);
-  if (!useSamples) return '';
-  return CERT_VARIABLES.find(v => v.key === field.value)?.sample ?? '';
+  if (field.type !== 'field') {
+    // Static text interpolates too, so a line like "ขอมอบให้ {{recipient_name}}"
+    // can be one box instead of three that have to be kept aligned by hand.
+    return interpolate(field.value || '', values, useSamples);
+  }
+  const plain = displayValue(field.value, values, useSamples);
+  return applyRules(field.rules, values, plain, useSamples);
 };
 
 /** Thai long date, which is how a certificate reads. Falls back to the raw string. */
