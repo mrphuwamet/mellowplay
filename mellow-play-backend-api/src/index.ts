@@ -749,6 +749,7 @@ app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 app.get('/api/v1/surveys/:idOrSlug',        (c) => surveyController.getPublicForm(c));
 app.post('/api/v1/surveys/:idOrSlug/submit', (c) => surveyController.submit(c));
 // Sessions — several forms behind one link, answered as one questionnaire.
+app.get('/api/v1/round-links/:token',                   (c) => sessionController.getRoundLink(c));
 app.get('/api/v1/survey-sessions/:idOrSlug',            (c) => sessionController.getPublic(c));
 app.post('/api/v1/survey-sessions/:idOrSlug/check-name', (c) => sessionController.checkName(c));
 // Unsubscribe carries its own credential in the token — requiring a login to
@@ -987,6 +988,9 @@ app.put('/api/v1/admin/survey-forms/:id',       (c) => surveyController.updateFo
 app.delete('/api/v1/admin/survey-forms/:id',    (c) => surveyController.deleteForm(c));
 app.get('/api/v1/admin/survey-forms/:id/submissions', (c) => surveyController.listSubmissions(c));
 app.delete('/api/v1/admin/survey-forms/:id/test-submissions', (c) => surveyController.clearTestSubmissions(c));
+app.get('/api/v1/admin/round-links',               (c) => sessionController.listRoundLinks(c));
+app.post('/api/v1/admin/round-links',              (c) => sessionController.createRoundLink(c));
+app.delete('/api/v1/admin/round-links/:id',        (c) => sessionController.revokeRoundLink(c));
 app.get('/api/v1/admin/survey-sessions',           (c) => sessionController.list(c));
 app.post('/api/v1/admin/survey-sessions',          (c) => sessionController.create(c));
 app.get('/api/v1/admin/survey-sessions/:id',       (c) => sessionController.get(c));

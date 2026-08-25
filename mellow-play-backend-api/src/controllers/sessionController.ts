@@ -3,6 +3,7 @@ import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { SessionRepository } from '../repositories/sessionRepository';
 import { SurveyRepository } from '../repositories/surveyRepository';
+import { findRoundLink, generateRoundToken } from '../services/roundLinkService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -15,6 +16,91 @@ type C = Context<{ Bindings: Bindings; Variables: Variables }>;
  * payload is one flat ordered list of steps.
  */
 export class SessionController {
+  /**
+   * What the QR at the door leads to: the round, and the forms to fill in.
+   *
+   * Public, because it is printed on a sheet of paper anyone at the venue can
+   * point a camera at. It gives up the activity's name, date and place —
+   * things already written on the poster beside it — and nothing about who is
+   * booked on it.
+   */
+  async getRoundLink(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const link: any = await findRoundLink(config.db, c.req.param('token'));
+      if (!link) return c.json({ success: false, message: 'ลิงก์นี้ใช้ไม่ได้แล้ว' }, 404);
+      if (!link.session_active) return c.json({ success: false, message: 'ชุดแบบฟอร์มนี้ปิดอยู่' }, 404);
+
+      return c.json({
+        success: true,
+        round: {
+          course_name: link.course_name,
+          course_location: link.course_location,
+          slot_date: link.slot_date,
+          slot_start_time: link.slot_start_time,
+          label: link.label,
+        },
+        session: { slug: link.session_slug || String(link.session_id), name: link.session_name },
+      });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  // ── CRM: the codes themselves ──────────────────────────────────────────
+  async listRoundLinks(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const courseId = parseInt(c.req.query('course_id') || '') || null;
+      const { results } = await db.prepare(`
+        SELECT l.*, s.name AS session_name, co.name AS course_name
+          FROM Round_Survey_Links l
+          JOIN Survey_Sessions s ON s.id = l.session_id
+          JOIN Courses co ON co.id = l.course_id
+         WHERE l.revoked_at IS NULL AND (? IS NULL OR l.course_id = ?)
+         ORDER BY l.slot_date DESC, l.slot_start_time
+      `).bind(courseId, courseId).all();
+      return c.json({ success: true, links: results });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async createRoundLink(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const { session_id, course_id, slot_date, slot_start_time, label } = await c.req.json();
+      if (!session_id || !course_id || !slot_date) {
+        return c.json({ success: false, message: 'ต้องระบุชุดแบบฟอร์มและรอบ' }, 400);
+      }
+
+      // One live code per (session, round). Printing a second sheet for a round
+      // that already has one would split its answers across two codes for no
+      // reason, and staff would have no way to tell which sheet is current.
+      const existing: any = await db.prepare(`
+        SELECT token FROM Round_Survey_Links
+         WHERE session_id = ? AND course_id = ? AND slot_date = ?
+           AND COALESCE(slot_start_time, '') = COALESCE(?, '') AND revoked_at IS NULL
+      `).bind(session_id, course_id, slot_date, slot_start_time || null).first();
+      if (existing) return c.json({ success: true, token: existing.token, reused: true });
+
+      const token = generateRoundToken();
+      await db.prepare(`
+        INSERT INTO Round_Survey_Links (token, session_id, course_id, slot_date, slot_start_time, label, created_by_crm_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        token, Number(session_id), Number(course_id), slot_date,
+        slot_start_time || null, label || null, c.get('crmUser')?.userId ?? null,
+      ).run();
+      return c.json({ success: true, token, reused: false });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  async revokeRoundLink(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const db = new ConfigService(c.env).db;
+      await db.prepare("UPDATE Round_Survey_Links SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL")
+        .bind(parseInt(c.req.param('id'))).run();
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   private sessions(c: C) { return new SessionRepository(new ConfigService(c.env).db); }
   private surveys(c: C) { return new SurveyRepository(new ConfigService(c.env).db); }
 
@@ -130,6 +216,10 @@ export class SessionController {
         if (!form) continue; // a form deactivated mid-session just drops out
         steps.push({
           formId: form.id,
+          // Named, so the round page can list what is being asked before
+          // anyone starts — a chain of three unnamed forms is a chain of
+          // unknown length.
+          title: form.title || form.name || null,
           hasAnswerKey: !!form.has_answer_key,
           fields: SessionController.stripAnswerKey(form.fields),
         });

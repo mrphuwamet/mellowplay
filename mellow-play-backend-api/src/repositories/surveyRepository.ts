@@ -370,6 +370,10 @@ export class SurveyRepository {
     formId: number; userId?: number | null; respondentName?: string | null;
     respondentPhone?: string | null; answers: Record<string, any>; attemptLabel?: string | null;
     sessionId?: number | null; sessionRunId?: string | null; isTest?: boolean;
+    // Where this was answered. Taken from the round QR, never from the
+    // respondent — see roundLinkService.
+    courseId?: number | null; slotDate?: string | null; slotStartTime?: string | null;
+    bookingId?: number | null;
   }): Promise<{ id: number; totalScore: number | null; maxScore: number | null; attemptNo: number; result: { resultText: string; imageUrl?: string } | null }> {
     const form = await this.db.prepare('SELECT has_answer_key, score_ranges_json FROM Survey_Forms WHERE id = ?').bind(data.formId).first() as any;
     let totalScore: number | null = null;
@@ -388,12 +392,13 @@ export class SurveyRepository {
     const attemptNo = await this.nextAttemptNo(data.formId, data.userId, data.respondentPhone);
 
     const inserted = await this.db.prepare(`
-      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id, is_test)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id, is_test, course_id, slot_date, slot_start_time, booking_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.formId, data.userId ?? null, data.respondentName ?? null, data.respondentPhone ?? null,
       JSON.stringify(data.answers), totalScore, maxScore, attemptNo, data.attemptLabel ?? null,
       data.sessionId ?? null, data.sessionRunId ?? null, data.isTest ? 1 : 0,
+      data.courseId ?? null, data.slotDate ?? null, data.slotStartTime ?? null, data.bookingId ?? null,
     ).run();
 
     return { id: inserted.meta.last_row_id, totalScore, maxScore, attemptNo, result };

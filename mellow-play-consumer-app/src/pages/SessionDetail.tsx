@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { emptyIdentity, fullNameOf } from '../utils/respondentName';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
 import SurveyFillForm from '../components/SurveyFillForm';
+import { formatCustomDate } from '../utils/dateFormat';
 
 interface Step {
   formId: number;
+  /** The form's own name, for listing the tasks before anyone starts. */
+  title?: string | null;
   hasAnswerKey: boolean;
   fields: any[];
 }
@@ -27,6 +30,12 @@ interface Step {
 const SessionDetail = () => {
   const navigate = useNavigate();
   const { idOrSlug } = useParams<{ idOrSlug: string }>();
+  // The QR standing at the venue. Everything about the round comes from it,
+  // never from the respondent — a date typed into the address bar must not be
+  // able to file answers against a round nobody attended.
+  const [searchParams] = useSearchParams();
+  const roundToken = searchParams.get('round') || '';
+  const [round, setRound] = useState<any | null>(null);
   const { lang } = useTranslation();
   const t = (th: string, en: string) => (lang === 'en' ? en : th);
 
@@ -55,6 +64,13 @@ const SessionDetail = () => {
     () => ((crypto as any).randomUUID ? crypto.randomUUID() : `run_${Date.now()}_${Math.random().toString(36).slice(2)}`),
     []
   );
+
+  useEffect(() => {
+    if (!roundToken) { setRound(null); return; }
+    apiClient.get(`/round-links/${roundToken}`)
+      .then(res => setRound(res.data.success ? res.data.round : null))
+      .catch(() => setRound(null));
+  }, [roundToken]);
 
   useEffect(() => {
     if (!idOrSlug) return;
@@ -116,6 +132,10 @@ const SessionDetail = () => {
         respondentPhone: resolvedPhone || undefined,
         sessionId: session.id,
         sessionRunId: runId,
+        // Recorded on every form of the sitting, not only the first: each one
+        // is its own submission row, and a chain abandoned halfway must still
+        // have its answers attached to the round they were given in.
+        roundToken: roundToken || undefined,
       });
       if (!res.data.success) {
         setError(res.data.message || t('ส่งคำตอบไม่สำเร็จ', 'Failed to submit.'));
@@ -174,6 +194,36 @@ const SessionDetail = () => {
 
   if (!started) {
     return shell(
+      <>
+        {/* Scanned at the venue: say which activity this is before asking for
+            anything, so someone who pointed a camera at the wrong table finds
+            out here rather than after answering eighteen questions. */}
+        {round && (
+          <div className="mellow-card bg-white mb-3">
+            <p className="text-[11px] font-black text-mellow-purple uppercase tracking-widest mb-1">
+              {t('งานที่ต้องทำของรอบนี้', 'What to fill in for this session')}
+            </p>
+            <p className="text-base font-black text-slate-800 leading-snug">{round.course_name}</p>
+            <p className="text-xs font-bold text-slate-500 mt-0.5">
+              {formatCustomDate(round.slot_date, lang, 'full')}
+              {round.slot_start_time ? ' · ' + String(round.slot_start_time).slice(0, 5) + ' ' + t('น.', '') : ''}
+              {round.course_location ? ' · ' + round.course_location : ''}
+            </p>
+            {steps.length > 1 && (
+              <ol className="mt-3 space-y-1.5">
+                {steps.map((st, i) => (
+                  <li key={st.formId} className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                    <span className="w-5 h-5 rounded-full bg-mellow-purple/10 text-mellow-purple grid place-items-center text-[10px] font-black shrink-0">
+                      {i + 1}
+                    </span>
+                    <span className="truncate">{st.title || t('แบบฟอร์ม', 'Form')}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+
       <div className="mellow-card bg-white">
         {session.description && <p className="text-xs text-slate-400 font-bold mb-4">{session.description}</p>}
         <label className="text-xs font-bold text-slate-600 block mb-1.5">
@@ -224,6 +274,7 @@ const SessionDetail = () => {
           {checkingName ? t('กำลังตรวจสอบ...', 'Checking...') : t('เริ่มทำแบบฟอร์ม', 'Start')}
         </button>
       </div>
+      </>
     );
   }
 

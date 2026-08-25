@@ -17,6 +17,7 @@ import AddChild from './pages/AddChild';
 import ReportDetail from './pages/ReportDetail';
 import SurveyDetail from './pages/SurveyDetail';
 import SessionDetail from './pages/SessionDetail';
+import RoundLink from './pages/RoundLink';
 import Unsubscribe from './pages/Unsubscribe';
 import UpcomingActivities from './pages/UpcomingActivities';
 import NewsDetail from './pages/NewsDetail';
@@ -137,6 +138,9 @@ const AppContent = () => {
         <Route path="/report/:bookingId" element={<ReportDetail />} />
         <Route path="/survey/:idOrSlug" element={<SurveyDetail />} />
         <Route path="/session/:idOrSlug" element={<SessionDetail />} />
+        {/* The QR printed for a round. Short on purpose — it is scanned across
+            a table, and a coarser code reads at a greater distance. */}
+        <Route path="/round/:token" element={<RoundLink />} />
         <Route path="/unsubscribe/:token" element={<Unsubscribe />} />
         <Route path="/upcoming" element={<UpcomingActivities />} />
         <Route path="/news/:id" element={<NewsDetail />} />

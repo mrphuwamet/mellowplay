@@ -6,9 +6,13 @@ import {
 } from '@mui/material';
 import {
   EventBusy as AbsentIcon, CheckCircle as ArrivedIcon, Refresh as RefreshIcon,
+  QrCode2 as QrIcon, ContentCopy as CopyIcon, Print as PrintIcon,
 } from '@mui/icons-material';
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { QRCodeSVG } from 'qrcode.react';
 import { AxiosInstance } from 'axios';
-import { API_URL } from '../config';
+import { API_URL, CONSUMER_APP_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -64,6 +68,12 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
   const [notice, setNotice] = useState('');
+  // The questionnaire this round's QR points at, and the code itself.
+  const [sessions, setSessions] = useState<{ id: number; name: string }[]>([]);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<number | ''>('');
+  const [token, setToken] = useState('');
+  const [making, setMaking] = useState(false);
 
   useEffect(() => {
     client.get(`${API_BASE}/checkin/rounds`, { params: { date } })
@@ -93,6 +103,44 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
   const missing = rows.filter(r => r.ticks === 0 && r.status !== 'no_show');
   const marked = rows.filter(r => r.status === 'no_show');
   const listed = show === 'missing' ? [...missing, ...marked] : rows;
+
+  const openQr = async () => {
+    setQrOpen(true);
+    setToken('');
+    if (sessions.length === 0) {
+      try {
+        const { data } = await client.get(`${API_BASE}/survey-sessions`);
+        setSessions((data.sessions || []).filter((x: any) => x.is_active));
+      } catch { /* the dialog says so */ }
+    }
+  };
+
+  /**
+   * One code per round, and pressing it twice gives back the same one.
+   *
+   * A second sheet for a round that already has one would split its answers
+   * across two codes, and nobody at the table could tell which sheet was
+   * current.
+   */
+  const makeLink = async () => {
+    if (!picked || !sessionId) return;
+    setMaking(true);
+    try {
+      const { data } = await client.post(`${API_BASE}/round-links`, {
+        session_id: sessionId,
+        course_id: picked.course_id,
+        slot_date: picked.slot_date,
+        slot_start_time: picked.slot_start_time,
+        label: `${picked.course_name} ${picked.slot_start_time}`,
+      });
+      if (data.success) setToken(data.token);
+      else setNotice(data.message || 'สร้างลิงก์ไม่สำเร็จ');
+    } catch (e: any) {
+      setNotice(e?.response?.data?.message || 'สร้างลิงก์ไม่สำเร็จ');
+    } finally { setMaking(false); }
+  };
+
+  const roundUrl = token ? `${CONSUMER_APP_URL}/round/${token}` : '';
 
   const closeRound = async () => {
     if (!picked || missing.length === 0) return;
@@ -153,6 +201,9 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
               </Typography>
               <Typography variant="body2" color="text.secondary">เข้าแล้ว</Typography>
               <Box sx={{ flex: 1 }} />
+              <Button size="small" startIcon={<QrIcon />} onClick={() => void openQr()}>
+                QR แบบสอบถาม
+              </Button>
               <Button size="small" startIcon={<RefreshIcon />} onClick={() => void loadRoster(picked)}>
                 รีเฟรช
               </Button>
@@ -232,6 +283,62 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey }: {
           </Typography>
         </>
       )}
+
+      <Dialog open={qrOpen} onClose={() => setQrOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>QR แบบสอบถามของรอบนี้</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            พิมพ์แผ่นเดียววางไว้หน้างาน ทุกคนสแกนอันเดียวกันได้ — คำตอบจะผูกกับรอบนี้ให้เอง
+            และถ้าผู้ปกครองล็อกอินอยู่ ระบบจะรู้ด้วยว่าเป็นการจองไหน ไม่ต้องเดาจากชื่อ
+          </Typography>
+
+          <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+            <InputLabel>ชุดแบบฟอร์มที่ให้ทำ</InputLabel>
+            <Select
+              label="ชุดแบบฟอร์มที่ให้ทำ" value={sessionId}
+              onChange={e => { setSessionId(Number(e.target.value)); setToken(''); }}
+            >
+              {sessions.length === 0 && <MenuItem value="" disabled>ยังไม่มีชุดแบบฟอร์มที่เปิดใช้งาน</MenuItem>}
+              {sessions.map(s2 => <MenuItem key={s2.id} value={s2.id}>{s2.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+
+          {!token ? (
+            <Button
+              fullWidth variant="contained" disabled={!sessionId || making}
+              onClick={() => void makeLink()}
+              startIcon={making ? <CircularProgress size={14} color="inherit" /> : <QrIcon />}
+            >
+              สร้าง QR ของรอบนี้
+            </Button>
+          ) : (
+            <Box sx={{ textAlign: 'center' }}>
+              <Box sx={{ p: 2, bgcolor: '#fff', display: 'inline-block', borderRadius: 2, border: '1px solid #eef0f3' }}>
+                <QRCodeSVG value={roundUrl} size={200} level="M" />
+              </Box>
+              <TextField
+                fullWidth size="small" value={roundUrl} sx={{ mt: 2 }}
+                InputProps={{ readOnly: true, sx: { fontFamily: 'monospace', fontSize: 12 } }}
+                onFocus={e => e.target.select()}
+              />
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                <Button
+                  size="small" fullWidth startIcon={<CopyIcon />}
+                  onClick={() => void copyText(roundUrl).then(done => setNotice(done ? 'คัดลอกลิงก์แล้ว' : roundUrl))}
+                >
+                  คัดลอกลิงก์
+                </Button>
+                <Button size="small" fullWidth startIcon={<PrintIcon />} onClick={() => window.print()}>
+                  พิมพ์
+                </Button>
+              </Stack>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQrOpen(false)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };

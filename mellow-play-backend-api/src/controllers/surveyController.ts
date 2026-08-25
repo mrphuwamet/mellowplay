@@ -5,6 +5,7 @@ import { AuthService } from '../services/authService';
 import { UserRepository } from '../repositories/userRepository';
 import { SurveyRepository } from '../repositories/surveyRepository';
 import { SessionRepository } from '../repositories/sessionRepository';
+import { findRoundLink, bookingForRound } from '../services/roundLinkService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -201,7 +202,7 @@ export class SurveyController {
       const form = await this.repo(c).getPublicForm(idOrSlug);
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
 
-      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId, isTest } = await c.req.json();
+      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId, isTest, roundToken } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const userId = await this.getOptionalUserId(c, config);
@@ -230,9 +231,21 @@ export class SurveyController {
         }
       }
 
+      // Where this was answered, taken from the link rather than from the
+      // respondent: a date typed into the address bar could file an answer
+      // against a round nobody attended.
+      const link = typeof roundToken === 'string' && roundToken
+        ? await findRoundLink(config.db, roundToken)
+        : null;
+      const bookingId = link && userId ? await bookingForRound(config.db, link, userId) : null;
+
       const result = await this.repo(c).createSubmission({
         formId: form.id,
         userId,
+        courseId: link?.course_id ?? null,
+        slotDate: link?.slot_date ?? null,
+        slotStartTime: link?.slot_start_time ?? null,
+        bookingId,
         respondentName: resolvedName,
         respondentPhone: resolvedPhone,
         answers,
