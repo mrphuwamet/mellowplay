@@ -12,6 +12,11 @@ import {
   Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon,
   Image as ImageIcon, TextFields as TextIcon, DataObject as VarIcon,
   QrCode2 as QrIcon, Print as PrintIcon,
+  FormatSize as SizeIcon, FormatBold as WeightIcon, Palette as ColourIcon,
+  SwapHoriz as WidthIcon, TextFormat as FontIcon, Computer as MachineIcon,
+  CloudDone as OnlineIcon, TouchApp as PickIcon, Tune as StyleIcon,
+  FormatAlignLeft as AlignLeftIcon, FormatAlignCenter as AlignCentreIcon,
+  FormatAlignRight as AlignRightIcon,
 } from '@mui/icons-material';
 import { API_URL } from '../config';
 import {
@@ -43,6 +48,45 @@ const API_BASE = `${API_URL}/api/v1/admin`;
  */
 
 const uid = () => `f${Math.random().toString(36).slice(2, 9)}`;
+
+/** What each kind of box is called, and what it looks like in the list. */
+const FIELD_META: Record<CertField['type'], { label: string; icon: React.ReactNode; tint: string }> = {
+  field: { label: 'ช่องตัวแปร', icon: <VarIcon fontSize="small" />, tint: '#efeaff' },
+  text: { label: 'ข้อความคงที่', icon: <TextIcon fontSize="small" />, tint: '#e8f4ff' },
+  qr: { label: 'QR ตรวจสอบ', icon: <QrIcon fontSize="small" />, tint: '#eaf7ee' },
+  image: { label: 'รูป / ลายเซ็น', icon: <ImageIcon fontSize="small" />, tint: '#fff3e3' },
+};
+
+/**
+ * One labelled group in the inspector.
+ *
+ * The panel was a single run of controls where a font picker looked exactly
+ * like a delete button. Grouping them under quiet headings means the eye can
+ * jump to "ตัวอักษร" instead of reading every row to find it.
+ */
+const Section = ({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) => (
+  <Box>
+    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1.25 }}>
+      <Box sx={{ color: 'text.disabled', display: 'flex' }}>{icon}</Box>
+      <Typography
+        variant="caption"
+        sx={{ fontWeight: 800, letterSpacing: '.06em', color: 'text.secondary', textTransform: 'uppercase' }}
+      >
+        {label}
+      </Typography>
+    </Stack>
+    <Stack spacing={1.25}>{children}</Stack>
+  </Box>
+);
+
+/** A slider's name on the left and its value on the right, so the number
+ *  stays in one place instead of moving with the label's length. */
+const SliderRow = ({ label, value }: { label: string; value: string }) => (
+  <Stack direction="row" alignItems="baseline" justifyContent="space-between">
+    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>{label}</Typography>
+    <Typography variant="caption" sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</Typography>
+  </Stack>
+);
 
 const newField = (type: CertField['type']): CertField => ({
   id: uid(),
@@ -558,20 +602,38 @@ const CertificateDesigner = () => {
 
           <Divider sx={{ my: 2 }} />
 
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.5 }}>
-            {sel ? 'กล่องที่เลือก' : 'ยังไม่ได้เลือกกล่อง'}
-          </Typography>
-
-          {!sel && (
-            <Typography variant="body2" color="text.secondary">
-              คลิกกล่องบนหน้ากระดาษเพื่อแก้ไข หรือกดปุ่มด้านบนเพื่อเพิ่มกล่องใหม่
-            </Typography>
+          {sel ? (
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+              <Box sx={{
+                width: 34, height: 34, borderRadius: 2, flexShrink: 0,
+                bgcolor: FIELD_META[sel.type].tint, color: '#4b3aa8',
+                display: 'grid', placeItems: 'center',
+              }}>
+                {FIELD_META[sel.type].icon}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                  {FIELD_META[sel.type].label}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                  {fieldText(sel, previewData, !usingReal) || 'ยังไม่มีข้อความ'}
+                </Typography>
+              </Box>
+            </Stack>
+          ) : (
+            <Stack alignItems="center" spacing={1} sx={{ py: 3, textAlign: 'center' }}>
+              <PickIcon sx={{ fontSize: 30, color: 'text.disabled' }} />
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>เลือกกล่องเพื่อแก้ไข</Typography>
+              <Typography variant="caption" color="text.secondary">
+                คลิกกล่องบนหน้ากระดาษ หรือกดปุ่มด้านบนเพื่อเพิ่มกล่องใหม่
+              </Typography>
+            </Stack>
           )}
 
           {sel && (
-            <Stack spacing={1.5}>
+            <Stack spacing={2.5}>
               {sel.type === 'field' && (
-                <>
+                <Section icon={<VarIcon fontSize="small" />} label="เนื้อหา">
                   <FormControl size="small" fullWidth>
                     <InputLabel>ตัวแปร</InputLabel>
                     <Select label="ตัวแปร" value={sel.value} onChange={e => patch(sel.id, { value: String(e.target.value) })}>
@@ -593,14 +655,26 @@ const CertificateDesigner = () => {
                     values={previewData}
                     onChange={rules => patchRules(sel.id, rules)}
                   />
-                </>
+                </Section>
               )}
               {sel.type === 'text' && (
-                <TextField size="small" label="ข้อความ" fullWidth multiline minRows={2}
-                  value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })} />
+                <Section icon={<TextIcon fontSize="small" />} label="เนื้อหา">
+                  <TextField
+                    size="small" label="ข้อความ" fullWidth multiline minRows={2}
+                    value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })}
+                    helperText="แทรกตัวแปรได้ด้วย {{ชื่อตัวแปร}} เช่น ขอมอบให้ {{recipient_name}}"
+                  />
+                </Section>
+              )}
+              {sel.type === 'qr' && (
+                <Section icon={<QrIcon fontSize="small" />} label="เนื้อหา">
+                  <Typography variant="caption" color="text.secondary">
+                    QR จะชี้ไปหน้าตรวจสอบของใบนั้น ๆ ตอนออกจริง — ในหน้านี้แสดงเป็นกรอบตัวอย่างไว้จัดตำแหน่ง
+                  </Typography>
+                </Section>
               )}
               {sel.type === 'image' && (
-                <Stack spacing={1}>
+                <Section icon={<ImageIcon fontSize="small" />} label="รูป">
                   {sel.value && (
                     <Box sx={{
                       p: 1, border: '1px solid #e4e6f0', borderRadius: 2,
@@ -639,16 +713,11 @@ const CertificateDesigner = () => {
                     value={sel.value} onChange={e => patch(sel.id, { value: e.target.value })}
                     helperText="ไฟล์ PNG พื้นหลังโปร่งใสจะวางบนลายเกียรติบัตรได้สวยที่สุด"
                   />
-                </Stack>
+                </Section>
               )}
 
               {sel.type !== 'qr' && sel.type !== 'image' && (
-                <>
-                  <Box>
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>ขนาดอักษร {sel.fontSize} pt</Typography>
-                    <Slider size="small" min={8} max={72} value={sel.fontSize || 16}
-                      onChange={(_, v) => patch(sel.id, { fontSize: v as number })} />
-                  </Box>
+                <Section icon={<FontIcon fontSize="small" />} label="ตัวอักษร">
                   <FormControl size="small" fullWidth>
                     <InputLabel>ฟอนต์</InputLabel>
                     <Select
@@ -677,23 +746,33 @@ const CertificateDesigner = () => {
                         <MenuItem value={sel.fontFamily}>{sel.fontFamily} (ไม่มีในเครื่องนี้)</MenuItem>
                       )}
                     </Select>
-                    <FormHelperText>
-                      {GOOGLE_FONTS.some(f => f.name === (sel.fontFamily || DEFAULT_FONT))
-                        ? 'โหลดจากอินเทอร์เน็ต — ใบที่พิมพ์และที่ผู้ปกครองเปิดดูจะเหมือนกัน'
-                        : 'ต้องมีฟอนต์นี้ในเครื่องที่สั่งพิมพ์ด้วย ไม่งั้นจะเปลี่ยนเป็นฟอนต์อื่นเงียบ ๆ'}
-                    </FormHelperText>
                   </FormControl>
 
+                  {/* Says which kind is selected, because the failure is
+                      silent: a machine font prints correctly here and reaches
+                      a parent's phone as something else entirely. */}
+                  <Stack direction="row" spacing={0.75} alignItems="flex-start">
+                    {GOOGLE_FONTS.some(f => f.name === (sel.fontFamily || DEFAULT_FONT))
+                      ? <OnlineIcon sx={{ fontSize: 15, color: 'success.main', mt: '2px' }} />
+                      : <MachineIcon sx={{ fontSize: 15, color: 'warning.main', mt: '2px' }} />}
+                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+                      {GOOGLE_FONTS.some(f => f.name === (sel.fontFamily || DEFAULT_FONT))
+                        ? 'ฟอนต์ออนไลน์ — ใบที่พิมพ์และที่ผู้ปกครองเปิดดูจะเหมือนกัน'
+                        : 'ฟอนต์ในเครื่อง — เครื่องที่สั่งพิมพ์ต้องมีฟอนต์นี้ด้วย ไม่งั้นจะเปลี่ยนเป็นฟอนต์อื่นเอง'}
+                    </Typography>
+                  </Stack>
+
                   <Button
-                    size="small"
+                    size="small" variant="outlined" startIcon={<MachineIcon />}
+                    sx={{ borderRadius: 2, fontWeight: 700 }}
                     onClick={async () => {
                       const list = await queryMachineFonts();
                       if (list.length === 0) {
-                        setFontNotice('เบราว์เซอร์นี้ไม่ให้อ่านรายชื่อฟอนต์ในเครื่อง (ใช้ Chrome หรือกดอนุญาต) — เลือกจากรายการที่มีให้ได้');
+                        setFontNotice('เบราว์เซอร์นี้ไม่ยอมให้อ่านรายชื่อฟอนต์ (ใช้ Chrome แล้วกดอนุญาต) — เลือกจากรายการที่มีให้ได้');
                         return;
                       }
                       setMachineFonts(list);
-                      setFontNotice(`พบฟอนต์ในเครื่อง ${list.length} แบบ`);
+                      setFontNotice(`พบฟอนต์ในเครื่องนี้ ${list.length} แบบ`);
                     }}
                   >
                     ดึงฟอนต์จากเครื่องนี้
@@ -702,36 +781,76 @@ const CertificateDesigner = () => {
                     <Typography variant="caption" color="text.secondary">{fontNotice}</Typography>
                   )}
 
+                  <Box>
+                    <SliderRow label="ขนาด" value={`${sel.fontSize || 16} pt`} />
+                    <Slider size="small" min={8} max={72} value={sel.fontSize || 16}
+                      onChange={(_, v) => patch(sel.id, { fontSize: v as number })} />
+                  </Box>
+
+                  {/* Each button is set in the weight it applies, so the choice
+                      is shown rather than described. */}
                   <ToggleButtonGroup exclusive size="small" fullWidth value={sel.fontWeight || 400}
-                    onChange={(_, v) => v && patch(sel.id, { fontWeight: v })}>
-                    <ToggleButton value={400}>ปกติ</ToggleButton>
-                    <ToggleButton value={600}>กึ่งหนา</ToggleButton>
-                    <ToggleButton value={700}>หนา</ToggleButton>
+                    onChange={(_, v) => v && patch(sel.id, { fontWeight: v })}
+                    sx={{ '& .MuiToggleButton-root': { borderRadius: 2, py: 0.6 } }}>
+                    <ToggleButton value={400} sx={{ fontWeight: 400 }}>ปกติ</ToggleButton>
+                    <ToggleButton value={600} sx={{ fontWeight: 600 }}>กึ่งหนา</ToggleButton>
+                    <ToggleButton value={700} sx={{ fontWeight: 800 }}>หนา</ToggleButton>
                   </ToggleButtonGroup>
-                  <ToggleButtonGroup exclusive size="small" fullWidth value={sel.align || 'center'}
-                    onChange={(_, v) => v && patch(sel.id, { align: v })}>
-                    <ToggleButton value="left">ซ้าย</ToggleButton>
-                    <ToggleButton value="center">กลาง</ToggleButton>
-                    <ToggleButton value="right">ขวา</ToggleButton>
-                  </ToggleButtonGroup>
-                </>
+                </Section>
               )}
 
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', flex: 1 }}>สี</Typography>
-                <input type="color" value={sel.color || '#172038'}
-                  onChange={e => patch(sel.id, { color: e.target.value })}
-                  style={{ width: 42, height: 30, border: 'none', background: 'none', cursor: 'pointer' }} />
-              </Stack>
+              <Section icon={<StyleIcon fontSize="small" />} label="การจัดวาง">
+                {sel.type !== 'qr' && sel.type !== 'image' && (
+                  <ToggleButtonGroup exclusive size="small" fullWidth value={sel.align || 'center'}
+                    onChange={(_, v) => v && patch(sel.id, { align: v })}
+                    sx={{ '& .MuiToggleButton-root': { borderRadius: 2, py: 0.6 } }}>
+                    <ToggleButton value="left" aria-label="ชิดซ้าย"><AlignLeftIcon fontSize="small" /></ToggleButton>
+                    <ToggleButton value="center" aria-label="กึ่งกลาง"><AlignCentreIcon fontSize="small" /></ToggleButton>
+                    <ToggleButton value="right" aria-label="ชิดขวา"><AlignRightIcon fontSize="small" /></ToggleButton>
+                  </ToggleButtonGroup>
+                )}
 
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>ความกว้าง {sel.w}%</Typography>
-                <Slider size="small" min={5} max={100} value={sel.w}
-                  onChange={(_, v) => patch(sel.id, { w: v as number })} />
-              </Box>
+                <Box>
+                  <SliderRow label="ความกว้างของกล่อง" value={`${sel.w}%`} />
+                  <Slider size="small" min={5} max={100} value={sel.w}
+                    onChange={(_, v) => patch(sel.id, { w: v as number })} />
+                </Box>
 
-              <Button size="small" color="error" startIcon={<DeleteIcon />}
-                onClick={() => { setFields(fs => fs.filter(f => f.id !== sel.id)); setSelected(null); }}>
+                {/* A swatch that reads as pressable, with the hex beside it —
+                    the bare colour input looked like a coloured rectangle
+                    somebody had left on the page. */}
+                {sel.type !== 'image' && (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <ColourIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', flex: 1 }}>
+                    {sel.type === 'qr' ? 'สี QR' : 'สีตัวอักษร'}
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                    {(sel.color || '#172038').toUpperCase()}
+                  </Typography>
+                  <Box
+                    component="label"
+                    sx={{
+                      width: 34, height: 26, borderRadius: 1.5, cursor: 'pointer', flexShrink: 0,
+                      bgcolor: sel.color || '#172038',
+                      border: '2px solid #fff', boxShadow: '0 0 0 1px #d9dbe6',
+                    }}
+                  >
+                    <input type="color" value={sel.color || '#172038'}
+                      onChange={e => patch(sel.id, { color: e.target.value })}
+                      style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }} />
+                  </Box>
+                </Stack>
+                )}
+              </Section>
+
+              <Divider />
+
+              <Button
+                size="small" color="error" variant="outlined" startIcon={<DeleteIcon />}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+                onClick={() => { setFields(fs => fs.filter(f => f.id !== sel.id)); setSelected(null); }}
+              >
                 ลบกล่องนี้
               </Button>
             </Stack>
