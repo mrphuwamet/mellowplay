@@ -10,6 +10,8 @@ import { isPlainText } from '../utils/richText';
 import { scrollToTop } from '../utils/scrollToTop';
 import { useChildStore } from '../store/useChildStore';
 import { isChildRole } from '../utils/familyRoles';
+import HashtagText from '../components/HashtagText';
+import HashtagHtml from '../components/HashtagHtml';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -138,6 +140,10 @@ const NewsDetail = () => {
     );
   }
 
+  // A tag anywhere means the same thing: show me everything with this tag.
+  // Explore is where that lives, so it is where a tap goes.
+  const openTag = (tag: string) => navigate(`/explore?tag=${encodeURIComponent(tag)}`);
+
   const title = lang === 'en' && item.title_en ? item.title_en : item.title;
   const content = (lang === 'en' && item.content_en ? item.content_en : item.content) || '';
   const images: string[] = item.image_urls?.length ? item.image_urls : (item.image_url ? [item.image_url] : []);
@@ -209,14 +215,19 @@ const NewsDetail = () => {
           {' · '}
           {formatCustomDate(item.created_at, lang, 'full')}
         </p>
-        <h1 className="text-2xl font-black text-slate-800 leading-tight mb-4">{title}</h1>
+        <h1 className="text-2xl font-black text-slate-800 leading-tight mb-4">
+          <HashtagText text={title} onTagClick={openTag} />
+        </h1>
 
         {/* Content is rich HTML authored via the CRM's writer tool (can
             include inline images), so it's rendered as markup rather than
-            plain text — this is admin-authored content, not user input. */}
-        <div
+            plain text — this is admin-authored content, not user input.
+            HashtagHtml renders that markup and then makes the hashtags inside
+            it tappable, without rewriting the HTML itself. */}
+        <HashtagHtml
           className={`prose-news text-[16px] text-slate-700 leading-relaxed ${isPlainText(content) ? 'whitespace-pre-wrap' : ''}`}
-          dangerouslySetInnerHTML={{ __html: content || (lang === 'en' ? 'No further details.' : 'ไม่มีรายละเอียดเพิ่มเติม') }}
+          html={content || (lang === 'en' ? 'No further details.' : 'ไม่มีรายละเอียดเพิ่มเติม')}
+          onTagClick={openTag}
         />
 
         {/* The image carousel above already opens link_url on tap when there

@@ -54,7 +54,20 @@ const Explore = () => {
   const [nextRoundByCourse, setNextRoundByCourse] = useState<Record<number, string>>({});
   const [newsKind, setNewsKind] = useState<NewsKind>('all');
   const [newsQuery, setNewsQuery] = useState('');
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  // Seeded from the URL so a tag tapped inside an article lands here already
+  // filtered, and so a filtered view can be shared or reached with Back.
+  const [activeTag, setActiveTag] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get('tag'));
+
+  // Kept in the URL so the filter survives a refresh and can be shared.
+  // replaceState rather than a push: filtering is not a place in history, and
+  // Back should leave Explore rather than step through every tag tried.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (activeTag) params.set('tag', activeTag); else params.delete('tag');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, [activeTag]);
 
   useEffect(() => {
     Promise.all([
