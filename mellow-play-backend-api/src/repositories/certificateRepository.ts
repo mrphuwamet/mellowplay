@@ -80,16 +80,26 @@ export class CertificateRepository {
   }
 
   /**
-   * Which design this course uses: its own binding, then its calendar's, then
-   * whichever template is the default. Same precedence as stamp artwork —
-   * specific beats general, and there is always an answer.
+   * Which design this course uses: its own binding, then its calendar's.
+   *
+   * NO default. A certificate carries a child's name, an activity and a date,
+   * and it is signed by us — so an item nobody chose a design for must issue
+   * nothing at all rather than quietly reach for whichever template happens to
+   * be first in the table. Falling back looks helpful and produces documents
+   * that were never approved for that activity.
+   *
+   * The binding is still inherited from the calendar, so a series of rounds is
+   * set up once rather than round by round.
    */
   async resolveTemplateId(courseId: number): Promise<number | null> {
     const row = await this.db.prepare(`
       SELECT COALESCE(
-        (SELECT template_id FROM Certificate_Template_Bindings WHERE scope = 'course' AND ref_id = c.id),
-        (SELECT template_id FROM Certificate_Template_Bindings WHERE scope = 'calendar' AND ref_id = c.calendar_id),
-        (SELECT id FROM Certificate_Templates WHERE is_active = 1 ORDER BY id LIMIT 1)
+        (SELECT b.template_id FROM Certificate_Template_Bindings b
+           JOIN Certificate_Templates t ON t.id = b.template_id AND t.is_active = 1
+          WHERE b.scope = 'course' AND b.ref_id = c.id),
+        (SELECT b.template_id FROM Certificate_Template_Bindings b
+           JOIN Certificate_Templates t ON t.id = b.template_id AND t.is_active = 1
+          WHERE b.scope = 'calendar' AND b.ref_id = c.calendar_id)
       ) AS template_id
       FROM Courses c WHERE c.id = ?
     `).bind(courseId).first<{ template_id: number | null }>();

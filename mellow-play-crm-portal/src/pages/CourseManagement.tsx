@@ -58,6 +58,7 @@ import FocalPointPicker from '../components/FocalPointPicker';
 import CourseViewPreview from '../components/CourseViewPreview';
 import CourseNotificationsTab from '../components/CourseNotificationsTab';
 import RichTextEditor from '../components/RichTextEditor';
+import RoundStampButton from '../components/stamps/RoundStampDialog';
 
 // Converts rich HTML content into paragraph-separated plain text before
 // sending to the translate API, which only understands plain text.
@@ -349,9 +350,15 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // because they are saved through their own endpoint — the course
   // insert/update already carries ~60 parameters and does not need two more.
   const [stampDesigns, setStampDesigns] = useState<any[]>([]);
-  const [rewardSettings, setRewardSettings] = useState<{ design_id: number | null; participation_badge_tier: number | null; certificate_auto: string | null }>({
-    design_id: null, participation_badge_tier: null, certificate_auto: null,
+  const [certTemplates, setCertTemplates] = useState<{ id: number; name: string }[]>([]);
+  const [certInherited, setCertInherited] = useState<number | null>(null);
+  const [rewardSettings, setRewardSettings] = useState<{ design_id: number | null; participation_badge_tier: number | null; certificate_auto: string | null; certificate_template_id: number | null }>({
+    design_id: null, participation_badge_tier: null, certificate_auto: null, certificate_template_id: null,
   });
+  // No design chosen for this item and none inherited from its calendar:
+  // certificates cannot be issued for it at all, so the form says so rather
+  // than letting it look configured.
+  const certMissing = !rewardSettings.certificate_template_id && !certInherited;
   const [rewardRounds, setRewardRounds] = useState<any[]>([]);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
@@ -1081,7 +1088,8 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     axios.get(`${API_BASE}/stamp-designs`)
       .then(({ data }) => { if (data.success) setStampDesigns(data.designs); })
       .catch(() => setStampDesigns([]));
-    setRewardSettings({ design_id: null, participation_badge_tier: null, certificate_auto: null });
+    setRewardSettings({ design_id: null, participation_badge_tier: null, certificate_auto: null, certificate_template_id: null });
+    setCertInherited(null);
     setRewardRounds([]);
 
     if (course) {
@@ -1094,7 +1102,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
             design_id: data.design_id ?? null,
             participation_badge_tier: data.participation_badge_tier ?? null,
             certificate_auto: data.certificate_auto ?? null,
+            certificate_template_id: data.certificate_template_id ?? null,
           });
+          setCertTemplates(data.certificate_templates || []);
+          setCertInherited(data.certificate_template_inherited ?? null);
           setRewardRounds(data.rounds || []);
         })
         .catch(() => { /* leave the defaults */ });
@@ -1689,6 +1700,29 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                   </FormControl>
                 </Grid>
 
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth error={certMissing}>
+                    <InputLabel>แบบเกียรติบัตรของกิจกรรมนี้</InputLabel>
+                    <Select
+                      label="แบบเกียรติบัตรของกิจกรรมนี้"
+                      value={rewardSettings.certificate_template_id ?? ''}
+                      onChange={e => setRewardSettings(s => ({ ...s, certificate_template_id: e.target.value === '' ? null : Number(e.target.value) }))}
+                    >
+                      <MenuItem value="">
+                        {certInherited
+                          ? `ตามปฏิทิน (${certTemplates.find(t => t.id === certInherited)?.name || 'ตั้งไว้แล้ว'})`
+                          : 'ยังไม่ได้เลือก — ออกเกียรติบัตรไม่ได้'}
+                      </MenuItem>
+                      {certTemplates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+                    </Select>
+                    <FormHelperText>
+                      {certMissing
+                        ? 'ต้องเลือกแบบก่อน จึงจะออกเกียรติบัตรให้กิจกรรมนี้ได้ — ระบบจะไม่หยิบแบบอื่นมาใช้แทนให้'
+                        : 'ออกแบบได้ที่เมนู ออกแบบเกียรติบัตร'}
+                    </FormHelperText>
+                  </FormControl>
+                </Grid>
+
                 {/* When this item prints certificates by itself. Off by default,
                     because a certificate carries a child's name and a date —
                     it should be issued when someone means to, not as a side
@@ -1705,38 +1739,22 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                       <MenuItem value="checkin">เมื่อเช็คอินหน้างาน — สำหรับงานวันเดียว</MenuItem>
                       <MenuItem value="completion">เมื่อกดจบคลาส — สำหรับคลาสที่เรียนจบเป็นรอบ</MenuItem>
                     </Select>
-                    <FormHelperText>
-                      ออกให้ใบเดียวต่อการจอง กดซ้ำหรือเช็คอินซ้ำก็ไม่ออกเพิ่ม · ถ้าเลือก “เมื่อเช็คอิน” แล้วยกเลิกการเช็คอินทั้งหมด ใบที่ออกจากประตูจะถูกเพิกถอนให้
+                    <FormHelperText error={certMissing && !!rewardSettings.certificate_auto}>
+                      {certMissing && rewardSettings.certificate_auto
+                        ? 'ยังไม่ได้เลือกแบบเกียรติบัตร — ตั้งอัตโนมัติไว้ก็จะไม่ออกให้'
+                        : 'ออกให้ใบเดียวต่อการจอง กดซ้ำหรือเช็คอินซ้ำก็ไม่ออกเพิ่ม · ถ้าเลือก “เมื่อเช็คอิน” แล้วยกเลิกการเช็คอินทั้งหมด ใบที่ออกจากประตูจะถูกเพิกถอนให้'}
                     </FormHelperText>
                   </FormControl>
                 </Grid>
 
                 {rewardRounds.length > 0 && (
                   <Grid item xs={12}>
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                      แสตมป์รายรอบ (ถ้าไม่ตั้ง จะใช้ดีไซน์ของกิจกรรมด้านบน)
-                    </Typography>
-                    <Stack spacing={1}>
-                      {rewardRounds.map((r: any) => (
-                        <Box key={r.id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-                          <Typography variant="body2" sx={{ minWidth: 190 }}>
-                            {r.specific_date ? r.specific_date : `ทุก${DAY_LABELS[r.day_of_week] || ''}`} · {String(r.start_time).slice(0, 5)}
-                          </Typography>
-                          <FormControl size="small" sx={{ minWidth: 240 }}>
-                            <Select
-                              value={r.design_id ?? ''}
-                              onChange={e => setRoundDesign(r.id, e.target.value === '' ? null : Number(e.target.value))}
-                              displayEmpty
-                            >
-                              <MenuItem value="">ตามกิจกรรม</MenuItem>
-                              {stampDesigns.filter((d: any) => d.is_active).map((d: any) => (
-                                <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </Box>
-                      ))}
-                    </Stack>
+                    <RoundStampButton
+                      rounds={rewardRounds}
+                      designs={stampDesigns}
+                      dayLabels={DAY_LABELS}
+                      onChange={setRoundDesign}
+                    />
                   </Grid>
                 )}
 

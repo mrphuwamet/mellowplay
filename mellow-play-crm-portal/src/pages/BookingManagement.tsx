@@ -1262,9 +1262,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             ...Object.fromEntries((res.data.certificates || []).map((c: any) => [c.booking_id, c])),
           }));
         }
-        setIssueResult(data.skipped > 0
-          ? `ออกเกียรติบัตรใหม่ ${data.issued} ใบ · อีก ${data.skipped} รายการมีอยู่แล้ว`
-          : `ออกเกียรติบัตร ${data.issued} ใบเรียบร้อย`);
+        const needs = data.needTemplate || [];
+        if (needs.length > 0) {
+          setIssueResult(`ออกได้ ${data.issued} ใบ · ยังไม่ได้เลือกแบบเกียรติบัตรให้ ${needs.map((n: any) => n.name).join(', ')} — ตั้งที่หน้าจัดการข้อมูลคลาส`);
+        } else {
+          setIssueResult(data.skipped > 0
+            ? `ออกเกียรติบัตรใหม่ ${data.issued} ใบ · อีก ${data.skipped} รายการมีอยู่แล้ว`
+            : `ออกเกียรติบัตร ${data.issued} ใบเรียบร้อย`);
+        }
       }
     } catch (e: any) {
       setIssueResult(e?.response?.data?.message || 'ออกเกียรติบัตรไม่สำเร็จ');
@@ -1321,12 +1326,13 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   };
 
   /**
-   * Print every selected booking's certificate as one stack of pages.
+   * Print every selected booking as one stack of pages.
    *
-   * Only bookings that already hold a live certificate are printed, and the
-   * rest are named in the message rather than issued on the way past: issuing
-   * is what assigns a serial number, and a print dialog is no place to do
-   * something there is no undoing.
+   * Bookings not yet issued print as drafts — the paper is often wanted before
+   * anyone gets round to pressing ออกเกียรติบัตร, and refusing to print does
+   * not make that happen sooner. A draft has no serial number and no QR,
+   * because printing still never issues: issuing is what assigns the number,
+   * and a print dialog is no place to do something there is no undoing.
    */
   const printCertificates = async (ids: number[]) => {
     if (ids.length === 0) return;
@@ -1335,8 +1341,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       const { data } = await axios.post(`${API_BASE}/certificates/print-batch`, { booking_ids: ids });
       if (!data.success) { setIssueResult(data.message || 'พิมพ์ไม่สำเร็จ'); return; }
 
-      const items: PrintableCertificate[] = (data.certificates || []).map((c: any) => ({
-        id: c.id,
+      const toItem = (c: any, draft: boolean): PrintableCertificate => ({
+        id: draft ? `draft-${c.booking_id}` : c.id,
         template: {
           background_url: c.background_url,
           page_width: c.page_width,
@@ -1344,16 +1350,24 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           fields_json: c.fields_json,
         },
         values: certValuesOf(c),
-        verifyUrl: `${CONSUMER_APP_URL}/verify/${c.public_code}`,
-      }));
+      });
+      const issued = (data.certificates || []).map((c: any) => toItem(c, false));
+      const drafts = (data.drafts || []).map((c: any) => toItem(c, true));
+      const items = [...issued, ...drafts];
 
+      const needs = data.needTemplate || [];
       if (items.length === 0) {
-        setIssueResult('รายการที่เลือกยังไม่มีเกียรติบัตร — กดออกเกียรติบัตรก่อน');
+        setIssueResult(needs.length > 0
+          ? `ยังไม่ได้เลือกแบบเกียรติบัตรให้ ${needs.map((n: any) => n.name).join(', ')}`
+          : 'ไม่มีรายการที่พิมพ์ได้');
         return;
       }
       setPrintItems(items);
-      const missing = (data.missing || []).length;
-      if (missing > 0) setIssueResult(`พิมพ์ ${items.length} ใบ · อีก ${missing} รายการยังไม่มีเกียรติบัตร`);
+
+      const notes: string[] = [];
+      if (drafts.length > 0) notes.push(`${drafts.length} ใบยังไม่ได้ออกเลขที่ (ไม่มี QR)`);
+      if (needs.length > 0) notes.push(`ยังไม่ได้เลือกแบบให้ ${needs.map((n: any) => n.name).join(', ')}`);
+      if (notes.length > 0) setIssueResult(`พิมพ์ ${items.length} ใบ · ${notes.join(' · ')}`);
 
       // Two frames: one for the sheet to mount, one for its images and QR
       // codes to be laid out before the dialog freezes the page.
@@ -2358,14 +2372,14 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
             คัดลอกลิงก์เกียรติบัตร
           </MenuItem>
         )}
-        {manageMenu && certByBooking[manageMenu.booking.id] && (
+        {manageMenu && manageMenu.booking.status !== 'cancelled' && (
           <MenuItem
             disabled={printingBatch}
             onClick={() => { if (manageMenu) void printCertificates([manageMenu.booking.id]); closeManageMenu(); }}
             sx={{ gap: 1.25, fontWeight: 600 }}
           >
             <PrintIcon fontSize="small" sx={{ color: 'secondary.main' }} />
-            พิมพ์เกียรติบัตร
+            {certByBooking[manageMenu.booking.id] ? 'พิมพ์เกียรติบัตร' : 'พิมพ์ (ยังไม่ออกเลขที่)'}
           </MenuItem>
         )}
         {manageMenu && certByBooking[manageMenu.booking.id] && (

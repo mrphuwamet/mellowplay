@@ -36,8 +36,13 @@ export const generatePublicCode = (): string => {
 };
 
 export interface IssueResult {
-  issued: boolean;          // false = the booking already had a live certificate
+  issued: boolean;          // false = already had one, or could not be issued
   certificateId?: number;
+  /** Why not, when issued is false. 'exists' is the ordinary, harmless case. */
+  reason?: 'exists' | 'no_booking' | 'no_template';
+  /** For naming the item that still needs a design chosen. */
+  courseId?: number;
+  courseName?: string | null;
 }
 
 /** Issue for one booking. */
@@ -47,9 +52,19 @@ export async function issueForBooking(
 ): Promise<IssueResult> {
   const repo = new CertificateRepository(db);
   const src = await repo.getIssueSource(opts.bookingId);
-  if (!src) return { issued: false };
+  if (!src) return { issued: false, reason: 'no_booking' };
 
   const templateId = opts.templateId ?? await repo.resolveTemplateId(Number(src.course_id));
+
+  // No design chosen for this item: issue nothing, and say which item it was.
+  // Printing a name onto whatever template came first is not a smaller failure
+  // than printing nothing — it is a worse one, because it looks finished.
+  if (templateId == null) {
+    return {
+      issued: false, reason: 'no_template',
+      courseId: Number(src.course_id), courseName: src.course_name ?? null,
+    };
+  }
 
   // Nickname first: it is the name a child is called and the one a family
   // expects to see. The full name is the fallback, never a blank.
@@ -77,7 +92,7 @@ export async function issueForBooking(
     source: opts.source ?? 'manual',
     valuesJson: JSON.stringify(values),
   });
-  return id == null ? { issued: false } : { issued: true, certificateId: id };
+  return id == null ? { issued: false, reason: 'exists' } : { issued: true, certificateId: id };
 }
 
 /**

@@ -40,8 +40,8 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
   const pageW = Number(item.template?.page_width) || 297;
   const pageH = Number(item.template?.page_height) || 210;
   const fields = parseFields(item.template?.fields_json);
-  const verifyUrl = item.verifyUrl
-    || `${CONSUMER_APP_URL}/verify/${String(item.values.public_code ?? '')}`;
+  const code = String(item.values.public_code ?? '').trim();
+  const verifyUrl = item.verifyUrl || (code ? `${CONSUMER_APP_URL}/verify/${code}` : '');
 
   const renderField = (f: CertField) => {
     const common: React.CSSProperties = {
@@ -51,6 +51,10 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
       width: `${f.w}%`,
       textAlign: f.align || 'center',
     };
+
+    // A draft has no code yet, so it has nothing to point at. Leaving the
+    // square blank is honest; printing a QR that leads nowhere is not.
+    if (f.type === 'qr' && !verifyUrl) return null;
 
     if (f.type === 'qr') {
       // Drawn at a generous fixed resolution and scaled by CSS: an SVG QR keeps

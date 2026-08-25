@@ -469,7 +469,7 @@ export class RewardsController {
     try {
       const config = new ConfigService(c.env);
       const courseId = parseInt(c.req.param('courseId'));
-      const { design_id, participation_badge_tier, certificate_auto } = await c.req.json();
+      const { design_id, participation_badge_tier, certificate_auto, certificate_template_id } = await c.req.json();
 
       const tier = participation_badge_tier ? Number(participation_badge_tier) : null;
       if (tier !== null && ![1, 2, 3].includes(tier)) {
@@ -490,6 +490,18 @@ export class RewardsController {
         await config.db.prepare("DELETE FROM Stamp_Design_Bindings WHERE scope = 'course' AND ref_id = ?")
           .bind(courseId).run();
       }
+
+      // Clearing it means this item stops issuing certificates entirely —
+      // there is no default to fall back to, by design.
+      if (certificate_template_id) {
+        await config.db.prepare(`
+          INSERT INTO Certificate_Template_Bindings (scope, ref_id, template_id) VALUES ('course', ?, ?)
+          ON CONFLICT(scope, ref_id) DO UPDATE SET template_id = excluded.template_id
+        `).bind(courseId, Number(certificate_template_id)).run();
+      } else {
+        await config.db.prepare("DELETE FROM Certificate_Template_Bindings WHERE scope = 'course' AND ref_id = ?")
+          .bind(courseId).run();
+      }
       return c.json({ success: true });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
@@ -506,6 +518,18 @@ export class RewardsController {
       const binding = await config.db.prepare(
         "SELECT design_id FROM Stamp_Design_Bindings WHERE scope = 'course' AND ref_id = ?"
       ).bind(courseId).first<any>();
+      const certBinding = await config.db.prepare(
+        "SELECT template_id FROM Certificate_Template_Bindings WHERE scope = 'course' AND ref_id = ?"
+      ).bind(courseId).first<any>();
+      // Inherited from the calendar when the item itself has none, so the form
+      // can show where the design is actually coming from.
+      const certInherited = await config.db.prepare(`
+        SELECT b.template_id FROM Certificate_Template_Bindings b
+         WHERE b.scope = 'calendar' AND b.ref_id = ?
+      `).bind(course?.calendar_id ?? null).first<any>();
+      const { results: certTemplates } = await config.db.prepare(
+        'SELECT id, name FROM Certificate_Templates WHERE is_active = 1 ORDER BY id'
+      ).all<any>();
 
       // The rounds of this item's calendar, each with its own override if it
       // has one — this is the list the CRM shows for "a different stamp per
@@ -523,6 +547,9 @@ export class RewardsController {
         success: true,
         participation_badge_tier: course?.participation_badge_tier ?? null,
         certificate_auto: course?.certificate_auto ?? null,
+        certificate_template_id: certBinding?.template_id ?? null,
+        certificate_template_inherited: certInherited?.template_id ?? null,
+        certificate_templates: certTemplates,
         design_id: binding?.design_id ?? null,
         stamps_on_completion: course?.stamps_on_completion ?? 0,
         rounds,

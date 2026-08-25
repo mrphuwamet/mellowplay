@@ -111,6 +111,9 @@ export class CertificateController {
       const issuedBy = c.get('crmUser')?.userId ?? null;
       let issued = 0;
       let skipped = 0;
+      // Which items still need a design chosen — named, because "3 รายการออกไม่ได้"
+      // without saying which leaves someone opening bookings one at a time.
+      const needTemplate = new Map<number, string>();
 
       for (const bookingId of bookingIds) {
         const res = await issueForBooking(config.db, {
@@ -119,10 +122,17 @@ export class CertificateController {
           source: 'manual',
           issuedBy,
         });
-        if (res.issued) issued++; else skipped++;
+        if (res.issued) { issued++; continue; }
+        skipped++;
+        if (res.reason === 'no_template' && res.courseId) {
+          needTemplate.set(res.courseId, res.courseName || `กิจกรรม #${res.courseId}`);
+        }
       }
 
-      return c.json({ success: true, issued, skipped, total: bookingIds.length });
+      return c.json({
+        success: true, issued, skipped, total: bookingIds.length,
+        needTemplate: Array.from(needTemplate.entries()).map(([id, name]) => ({ course_id: id, name })),
+      });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -246,23 +256,53 @@ export class CertificateController {
   /**
    * Everything needed to print a stack of certificates in one go.
    *
-   * Returns only bookings that already hold a live certificate, and says how
-   * many did not — printing must never quietly issue, because issuing is what
-   * assigns a serial number and there is no undoing that from a print dialog.
+   * Bookings that have not been issued yet are printed too, as drafts: the
+   * paper is often wanted before anyone gets round to pressing ออกเกียรติบัตร,
+   * and refusing to print it does not make that happen sooner.
+   *
+   * Printing still never issues. Issuing is what assigns a serial number, and a
+   * print dialog is no place to do something there is no undoing — so a draft
+   * simply has no serial and no QR, and says so in the response.
    */
   async printBatch(c: C) {
     try {
       const config = new ConfigService(c.env);
+      const repo = new CertificateRepository(config.db);
       const body = await c.req.json();
       const ids = Array.isArray(body.booking_ids) ? body.booking_ids.map(Number) : [];
       if (ids.length === 0) return c.json({ success: false, message: 'ยังไม่ได้เลือกรายการ' }, 400);
 
-      const certificates = await new CertificateRepository(config.db).listForPrinting(ids);
-      const found = new Set(certificates.map((x: any) => Number(x.booking_id)));
+      const certificates = await repo.listForPrinting(ids);
+      const issued = new Set(certificates.map((x: any) => Number(x.booking_id)));
+
+      // The rest, resolved live against the item's own template.
+      const drafts: any[] = [];
+      const needTemplate = new Map<number, string>();
+      for (const bookingId of ids.filter((id: number) => !issued.has(id))) {
+        const src = await repo.getIssueSource(bookingId);
+        if (!src) continue;
+        const templateId = await repo.resolveTemplateId(Number(src.course_id));
+        if (templateId == null) {
+          needTemplate.set(Number(src.course_id), src.course_name || `กิจกรรม #${src.course_id}`);
+          continue;
+        }
+        const template = await repo.getTemplate(templateId);
+        drafts.push({
+          booking_id: bookingId,
+          draft: true,
+          background_url: template?.background_url ?? null,
+          page_width: template?.page_width ?? null,
+          page_height: template?.page_height ?? null,
+          fields_json: template?.fields_json ?? null,
+          values_json: JSON.stringify(await resolveCertificateValues(config.db, bookingId)),
+        });
+      }
+
       return c.json({
         success: true,
         certificates,
-        missing: ids.filter((id: number) => !found.has(id)),
+        drafts,
+        needTemplate: Array.from(needTemplate.entries()).map(([id, name]) => ({ course_id: id, name })),
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
