@@ -7,7 +7,7 @@ import {
   IconButton, Paper, Stack, Alert, Switch, FormControlLabel,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tabs, Tab,
+  Tabs, Tab, Tooltip,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -48,6 +48,8 @@ interface FieldDraft {
   role?: 'adult' | 'child';   // family_member_picker
   duplicateCheckScope?: 'none' | 'course' | 'round' | 'calendar';
   imageUrl?: string;          // image
+  /** Pin this answer to the top of the check-in card, highlighted. */
+  showAtCheckin?: boolean;
 }
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
@@ -185,6 +187,7 @@ const RegistrationFormManagement = () => {
             teamOptions: (f.options_json && f.type === 'team_select') ? JSON.parse(f.options_json) : undefined,
             role: config.role,
             imageUrl: config.imageUrl,
+            showAtCheckin: !!config.showAtCheckin,
             duplicateCheckScope: f.duplicate_check_scope || 'none',
           };
         });
@@ -211,9 +214,13 @@ const RegistrationFormManagement = () => {
         optionsJson: f.type === 'team_select'
           ? (f.teamOptions ? JSON.stringify(f.teamOptions) : undefined)
           : (f.options ? JSON.stringify(f.options) : undefined),
-        configJson: f.role ? JSON.stringify({ role: f.role })
-          : f.type === 'image' ? JSON.stringify({ imageUrl: f.imageUrl })
-          : undefined,
+        configJson: (() => {
+          const cfg: Record<string, any> = {};
+          if (f.role) cfg.role = f.role;
+          if (f.type === 'image' && f.imageUrl) cfg.imageUrl = f.imageUrl;
+          if (f.showAtCheckin) cfg.showAtCheckin = true;
+          return Object.keys(cfg).length > 0 ? JSON.stringify(cfg) : undefined;
+        })(),
         duplicateCheckScope: f.duplicateCheckScope,
       })));
       const payload = { name, description, isActive, fields };
@@ -343,6 +350,19 @@ const RegistrationFormManagement = () => {
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
                             />
+                          )}
+                          {/* The check-in card lists every answer at the same
+                              weight, so "แพ้นม" reads exactly like "รู้จักเรา
+                              จากไหน". This lifts the few that matter to the top
+                              of it, in a colour someone glances at while a
+                              family is standing in front of them. */}
+                          {field.type !== 'heading' && field.type !== 'image' && (
+                            <Tooltip title="เด้งขึ้นบนสุดของหน้าจอเช็คอิน พร้อมไฮไลต์ — ใช้กับข้อมูลอย่างการแพ้อาหารหรือโรคประจำตัว">
+                              <FormControlLabel
+                                control={<Switch size="small" color="warning" checked={!!field.showAtCheckin} onChange={e => updateField(idx, { showAtCheckin: e.target.checked })} />}
+                                label={<Typography variant="caption">เน้นตอนเช็คอิน</Typography>}
+                              />
+                            </Tooltip>
                           )}
                         </Stack>
                         <TextField

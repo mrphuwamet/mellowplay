@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon, CheckCircle as CheckIcon, Refresh as RescanIcon,
-  Phone as PhoneIcon,
+  Phone as PhoneIcon, ReportProblem as WarningIcon,
 } from '@mui/icons-material';
 import { AxiosInstance } from 'axios';
 import { API_URL } from '../config';
@@ -40,7 +40,32 @@ interface CheckinBooking {
   actions: CheckinAction[];
 }
 
-interface FormAnswerField { label: string; type: string; value: any; realName?: string; nickname?: string; }
+interface FormAnswerField {
+  label: string; type: string; value: any;
+  realName?: string; nickname?: string;
+  /** Set on the field in the form builder — see config_json.showAtCheckin. */
+  config_json?: string | null;
+}
+
+/**
+ * Which answers are lifted out of the list.
+ *
+ * The card used to print every answer at the same weight, so a form with
+ * twenty questions gave "แพ้นม" exactly the same appearance as "รู้จักเราจาก
+ * ช่องทางไหน" — on a phone, with a family waiting. Whoever built the form marks
+ * the few that matter, and those go to the top in a colour.
+ */
+const isPinned = (f: FormAnswerField): boolean => {
+  try { return !!JSON.parse(f.config_json || '{}')?.showAtCheckin; } catch { return false; }
+};
+
+/** A pinned field with nothing in it is not a warning — it is a blank. */
+const hasValue = (f: FormAnswerField): boolean => {
+  const v = f.value;
+  if (v == null) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return String(v).trim() !== '';
+};
 
 interface PhoneSearchResult {
   booking_id: number;
@@ -118,6 +143,9 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   const [error, setError] = useState<string | null>(null);
   const [togglingActionId, setTogglingActionId] = useState<number | null>(null);
   const [surveyHistory, setSurveyHistory] = useState<any[] | null>(null);
+  // Folded by default. The pinned answers are the ones anyone needs while a
+  // family is standing there; the other eighteen are for looking something up.
+  const [allAnswersOpen, setAllAnswersOpen] = useState(false);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
@@ -328,6 +356,9 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
   // technically booked under stays out of the display entirely, matching
   // the booking list/detail views). Form-less bookings keep the system
   // child name as before.
+  const pinnedFields = (formFields || []).filter(f => isPinned(f) && hasValue(f));
+  const restFields = (formFields || []).filter(f => !pinnedFields.includes(f));
+
   const formPeople = (formFields || []).filter(f => f.type === 'family_member_picker' && f.value);
   const attendeeName = formPeople.length > 0
     ? formPeople.map(formatFormFieldValue).join(' · ')
@@ -479,17 +510,49 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized }) => {
             </Typography>
           )}
 
+          {/* Above everything else on the card, including the fold. */}
+          {pinnedFields.length > 0 && (
+            <Alert
+              severity="warning" icon={<WarningIcon />}
+              sx={{ mb: 2, borderRadius: 2, alignItems: 'flex-start' }}
+            >
+              {pinnedFields.map((f, i) => (
+                <Box key={i} sx={{ mb: i === pinnedFields.length - 1 ? 0 : 0.75 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', opacity: 0.85 }}>
+                    {f.label}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 800, wordBreak: 'break-word' }}>
+                    {formatFormFieldValue(f)}
+                  </Typography>
+                </Box>
+              ))}
+            </Alert>
+          )}
+
           {booking.form_submission_id && (
             <>
               <Divider sx={{ mb: 1.5 }} />
-              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>
-                ข้อมูลที่กรอกไว้ตอนลงทะเบียน
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary', flex: 1 }}>
+                  ข้อมูลที่กรอกไว้ตอนลงทะเบียน
+                </Typography>
+                {restFields.length > 0 && (
+                  <Button size="small" onClick={() => setAllAnswersOpen(v => !v)} sx={{ fontWeight: 700 }}>
+                    {allAnswersOpen ? 'ย่อ' : `ดูทั้งหมด (${restFields.length})`}
+                  </Button>
+                )}
+              </Box>
               {formLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 1.5 }}><CircularProgress size={18} /></Box>
-              ) : formFields && formFields.length > 0 ? (
+              ) : !allAnswersOpen ? (
+                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 2 }}>
+                  {restFields.length > 0
+                    ? `ซ่อนไว้ ${restFields.length} ข้อ — กด “ดูทั้งหมด” เมื่อต้องการค้นข้อมูล`
+                    : 'ไม่มีข้อมูลเพิ่มเติม'}
+                </Typography>
+              ) : restFields.length > 0 ? (
                 <Box sx={{ mb: 2 }}>
-                  {formFields.map((f, i) => (
+                  {restFields.map((f, i) => (
                     <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, py: 0.5 }}>
                       <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0, maxWidth: '45%', wordBreak: 'break-word' }}>{f.label}</Typography>
                       <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
