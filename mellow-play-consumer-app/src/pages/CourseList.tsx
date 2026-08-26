@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Calendar, Search, X } from 'lucide-react';
 import apiClient from '../utils/apiClient';
@@ -30,9 +30,17 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
     setSearchParams(params, { replace: true });
   };
 
+  // When each course next runs — same map Explore uses — so the catalogue
+  // can lead with whatever is happening soonest. A missing map just means
+  // the ordering falls back to newest-first; it must never hold the page up.
+  const [nextRoundByCourse, setNextRoundByCourse] = useState<Record<number, string>>({});
+
   useEffect(() => {
-    apiClient.get('/admin/courses')
-      .then(res => {
+    Promise.all([
+      apiClient.get('/admin/courses'),
+      apiClient.get('/admin/calendar-slots/courses-with-rounds').catch(() => ({ data: {} as any })),
+    ])
+      .then(([res, roundsRes]) => {
          if (res.data.success) {
             let all = res.data.courses || [];
             if (type === 'extra') all = all.filter((c: any) => c.is_extraclass);
@@ -41,18 +49,57 @@ const CourseList = ({ type: typeProp }: { type?: string } = {}) => {
             else if (type === 'service') all = all.filter((c: any) => c.is_service);
             setCourses(all);
          }
+         if (roundsRes.data?.success) setNextRoundByCourse(roundsRes.data.nextRoundByCourse || {});
       })
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
   }, [type]);
 
+  // A finished course's place in time is its LAST run date — that's what
+  // "ended, newest first" orders by (falling back to when it was added, for
+  // courses that never had a date at all).
+  const lastSpecificDate = (course: any): string | null => {
+    try {
+      const rules = JSON.parse(course.calendar_summary_json || '[]');
+      const dates = rules
+        .filter((r: any) => (r.day_of_week === null || r.day_of_week === 'null') && r.specific_date)
+        .map((r: any) => r.specific_date as string)
+        .sort();
+      return dates.length ? dates[dates.length - 1] : null;
+    } catch { return null; }
+  };
+
+  // Soonest happening first; anything already over sinks to the end, most
+  // recently finished first — the catalogue reads "what can I still join"
+  // down into "what just happened".
+  const sortedCourses = useMemo(() => {
+    const byNewest = (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    const upcoming: any[] = [];
+    const done: any[] = [];
+    for (const c of courses) (isCourseEnded(c) ? done : upcoming).push(c);
+    upcoming.sort((a, b) => {
+      const da = nextRoundByCourse[a.id];
+      const db = nextRoundByCourse[b.id];
+      if (da && db) return da.localeCompare(db) || byNewest(a, b);
+      if (da) return -1;
+      if (db) return 1;
+      return byNewest(a, b);
+    });
+    done.sort((a, b) => {
+      const la = lastSpecificDate(a) ?? '';
+      const lb = lastSpecificDate(b) ?? '';
+      return lb.localeCompare(la) || byNewest(a, b);
+    });
+    return [...upcoming, ...done];
+  }, [courses, nextRoundByCourse]);
+
   // Name and description, both languages, so searching in Thai finds a
   // class whose title is English and the other way round.
   const normalised = query.trim().toLowerCase();
   const visibleCourses = normalised
-    ? courses.filter(c => [c.name, c.name_en, c.description, c.description_en]
+    ? sortedCourses.filter(c => [c.name, c.name_en, c.description, c.description_en]
         .some(v => (v || '').toLowerCase().includes(normalised)))
-    : courses;
+    : sortedCourses;
 
   const title = type === 'extra' ? 'คลาสกิจกรรมพิเศษ' : type === 'regular' ? 'คลาสเรียนทั่วไป' : type === 'event' ? 'กิจกรรม / Events' : type === 'service' ? 'บริการ / Services' : 'คลาสทั้งหมด';
 
