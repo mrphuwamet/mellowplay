@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import NewsFilterBar, { NewsKind } from '../components/NewsFilterBar';
 import HashtagText from '../components/HashtagText';
 import { hasHashtag, topHashtags } from '../utils/hashtags';
-import { formatTime24 } from '../utils/dateFormat';
+import { formatTime24, formatCustomDate } from '../utils/dateFormat';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Play, BookOpen, Search, Filter, ArrowRight, Sparkles, Tv, Tent, GraduationCap, PartyPopper, X, ShoppingBag, CalendarClock } from 'lucide-react';
 import { useChildStore } from '../store/useChildStore';
@@ -12,7 +12,6 @@ import logo from '../assets/ui/logo.svg';
 import { resolveImageUrl } from '../utils/courseImage';
 import { useCourseBookingStatus } from '../hooks/useCourseBookingStatus';
 import { useCouponTypes } from '../hooks/useCouponTypes';
-import { stripHtml } from '../utils/stripHtml';
 import CourseCard from '../components/CourseCard';
 import { CarouselNudgeButtons, useHorizontalCarousel } from '../components/CarouselNudgeButtons';
 import ResponsiveModal from '../components/ResponsiveModal';
@@ -197,45 +196,45 @@ const Explore = () => {
     </>
   );
 
+  // Poster-style card, ticket-site proportions: the image is the card, the
+  // text under it is just enough to identify the item — a two-line title and
+  // the date. No excerpt: the article's own page is one tap away, and a body
+  // preview is what used to stretch a single card past a full screen. Sized
+  // so a phone shows about three cards per screen, like a ticket listing —
+  // that's also why the whole card opens the article, not just ones with a
+  // video/link.
   const renderNewsCard = (item: any) => {
     const imageUrl = resolveImageUrl(item.image_url);
     const title = lang === 'en' && item.title_en ? item.title_en : item.title;
-    const content = lang === 'en' && item.content_en ? item.content_en : item.content;
-    // Every card opens the full article page now, not just ones with a
-    // video/link — a plain text announcement previously had no way to be
-    // read in full, and this should feel like clicking into a real article.
     return (
       <div
         key={item.id}
         onClick={() => navigate(`/news/${item.id}`)}
-        className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform"
+        className="flex-shrink-0 w-[31%] min-w-[128px] max-w-[200px] snap-start bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform"
       >
-        <div className="aspect-[16/9] bg-slate-100 relative overflow-hidden">
+        <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
           {imageUrl ? (
             <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center p-6 opacity-30">
+            <div className="w-full h-full flex items-center justify-center p-4 opacity-30">
               <img src={logo} alt="Mellow Play Logo" className="w-full h-full object-contain filter grayscale" />
             </div>
           )}
           {item.video_url && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-10 h-10 bg-white/85 rounded-full flex items-center justify-center shadow-sm">
-                <Play size={18} className="text-mellow-blue fill-mellow-blue ml-0.5" />
+              <div className="w-8 h-8 bg-white/85 rounded-full flex items-center justify-center shadow-sm">
+                <Play size={14} className="text-mellow-blue fill-mellow-blue ml-0.5" />
               </div>
             </div>
           )}
         </div>
-        <div className="p-4">
-          <h4 className="font-black text-[16px] text-slate-800 leading-tight mb-1 line-clamp-2">
+        <div className="p-2.5">
+          <h4 className="font-black text-[13px] text-slate-800 leading-snug line-clamp-2 min-h-[2.4em]">
             <HashtagText text={title} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
           </h4>
-          {/* The excerpt is where tags usually sit, so this is the one that
-              matters most. stripHtml first: the tags are found in the text, and
-              a "#" inside markup is not one. */}
-          {content && (
-            <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug">
-              <HashtagText text={stripHtml(content)} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
+          {item.created_at && (
+            <p className="text-[11px] font-bold text-slate-400 mt-1">
+              {formatCustomDate(item.created_at, lang as 'th' | 'en', 'short')}
             </p>
           )}
         </div>
