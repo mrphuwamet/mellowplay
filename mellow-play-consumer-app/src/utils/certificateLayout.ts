@@ -30,6 +30,7 @@ export const CERT_VARIABLES: { key: string; label: string; sample: string }[] = 
   // (นาย/นางสาว from fifteen); an English one is left bare, because that is
   // how a Thai certificate writes a Latin name.
   { key: 'recipient_titled_name', label: 'คำนำหน้า + ชื่อ (คิดให้อัตโนมัติ)', sample: 'เด็กหญิงกระถิน ใจดี' },
+  { key: 'child_title', label: 'คำนำหน้าอย่างเดียว', sample: 'เด็กหญิง' },
   { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก', sample: 'เด็กหญิงกระถิน ใจดี' },
   { key: 'child_nickname', label: 'ชื่อเล่น', sample: 'กระถิน' },
   { key: 'child_gender', label: 'เพศ', sample: 'male' },

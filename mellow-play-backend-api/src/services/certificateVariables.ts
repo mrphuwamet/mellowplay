@@ -18,6 +18,7 @@ export type CertValues = Record<string, string>;
 export const BUILT_IN_VARIABLES: { key: string; label: string }[] = [
   { key: 'recipient_name', label: 'ชื่อผู้รับ (ชื่อเล่นถ้ามี)' },
   { key: 'recipient_titled_name', label: 'คำนำหน้า + ชื่อ (คิดให้อัตโนมัติ)' },
+  { key: 'child_title', label: 'คำนำหน้าอย่างเดียว' },
   { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก' },
   { key: 'child_nickname', label: 'ชื่อเล่น' },
   { key: 'child_gender', label: 'เพศ' },
@@ -40,47 +41,53 @@ const str = (v: any): string => (v == null ? '' : String(v));
 
 const THAI_LETTERS = /[\u0E00-\u0E7F]/;
 
+/** Whole years old on a given day, or null when either date is missing. */
+const ageOn = (birthDate: string, eventDate: string): number | null => {
+  if (!birthDate || !eventDate) return null;
+  const born = new Date(`${birthDate.slice(0, 10)}T00:00:00`);
+  const on = new Date(`${eventDate.slice(0, 10)}T00:00:00`);
+  if (isNaN(born.getTime()) || isNaN(on.getTime())) return null;
+  let years = on.getFullYear() - born.getFullYear();
+  const beforeBirthday =
+    on.getMonth() < born.getMonth()
+    || (on.getMonth() === born.getMonth() && on.getDate() < born.getDate());
+  return beforeBirthday ? years - 1 : years;
+};
+
+/** Past this, Thai stops saying เด็กชาย/เด็กหญิง. */
+const CHILD_TITLE_MAX_AGE = 14;
+
 /**
- * "เด็กชายกระถิน ใจดี" — the name as a Thai certificate writes it.
+ * "เด็กชาย" — the Thai title alone, or nothing.
  *
- * An English name is left bare on purpose: Thai certificates put a title in
- * front of a Thai name and nothing in front of a Latin one, and "Master
- * Somchai" is not how anyone writes it here.
+ * Nothing is the answer far more often than it looks. A Latin name takes no
+ * title on a Thai certificate. An unrecorded sex is not something to guess at
+ * on a document with someone's name on it. And past fourteen it is left off
+ * rather than promoted to นาย/นางสาว: those are correct Thai, but they are
+ * also a claim about an adult, and a certificate that gets it wrong is worse
+ * than one that simply prints the name.
  *
- * The title follows age at the EVENT, not age today — a certificate records
- * what someone was on the day, and a fifteenth birthday afterwards must not
- * change what a printed document said. Thai usage turns เด็กชาย/เด็กหญิง into
- * นาย/นางสาว at fifteen.
- *
- * With no birth date the child form is used: these are children's activities,
- * and the whole reason the column stopped saying "Boy" is that it now also
- * holds adults, who simply will not have this printed for them often.
+ * Age is age AT THE EVENT, not today — a certificate records what someone was
+ * on the day, and a birthday next month must not change what was printed.
  */
-const titledName = (name: string, gender: string, birthDate: string, eventDate: string): string => {
+const childTitle = (name: string, gender: string, birthDate: string, eventDate: string): string => {
   const trimmed = name.trim();
-  if (!trimmed || !THAI_LETTERS.test(trimmed)) return trimmed;
+  if (!trimmed || !THAI_LETTERS.test(trimmed)) return '';
 
   const g = gender.trim().toLowerCase();
-  if (g !== 'male' && g !== 'female') return trimmed;
+  if (g !== 'male' && g !== 'female') return '';
 
-  let adult = false;
-  if (birthDate && eventDate) {
-    const born = new Date(`${birthDate.slice(0, 10)}T00:00:00`);
-    const on = new Date(`${eventDate.slice(0, 10)}T00:00:00`);
-    if (!isNaN(born.getTime()) && !isNaN(on.getTime())) {
-      let years = on.getFullYear() - born.getFullYear();
-      const beforeBirthday =
-        on.getMonth() < born.getMonth()
-        || (on.getMonth() === born.getMonth() && on.getDate() < born.getDate());
-      if (beforeBirthday) years -= 1;
-      adult = years >= 15;
-    }
-  }
+  const age = ageOn(birthDate, eventDate);
+  // No birth date means the child form: these are children's activities.
+  if (age != null && age > CHILD_TITLE_MAX_AGE) return '';
 
-  const title = adult
-    ? (g === 'male' ? 'นาย' : 'นางสาว')
-    : (g === 'male' ? 'เด็กชาย' : 'เด็กหญิง');
-  return `${title}${trimmed}`;
+  return g === 'male' ? 'เด็กชาย' : 'เด็กหญิง';
+};
+
+/** "เด็กชายกระถิน ใจดี", or just the name when no title applies. */
+const titledName = (name: string, gender: string, birthDate: string, eventDate: string): string => {
+  const trimmed = name.trim();
+  return `${childTitle(trimmed, gender, birthDate, eventDate)}${trimmed}`;
 };
 
 /**
@@ -141,6 +148,12 @@ export async function resolveCertificateValues(
         row.scheduled_at ? str(row.scheduled_at).slice(0, 10) : '',
       )
       : nickname,
+    child_title: childTitle(
+      fullName,
+      str(row.child_gender),
+      str(row.child_birth_date).slice(0, 10),
+      row.scheduled_at ? str(row.scheduled_at).slice(0, 10) : '',
+    ),
     child_full_name: fullName,
     child_nickname: nickname,
     child_gender: str(row.child_gender),
