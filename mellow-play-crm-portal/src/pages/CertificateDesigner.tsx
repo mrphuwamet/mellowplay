@@ -22,6 +22,7 @@ import {
   VisibilityOff as HideIcon, VerticalAlignCenter as CentreVIcon,
   CenterFocusStrong as CentreHIcon,
   KeyboardArrowUp as UpIconMenu, KeyboardArrowDown as DownIconMenu,
+  Undo as UndoIcon, Redo as RedoIcon,
 } from '@mui/icons-material';
 import { Menu, MenuItem as MuiMenuItem, ListItemIcon, ListItemText, Divider as MenuDivider } from '@mui/material';
 import { API_URL } from '../config';
@@ -162,6 +163,22 @@ const CertificateDesigner = () => {
   // the menu opens where the hand already is.
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
+  /**
+   * Undo and redo over the whole design — the boxes, the paper size and the
+   * background, because all three are things someone changes and wants back.
+   *
+   * Kept in refs rather than state: the stacks are read by handlers and by the
+   * capture effect, and putting them in state would make every capture a
+   * re-render of the canvas. A counter is what tells the buttons to refresh.
+   */
+  const past = useRef<string[]>([]);
+  const future = useRef<string[]>([]);
+  const lastSnap = useRef<string>('');
+  // Set while an undo is being applied, so the capture effect does not record
+  // the undo itself as a new edit and make redo impossible.
+  const replaying = useRef(false);
+  const [historyTick, setHistoryTick] = useState(0);
+
   const load = async (keepId?: number) => {
     const { data } = await axios.get(`${API_BASE}/certificate-templates`, { params: { all: 1 } });
     if (!data.success) return;
@@ -190,6 +207,12 @@ const CertificateDesigner = () => {
     setFields(next.fields);
     setSelected(null);
     setSavedSnapshot(snapshotOf(next));
+    // A different template is a different document — its history does not
+    // begin with the last one's edits still on the stack.
+    past.current = [];
+    future.current = [];
+    lastSnap.current = snapshotOf(next);
+    setHistoryTick(t => t + 1);
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -238,6 +261,65 @@ const CertificateDesigner = () => {
   }, [activeId]);
 
   const currentSnapshot = snapshotOf({ name, background, pageW, pageH, fields });
+
+  const applySnapshot = (snap: string) => {
+    try {
+      const v = JSON.parse(snap);
+      replaying.current = true;
+      setName(v.name ?? '');
+      setBackground(v.background ?? null);
+      setPageW(v.pageW ?? 297);
+      setPageH(v.pageH ?? 210);
+      setFields(v.fields ?? []);
+      // The capture effect bails when the snapshot it sees already matches
+      // this, so the undo cannot be recorded as a fresh edit. The flag is
+      // belt and braces, cleared by that same effect rather than by a timer
+      // racing it.
+      lastSnap.current = snap;
+    } catch { /* a corrupt entry is skipped rather than throwing */ }
+  };
+
+  /**
+   * Record a step once the edits stop, not on every change.
+   *
+   * Dragging a box fires an update per pointer move; recording each one would
+   * mean an undo per pixel and no way back to where the drag started. Half a
+   * second of quiet is what separates one action from the next.
+   */
+  useEffect(() => {
+    if (replaying.current) { replaying.current = false; return; }
+    if (lastSnap.current === '') { lastSnap.current = currentSnapshot; return; }
+    if (lastSnap.current === currentSnapshot) return;
+    const previous = lastSnap.current;
+    const timer = setTimeout(() => {
+      past.current = [...past.current.slice(-49), previous];
+      future.current = [];
+      lastSnap.current = currentSnapshot;
+      setHistoryTick(t => t + 1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [currentSnapshot]);
+
+  const undo = () => {
+    const previous = past.current.pop();
+    if (previous === undefined) return;
+    future.current = [currentSnapshot, ...future.current];
+    applySnapshot(previous);
+    setSelected(null);
+    setHistoryTick(t => t + 1);
+  };
+
+  const redo = () => {
+    const [next, ...rest] = future.current;
+    if (next === undefined) return;
+    future.current = rest;
+    past.current = [...past.current, currentSnapshot];
+    applySnapshot(next);
+    setSelected(null);
+    setHistoryTick(t => t + 1);
+  };
+
+  void historyTick;
   const dirty = savedSnapshot !== '' && currentSnapshot !== savedSnapshot;
 
   const askBeforeLeaving = useCallback((to: any) => {
@@ -430,6 +512,11 @@ const CertificateDesigner = () => {
     return axis === 'x' ? { ...f, x: Math.round((100 - f.w) / 2 * 10) / 10 } : { ...f, y: 50 };
   }));
 
+  const addField = (f: CertField) => {
+    setFields(fs => [...fs, f]);
+    setSelected(f.id);
+  };
+
   const removeField = (id: string) => {
     setFields(fs => fs.filter(f => f.id !== id));
     setSelected(cur => (cur === id ? null : cur));
@@ -442,9 +529,20 @@ const CertificateDesigner = () => {
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!selected || tab !== 'design') return;
+      if (tab !== 'design') return;
       const el = document.activeElement as HTMLElement | null;
+      // Ctrl+Z inside a text box belongs to the text box.
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        // Shift+Ctrl+Z is redo on every platform that also has Ctrl+Y.
+        if (e.shiftKey) redo(); else undo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+
+      if (!selected) return;
       const box = fields.find(f => f.id === selected);
       if (!box || box.locked) return;
 
@@ -468,7 +566,7 @@ const CertificateDesigner = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [selected, fields, tab]);
+  }, [selected, fields, tab, currentSnapshot]);
 
   const renderField = (f: CertField) => {
     const isSel = f.id === selected;
@@ -581,6 +679,28 @@ const CertificateDesigner = () => {
           >
             แบบใหม่
           </Button>
+          <Stack direction="row" spacing={0.5}>
+            <Tooltip title="ย้อนกลับ (Ctrl+Z)">
+              <span>
+                <IconButton
+                  onClick={undo} disabled={past.current.length === 0}
+                  sx={{ border: '1px solid #e4e6f0', borderRadius: 2 }}
+                >
+                  <UndoIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="ทำซ้ำ (Ctrl+Y)">
+              <span>
+                <IconButton
+                  onClick={redo} disabled={future.current.length === 0}
+                  sx={{ border: '1px solid #e4e6f0', borderRadius: 2 }}
+                >
+                  <RedoIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={printPreview} disabled={printing}>
             พิมพ์ตัวอย่าง
           </Button>
@@ -651,10 +771,14 @@ const CertificateDesigner = () => {
           </Stack>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-            <Button size="small" startIcon={<VarIcon />} onClick={() => setFields(f => [...f, newField('field')])}>ช่องตัวแปร</Button>
-            <Button size="small" startIcon={<TextIcon />} onClick={() => setFields(f => [...f, newField('text')])}>ข้อความ</Button>
-            <Button size="small" startIcon={<QrIcon />} onClick={() => setFields(f => [...f, { ...newField('qr'), w: 12, x: 82, y: 78 }])}>QR ตรวจสอบ</Button>
-            <Button size="small" startIcon={<ImageIcon />} onClick={() => setFields(f => [...f, { ...newField('image'), w: 20 }])}>รูป/ลายเซ็น</Button>
+            {/* Selected as it is created: the box lands in the middle of the
+                page and the panel beside it is already about that box, so the
+                next thing anyone does — pick a variable, type the words — has
+                somewhere to go without hunting for what was just added. */}
+            <Button size="small" startIcon={<VarIcon />} onClick={() => addField(newField('field'))}>ช่องตัวแปร</Button>
+            <Button size="small" startIcon={<TextIcon />} onClick={() => addField(newField('text'))}>ข้อความ</Button>
+            <Button size="small" startIcon={<QrIcon />} onClick={() => addField({ ...newField('qr'), w: 12, x: 82, y: 78 })}>QR ตรวจสอบ</Button>
+            <Button size="small" startIcon={<ImageIcon />} onClick={() => addField({ ...newField('image'), w: 20 })}>รูป/ลายเซ็น</Button>
           </Stack>
 
           {/* The page. Dropping the pointer anywhere on it also deselects, so
