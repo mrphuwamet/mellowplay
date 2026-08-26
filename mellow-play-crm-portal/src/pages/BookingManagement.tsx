@@ -497,12 +497,15 @@ const calculateAge = (birthDateStr: string | undefined) => {
   return age >= 0 ? `${age} ปี` : '0 ปี';
 };
 
-// Stored as 'Boy'/'Girl'/'Other' (see Register.tsx / UserManagement.tsx) —
+// Stored as 'male'/'female'/'unspecified' since migration 0105. The old
+// 'Boy'/'Girl' are still read: a row written by a cached app between the
+// migration and its next reload would otherwise show up blank —
 // guest bookings have no HD_Profiles row at all, hence '-'.
 const getGenderLabel = (gender: string | undefined): string => {
-  if (gender === 'Boy') return 'ชาย';
-  if (gender === 'Girl') return 'หญิง';
-  if (gender === 'Other') return 'อื่นๆ';
+  if (gender === 'male' || gender === 'Boy') return 'ชาย';
+  if (gender === 'female' || gender === 'Girl') return 'หญิง';
+  if (gender === 'other' || gender === 'Other') return 'อื่นๆ';
+  if (gender === 'unspecified' || gender === 'Not Specified') return 'ไม่ระบุ';
   return '-';
 };
 

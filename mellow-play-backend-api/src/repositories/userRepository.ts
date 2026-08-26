@@ -1,4 +1,5 @@
 import { HDService } from '../services/hdService';
+import { normaliseGender } from '../utils/gender';
 import { AuthService } from '../services/authService';
 
 export class UserRepository {
@@ -246,7 +247,7 @@ export class UserRepository {
       const hdResult = await this.db.prepare(`
         INSERT INTO HD_Profiles (user_id, name, name_en, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(userId, child.name, child.nameEn || null, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+      `).bind(userId, child.name, child.nameEn || null, child.nickname, normaliseGender(child.gender), child.relation, child.dob, hdType, hdProfile, centersJson).run();
 
       const hdProfileId = hdResult.meta.last_row_id;
 
@@ -285,7 +286,7 @@ export class UserRepository {
     const hdResult = await this.db.prepare(`
       INSERT INTO HD_Profiles (user_id, name, name_en, nickname, gender, relation, birth_date, hd_type, hd_profile, centers_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(userId, child.name, child.nameEn || null, child.nickname, child.gender, child.relation, child.dob, hdType, hdProfile, centersJson).run();
+    `).bind(userId, child.name, child.nameEn || null, child.nickname, normaliseGender(child.gender), child.relation, child.dob, hdType, hdProfile, centersJson).run();
 
     const hdProfileId = hdResult.meta.last_row_id;
 

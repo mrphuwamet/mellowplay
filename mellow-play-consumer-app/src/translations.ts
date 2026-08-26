@@ -185,8 +185,8 @@ Tax ID: 0105566106900
 Acceptance of Terms and Conditions:
 By clicking "Accept", you acknowledge that you have read and understood the details outlined in this Privacy Notice, and you consent to the Company's processing of your personal data as specified above.`,
       noTitlePrefix: 'No title prefix needed (e.g. Master, Miss)',
-      genderBoy: 'Boy',
-      genderGirl: 'Girl',
+      genderBoy: 'Male',
+      genderGirl: 'Female',
       genderOther: 'Other',
       skip: 'Skip',
       cancel: 'Cancel',

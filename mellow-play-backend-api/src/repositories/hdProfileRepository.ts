@@ -1,4 +1,5 @@
 import { HDProfile } from '../types/hd';
+import { normaliseGender } from '../utils/gender';
 
 export class HDProfileRepository {
   private db: D1Database;
@@ -131,6 +132,9 @@ export class HDProfileRepository {
   }
 
   async updateChildProfile(childId: number, name: string, nickname: string, birth_date: string, relation: string, gender: string = "", nameEn: string | null = null): Promise<boolean> {
+    // A cached PWA keeps posting 'Boy' for days after the change — see
+    // utils/gender.
+    gender = normaliseGender(gender) ?? '';
     // First find the hd_profile_id from Children
     const child = await this.db.prepare(`SELECT hd_profile_id FROM Children WHERE id = ?`).bind(childId).first<{ hd_profile_id: number }>();
     if (!child) return false;

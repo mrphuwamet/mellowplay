@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { normaliseGenderValue } from '../utils/gender';
 import { X, Loader2, Pencil } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import { useChildStore } from '../store/useChildStore';
@@ -35,7 +36,7 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
     firstName: '',
     lastName: '',
     nickname: '',
-    gender: 'Boy',
+    gender: 'male',
     dob: '',
     relation: 'mother',
     customRelation: ''
@@ -55,7 +56,9 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
         firstName: parts[0] || '',
         lastName: parts.slice(1).join(' ') || '',
         nickname: childInfo.nickname || '',
-        gender: childInfo.gender || 'Boy',
+    // An older row may still say 'Boy'; the select below offers the new
+    // values, so an unmapped one would silently reset the person's sex.
+        gender: normaliseGenderValue(childInfo.gender) || 'male',
         dob: childInfo.dob || '',
         relation: role,
         customRelation: customText
@@ -204,9 +207,9 @@ const EditChildModal: React.FC<EditChildModalProps> = ({ isOpen, onClose, childI
                 onChange={e => setFormData({ ...formData, gender: e.target.value })}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
               >
-                <option value="Boy">{lang === 'th' ? 'ชาย' : 'Boy'}</option>
-                <option value="Girl">{lang === 'th' ? 'หญิง' : 'Girl'}</option>
-                <option value="Not Specified">{lang === 'th' ? 'ไม่ระบุ' : 'Not Specified'}</option>
+                <option value="male">{lang === 'th' ? 'ชาย' : 'Male'}</option>
+                <option value="female">{lang === 'th' ? 'หญิง' : 'Female'}</option>
+                <option value="unspecified">{lang === 'th' ? 'ไม่ระบุ' : 'Prefer not to say'}</option>
               </select>
             </div>
 

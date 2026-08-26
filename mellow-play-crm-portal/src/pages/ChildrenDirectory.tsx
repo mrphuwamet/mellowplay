@@ -45,9 +45,12 @@ const calculateAge = (birthDateStr: string | undefined) => {
 };
 
 const getGenderLabel = (gender: string | undefined): string => {
-  if (gender === 'Boy') return 'ชาย';
-  if (gender === 'Girl') return 'หญิง';
-  if (gender === 'Other') return 'อื่นๆ';
+  // Both spellings, for the same reason as BookingManagement — see
+  // migration 0105.
+  if (gender === 'male' || gender === 'Boy') return 'ชาย';
+  if (gender === 'female' || gender === 'Girl') return 'หญิง';
+  if (gender === 'other' || gender === 'Other') return 'อื่นๆ';
+  if (gender === 'unspecified' || gender === 'Not Specified') return 'ไม่ระบุ';
   return '-';
 };
 

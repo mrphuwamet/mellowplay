@@ -166,9 +166,11 @@ const emptyBookableChild = {
 // render as anything other than a blank Select (mismatched value = MUI shows
 // nothing selected).
 const GENDERS = [
-  { label: 'ชาย', value: 'Boy' },
-  { label: 'หญิง', value: 'Girl' },
-  { label: 'ไม่ระบุ', value: 'Not Specified' },
+  // The form records every member of a family, not only children, so the
+  // values describe a person of any age — see migration 0105.
+  { label: 'ชาย', value: 'male' },
+  { label: 'หญิง', value: 'female' },
+  { label: 'ไม่ระบุ', value: 'unspecified' },
 ];
 
 // Mirrors the consumer app's FAMILY_ROLE_OPTIONS exactly (utils/familyRoles.ts

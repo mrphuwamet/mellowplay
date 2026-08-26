@@ -1,3 +1,4 @@
+import { normaliseGender } from '../utils/gender';
 // The per-channel flags are DERIVED from the channel mode, never set on their
 // own. They used to be independent switches in the course form, which meant a
 // course could say "email only" in one place and "send both" in another — and
@@ -195,7 +196,7 @@ export class AdminRepository {
         await this.db.prepare(`
           INSERT INTO User_CRM_Children (user_id, full_name, full_name_en, nickname, gender, date_of_birth, relation)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, child.gender ?? null, blankToNull(child.date_of_birth), child.relation ?? null).run();
+        `).bind(id, child.full_name, child.full_name_en ?? null, child.nickname ?? null, normaliseGender(child.gender) ?? null, blankToNull(child.date_of_birth), child.relation ?? null).run();
       }
     }
   }
@@ -224,7 +225,7 @@ export class AdminRepository {
     }
     await this.db.prepare(`
       UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ?, name_en = ? WHERE id = ?
-    `).bind(data.nickname ?? null, data.gender ?? null, data.relation ?? null, data.nameEn ?? null, child.hd_profile_id).run();
+    `).bind(data.nickname ?? null, normaliseGender(data.gender) ?? null, data.relation ?? null, data.nameEn ?? null, child.hd_profile_id).run();
 
     if (data.membershipType !== undefined) {
       await this.db.prepare(`

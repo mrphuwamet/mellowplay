@@ -19,7 +19,7 @@ export interface FamilyMemberFormValue {
 }
 
 export const emptyFamilyMemberFormValue = (role = ''): FamilyMemberFormValue => ({
-  firstName: '', lastName: '', nickname: '', gender: 'Boy', dob: '', role, customRole: '',
+  firstName: '', lastName: '', nickname: '', gender: 'male', dob: '', role, customRole: '',
 });
 
 interface FamilyMemberFieldsProps {
@@ -139,9 +139,12 @@ const FamilyMemberFields: React.FC<FamilyMemberFieldsProps> = ({ value, onChange
           onChange={e => set({ gender: e.target.value })}
           className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm focus:outline-none focus:ring-2 focus:ring-mellow-purple/20"
         >
-          <option value="Boy">{lang === 'th' ? 'ชาย' : 'Boy'}</option>
-          <option value="Girl">{lang === 'th' ? 'หญิง' : 'Girl'}</option>
-          <option value="Not Specified">{lang === 'th' ? 'ไม่ระบุ' : 'Not Specified'}</option>
+          {/* This form adds parents and grandparents too, so the words have
+              to describe a person of any age — a father was being filed as
+              "Boy". See migration 0105. */}
+          <option value="male">{lang === 'th' ? 'ชาย' : 'Male'}</option>
+          <option value="female">{lang === 'th' ? 'หญิง' : 'Female'}</option>
+          <option value="unspecified">{lang === 'th' ? 'ไม่ระบุ' : 'Prefer not to say'}</option>
         </select>
       </div>
     </div>

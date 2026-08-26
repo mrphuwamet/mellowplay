@@ -27,7 +27,7 @@ export const CERT_VARIABLES: { key: string; label: string; sample: string }[] = 
   { key: 'recipient_name', label: 'ชื่อผู้รับ (ชื่อเล่นถ้ามี)', sample: 'น้องกระถิน' },
   { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก', sample: 'เด็กหญิงกระถิน ใจดี' },
   { key: 'child_nickname', label: 'ชื่อเล่น', sample: 'กระถิน' },
-  { key: 'child_gender', label: 'เพศ', sample: 'female' },
+  { key: 'child_gender', label: 'เพศ', sample: 'male' },
   { key: 'child_birth_date', label: 'วันเกิด', sample: '2018-04-12' },
   { key: 'parent_name', label: 'ชื่อผู้ปกครอง', sample: 'สมหญิง ใจดี' },
   { key: 'course_name', label: 'ชื่อกิจกรรม', sample: 'ครอบครัวทันโลก Family Fact or Fake' },
