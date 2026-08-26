@@ -19,9 +19,17 @@ import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
 import { getBookingPlace } from '../utils/bookingPlace';
 import { getBookingPeopleLabel } from '../utils/bookingPeople';
+import { stripHtml } from '../utils/stripHtml';
 
 type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
 const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
+
+// Every carousel slide on this page shares one width: 2.5 cards per screen —
+// two in full and half of the third peeking, so it's obvious there's more to
+// scroll — paired with the carousels' gap-3 (the 2×12px between 3 cards is
+// what the calc subtracts). min-w keeps a slide readable on very narrow
+// phones even if that means seeing slightly fewer than 2.5.
+const SLIDE_CARD_WIDTH = 'w-[calc(40%-10px)] min-w-[150px]';
 
 const Explore = () => {
   const navigate = useNavigate();
@@ -183,7 +191,7 @@ const Explore = () => {
   const renderCourseCardSkeletons = () => (
     <>
       {[0, 1, 2].map(i => (
-        <div key={i} className="flex-shrink-0 w-[240px] bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-pulse">
+        <div key={i} className={`flex-shrink-0 ${SLIDE_CARD_WIDTH} bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-pulse`}>
           <div className="aspect-[4/3] bg-slate-100" />
           <div className="p-3 space-y-2">
             <div className="h-3.5 w-3/4 bg-slate-100 rounded-full" />
@@ -206,11 +214,12 @@ const Explore = () => {
   const renderNewsCard = (item: any) => {
     const imageUrl = resolveImageUrl(item.image_url);
     const title = lang === 'en' && item.title_en ? item.title_en : item.title;
+    const content = lang === 'en' && item.content_en ? item.content_en : item.content;
     return (
       <div
         key={item.id}
         onClick={() => navigate(`/news/${item.id}`)}
-        className="flex-shrink-0 w-[31%] min-w-[128px] max-w-[200px] snap-start bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform"
+        className={`flex-shrink-0 ${SLIDE_CARD_WIDTH} snap-start bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform`}
       >
         <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
           {imageUrl ? (
@@ -232,6 +241,15 @@ const Explore = () => {
           <h4 className="font-black text-[13px] text-slate-800 leading-snug line-clamp-2 min-h-[2.4em]">
             <HashtagText text={title} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
           </h4>
+          {/* Five lines of the body, hard-clamped — enough to know what the
+              story is, never enough to stretch one card past the screen.
+              stripHtml first: tags are found in the text, and a "#" inside
+              markup is not one. */}
+          {content && (
+            <p className="text-[12px] text-slate-500 line-clamp-5 leading-snug mt-1">
+              <HashtagText text={stripHtml(content)} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
+            </p>
+          )}
           {item.created_at && (
             <p className="text-[11px] font-bold text-slate-400 mt-1">
               {formatCustomDate(item.created_at, lang as 'th' | 'en', 'short')}
@@ -327,12 +345,12 @@ const Explore = () => {
                 <CarouselNudgeButtons onScrollLeft={() => upcomingCarousel.scrollBy('left')} onScrollRight={() => upcomingCarousel.scrollBy('right')} />
              </div>
 
-             <div ref={upcomingCarousel.ref} style={upcomingCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={upcomingCarousel.ref} style={upcomingCarousel.containerStyle} className="flex items-stretch gap-3 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {upcomingBookings.map(booking => (
                   <div
                     key={booking.id}
                     onClick={() => setSelectedBooking(booking)}
-                    className="shrink-0 w-[240px] snap-center bg-white rounded-2xl p-3 shadow-sm border border-slate-100 cursor-pointer hover:shadow-md transition-all active:scale-[0.98] flex flex-col"
+                    className={`shrink-0 ${SLIDE_CARD_WIDTH} snap-center bg-white rounded-2xl p-3 shadow-sm border border-slate-100 cursor-pointer hover:shadow-md transition-all active:scale-[0.98] flex flex-col`}
                   >
                     <div className="relative mb-3">
                       {booking.course_thumbnail ? (
@@ -380,7 +398,7 @@ const Explore = () => {
                 </div>
              </div>
 
-             <div ref={classesCarousel.ref} style={classesCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={classesCarousel.ref} style={classesCarousel.containerStyle} className="flex items-stretch gap-3 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {isBookingStatusLoading ? renderCourseCardSkeletons() : allClasses.map(course => (
                   <CourseCard
                     key={course.id}
@@ -389,6 +407,8 @@ const Explore = () => {
                     lang={lang}
                     childCoupons={selectedChild?.coupons}
                     couponTypes={couponTypes}
+                    sizeClassName={SLIDE_CARD_WIDTH}
+                    descriptionLines={5}
                   />
                 ))}
              </div>
@@ -411,7 +431,7 @@ const Explore = () => {
                 </div>
              </div>
 
-             <div ref={eventsCarousel.ref} style={eventsCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={eventsCarousel.ref} style={eventsCarousel.containerStyle} className="flex items-stretch gap-3 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {isBookingStatusLoading ? renderCourseCardSkeletons() : eventsOnly.map(course => (
                   <CourseCard
                     key={course.id}
@@ -420,6 +440,8 @@ const Explore = () => {
                     lang={lang}
                     childCoupons={selectedChild?.coupons}
                     couponTypes={couponTypes}
+                    sizeClassName={SLIDE_CARD_WIDTH}
+                    descriptionLines={5}
                   />
                 ))}
              </div>
@@ -454,7 +476,7 @@ const Explore = () => {
                   </button>
                 </div>
              </div>
-             <div ref={newsCarousel.ref} style={newsCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={newsCarousel.ref} style={newsCarousel.containerStyle} className="flex items-stretch gap-3 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {newsOnly.map(item => renderNewsCard(item))}
              </div>
           </section>
@@ -476,7 +498,7 @@ const Explore = () => {
                   </button>
                 </div>
              </div>
-             <div ref={mediaCarousel.ref} style={mediaCarousel.containerStyle} className="flex items-stretch gap-4 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
+             <div ref={mediaCarousel.ref} style={mediaCarousel.containerStyle} className="flex items-stretch gap-3 overflow-x-auto pb-4 -mx-5 px-5 scrollbar-hide scroll-smooth snap-x snap-mandatory">
                 {mediaOnly.map(item => renderNewsCard(item))}
              </div>
           </section>

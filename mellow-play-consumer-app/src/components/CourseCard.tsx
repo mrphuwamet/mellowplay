@@ -18,13 +18,20 @@ interface CourseCardProps {
   childCoupons?: { id: number; name: string; color: string; balance: number }[];
   couponTypes?: CouponType[];
   tagColorClass?: string;
+  // Width override for the carousel this card sits in — e.g. Explore sizes
+  // its slides so 2.5 cards fit a phone screen. Default keeps the fixed
+  // 240px every other placement was designed around.
+  sizeClassName?: string;
+  // How many lines of the description to show (2 or 5) — static Tailwind
+  // classes only, so the union is deliberate rather than a free number.
+  descriptionLines?: 2 | 5;
 }
 
 // Same visual design as Explore.tsx's course card — edge-to-edge cover image,
 // category badge + extra-class ribbon overlaid on it, and a flex-col layout
 // so the "Book Now" button always sits flush at the same bottom edge across
 // cards regardless of how much title/description/location text sits above it.
-const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = 'th', childCoupons, couponTypes = [], tagColorClass }) => {
+const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = 'th', childCoupons, couponTypes = [], tagColorClass, sizeClassName, descriptionLines }) => {
   const navigate = useNavigate();
   const view = getCourseView(course, 'card');
   const couponReq = getPrimaryCouponRequirement(course, couponTypes);
@@ -55,7 +62,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
   return (
     <div
       onClick={() => navigate(getCourseDetailPath(course))}
-      className="flex-shrink-0 w-[240px] snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex flex-col h-full"
+      className={`flex-shrink-0 ${sizeClassName || 'w-[240px]'} snap-center bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer active:scale-95 transition-transform flex flex-col h-full`}
     >
       <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
         {view.url ? (
@@ -88,7 +95,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
 
       <div className="p-4 flex flex-col flex-1">
         <h4 className="font-black text-[17px] text-slate-800 leading-tight mb-1 line-clamp-2">{course.name}</h4>
-        <p className="text-[13px] text-slate-500 line-clamp-2 leading-snug mb-2">
+        <p className={`text-[13px] text-slate-500 ${descriptionLines === 5 ? 'line-clamp-5' : 'line-clamp-2'} leading-snug mb-2`}>
           {course.short_description || stripHtml(course.description || '')}
         </p>
 
