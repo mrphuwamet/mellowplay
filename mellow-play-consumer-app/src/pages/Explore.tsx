@@ -248,7 +248,11 @@ const Explore = () => {
               markup is not one. */}
           {content && (
             <p className="text-[12px] text-slate-500 line-clamp-5 leading-snug mt-1">
-              <HashtagText text={stripHtml(content)} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
+              {/* Belt and braces with the line-clamp: the string itself is cut
+                  well past five lines' worth, so the DOM never carries a whole
+                  article and the card stays short even where the CSS clamp
+                  doesn't apply. The visible five-line cut is the clamp's. */}
+              <HashtagText text={stripHtml(content).slice(0, 400)} onTagClick={tag => { setActiveTag(tag); setNewsKind('all'); }} />
             </p>
           )}
           {item.created_at && (
