@@ -25,6 +25,11 @@ export const FORM_PREFIX = 'form:';
  */
 export const CERT_VARIABLES: { key: string; label: string; sample: string }[] = [
   { key: 'recipient_name', label: 'ชื่อผู้รับ (ชื่อเล่นถ้ามี)', sample: 'น้องกระถิน' },
+  // Worked out at issue time from the name, the sex and the age on the day —
+  // see certificateVariables on the server. A Thai name gets เด็กชาย/เด็กหญิง
+  // (นาย/นางสาว from fifteen); an English one is left bare, because that is
+  // how a Thai certificate writes a Latin name.
+  { key: 'recipient_titled_name', label: 'คำนำหน้า + ชื่อ (คิดให้อัตโนมัติ)', sample: 'เด็กหญิงกระถิน ใจดี' },
   { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก', sample: 'เด็กหญิงกระถิน ใจดี' },
   { key: 'child_nickname', label: 'ชื่อเล่น', sample: 'กระถิน' },
   { key: 'child_gender', label: 'เพศ', sample: 'male' },

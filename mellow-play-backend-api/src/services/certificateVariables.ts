@@ -17,6 +17,7 @@ export type CertValues = Record<string, string>;
 /** Built-in variables, in the order the designer lists them. */
 export const BUILT_IN_VARIABLES: { key: string; label: string }[] = [
   { key: 'recipient_name', label: 'ชื่อผู้รับ (ชื่อเล่นถ้ามี)' },
+  { key: 'recipient_titled_name', label: 'คำนำหน้า + ชื่อ (คิดให้อัตโนมัติ)' },
   { key: 'child_full_name', label: 'ชื่อ-สกุลเด็ก' },
   { key: 'child_nickname', label: 'ชื่อเล่น' },
   { key: 'child_gender', label: 'เพศ' },
@@ -36,6 +37,51 @@ export const BUILT_IN_VARIABLES: { key: string; label: string }[] = [
 export const FORM_PREFIX = 'form:';
 
 const str = (v: any): string => (v == null ? '' : String(v));
+
+const THAI_LETTERS = /[\u0E00-\u0E7F]/;
+
+/**
+ * "เด็กชายกระถิน ใจดี" — the name as a Thai certificate writes it.
+ *
+ * An English name is left bare on purpose: Thai certificates put a title in
+ * front of a Thai name and nothing in front of a Latin one, and "Master
+ * Somchai" is not how anyone writes it here.
+ *
+ * The title follows age at the EVENT, not age today — a certificate records
+ * what someone was on the day, and a fifteenth birthday afterwards must not
+ * change what a printed document said. Thai usage turns เด็กชาย/เด็กหญิง into
+ * นาย/นางสาว at fifteen.
+ *
+ * With no birth date the child form is used: these are children's activities,
+ * and the whole reason the column stopped saying "Boy" is that it now also
+ * holds adults, who simply will not have this printed for them often.
+ */
+const titledName = (name: string, gender: string, birthDate: string, eventDate: string): string => {
+  const trimmed = name.trim();
+  if (!trimmed || !THAI_LETTERS.test(trimmed)) return trimmed;
+
+  const g = gender.trim().toLowerCase();
+  if (g !== 'male' && g !== 'female') return trimmed;
+
+  let adult = false;
+  if (birthDate && eventDate) {
+    const born = new Date(`${birthDate.slice(0, 10)}T00:00:00`);
+    const on = new Date(`${eventDate.slice(0, 10)}T00:00:00`);
+    if (!isNaN(born.getTime()) && !isNaN(on.getTime())) {
+      let years = on.getFullYear() - born.getFullYear();
+      const beforeBirthday =
+        on.getMonth() < born.getMonth()
+        || (on.getMonth() === born.getMonth() && on.getDate() < born.getDate());
+      if (beforeBirthday) years -= 1;
+      adult = years >= 15;
+    }
+  }
+
+  const title = adult
+    ? (g === 'male' ? 'นาย' : 'นางสาว')
+    : (g === 'male' ? 'เด็กชาย' : 'เด็กหญิง');
+  return `${title}${trimmed}`;
+};
 
 /**
  * Flattens one answer to the text a certificate would print.
@@ -84,6 +130,17 @@ export async function resolveCertificateValues(
     // Nickname first: it is the name a child is called and the one a family
     // expects to see. The full name is the fallback, never a blank.
     recipient_name: nickname || fullName || 'ผู้เข้าร่วมกิจกรรม',
+    // The title goes with a full name and nothing else. A family that gave
+    // only a nickname gets the nickname bare: "เด็กชายต้นไม้" reads as a joke
+    // on a formal document, while a blank line is not an option either.
+    recipient_titled_name: fullName
+      ? titledName(
+        fullName,
+      str(row.child_gender),
+      str(row.child_birth_date).slice(0, 10),
+        row.scheduled_at ? str(row.scheduled_at).slice(0, 10) : '',
+      )
+      : nickname,
     child_full_name: fullName,
     child_nickname: nickname,
     child_gender: str(row.child_gender),
