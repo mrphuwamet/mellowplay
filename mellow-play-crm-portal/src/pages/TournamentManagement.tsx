@@ -599,19 +599,60 @@ const TournamentManagement: React.FC = () => {
         // Tournament_Heat_Links, drawn by hand on the canvas — deriving them
         // here from stage arithmetic drew a different bracket from the one
         // staff arranged, and did it convincingly.
+        const measured: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
         for (const link of (view.links || [])) {
           const a = heatRefs.current[link.from_heat_id]?.getBoundingClientRect();
           const b = heatRefs.current[link.to_heat_id]?.getBoundingClientRect();
           if (!a || !b) continue;
-          const x1 = a.right - base.left;
-          const y1 = a.top - base.top + a.height / 2;
-          const x2 = b.left - base.left;
-          const y2 = b.top - base.top + b.height / 2;
-          const mid = x1 + (x2 - x1) / 2;
-          // Square elbows rather than curves — a bracket is read as columns
-          // and rails, and a diagonal makes two boxes look adjacent when they
-          // are a whole round apart.
-          lines.push({ id: `${link.from_heat_id}-${link.to_heat_id}`, d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` });
+          measured.push({
+            id: `${link.from_heat_id}-${link.to_heat_id}`,
+            x1: a.right - base.left,
+            y1: a.top - base.top + a.height / 2,
+            x2: b.left - base.left,
+            y2: b.top - base.top + b.height / 2,
+          });
+        }
+
+        /**
+         * Every link used to turn at the midpoint of the gap, so four lines
+         * crossing the same gap shared one vertical segment and arrived as a
+         * single stroke — the picture said "everything feeds everything".
+         *
+         * Each now gets its own lane in the corridor, ordered by where it
+         * starts, so the verticals sit side by side and a line can be followed
+         * from one box to the other.
+         */
+        const corridors = new Map<number, typeof measured>();
+        for (const m of measured) {
+          // Rounded, because boxes in one column share a right edge to within
+          // a fraction of a pixel rather than exactly.
+          const key = Math.round(m.x1 / 8);
+          corridors.set(key, [...(corridors.get(key) || []), m]);
+        }
+
+        for (const group of corridors.values()) {
+          const ordered = [...group].sort((m1, m2) => m1.y1 - m2.y1 || m1.y2 - m2.y2);
+          ordered.forEach((m, i) => {
+            const gap = m.x2 - m.x1;
+            const bend = m.x1 + (gap * (i + 1)) / (ordered.length + 1);
+            // Square elbows rather than curves — a bracket is read as columns
+            // and rails, and a diagonal makes two boxes look adjacent when
+            // they are a whole round apart. The corners are rounded by a few
+            // pixels so two lanes crossing read as two lines, not a lattice.
+            const r = Math.min(8, Math.abs(m.y2 - m.y1) / 2, Math.abs(gap) / 4);
+            const down = m.y2 > m.y1;
+            const d = r < 2
+              ? `M ${m.x1} ${m.y1} H ${m.x2}`
+              : [
+                `M ${m.x1} ${m.y1}`,
+                `H ${bend - r}`,
+                `Q ${bend} ${m.y1} ${bend} ${m.y1 + (down ? r : -r)}`,
+                `V ${m.y2 + (down ? -r : r)}`,
+                `Q ${bend} ${m.y2} ${bend + r} ${m.y2}`,
+                `H ${m.x2}`,
+              ].join(' ');
+            lines.push({ id: m.id, d });
+          });
         }
         next[view.tournament.id] = lines;
       }
@@ -1102,7 +1143,11 @@ const TournamentManagement: React.FC = () => {
                   sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
                 >
                   {(links[view.tournament.id] || []).map(l => (
-                    <path key={l.id} d={l.d} fill="none" stroke="#cbd5e1" strokeWidth={2} />
+                    <path
+                      key={l.id} d={l.d} fill="none"
+                      stroke="#a99cf0" strokeWidth={2}
+                      strokeLinecap="round" strokeLinejoin="round"
+                    />
                   ))}
                 </Box>
                 {view.stages.map(stage => (
