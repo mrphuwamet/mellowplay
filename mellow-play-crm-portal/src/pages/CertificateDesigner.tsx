@@ -17,7 +17,13 @@ import {
   CloudDone as OnlineIcon, TouchApp as PickIcon, Tune as StyleIcon,
   FormatAlignLeft as AlignLeftIcon, FormatAlignCenter as AlignCentreIcon,
   FormatAlignRight as AlignRightIcon,
+  FlipToFront as ToFrontIcon, FlipToBack as ToBackIcon,
+  ContentCopy as DuplicateIcon, Lock as LockIcon, LockOpen as UnlockIcon,
+  VisibilityOff as HideIcon, VerticalAlignCenter as CentreVIcon,
+  CenterFocusStrong as CentreHIcon,
+  KeyboardArrowUp as UpIconMenu, KeyboardArrowDown as DownIconMenu,
 } from '@mui/icons-material';
+import { Menu, MenuItem as MuiMenuItem, ListItemIcon, ListItemText, Divider as MenuDivider } from '@mui/material';
 import { API_URL } from '../config';
 import {
   CertField, CertRule, CERT_VARIABLES, FORM_PREFIX,
@@ -26,6 +32,7 @@ import {
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import RuleEditor from '../components/CertificateRuleEditor';
 import CertificateTemplateList from '../components/CertificateTemplateList';
+import CertificateLayers from '../components/CertificateLayers';
 import { useUnsavedChanges } from '../utils/unsavedChanges';
 import {
   FontChoice, GOOGLE_FONTS, SYSTEM_FONTS, DEFAULT_FONT,
@@ -151,6 +158,9 @@ const CertificateDesigner = () => {
   // the question is on screen.
   const [pending, setPending] = useState<{ label: string; run: () => void } | null>(null);
   const [tab, setTab] = useState<'design' | 'list'>('design');
+  // Right-click on a box. Anchored to the pointer rather than the element so
+  // the menu opens where the hand already is.
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const load = async (keepId?: number) => {
     const { data } = await axios.get(`${API_BASE}/certificate-templates`, { params: { all: 1 } });
@@ -381,11 +391,95 @@ const CertificateDesigner = () => {
 
   const patchRules = (id: string, rules: CertRule[]) => patch(id, { rules });
 
+  /**
+   * Paint order IS array order — later is nearer the front — so moving a layer
+   * is moving an array element, and there is no z-index to keep in step with
+   * anything.
+   */
+  const moveLayer = (id: string, by: number) => setFields(fs => {
+    const i = fs.findIndex(f => f.id === id);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= fs.length) return fs;
+    const next = [...fs];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
+
+  const sendTo = (id: string, where: 'front' | 'back') => setFields(fs => {
+    const box = fs.find(f => f.id === id);
+    if (!box) return fs;
+    const rest = fs.filter(f => f.id !== id);
+    return where === 'front' ? [...rest, box] : [box, ...rest];
+  });
+
+  const duplicateField = (id: string) => setFields(fs => {
+    const box = fs.find(f => f.id === id);
+    if (!box) return fs;
+    // Offset, or the copy lands exactly on the original and looks like nothing
+    // happened until someone drags the top one away.
+    const copy = { ...box, id: uid(), x: Math.min(95, box.x + 3), y: Math.min(95, box.y + 3) };
+    setSelected(copy.id);
+    return [...fs, copy];
+  });
+
+  const centreOnPage = (id: string, axis: 'x' | 'y') => setFields(fs => fs.map(f => {
+    if (f.id !== id) return f;
+    // Horizontally: the box's own width decides where its left edge goes.
+    // Vertically there is no stored height, so the stored y is treated as the
+    // top and put at the middle — which is what dragging it there would do.
+    return axis === 'x' ? { ...f, x: Math.round((100 - f.w) / 2 * 10) / 10 } : { ...f, y: 50 };
+  }));
+
+  const removeField = (id: string) => {
+    setFields(fs => fs.filter(f => f.id !== id));
+    setSelected(cur => (cur === id ? null : cur));
+  };
+
+  /**
+   * Keyboard, because arranging a page with a mouse alone is slower than it
+   * needs to be. Ignored while a text box has focus — nudging a box when
+   * someone meant to move the caret is worse than no shortcut at all.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selected || tab !== 'design') return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const box = fields.find(f => f.id === selected);
+      if (!box || box.locked) return;
+
+      const step = e.shiftKey ? 5 : 0.5;
+      const nudge = (dx: number, dy: number) => {
+        e.preventDefault();
+        patch(selected, {
+          x: Math.round(Math.max(-5, Math.min(100, box.x + dx)) * 10) / 10,
+          y: Math.round(Math.max(-5, Math.min(100, box.y + dy)) * 10) / 10,
+        });
+      };
+
+      if (e.key === 'ArrowLeft') nudge(-step, 0);
+      else if (e.key === 'ArrowRight') nudge(step, 0);
+      else if (e.key === 'ArrowUp') nudge(0, -step);
+      else if (e.key === 'ArrowDown') nudge(0, step);
+      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeField(selected); }
+      else if (e.key === 'Escape') setSelected(null);
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateField(selected); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [selected, fields, tab]);
+
   const renderField = (f: CertField) => {
     const isSel = f.id === selected;
     const common: React.CSSProperties = {
       position: 'absolute', left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`,
-      textAlign: f.align || 'center', cursor: 'move',
+      textAlign: f.align || 'center',
+      cursor: f.locked ? 'default' : 'move',
+      // A hidden box stays on the canvas at a quarter strength — it has to be
+      // findable to be switched back on, and deleting it to hide it is what
+      // people do when there is nothing to click.
+      opacity: f.hidden ? 0.25 : 1,
       outline: isSel ? '2px solid #5b3fd1' : '1px dashed rgba(91,63,209,.28)',
       outlineOffset: 2, borderRadius: 2,
     };
@@ -393,11 +487,20 @@ const CertificateDesigner = () => {
       e.stopPropagation();
       const rect = pageRef.current!.getBoundingClientRect();
       setSelected(f.id);
+      // A locked box still selects — so it can be unlocked — but does not move.
+      if (f.locked) return;
       setDragging({
         id: f.id,
         dx: ((e.clientX - rect.left) / rect.width) * 100 - f.x,
         dy: ((e.clientY - rect.top) / rect.height) * 100 - f.y,
       });
+    };
+
+    const onContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelected(f.id);
+      setCtxMenu({ id: f.id, x: e.clientX, y: e.clientY });
     };
 
     if (f.type === 'qr') {
@@ -407,7 +510,7 @@ const CertificateDesigner = () => {
       // a QR library the designer does not need.
       const px = Math.max(36, (f.w / 100) * renderWidth);
       return (
-        <Box key={f.id} onPointerDown={start} sx={{ ...common, display: 'flex', justifyContent: 'center' }}>
+        <Box key={f.id} onPointerDown={start} onContextMenu={onContextMenu} sx={{ ...common, display: 'flex', justifyContent: 'center' }}>
           <Box sx={{
             width: px, height: px, border: '2px solid', borderColor: f.color || '#172038',
             borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -421,7 +524,7 @@ const CertificateDesigner = () => {
     }
     if (f.type === 'image') {
       return (
-        <Box key={f.id} onPointerDown={start} sx={{ ...common, minHeight: 24 }}>
+        <Box key={f.id} onPointerDown={start} onContextMenu={onContextMenu} sx={{ ...common, minHeight: 24 }}>
           {f.value
             ? <img src={f.value} alt="" style={{ width: '100%', display: 'block' }} />
             : <Typography variant="caption" sx={{ color: 'text.disabled' }}>ยังไม่ได้เลือกรูป</Typography>}
@@ -431,7 +534,7 @@ const CertificateDesigner = () => {
     return (
       <Box
         key={f.id}
-        onPointerDown={start}
+        onPointerDown={start} onContextMenu={onContextMenu}
         sx={{
           ...common,
           fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px`,
@@ -599,6 +702,17 @@ const CertificateDesigner = () => {
               พื้นหลังจะถูกยืดให้พอดีกับขนาดกระดาษ — ไฟล์ควรมีสัดส่วนเดียวกัน
             </Typography>
           </Stack>
+
+          <Divider sx={{ my: 2 }} />
+
+          <CertificateLayers
+            fields={fields}
+            selected={selected}
+            values={previewData}
+            onSelect={setSelected}
+            onPatch={patch}
+            onMove={moveLayer}
+          />
 
           <Divider sx={{ my: 2 }} />
 
@@ -849,7 +963,7 @@ const CertificateDesigner = () => {
               <Button
                 size="small" color="error" variant="outlined" startIcon={<DeleteIcon />}
                 sx={{ borderRadius: 2, fontWeight: 700 }}
-                onClick={() => { setFields(fs => fs.filter(f => f.id !== sel.id)); setSelected(null); }}
+                onClick={() => removeField(sel.id)}
               >
                 ลบกล่องนี้
               </Button>
@@ -860,6 +974,8 @@ const CertificateDesigner = () => {
           <Stack direction="row" spacing={1} alignItems="center">
             <PrintIcon fontSize="small" sx={{ color: 'text.disabled' }} />
             <Typography variant="caption" color="text.secondary">
+              คลิกขวาที่กล่องเพื่อสั่งงานเพิ่ม · ลูกศรเลื่อนทีละนิด (กด Shift เลื่อนเร็วขึ้น) · Ctrl+D ทำสำเนา · Del ลบ
+              <br />
               ใบจริงพิมพ์จากหน้าเกียรติบัตรของแต่ละคน ตัวอักษรจะคมกว่านี้เพราะพิมพ์เป็นเวกเตอร์
             </Typography>
           </Stack>
@@ -868,6 +984,60 @@ const CertificateDesigner = () => {
 
       {/* Hidden on screen; the print stylesheet inside it hides everything else
           when the dialog opens. Same component the booking list prints with. */}
+      {/* Right-click on a box. Anchored to the pointer, so it opens where the
+          hand already is rather than at a corner of the element. */}
+      <Menu
+        open={!!ctxMenu}
+        onClose={() => setCtxMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={ctxMenu ? { top: ctxMenu.y, left: ctxMenu.x } : undefined}
+        slotProps={{ paper: { sx: { borderRadius: 2, minWidth: 216 } } }}
+      >
+        {(() => {
+          const box = ctxMenu ? fields.find(f => f.id === ctxMenu.id) : null;
+          if (!box) return null;
+          const act = (fn: () => void) => () => { fn(); setCtxMenu(null); };
+          const item = (icon: React.ReactNode, label: string, onClick: () => void, hint?: string) => (
+            <MuiMenuItem onClick={act(onClick)} sx={{ py: 0.75 }}>
+              <ListItemIcon sx={{ minWidth: 32 }}>{icon}</ListItemIcon>
+              <ListItemText
+                primary={label}
+                primaryTypographyProps={{ variant: 'body2', fontWeight: 600 }}
+              />
+              {hint && (
+                <Typography variant="caption" sx={{ color: 'text.disabled', ml: 2, fontFamily: 'monospace' }}>
+                  {hint}
+                </Typography>
+              )}
+            </MuiMenuItem>
+          );
+          return [
+            item(<ToFrontIcon fontSize="small" />, 'นำมาไว้หน้าสุด', () => sendTo(box.id, 'front')),
+            item(<UpIconMenu fontSize="small" />, 'ขึ้นหนึ่งชั้น', () => moveLayer(box.id, 1)),
+            item(<DownIconMenu fontSize="small" />, 'ลงหนึ่งชั้น', () => moveLayer(box.id, -1)),
+            item(<ToBackIcon fontSize="small" />, 'ส่งไปหลังสุด', () => sendTo(box.id, 'back')),
+            <MenuDivider key="d1" />,
+            item(<CentreHIcon fontSize="small" />, 'จัดกึ่งกลางแนวนอน', () => centreOnPage(box.id, 'x')),
+            item(<CentreVIcon fontSize="small" />, 'จัดกึ่งกลางแนวตั้ง', () => centreOnPage(box.id, 'y')),
+            <MenuDivider key="d2" />,
+            item(<DuplicateIcon fontSize="small" />, 'ทำสำเนา', () => duplicateField(box.id), 'Ctrl+D'),
+            item(
+              box.locked ? <UnlockIcon fontSize="small" /> : <LockIcon fontSize="small" />,
+              box.locked ? 'ปลดล็อก' : 'ล็อกกล่องนี้',
+              () => patch(box.id, { locked: !box.locked }),
+            ),
+            item(<HideIcon fontSize="small" />, box.hidden ? 'แสดงกล่องนี้' : 'ซ่อน (ไม่พิมพ์ด้วย)',
+              () => patch(box.id, { hidden: !box.hidden })),
+            <MenuDivider key="d3" />,
+            <MuiMenuItem key="del" onClick={act(() => removeField(box.id))} sx={{ py: 0.75, color: 'error.main' }}>
+              <ListItemIcon sx={{ minWidth: 32, color: 'error.main' }}><DeleteIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="ลบกล่องนี้" primaryTypographyProps={{ variant: 'body2', fontWeight: 600 }} />
+              <Typography variant="caption" sx={{ color: 'text.disabled', ml: 2, fontFamily: 'monospace' }}>Del</Typography>
+            </MuiMenuItem>,
+          ];
+        })()}
+      </Menu>
+
       <CertificatePrintSheet items={printItems} />
 
       {/* Asked only for moves inside the CRM. Refreshing or closing the tab is

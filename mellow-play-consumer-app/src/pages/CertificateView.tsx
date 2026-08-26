@@ -74,7 +74,8 @@ const CertificateView: React.FC = () => {
 
   const pageW = template?.page_width || 297;
   const pageH = template?.page_height || 210;
-  const fields = parseFields(template?.fields_json);
+  // Hidden boxes are hidden here too — see CertField.hidden.
+  const fields = parseFields(template?.fields_json).filter(f => !f.hidden);
   // The template names the typeface; this page has to go and get it, or a
   // certificate designed in Kanit reaches the family in whatever their phone
   // happens to default to.

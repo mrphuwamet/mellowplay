@@ -137,6 +137,18 @@ export interface CertField {
   fontFamily?: string;
   /** Conditional text. Empty or absent = print the variable as it is. */
   rules?: CertRule[];
+  /**
+   * Designer-only. A locked box cannot be dragged or picked up by a stray
+   * click — for the background frame and the fixed wording, which are the two
+   * things that get nudged while arranging everything else.
+   */
+  locked?: boolean;
+  /**
+   * Hidden EVERYWHERE, not only in the designer: a box switched off is left
+   * out of the printed sheet and the family-facing page as well, because
+   * hiding it in one place and printing it in another is the worst of both.
+   */
+  hidden?: boolean;
 }
 
 export interface CertTemplate {

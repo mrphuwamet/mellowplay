@@ -40,7 +40,9 @@ export interface PrintableCertificate {
 const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
   const pageW = Number(item.template?.page_width) || 297;
   const pageH = Number(item.template?.page_height) || 210;
-  const fields = parseFields(item.template?.fields_json);
+  // A box switched off in the designer is left off the paper as well —
+  // hiding it in one place and printing it in another is the worst of both.
+  const fields = parseFields(item.template?.fields_json).filter(f => !f.hidden);
   const code = String(item.values.public_code ?? '').trim();
   const verifyUrl = item.verifyUrl || (code ? `${CONSUMER_APP_URL}/verify/${code}` : '');
 
