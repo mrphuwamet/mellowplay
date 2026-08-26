@@ -1555,8 +1555,15 @@ const TournamentManagement: React.FC = () => {
               >
                 <MenuItem value="">ไม่ระบุรอบ</MenuItem>
                 {rounds.map((r: any) => (
-                  <MenuItem key={`${r.slot_date}|${r.start_time}`} value={`${r.slot_date}|${String(r.start_time).slice(0, 5)}`}>
-                    {r.slot_date} · {String(r.start_time).slice(0, 5)}
+                  <MenuItem
+                    key={`${r.slot_date}|${r.slot_start_time}`}
+                    value={`${r.slot_date}|${String(r.slot_start_time ?? '').slice(0, 5)}`}
+                  >
+                    {r.slot_date} · {String(r.slot_start_time ?? '').slice(0, 5) || 'ทั้งวัน'}
+                    {' '}
+                    <Box component="span" sx={{ color: 'text.secondary', ml: 0.5 }}>
+                      ({r.booking_count} การจอง)
+                    </Box>
                   </MenuItem>
                 ))}
               </Select>
