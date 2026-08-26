@@ -152,7 +152,9 @@ export const isDateVariable = (key: string): boolean => DATE_VARIABLES.has(key);
 
 // ── Conditional text ───────────────────────────────────────────────────────
 
-export type RuleOp = 'eq' | 'ne' | 'contains' | 'in' | 'empty' | 'not_empty';
+export type RuleOp =
+  | 'eq' | 'ne' | 'contains' | 'in' | 'empty' | 'not_empty'
+  | 'is_thai' | 'is_english';
 
 export interface RuleCondition {
   /** Which variable to test — any key, not only the one the field prints. */
@@ -163,8 +165,14 @@ export interface RuleCondition {
 }
 
 export interface CertRule {
-  /** Absent = the default line, which is why order matters. */
-  when?: RuleCondition | null;
+  /**
+   * Absent = the default line, which is why order matters.
+   *
+   * An ARRAY means every condition in it must hold — "ถ้าเป็นผู้ชาย และ ชื่อ
+   * เป็นภาษาอังกฤษ". A single object is the older one-condition shape and is
+   * still read, so nothing already saved has to be migrated.
+   */
+  when?: RuleCondition | RuleCondition[] | null;
   /** Output template. `{{variable}}` is replaced with that variable's value. */
   text: string;
 }
@@ -176,14 +184,28 @@ export const RULE_OPS: { op: RuleOp; label: string; needsValue: boolean }[] = [
   { op: 'in', label: 'เป็นหนึ่งใน (คั่นด้วย ,)', needsValue: true },
   { op: 'empty', label: 'ไม่ได้กรอก', needsValue: false },
   { op: 'not_empty', label: 'กรอกแล้ว', needsValue: false },
+  // Families register in whichever script they think of themselves in, so the
+  // same form holds "สมชาย" and "Somchai" — and the right honorific depends on
+  // which one this is.
+  { op: 'is_thai', label: 'เป็นภาษาไทย', needsValue: false },
+  { op: 'is_english', label: 'เป็นภาษาอังกฤษ', needsValue: false },
 ];
+
+const THAI_LETTERS = /[\u0E00-\u0E7F]/;
+const LATIN_LETTERS = /[A-Za-z]/;
 
 const norm = (s: string) => String(s ?? '').trim().toLowerCase();
 
 const conditionHolds = (cond: RuleCondition, values: CertValueMap): boolean => {
-  const actual = norm(String(values[cond.variable] ?? ''));
+  const rawValue = String(values[cond.variable] ?? '');
+  const actual = norm(rawValue);
   const expected = norm(cond.value ?? '');
   switch (cond.op) {
+    // Thai wins a mixed value on purpose: "สมชาย Smith" on a Thai certificate
+    // is a Thai name with a surname attached, and treating it as English would
+    // put an English honorific in front of Thai script.
+    case 'is_thai': return THAI_LETTERS.test(rawValue);
+    case 'is_english': return LATIN_LETTERS.test(rawValue) && !THAI_LETTERS.test(rawValue);
     case 'eq': return actual === expected;
     case 'ne': return actual !== expected;
     case 'contains': return expected !== '' && actual.includes(expected);
@@ -211,6 +233,14 @@ export const interpolate = (
  * default and ends the list. Top-to-bottom, first match — the order people
  * already expect from every rule list they have used.
  */
+/** Every condition has to hold. An empty list is no condition at all. */
+const ruleHolds = (rule: CertRule, values: CertValueMap): boolean => {
+  if (!rule.when) return true;
+  const list = Array.isArray(rule.when) ? rule.when : [rule.when];
+  if (list.length === 0) return true;
+  return list.every(cond => cond && conditionHolds(cond, values));
+};
+
 export const applyRules = (
   rules: CertRule[] | undefined | null,
   values: CertValueMap,
@@ -221,7 +251,7 @@ export const applyRules = (
   if (!Array.isArray(rules) || rules.length === 0) return fallback;
   for (const rule of rules) {
     if (!rule) continue;
-    if (!rule.when || conditionHolds(rule.when, values)) {
+    if (ruleHolds(rule, values)) {
       return interpolate(rule.text || '', values, useSamples, opts);
     }
   }
