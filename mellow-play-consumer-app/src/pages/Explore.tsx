@@ -24,12 +24,13 @@ import { stripHtml } from '../utils/stripHtml';
 type ExploreCategory = 'all' | 'upcoming' | 'classes' | 'events' | 'news' | 'media';
 const VALID_CATEGORIES: ExploreCategory[] = ['all', 'upcoming', 'classes', 'events', 'news', 'media'];
 
-// Every carousel slide on this page shares one width: 2.5 cards per screen —
-// two in full and half of the third peeking, so it's obvious there's more to
-// scroll — paired with the carousels' gap-3 (the 2×12px between 3 cards is
-// what the calc subtracts). min-w keeps a slide readable on very narrow
-// phones even if that means seeing slightly fewer than 2.5.
-const SLIDE_CARD_WIDTH = 'w-[calc(40%-10px)] min-w-[150px]';
+// Every carousel slide on this page shares one width: 1.5 cards per phone
+// screen — one in full and half of the next peeking, so it's obvious there's
+// more to scroll — paired with the carousels' gap-3 (the one 12px gap in
+// view is what the calc subtracts). 2.5-per-screen was tried and reverted:
+// the cards got too small to read. max-w keeps the slides at roughly the
+// old fixed-card size on tablet/desktop, where 66% of the row would be huge.
+const SLIDE_CARD_WIDTH = 'w-[calc(66.66%-8px)] min-w-[220px] max-w-[280px]';
 
 const Explore = () => {
   const navigate = useNavigate();
