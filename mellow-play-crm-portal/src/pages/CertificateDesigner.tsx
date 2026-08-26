@@ -22,12 +22,13 @@ import {
   VisibilityOff as HideIcon, VerticalAlignCenter as CentreVIcon,
   CenterFocusStrong as CentreHIcon,
   KeyboardArrowUp as UpIconMenu, KeyboardArrowDown as DownIconMenu,
-  Undo as UndoIcon, Redo as RedoIcon,
+  Undo as UndoIcon, Redo as RedoIcon, CalendarMonth as DateIcon,
 } from '@mui/icons-material';
 import { Menu, MenuItem as MuiMenuItem, ListItemIcon, ListItemText, Divider as MenuDivider } from '@mui/material';
 import { API_URL } from '../config';
 import {
   CertField, CertRule, CERT_VARIABLES, FORM_PREFIX,
+  DATE_FORMATS, DEFAULT_DATE_FORMAT, DateLang, formatCertDate, isDateVariable,
   parseFields, ptToPx, fieldText,
 } from '../utils/certificateLayout';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
@@ -449,6 +450,15 @@ const CertificateDesigner = () => {
     [previewValues]
   );
   const usingReal = !!previewValues;
+
+  /**
+   * What the format previews are rendered from: the real booking's date when
+   * one is selected, otherwise a fixed sample.
+   *
+   * A fixed one is deliberately not today's date — a preview that changes
+   * overnight makes two people describing the same screen disagree.
+   */
+  const dateSample = String(previewData.event_date || '2026-09-06').slice(0, 10);
 
   const printItems: PrintableCertificate[] = useMemo(() => [{
     id: 'preview',
@@ -886,6 +896,62 @@ const CertificateDesigner = () => {
                       )}
                     </Select>
                   </FormControl>
+
+                  {/* Only for a box that actually prints a date. Offering a
+                      date format on a name is a control that can never do
+                      anything, which is worse than one that is missing. */}
+                  {isDateVariable(sel.value) && (
+                    <>
+                      <ToggleButtonGroup
+                        exclusive size="small" fullWidth
+                        value={sel.dateLang || 'th'}
+                        onChange={(_, v) => v && patch(sel.id, { dateLang: v as DateLang })}
+                        sx={{ '& .MuiToggleButton-root': { borderRadius: 2, py: 0.6 } }}
+                      >
+                        <ToggleButton value="th">ไทย · พ.ศ.</ToggleButton>
+                        <ToggleButton value="en">English · C.E.</ToggleButton>
+                      </ToggleButtonGroup>
+
+                      <FormControl size="small" fullWidth>
+                        <InputLabel>รูปแบบวันที่</InputLabel>
+                        <Select
+                          label="รูปแบบวันที่"
+                          value={sel.dateFormat || DEFAULT_DATE_FORMAT}
+                          onChange={e => patch(sel.id, { dateFormat: String(e.target.value) })}
+                          // Previewed against the value on screen, the way a
+                          // spreadsheet shows the number in each format rather
+                          // than the pattern that produces it.
+                          renderValue={v => formatCertDate(dateSample, String(v), sel.dateLang || 'th')}
+                        >
+                          {DATE_FORMATS.map(f => (
+                            <MenuItem key={f.pattern} value={f.pattern}>
+                              <Stack sx={{ minWidth: 0 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                  {formatCertDate(dateSample, f.pattern, sel.dateLang || 'th')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">{f.label}</Typography>
+                              </Stack>
+                            </MenuItem>
+                          ))}
+                          {/* A pattern typed by hand has to survive being
+                              re-opened, or the picker would silently rewrite it. */}
+                          {sel.dateFormat && !DATE_FORMATS.some(f => f.pattern === sel.dateFormat) && (
+                            <MenuItem value={sel.dateFormat}>
+                              {formatCertDate(dateSample, sel.dateFormat, sel.dateLang || 'th')} (กำหนดเอง)
+                            </MenuItem>
+                          )}
+                        </Select>
+                      </FormControl>
+
+                      <TextField
+                        size="small" fullWidth label="หรือพิมพ์รูปแบบเอง"
+                        value={sel.dateFormat || DEFAULT_DATE_FORMAT}
+                        onChange={e => patch(sel.id, { dateFormat: e.target.value })}
+                        helperText="d วันที่ · dd สองหลัก · M เดือน · MMM ย่อ · MMMM เต็ม · yyyy ปีตามภาษา · yyyyc ค.ศ. เสมอ · EEEE วันในสัปดาห์"
+                        InputProps={{ sx: { fontFamily: 'monospace', fontSize: 13 } }}
+                      />
+                    </>
+                  )}
 
                   <RuleEditor
                     field={sel}

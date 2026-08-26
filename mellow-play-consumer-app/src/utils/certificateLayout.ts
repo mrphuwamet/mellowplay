@@ -39,8 +39,116 @@ export const CERT_VARIABLES: { key: string; label: string; sample: string }[] = 
   { key: 'issued_date', label: 'วันที่ออกเกียรติบัตร', sample: '2026-09-08' },
 ];
 
-/** Variables printed as a Thai long date rather than the raw ISO value. */
+/** Variables printed as a date rather than the raw ISO value. */
 const DATE_VARIABLES = new Set(['event_date', 'issued_date', 'child_birth_date']);
+
+// ── Dates ──────────────────────────────────────────────────────────────────
+
+export type DateLang = 'th' | 'en';
+
+/**
+ * How a date is written on the page.
+ *
+ * A certificate is a formal document and the house style differs by
+ * organisation, so this is a choice rather than a constant. The tokens are the
+ * ones every spreadsheet uses, because that is the notation whoever is laying
+ * the page out already knows.
+ *
+ *   d / dd      day, bare or padded
+ *   M / MM      month number
+ *   MMM / MMMM  month name, short or full
+ *   yy / yyyy   year in the era that goes with the language — พ.ศ. for Thai,
+ *               C.E. for English, which is what each is written in
+ *   yyyyc       year in C.E. whatever the language, for a Thai page that wants
+ *               the Christian era
+ *   EEE / EEEE  weekday, short or full
+ */
+export const DEFAULT_DATE_FORMAT = 'd MMMM yyyy';
+
+const MONTHS: Record<DateLang, { full: string[]; short: string[] }> = {
+  th: {
+    full: ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'],
+    short: ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'],
+  },
+  en: {
+    full: ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'],
+    short: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+  },
+};
+
+const WEEKDAYS: Record<DateLang, { full: string[]; short: string[] }> = {
+  th: {
+    full: ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'],
+    short: ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'],
+  },
+  en: {
+    full: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    short: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  },
+};
+
+/** Longest token first, so MMMM is never matched as MMM followed by M. */
+const DATE_TOKENS = /yyyyc|yyyy|yy|MMMM|MMM|MM|M|dd|d|EEEE|EEE/g;
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * One date, written the way this field asks for it.
+ *
+ * Falls back to the raw string when the value is not a date at all — a form
+ * answer that was supposed to be one and is not should print what the family
+ * actually typed, not "Invalid Date".
+ */
+export const formatCertDate = (
+  iso?: string | null,
+  pattern: string = DEFAULT_DATE_FORMAT,
+  lang: DateLang = 'th',
+): string => {
+  if (!iso) return '';
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  if (isNaN(d.getTime())) return String(iso);
+
+  const months = MONTHS[lang] || MONTHS.th;
+  const weekdays = WEEKDAYS[lang] || WEEKDAYS.th;
+  const ce = d.getFullYear();
+  // Thai pages are written in the Buddhist era; English ones are not.
+  const eraYear = lang === 'th' ? ce + 543 : ce;
+
+  return String(pattern || DEFAULT_DATE_FORMAT).replace(DATE_TOKENS, token => {
+    switch (token) {
+      case 'yyyyc': return String(ce);
+      case 'yyyy': return String(eraYear);
+      case 'yy': return String(eraYear).slice(-2);
+      case 'MMMM': return months.full[d.getMonth()];
+      case 'MMM': return months.short[d.getMonth()];
+      case 'MM': return pad(d.getMonth() + 1);
+      case 'M': return String(d.getMonth() + 1);
+      case 'dd': return pad(d.getDate());
+      case 'd': return String(d.getDate());
+      case 'EEEE': return weekdays.full[d.getDay()];
+      case 'EEE': return weekdays.short[d.getDay()];
+      default: return token;
+    }
+  });
+};
+
+/** The formats offered in the designer, previewed against the real value. */
+export const DATE_FORMATS: { pattern: string; label: string }[] = [
+  { pattern: 'd MMMM yyyy', label: 'วันที่ เดือนเต็ม ปี' },
+  { pattern: 'd MMM yyyy', label: 'วันที่ เดือนย่อ ปี' },
+  { pattern: 'EEEEที่ d MMMM yyyy', label: 'วันในสัปดาห์ + วันที่เต็ม' },
+  { pattern: 'dd/MM/yyyy', label: 'dd/MM/yyyy' },
+  { pattern: 'dd-MM-yyyy', label: 'dd-MM-yyyy' },
+  { pattern: 'yyyy-MM-dd', label: 'yyyy-MM-dd' },
+  { pattern: 'd MMMM yyyyc', label: 'วันที่ เดือนเต็ม ปี ค.ศ.' },
+  { pattern: 'MMMM d, yyyyc', label: 'September 6, 2026' },
+];
+
+/** Which built-in variables print as a date — for showing the format controls. */
+export const isDateVariable = (key: string): boolean => DATE_VARIABLES.has(key);
 
 // ── Conditional text ───────────────────────────────────────────────────────
 
@@ -89,9 +197,14 @@ const conditionHolds = (cond: RuleCondition, values: CertValueMap): boolean => {
 const INTERPOLATE = /\{\{\s*([^}]+?)\s*\}\}/g;
 
 /** `{{variable}}` → its value. An unknown name becomes empty, not the literal. */
-export const interpolate = (template: string, values: CertValueMap, useSamples = false): string =>
+export const interpolate = (
+  template: string,
+  values: CertValueMap,
+  useSamples = false,
+  opts?: DateOptions,
+): string =>
   String(template ?? '').replace(INTERPOLATE, (_m, name: string) =>
-    displayValue(String(name).trim(), values, useSamples));
+    displayValue(String(name).trim(), values, useSamples, opts));
 
 /**
  * The first rule whose condition holds wins; a rule with no condition is the
@@ -103,12 +216,13 @@ export const applyRules = (
   values: CertValueMap,
   fallback: string,
   useSamples = false,
+  opts?: DateOptions,
 ): string => {
   if (!Array.isArray(rules) || rules.length === 0) return fallback;
   for (const rule of rules) {
     if (!rule) continue;
     if (!rule.when || conditionHolds(rule.when, values)) {
-      return interpolate(rule.text || '', values, useSamples);
+      return interpolate(rule.text || '', values, useSamples, opts);
     }
   }
   // Every rule had a condition and none held: print the plain value rather
@@ -149,6 +263,10 @@ export interface CertField {
    * hiding it in one place and printing it in another is the worst of both.
    */
   hidden?: boolean;
+  /** Spreadsheet-style pattern for any date this box prints. */
+  dateFormat?: string;
+  /** Which language the month and weekday names are written in. */
+  dateLang?: DateLang;
 }
 
 export interface CertTemplate {
@@ -179,16 +297,28 @@ export const parseFields = (fieldsJson?: string | null): CertField[] => {
 export const ptToPx = (pt: number, pageWidthMm: number, renderedWidthPx: number): number =>
   (pt * 25.4 / 72) * (renderedWidthPx / pageWidthMm);
 
-/** One variable as it should read on the page — dates in Thai, the rest raw. */
-export const displayValue = (key: string, values: CertValueMap, useSamples = false): string => {
+/** How the field printing this value wants its dates written. */
+export interface DateOptions {
+  dateFormat?: string;
+  dateLang?: DateLang;
+}
+
+/** One variable as it should read on the page — dates formatted, the rest raw. */
+export const displayValue = (
+  key: string,
+  values: CertValueMap,
+  useSamples = false,
+  opts?: DateOptions,
+): string => {
+  const asDate = (v: string) => formatCertDate(v, opts?.dateFormat, opts?.dateLang);
   const raw = values[key];
   const text = raw == null ? '' : String(raw);
   if (text === '' && useSamples) {
     const sample = CERT_VARIABLES.find(v => v.key === key)?.sample;
-    if (sample) return DATE_VARIABLES.has(key) ? formatCertDate(sample) : sample;
+    if (sample) return DATE_VARIABLES.has(key) ? asDate(sample) : sample;
     return key.startsWith(FORM_PREFIX) ? '(คำตอบจากฟอร์ม)' : '';
   }
-  return DATE_VARIABLES.has(key) ? formatCertDate(text) : text;
+  return DATE_VARIABLES.has(key) ? asDate(text) : text;
 };
 
 /** What a field prints, given an issued certificate's own frozen values. */
@@ -197,21 +327,17 @@ export const fieldText = (
   values: CertValueMap,
   useSamples = false
 ): string => {
+  // The box carries its own date style, so a certificate can print the event
+  // date long-form in Thai and the issue date as a short number, which is
+  // exactly what a formal page tends to want.
+  const opts: DateOptions = { dateFormat: field.dateFormat, dateLang: field.dateLang };
   if (field.type !== 'field') {
     // Static text interpolates too, so a line like "ขอมอบให้ {{recipient_name}}"
     // can be one box instead of three that have to be kept aligned by hand.
-    return interpolate(field.value || '', values, useSamples);
+    return interpolate(field.value || '', values, useSamples, opts);
   }
-  const plain = displayValue(field.value, values, useSamples);
-  return applyRules(field.rules, values, plain, useSamples);
+  const plain = displayValue(field.value, values, useSamples, opts);
+  return applyRules(field.rules, values, plain, useSamples, opts);
 };
 
-/** Thai long date, which is how a certificate reads. Falls back to the raw string. */
-export const formatCertDate = (iso?: string | null): string => {
-  if (!iso) return '';
-  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
-  if (isNaN(d.getTime())) return String(iso);
-  const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear() + 543}`;
-};
+
