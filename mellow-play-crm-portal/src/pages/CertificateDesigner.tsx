@@ -5,7 +5,7 @@ import {
   Box, Paper, Typography, Button, IconButton, TextField, MenuItem, Select,
   FormControl, InputLabel, Stack, Divider, Alert, Tooltip, CircularProgress,
   ToggleButton, ToggleButtonGroup, Slider, ListSubheader, Autocomplete,
-  FormHelperText, Tabs, Tab,
+  FormHelperText, Tabs, Tab, FormControlLabel, Switch,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
@@ -35,6 +35,7 @@ import CertificatePrintSheet, { PrintableCertificate } from '../components/Certi
 import RuleEditor from '../components/CertificateRuleEditor';
 import CertificateTemplateList from '../components/CertificateTemplateList';
 import CertificateLayers from '../components/CertificateLayers';
+import AutoFitText from '../components/AutoFitText';
 import { useUnsavedChanges } from '../utils/unsavedChanges';
 import {
   FontChoice, GOOGLE_FONTS, SYSTEM_FONTS, DEFAULT_FONT,
@@ -118,6 +119,9 @@ const CertificateDesigner = () => {
   const [pageH, setPageH] = useState(210);
   const [selected, setSelected] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; dx: number; dy: number } | null>(null);
+  // Grabbing an edge of the selected box. Held in state rather than a ref so
+  // the handle can show it is being dragged.
+  const [resizing, setResizing] = useState<{ id: string; edge: 'l' | 'r'; x0: number; w0: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -360,6 +364,27 @@ const CertificateDesigner = () => {
   // Percentages come straight out of the pointer position, so what is dragged
   // is what is stored — no conversion that has to agree in two places.
   const onPointerMove = (e: React.PointerEvent) => {
+    if (resizing && pageRef.current) {
+      const rect = pageRef.current.getBoundingClientRect();
+      const pc = ((e.clientX - rect.left) / rect.width) * 100;
+      const box = fields.find(f => f.id === resizing.id);
+      if (!box) return;
+      if (resizing.edge === 'r') {
+        // 3% is about a centimetre on A4 — narrower than that and the box is
+        // impossible to grab again.
+        patch(resizing.id, { w: Math.round(Math.max(3, Math.min(100 - box.x, pc - box.x)) * 10) / 10 });
+      } else {
+        // The left edge moves the box AND its width, so the right edge stays
+        // where it was — otherwise dragging one side shifts the other.
+        const right = resizing.x0 + resizing.w0;
+        const x = Math.max(0, Math.min(right - 3, pc));
+        patch(resizing.id, {
+          x: Math.round(x * 10) / 10,
+          w: Math.round((right - x) * 10) / 10,
+        });
+      }
+      return;
+    }
     if (!dragging || !pageRef.current) return;
     const rect = pageRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100 - dragging.dx;
@@ -639,21 +664,56 @@ const CertificateDesigner = () => {
         </Box>
       );
     }
+    const shown = fieldText(f, previewData, !usingReal) || '—';
+    const typeSx = {
+      ...common,
+      fontWeight: f.fontWeight || 400,
+      fontFamily: fontStack(f.fontFamily),
+      color: f.color || '#172038',
+      lineHeight: 1.25,
+    };
+
+    /**
+     * Grab either side of the selected box to set its width.
+     *
+     * On the box rather than only in the sidebar: the width is a thing you
+     * judge by looking at the page, and reaching for a slider to the right
+     * while watching the left is how a layout ends up nearly right.
+     */
+    const handle = (edge: 'l' | 'r') => (
+      <Box
+        key={edge}
+        onPointerDown={e => {
+          e.stopPropagation();
+          e.preventDefault();
+          setSelected(f.id);
+          setResizing({ id: f.id, edge, x0: f.x, w0: f.w });
+        }}
+        sx={{
+          position: 'absolute', top: '50%', [edge === 'l' ? 'left' : 'right']: -5,
+          transform: 'translateY(-50%)',
+          width: 10, height: 22, borderRadius: 1, cursor: 'ew-resize',
+          bgcolor: '#fff', border: '2px solid #5b3fd1',
+          // Above the text so a wide box does not swallow its own handle.
+          zIndex: 2,
+        }}
+      />
+    );
+
     return (
       <Box
         key={f.id}
         onPointerDown={start} onContextMenu={onContextMenu}
-        sx={{
-          ...common,
-          fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px`,
-          fontWeight: f.fontWeight || 400,
-          fontFamily: fontStack(f.fontFamily),
-          color: f.color || '#172038',
-          lineHeight: 1.25,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}
+        sx={{ ...typeSx, ...(f.autoFit ? {} : { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }) }}
       >
-        {fieldText(f, previewData, !usingReal) || '—'}
+        {f.autoFit ? (
+          <AutoFitText text={shown} fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)} />
+        ) : (
+          <Box component="span" sx={{ fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px` }}>
+            {shown}
+          </Box>
+        )}
+        {isSel && !f.locked && [handle('l'), handle('r')]}
       </Box>
     );
   };
@@ -796,8 +856,8 @@ const CertificateDesigner = () => {
           <Box
             ref={pageRef}
             onPointerMove={onPointerMove}
-            onPointerUp={() => setDragging(null)}
-            onPointerLeave={() => setDragging(null)}
+            onPointerUp={() => { setDragging(null); setResizing(null); }}
+            onPointerLeave={() => { setDragging(null); setResizing(null); }}
             onPointerDown={() => setSelected(null)}
             sx={{
               position: 'relative', width: renderWidth, height, mx: 'auto',
@@ -1086,9 +1146,24 @@ const CertificateDesigner = () => {
                   )}
 
                   <Box>
-                    <SliderRow label="ขนาด" value={`${sel.fontSize || 16} pt`} />
+                    <SliderRow label={sel.autoFit ? 'ขนาดสูงสุด' : 'ขนาด'} value={`${sel.fontSize || 16} pt`} />
                     <Slider size="small" min={8} max={72} value={sel.fontSize || 16}
                       onChange={(_, v) => patch(sel.id, { fontSize: v as number })} />
+                  </Box>
+
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small" checked={!!sel.autoFit}
+                          onChange={e => patch(sel.id, { autoFit: e.target.checked })}
+                        />
+                      }
+                      label={<Typography variant="caption" sx={{ fontWeight: 700 }}>ย่ออัตโนมัติให้พอดีกล่อง</Typography>}
+                    />
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -0.5 }}>
+                      ชื่อยาวจะเล็กลงจนพอดีความกว้างกล่อง ชื่อสั้นคงขนาดเดิม — ตั้งความกว้างได้จากจุดสองข้างของกล่อง
+                    </Typography>
                   </Box>
 
                   {/* Each button is set in the weight it applies, so the choice

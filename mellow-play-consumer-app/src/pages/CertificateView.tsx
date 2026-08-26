@@ -6,6 +6,7 @@ import {
   CertField, CertTemplate, parseFields, ptToPx, fieldText, formatCertDate,
 } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
+import AutoFitText from '../components/AutoFitText';
 
 /**
  * One certificate, as a page you can read and as a page you can print.
@@ -122,16 +123,31 @@ const CertificateView: React.FC = () => {
         : null;
     }
 
+    const typeStyle: React.CSSProperties = {
+      ...common,
+      fontWeight: f.fontWeight || 400,
+      color: f.color || '#172038',
+      lineHeight: 1.25,
+      fontFamily: fontStack(f.fontFamily),
+    };
+
+    if (f.autoFit) {
+      return (
+        <AutoFitText
+          key={f.id}
+          text={fieldText(f, data)}
+          fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
+          style={typeStyle}
+        />
+      );
+    }
+
     return (
       <div
         key={f.id}
         style={{
-          ...common,
+          ...typeStyle,
           fontSize: ptToPx(f.fontSize || 16, pageW, renderWidth),
-          fontWeight: f.fontWeight || 400,
-          color: f.color || '#172038',
-          lineHeight: 1.25,
-          fontFamily: fontStack(f.fontFamily),
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }}

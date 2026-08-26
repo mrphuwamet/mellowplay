@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { CONSUMER_APP_URL } from '../config';
 import { CertField, CertValueMap, parseFields, fieldText } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
+import AutoFitText from './AutoFitText';
 
 /**
  * A stack of certificates laid out for paper.
@@ -84,17 +85,34 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
         : null;
     }
 
+    const typeStyle: React.CSSProperties = {
+      ...common,
+      fontWeight: f.fontWeight || 400,
+      color: f.color || '#172038',
+      fontFamily: fontStack(f.fontFamily),
+      lineHeight: 1.25,
+    };
+
+    if (f.autoFit) {
+      // Points converted here because AutoFitText measures in pixels, which is
+      // what the browser lays out in whatever unit the page is written in.
+      return (
+        <AutoFitText
+          key={f.id}
+          text={fieldText(f, item.values)}
+          fontSizePx={(f.fontSize || 16) * (96 / 72)}
+          style={typeStyle}
+        />
+      );
+    }
+
     return (
       <div
         key={f.id}
         style={{
-          ...common,
+          ...typeStyle,
           // Points, straight onto paper — no pixels in between.
           fontSize: `${f.fontSize || 16}pt`,
-          fontWeight: f.fontWeight || 400,
-          color: f.color || '#172038',
-          fontFamily: fontStack(f.fontFamily),
-          lineHeight: 1.25,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }}

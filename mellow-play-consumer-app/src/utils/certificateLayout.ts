@@ -299,6 +299,15 @@ export interface CertField {
    * hiding it in one place and printing it in another is the worst of both.
    */
   hidden?: boolean;
+  /**
+   * Shrink the text until it fits the box width, never growing it.
+   *
+   * A certificate is laid out around one name and printed for hundreds: the
+   * size that suits "มานะ" leaves "ณัฐฐาพัชร์ วรรณศิริกุล" hanging off the
+   * page. Off by default, because a box that silently changes size is not what
+   * someone expects until they ask for it.
+   */
+  autoFit?: boolean;
   /** Spreadsheet-style pattern for any date this box prints. */
   dateFormat?: string;
   /** Which language the month and weekday names are written in. */
