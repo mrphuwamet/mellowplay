@@ -459,10 +459,17 @@ const TournamentManagement: React.FC = () => {
   // trip, which reads as the drag having failed.
   const saveHeatPositions = async (positions: { id: number; x: number; y: number }[]) => {
     if (!tournament) return;
-    setHeats(prev => prev.map(h => {
+    const withMoved = (list: Heat[]) => list.map(h => {
       const moved = positions.find(pp => pp.id === h.id);
       return moved ? { ...h, pos_x: moved.x, pos_y: moved.y } : h;
-    }));
+    });
+    setHeats(prev => withMoved(prev));
+    // The canvas is fed from the brackets array, not from this one. Updating
+    // only this one meant a dragged layout looked right until the canvas next
+    // mounted — switching to the list and back put every box back where it
+    // started, even though the server had already stored the move.
+    setBrackets(prev => prev.map(b =>
+      b.tournament.id === tournament.id ? { ...b, heats: withMoved(b.heats) } : b));
     try { await axios.put(`${API_BASE}/tournaments/${tournament.id}/layout`, { positions }); }
     catch { /* the next load restores what the server has */ }
   };
@@ -616,7 +623,7 @@ const TournamentManagement: React.FC = () => {
     Object.values(bracketRefs.current).forEach(el => el && observer.observe(el));
     Object.values(heatRefs.current).forEach(el => el && observer.observe(el));
     return () => observer.disconnect();
-  }, [bracketViews, allEntries]);
+  }, [bracketViews, allEntries, canvasMode]);
 
 
   const pickerRows = useMemo(() => {
@@ -1068,7 +1075,7 @@ const TournamentManagement: React.FC = () => {
                   {canvasMode && (
                     <HeatCanvas
                       heats={view.heats as any}
-                      links={view.tournament.id === tournament?.id ? heatLinks : []}
+                      links={(view.links || (view.tournament.id === tournament?.id ? heatLinks : [])) as any}
                       entries={view.entries as any}
                       onMoveHeats={saveHeatPositions}
                       onAddLink={addHeatLink}
