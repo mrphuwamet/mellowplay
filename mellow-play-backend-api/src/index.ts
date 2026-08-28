@@ -979,6 +979,7 @@ app.get('/api/v1/admin/registration-forms',      (c) => registrationFormControll
 app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));
 app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.getForm(c));
 app.get('/api/v1/admin/registration-forms/:id/team-availability', (c) => registrationFormController.getTeamAvailability(c));
+app.put('/api/v1/admin/registration-forms/:id/team-round-capacity', (c) => registrationFormController.setTeamRoundCapacity(c));
 app.put('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.updateForm(c));
 app.delete('/api/v1/admin/registration-forms/:id', (c) => registrationFormController.deleteForm(c));
 

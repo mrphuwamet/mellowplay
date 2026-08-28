@@ -494,7 +494,40 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [capacitySlots, setCapacitySlots] = useState<{ date: string; slots: any[] }[] | null>(null);
   const [capacityFormName, setCapacityFormName] = useState<string | null>(null);
-  const [capacityTeamByRound, setCapacityTeamByRound] = useState<Record<string, { label: string; teams: { label: string; capacity: number; remaining: number }[] }[]>>({});
+  const [capacityTeamByRound, setCapacityTeamByRound] = useState<Record<string, {
+    fieldKey: string;
+    label: string;
+    teams: { label: string; capacity: number; isOverride: boolean; formCapacity: number; remaining: number }[];
+  }[]>>({});
+  // Which team's size is being edited, as "round|field|team".
+  const [editingTeamCap, setEditingTeamCap] = useState<string | null>(null);
+  const [teamCapDraft, setTeamCapDraft] = useState('');
+  const [teamCapError, setTeamCapError] = useState('');
+
+  /**
+   * Set one team's size for one round, or clear it back to the form's.
+   *
+   * Blank means "use the form's number" rather than zero — a team with no
+   * places is a real thing to want to say, so it cannot double as "unset".
+   */
+  const saveTeamRoundCapacity = async (
+    courseId: number, formId: number, roundKey: string,
+    fieldKey: string, teamLabel: string, value: string,
+  ) => {
+    const [slotDate, slotStartTime] = roundKey.split(' ');
+    try {
+      await axios.put(`${API_BASE}/registration-forms/${formId}/team-round-capacity`, {
+        field_key: fieldKey, course_id: courseId,
+        slot_date: slotDate, slot_start_time: slotStartTime,
+        team_label: teamLabel,
+        capacity: value.trim() === '' ? null : Number(value),
+      });
+      setEditingTeamCap(null);
+      if (capacityDialogCourse) await openCapacityDialog(capacityDialogCourse);
+    } catch (e: any) {
+      setTeamCapError(e?.response?.data?.message || 'บันทึกจำนวนต่อทีมไม่สำเร็จ');
+    }
+  };
 
   const openCapacityDialog = async (course: Course) => {
     setCapacityDialogCourse(course);
@@ -525,19 +558,32 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
           return { fieldKey: f.field_key, label: f.label, teamOptions };
         });
 
-        const byRound: Record<string, { label: string; teams: { label: string; capacity: number; remaining: number }[] }[]> = {};
+        const byRound: Record<string, {
+          fieldKey: string;
+          label: string;
+          teams: { label: string; capacity: number; isOverride: boolean; formCapacity: number; remaining: number }[];
+        }[]> = {};
         await Promise.all(upcoming.flatMap(day => day.slots.map(async (s: any) => {
           const roundKey = `${day.date} ${s.startTime}`;
           const availRes = await axios.get(
             `${API_BASE}/registration-forms/${course.registration_form_id}/team-availability?courseId=${course.id}&scheduledAt=${encodeURIComponent(roundKey)}`
           ).catch(() => null);
           const counts = availRes?.data?.success ? availRes.data.counts : {};
+          const capacities = availRes?.data?.success ? (availRes.data.capacities || {}) : {};
           byRound[roundKey] = teamOptionsByField.map(f => ({
+            fieldKey: f.fieldKey,
             label: f.label,
-            teams: f.teamOptions.map(t => ({
-              label: t.label, capacity: t.capacity,
-              remaining: Math.max(0, t.capacity - (counts[f.fieldKey]?.[t.label] || 0)),
-            })),
+            teams: f.teamOptions.map(t => {
+              // The round's own number when it has one, the form's otherwise.
+              const capacity = capacities[f.fieldKey]?.[t.label] ?? t.capacity;
+              return {
+                label: t.label,
+                capacity,
+                isOverride: capacity !== t.capacity,
+                formCapacity: t.capacity,
+                remaining: Math.max(0, capacity - (counts[f.fieldKey]?.[t.label] || 0)),
+              };
+            }),
           }));
         })));
         setCapacityTeamByRound(byRound);
@@ -3155,16 +3201,56 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                                   <Stack spacing={0.5}>
                                     {roundTeamFields.map((f, fi) => (
                                       <Stack key={fi} direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                                        {f.teams.map(t => (
-                                          <Chip
-                                            key={t.label}
-                                            label={`${t.label}: ${t.remaining}/${t.capacity}`}
-                                            size="small"
-                                            color={t.remaining === 0 ? 'error' : 'success'}
-                                            variant={t.remaining === 0 ? 'filled' : 'outlined'}
-                                            sx={{ fontWeight: 700, height: 20, fontSize: '11px' }}
-                                          />
-                                        ))}
+                                        {f.teams.map(t => {
+                                          const key = `${roundKey}|${f.fieldKey}|${t.label}`;
+                                          if (editingTeamCap === key) {
+                                            return (
+                                              <TextField
+                                                key={t.label}
+                                                autoFocus size="small" type="number"
+                                                value={teamCapDraft}
+                                                onChange={e => setTeamCapDraft(e.target.value)}
+                                                onBlur={() => void saveTeamRoundCapacity(
+                                                  capacityDialogCourse!.id, capacityDialogCourse!.registration_form_id!,
+                                                  roundKey, f.fieldKey, t.label, teamCapDraft,
+                                                )}
+                                                onKeyDown={e => {
+                                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                  if (e.key === 'Escape') setEditingTeamCap(null);
+                                                }}
+                                                placeholder={String(t.formCapacity)}
+                                                helperText="ว่าง = ตามฟอร์ม"
+                                                sx={{ width: 104, '& input': { py: 0.25, fontSize: 12 } }}
+                                              />
+                                            );
+                                          }
+                                          return (
+                                            <Tooltip
+                                              key={t.label}
+                                              title={t.isOverride
+                                                ? `รอบนี้ตั้งไว้ ${t.capacity} (ฟอร์มตั้ง ${t.formCapacity}) — กดเพื่อแก้`
+                                                : 'กดเพื่อกำหนดจำนวนเฉพาะรอบนี้'}
+                                            >
+                                              <Chip
+                                                label={`${t.label}: ${t.remaining}/${t.capacity}${t.isOverride ? ' *' : ''}`}
+                                                size="small"
+                                                onClick={() => {
+                                                  setEditingTeamCap(key);
+                                                  setTeamCapDraft(t.isOverride ? String(t.capacity) : '');
+                                                  setTeamCapError('');
+                                                }}
+                                                color={t.remaining === 0 ? 'error' : 'success'}
+                                                variant={t.remaining === 0 ? 'filled' : 'outlined'}
+                                                sx={{
+                                                  fontWeight: 700, height: 20, fontSize: '11px', cursor: 'pointer',
+                                                  // A round with its own number is marked, or nobody can tell
+                                                  // which rounds were set by hand and which follow the form.
+                                                  ...(t.isOverride ? { borderStyle: 'dashed', borderWidth: 2 } : {}),
+                                                }}
+                                              />
+                                            </Tooltip>
+                                          );
+                                        })}
                                       </Stack>
                                     ))}
                                   </Stack>

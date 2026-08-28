@@ -251,21 +251,94 @@ export class RegistrationFormRepository {
       // is already over and that this very edit might be on its way to fixing.
       if (roundUnchanged && params.currentAnswers
           && params.currentAnswers[f.field_key] === chosen) continue;
-      let options: { label: string; capacity: number }[] = [];
-      try { options = JSON.parse(f.options_json || '[]'); } catch { continue; }
-      const team = options.find(t => t.label === chosen);
+      // Resolved for THIS round: the form's number unless this round says
+      // otherwise. Read through the shared resolver so the check and the board
+      // that shows remaining places cannot disagree.
+      const capacities = await this.getTeamCapacities(params.formId, params.courseId, params.scheduledAt);
+      const capacity = capacities[f.field_key]?.[String(chosen)] ?? 0;
       // A team no longer on the form has no quota to breach — staff renaming
       // an option must not make every existing booking unsaveable.
-      if (!team || !(team.capacity > 0)) continue;
+      if (!(capacity > 0)) continue;
       const counts = await this.getTeamCounts(
         params.formId, params.courseId, params.scheduledAt, f.field_key, params.excludeSubmissionId
       );
       const current = counts[String(chosen)] || 0;
-      if (current >= team.capacity) {
-        return { fieldKey: f.field_key, label: String(chosen), capacity: team.capacity, current };
+      if (current >= capacity) {
+        return { fieldKey: f.field_key, label: String(chosen), capacity, current };
       }
     }
     return null;
+  }
+
+  /**
+   * What each team holds IN THIS ROUND.
+   *
+   * The form's own number is the usual size; a row in Form_Team_Round_Capacity
+   * replaces it for one round. Resolved here and nowhere else, so the check
+   * that refuses a booking and the board that shows the remaining places can
+   * never disagree about how many there are — which would mean a form that
+   * says "2 left" and then declines the booking.
+   */
+  async getTeamCapacities(
+    formId: number,
+    courseId: number,
+    scheduledAt: string,
+  ): Promise<Record<string, Record<string, number>>> {
+    const { results: fields } = await this.db.prepare(
+      `SELECT field_key, options_json FROM Registration_Form_Fields WHERE form_id = ? AND type = 'team_select'`
+    ).bind(formId).all();
+
+    const out: Record<string, Record<string, number>> = {};
+    for (const f of fields as any[]) {
+      const map: Record<string, number> = {};
+      try {
+        for (const t of JSON.parse(f.options_json || '[]')) {
+          if (t && t.label != null) map[String(t.label)] = Number(t.capacity) || 0;
+        }
+      } catch { /* a malformed field simply has no teams */ }
+      out[f.field_key] = map;
+    }
+
+    const [date, time] = String(scheduledAt || '').split(' ');
+    if (date) {
+      const { results: overrides } = await this.db.prepare(`
+        SELECT field_key, team_label, capacity FROM Form_Team_Round_Capacity
+         WHERE form_id = ? AND course_id = ? AND slot_date = ?
+           AND SUBSTR(slot_start_time, 1, 5) = SUBSTR(?, 1, 5)
+      `).bind(formId, courseId, date, String(time || '').slice(0, 5)).all();
+      for (const o of overrides as any[]) {
+        if (!out[o.field_key]) out[o.field_key] = {};
+        out[o.field_key][String(o.team_label)] = Number(o.capacity) || 0;
+      }
+    }
+    return out;
+  }
+
+  /** Set one team's size for one round, or clear it back to the form's. */
+  async setTeamRoundCapacity(params: {
+    formId: number; fieldKey: string; courseId: number;
+    slotDate: string; slotStartTime: string; teamLabel: string;
+    capacity: number | null;
+  }): Promise<void> {
+    const time = String(params.slotStartTime || '').slice(0, 5);
+    if (params.capacity == null) {
+      await this.db.prepare(`
+        DELETE FROM Form_Team_Round_Capacity
+         WHERE form_id = ? AND field_key = ? AND course_id = ?
+           AND slot_date = ? AND SUBSTR(slot_start_time, 1, 5) = ? AND team_label = ?
+      `).bind(params.formId, params.fieldKey, params.courseId, params.slotDate, time, params.teamLabel).run();
+      return;
+    }
+    await this.db.prepare(`
+      INSERT INTO Form_Team_Round_Capacity
+        (form_id, field_key, course_id, slot_date, slot_start_time, team_label, capacity)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(form_id, field_key, course_id, slot_date, slot_start_time, team_label)
+      DO UPDATE SET capacity = excluded.capacity, updated_at = CURRENT_TIMESTAMP
+    `).bind(
+      params.formId, params.fieldKey, params.courseId, params.slotDate, time,
+      params.teamLabel, Math.max(0, Math.floor(params.capacity)),
+    ).run();
   }
 
   // Same counts as getTeamCounts, but for every team_select field on the

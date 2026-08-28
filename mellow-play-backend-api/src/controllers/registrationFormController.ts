@@ -104,8 +104,40 @@ export class RegistrationFormController {
       const scheduledAt = c.req.query('scheduledAt') || '';
       if (!courseId) return c.json({ success: false, message: 'courseId is required' }, 400);
       if (!scheduledAt) return c.json({ success: false, message: 'scheduledAt is required' }, 400);
-      const counts = await this.repo(c).getTeamAvailability(formId, courseId, scheduledAt);
-      return c.json({ success: true, counts });
+      const repo = this.repo(c);
+      const counts = await repo.getTeamAvailability(formId, courseId, scheduledAt);
+      // The sizes for THIS round, so callers stop reading them off the form and
+      // missing a round that was set differently — the reason a wizard could
+      // say "2 left" and then have the booking refused.
+      const capacities = await repo.getTeamCapacities(formId, courseId, scheduledAt);
+      return c.json({ success: true, counts, capacities });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Set one team's size for one round, or clear it back to the form's number.
+   *
+   * Per round rather than per form because real events differ round by round —
+   * six per team on the Saturday morning and ten in the afternoon — and the
+   * only way to say that before was to build a second form.
+   */
+  async setTeamRoundCapacity(c: C) {
+    try {
+      const formId = parseInt(c.req.param('id'));
+      const { field_key, course_id, slot_date, slot_start_time, team_label, capacity } = await c.req.json();
+      if (!field_key || !course_id || !slot_date || !slot_start_time || !team_label) {
+        return c.json({ success: false, message: 'ต้องระบุรอบและทีมให้ครบ' }, 400);
+      }
+      const n = capacity === null || capacity === '' ? null : Number(capacity);
+      if (n !== null && (!Number.isFinite(n) || n < 0)) {
+        return c.json({ success: false, message: 'จำนวนต้องเป็นตัวเลข 0 ขึ้นไป' }, 400);
+      }
+      await this.repo(c).setTeamRoundCapacity({
+        formId, fieldKey: String(field_key), courseId: Number(course_id),
+        slotDate: String(slot_date), slotStartTime: String(slot_start_time),
+        teamLabel: String(team_label), capacity: n,
+      });
+      return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
