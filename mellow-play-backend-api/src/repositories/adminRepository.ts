@@ -212,7 +212,7 @@ export class AdminRepository {
   // too even though the Thai `name` itself stays locked.
   // membership_type/membership_expires_at live on Children itself (not
   // HD_Profiles), since premium status is per-child, not part of the HD chart.
-  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; nameEn?: string; membershipType?: string; membershipExpiresAt?: string | null; birthDate?: string | null }): Promise<void> {
+  async updateHdChild(childId: number, data: { nickname?: string; gender?: string; relation?: string; name?: string; nameEn?: string; membershipType?: string; membershipExpiresAt?: string | null; birthDate?: string | null }): Promise<void> {
     const child = await this.db.prepare('SELECT hd_profile_id FROM Children WHERE id = ?').bind(childId).first<{ hd_profile_id: number }>();
     if (!child) throw new Error('Child not found');
     // Separate statement, and only when a date was actually passed: this is the
@@ -222,6 +222,12 @@ export class AdminRepository {
     if (data.birthDate !== undefined) {
       await this.db.prepare('UPDATE HD_Profiles SET birth_date = ? WHERE id = ?')
         .bind(data.birthDate, child.hd_profile_id).run();
+    }
+    // Its own statement for the same reason: the name is only ever written
+    // when one was actually sent, so saving a nickname can never blank it.
+    if (data.name !== undefined) {
+      await this.db.prepare('UPDATE HD_Profiles SET name = ? WHERE id = ?')
+        .bind(data.name, child.hd_profile_id).run();
     }
     await this.db.prepare(`
       UPDATE HD_Profiles SET nickname = ?, gender = ?, relation = ?, name_en = ? WHERE id = ?

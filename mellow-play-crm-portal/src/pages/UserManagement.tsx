@@ -234,6 +234,9 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
   // stays out of reach of every other role because the HD chart is derived
   // from it.
   const canEditDob = currentUserRole === 'super_admin';
+  // The same role, and the same reasoning: a misspelled name follows a child
+  // onto every booking, start list and certificate.
+  const canEditName = currentUserRole === 'super_admin';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -666,6 +669,10 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
             // date, and skipping it meant a wrong birthday could be corrected
             // but never removed.
             ...(canEditDob ? { date_of_birth: c.date_of_birth ?? '' } : {}),
+            // Only when there is something to send: the server refuses a blank
+            // name, and a child whose name was never touched should not have
+            // it rewritten by every save.
+            ...(canEditName && (c.full_name || '').trim() ? { name: c.full_name.trim() } : {}),
           })
         )
       );
@@ -1074,28 +1081,28 @@ const UserManagement = ({ currentUserRole }: { currentUserRole?: string }) => {
                               whatever's currently in the other half. */}
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label={`ชื่อ ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
+                              label={`ชื่อ ${child.is_hd && !canEditName ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
                               value={(child.full_name || '').split(' ')[0] || ''}
                               onChange={e => {
-                                if (readOnly || child.is_hd) return;
+                                if (readOnly || (child.is_hd && !canEditName)) return;
                                 const lastName = (child.full_name || '').split(' ').slice(1).join(' ');
                                 updateChild(index, 'full_name', `${e.target.value} ${lastName}`.trim());
                               }}
-                              InputProps={{ readOnly: readOnly || child.is_hd }}
-                              disabled={child.is_hd}
+                              InputProps={{ readOnly: readOnly || (child.is_hd && !canEditName) }}
+                              disabled={child.is_hd && !canEditName}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField
-                              label={`นามสกุล ${child.is_hd ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
+                              label={`นามสกุล ${child.is_hd && !canEditName ? '(ลงทะเบียนผ่านแอป)' : '*'}`} fullWidth size="small"
                               value={(child.full_name || '').split(' ').slice(1).join(' ')}
                               onChange={e => {
-                                if (readOnly || child.is_hd) return;
+                                if (readOnly || (child.is_hd && !canEditName)) return;
                                 const firstName = (child.full_name || '').split(' ')[0] || '';
                                 updateChild(index, 'full_name', `${firstName} ${e.target.value}`.trim());
                               }}
-                              InputProps={{ readOnly: readOnly || child.is_hd }}
-                              disabled={child.is_hd}
+                              InputProps={{ readOnly: readOnly || (child.is_hd && !canEditName) }}
+                              disabled={child.is_hd && !canEditName}
                             />
                           </Grid>
                           <Grid item xs={12} sm={6}>

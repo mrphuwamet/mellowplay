@@ -297,16 +297,47 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const childId = parseInt(c.req.param('id'));
-      const { nickname, gender, relation, name_en, membership_type, membership_expires_at, date_of_birth } = await c.req.json();
+      const { nickname, gender, relation, name, name_en, membership_type, membership_expires_at, date_of_birth } = await c.req.json();
+
+      // Both of the Super Admin edits below read the role from the TOKEN, never
+      // from a flag in the body — a request can claim anything.
+      const isSuperAdmin = async () => {
+        const authHeader = c.req.header('Authorization');
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+        return payload?.type === 'admin' && payload?.role === 'super_admin';
+      };
+
+      /**
+       * The name a family typed when they registered, corrected.
+       *
+       * Locked until now on the same reasoning as the birth date, and on this
+       * one it was too cautious: the HD chart is worked out from the birth
+       * date, time and place, and nothing at all is derived from the name. A
+       * misspelling was simply stuck there — on every booking, every start
+       * list and every certificate that prints it.
+       *
+       * Not clearable. A blank name would leave a child with no way to be
+       * identified anywhere in the CRM; the field is for correcting, not
+       * emptying.
+       */
+      let fullName: string | undefined;
+      if (name !== undefined) {
+        if (!(await isSuperAdmin())) {
+          return c.json({ success: false, message: 'แก้ชื่อ-สกุลได้เฉพาะ Super Admin' }, 403);
+        }
+        const trimmed = String(name).trim();
+        if (trimmed === '') {
+          return c.json({ success: false, message: 'ชื่อ-สกุลว่างไม่ได้' }, 400);
+        }
+        fullName = trimmed;
+      }
 
       // '' means "clear it" and undefined means "leave it alone" — without the
       // distinction a wrong birthday could be corrected but never removed.
       let birthDate: string | null | undefined;
       if (date_of_birth !== undefined) {
-        const authHeader = c.req.header('Authorization');
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
-        if (payload?.type !== 'admin' || payload?.role !== 'super_admin') {
+        if (!(await isSuperAdmin())) {
           return c.json({ success: false, message: 'แก้วันเกิดได้เฉพาะ Super Admin' }, 403);
         }
         const raw = String(date_of_birth).trim();
@@ -318,7 +349,7 @@ export class AdminController {
       }
 
       await adminRepo.updateHdChild(childId, {
-        nickname, gender, relation, nameEn: name_en,
+        nickname, gender, relation, nameEn: name_en, name: fullName,
         membershipType: membership_type,
         membershipExpiresAt: membership_expires_at,
         birthDate,
