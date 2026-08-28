@@ -1015,9 +1015,9 @@ const Booking = () => {
                    <div className="space-y-3">
                      <h4 className="text-sm font-black text-slate-800">{lang === 'en' ? 'Order Summary' : 'สรุปยอดชำระเงิน'}</h4>
                      {selectedDateObj && selectedSlot && (
-                       <div className="flex justify-between text-sm font-bold text-slate-600">
-                         <span>{lang === 'en' ? 'Session' : 'รอบที่จอง'}</span>
-                         <span className="text-slate-800 text-right">
+                       <div className="flex justify-between text-sm font-bold text-slate-600 gap-3">
+                         <span className="shrink-0">{lang === 'en' ? 'Session' : 'รอบที่จอง'}</span>
+                         <span className="text-slate-800 text-right min-w-0 break-words">
                            {new Date(selectedDateObj.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })} · {selectedSlot.label ? `${selectedSlot.label} (${selectedSlot.startTime})` : `${selectedSlot.startTime} น.`}
                          </span>
                        </div>
@@ -1028,10 +1028,27 @@ const Booking = () => {
                          const raw = formAnswers[f.field_key];
                          const display = Array.isArray(raw) ? raw.join(', ') : (raw != null ? String(raw).trim() : '');
                          if (!display) return null;
+                         // Two shapes, picked by label length. A short label
+                         // ("เลือกทีมสี...") reads as a ledger row — label
+                         // left, answer right. A long one (a consent
+                         // sentence) can't share a line with its answer: the
+                         // old shrink-0 label pushed straight past the card's
+                         // edge, so it wraps full-width with the answer
+                         // underneath instead. Nothing here may ever escape
+                         // the card: every side wraps (break-words/min-w-0).
+                         const isLongLabel = (f.label || '').length > 28;
+                         if (isLongLabel) {
+                           return (
+                             <div key={f.field_key} className="text-sm font-bold">
+                               <p className="text-slate-600 break-words leading-snug">{f.label}</p>
+                               <p className="text-slate-800 text-right break-words mt-0.5">{display}</p>
+                             </div>
+                           );
+                         }
                          return (
-                           <div key={f.field_key} className="flex justify-between text-sm font-bold text-slate-600 gap-3">
-                             <span className="shrink-0">{f.label}</span>
-                             <span className="text-slate-800 text-right">{display}</span>
+                           <div key={f.field_key} className="flex justify-between items-start text-sm font-bold text-slate-600 gap-3">
+                             <span className="shrink-0 max-w-[55%] break-words">{f.label}</span>
+                             <span className="text-slate-800 text-right min-w-0 break-words">{display}</span>
                            </div>
                          );
                        })}
