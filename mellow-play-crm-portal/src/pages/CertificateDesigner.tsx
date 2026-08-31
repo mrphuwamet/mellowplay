@@ -23,6 +23,8 @@ import {
   CenterFocusStrong as CentreHIcon,
   KeyboardArrowUp as UpIconMenu, KeyboardArrowDown as DownIconMenu,
   Undo as UndoIcon, Redo as RedoIcon, CalendarMonth as DateIcon,
+  VerticalAlignTop as AlignTopIcon, VerticalAlignCenter as AlignMiddleIcon,
+  VerticalAlignBottom as AlignBottomIcon,
 } from '@mui/icons-material';
 import { Menu, MenuItem as MuiMenuItem, ListItemIcon, ListItemText, Divider as MenuDivider } from '@mui/material';
 import { API_URL } from '../config';
@@ -121,7 +123,9 @@ const CertificateDesigner = () => {
   const [dragging, setDragging] = useState<{ id: string; dx: number; dy: number } | null>(null);
   // Grabbing an edge of the selected box. Held in state rather than a ref so
   // the handle can show it is being dragged.
-  const [resizing, setResizing] = useState<{ id: string; edge: 'l' | 'r'; x0: number; w0: number } | null>(null);
+  const [resizing, setResizing] = useState<
+    { id: string; edge: 'l' | 'r' | 't' | 'b'; x0: number; w0: number; y0: number; h0: number } | null
+  >(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -366,22 +370,38 @@ const CertificateDesigner = () => {
   const onPointerMove = (e: React.PointerEvent) => {
     if (resizing && pageRef.current) {
       const rect = pageRef.current.getBoundingClientRect();
-      const pc = ((e.clientX - rect.left) / rect.width) * 100;
       const box = fields.find(f => f.id === resizing.id);
       if (!box) return;
-      if (resizing.edge === 'r') {
-        // 3% is about a centimetre on A4 — narrower than that and the box is
-        // impossible to grab again.
-        patch(resizing.id, { w: Math.round(Math.max(3, Math.min(100 - box.x, pc - box.x)) * 10) / 10 });
+      const round = (n: number) => Math.round(n * 10) / 10;
+      // 3% is about a centimetre on A4 — smaller than that and the box is
+      // impossible to grab again.
+      const MIN = 3;
+
+      if (resizing.edge === 'r' || resizing.edge === 'l') {
+        const pc = ((e.clientX - rect.left) / rect.width) * 100;
+        if (resizing.edge === 'r') {
+          patch(resizing.id, { w: round(Math.max(MIN, Math.min(100 - box.x, pc - box.x))) });
+        } else {
+          // The left edge moves the box AND its width, so the right edge stays
+          // where it was — otherwise dragging one side shifts the other.
+          const right = resizing.x0 + resizing.w0;
+          const x = Math.max(0, Math.min(right - MIN, pc));
+          patch(resizing.id, { x: round(x), w: round(right - x) });
+        }
+        return;
+      }
+
+      const pc = ((e.clientY - rect.top) / rect.height) * 100;
+      // The height starts out unset — the box is exactly as tall as its text —
+      // so the first drag has to measure what that was, or the box would jump
+      // to wherever the pointer happened to be.
+      const h0 = resizing.h0;
+      if (resizing.edge === 'b') {
+        patch(resizing.id, { h: round(Math.max(MIN, Math.min(100 - box.y, pc - box.y))), valign: box.valign || 'middle' });
       } else {
-        // The left edge moves the box AND its width, so the right edge stays
-        // where it was — otherwise dragging one side shifts the other.
-        const right = resizing.x0 + resizing.w0;
-        const x = Math.max(0, Math.min(right - 3, pc));
-        patch(resizing.id, {
-          x: Math.round(x * 10) / 10,
-          w: Math.round((right - x) * 10) / 10,
-        });
+        const bottom = resizing.y0 + h0;
+        const y = Math.max(0, Math.min(bottom - MIN, pc));
+        patch(resizing.id, { y: round(y), h: round(bottom - y), valign: box.valign || 'middle' });
       }
       return;
     }
@@ -680,40 +700,65 @@ const CertificateDesigner = () => {
      * judge by looking at the page, and reaching for a slider to the right
      * while watching the left is how a layout ends up nearly right.
      */
-    const handle = (edge: 'l' | 'r') => (
-      <Box
-        key={edge}
-        onPointerDown={e => {
-          e.stopPropagation();
-          e.preventDefault();
-          setSelected(f.id);
-          setResizing({ id: f.id, edge, x0: f.x, w0: f.w });
-        }}
-        sx={{
-          position: 'absolute', top: '50%', [edge === 'l' ? 'left' : 'right']: -5,
-          transform: 'translateY(-50%)',
-          width: 10, height: 22, borderRadius: 1, cursor: 'ew-resize',
-          bgcolor: '#fff', border: '2px solid #5b3fd1',
-          // Above the text so a wide box does not swallow its own handle.
-          zIndex: 2,
-        }}
-      />
-    );
+    const handle = (edge: 'l' | 'r' | 't' | 'b') => {
+      const horizontal = edge === 'l' || edge === 'r';
+      const side = { l: 'left', r: 'right', t: 'top', b: 'bottom' }[edge];
+      return (
+        <Box
+          key={edge}
+          onPointerDown={e => {
+            e.stopPropagation();
+            e.preventDefault();
+            setSelected(f.id);
+            // A box with no height set is as tall as its text, so its current
+            // height is measured off the element — starting from 0 would make
+            // the first drag jump.
+            const el = e.currentTarget.parentElement;
+            const pageH = pageRef.current?.getBoundingClientRect().height || 1;
+            const measured = el ? (el.getBoundingClientRect().height / pageH) * 100 : 10;
+            setResizing({ id: f.id, edge, x0: f.x, w0: f.w, y0: f.y, h0: f.h ?? measured });
+          }}
+          sx={{
+            position: 'absolute',
+            ...(horizontal
+              ? { top: '50%', [side]: -5, transform: 'translateY(-50%)', width: 10, height: 22, cursor: 'ew-resize' }
+              : { left: '50%', [side]: -5, transform: 'translateX(-50%)', width: 22, height: 10, cursor: 'ns-resize' }),
+            borderRadius: 1,
+            bgcolor: '#fff', border: '2px solid #5b3fd1',
+            // Above the text so a wide box does not swallow its own handle.
+            zIndex: 2,
+          }}
+        />
+      );
+    };
 
     return (
       <Box
         key={f.id}
         onPointerDown={start} onContextMenu={onContextMenu}
-        sx={{ ...typeSx, ...(f.autoFit ? {} : { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }) }}
+        sx={{
+          ...typeSx,
+          ...(f.autoFit ? {} : { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }),
+          // A height turns the box into something the text sits INSIDE, which
+          // is the only reading under which vertical alignment means anything.
+          ...(f.h ? {
+            height: `${f.h}%`,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: f.valign === 'top' ? 'flex-start' : f.valign === 'bottom' ? 'flex-end' : 'center',
+          } : {}),
+        }}
       >
-        {f.autoFit ? (
-          <AutoFitText text={shown} fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)} />
-        ) : (
-          <Box component="span" sx={{ fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px` }}>
-            {shown}
-          </Box>
-        )}
-        {isSel && !f.locked && [handle('l'), handle('r')]}
+        <Box component="div" sx={{ width: '100%' }}>
+          {f.autoFit ? (
+            <AutoFitText text={shown} fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)} />
+          ) : (
+            <Box component="span" sx={{ fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px` }}>
+              {shown}
+            </Box>
+          )}
+        </Box>
+        {isSel && !f.locked && [handle('l'), handle('r'), handle('t'), handle('b')]}
       </Box>
     );
   };
@@ -1194,6 +1239,37 @@ const CertificateDesigner = () => {
                   <Slider size="small" min={5} max={100} value={sel.w}
                     onChange={(_, v) => patch(sel.id, { w: v as number })} />
                 </Box>
+
+                <Box>
+                  <SliderRow label="ความสูงของกล่อง" value={sel.h ? `${sel.h}%` : 'ตามเนื้อหา'} />
+                  <Slider
+                    size="small" min={3} max={100} value={sel.h ?? 10}
+                    disabled={!sel.h}
+                    onChange={(_, v) => patch(sel.id, { h: v as number })}
+                  />
+                  <Button
+                    size="small"
+                    onClick={() => patch(sel.id, sel.h
+                      ? { h: undefined, valign: undefined }
+                      : { h: 10, valign: 'middle' })}
+                  >
+                    {sel.h ? 'กลับไปสูงตามเนื้อหา' : 'กำหนดความสูงเอง'}
+                  </Button>
+                </Box>
+
+                {/* Only with a height. Without one the box is exactly as tall
+                    as its text and there is nothing to align against. */}
+                {sel.h && sel.type !== 'image' && (
+                  <ToggleButtonGroup
+                    exclusive size="small" fullWidth value={sel.valign || 'middle'}
+                    onChange={(_, v) => v && patch(sel.id, { valign: v })}
+                    sx={{ '& .MuiToggleButton-root': { borderRadius: 2, py: 0.6 } }}
+                  >
+                    <ToggleButton value="top" aria-label="ชิดบน"><AlignTopIcon fontSize="small" /></ToggleButton>
+                    <ToggleButton value="middle" aria-label="กึ่งกลางแนวตั้ง"><AlignMiddleIcon fontSize="small" /></ToggleButton>
+                    <ToggleButton value="bottom" aria-label="ชิดล่าง"><AlignBottomIcon fontSize="small" /></ToggleButton>
+                  </ToggleButtonGroup>
+                )}
 
                 {/* A swatch that reads as pressable, with the hex beside it —
                     the bare colour input looked like a coloured rectangle

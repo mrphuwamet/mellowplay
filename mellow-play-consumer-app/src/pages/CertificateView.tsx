@@ -129,16 +129,25 @@ const CertificateView: React.FC = () => {
       color: f.color || '#172038',
       lineHeight: 1.25,
       fontFamily: fontStack(f.fontFamily),
+      // A height makes the box something the text sits INSIDE — the only
+      // reading under which vertical alignment means anything.
+      ...(f.h ? {
+        height: `${f.h}%`,
+        display: 'flex',
+        flexDirection: 'column' as const,
+        justifyContent: f.valign === 'top' ? 'flex-start' : f.valign === 'bottom' ? 'flex-end' : 'center',
+      } : {}),
     };
 
     if (f.autoFit) {
       return (
-        <AutoFitText
-          key={f.id}
-          text={fieldText(f, data)}
-          fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
-          style={typeStyle}
-        />
+        <div key={f.id} style={typeStyle}>
+          <AutoFitText
+            text={fieldText(f, data)}
+            fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
+            style={{ width: '100%', textAlign: f.align || 'center' }}
+          />
+        </div>
       );
     }
 

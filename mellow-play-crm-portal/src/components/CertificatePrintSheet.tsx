@@ -91,18 +91,27 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
       color: f.color || '#172038',
       fontFamily: fontStack(f.fontFamily),
       lineHeight: 1.25,
+      // A height makes the box something the text sits INSIDE — the only
+      // reading under which vertical alignment means anything.
+      ...(f.h ? {
+        height: `${f.h}%`,
+        display: 'flex',
+        flexDirection: 'column' as const,
+        justifyContent: f.valign === 'top' ? 'flex-start' : f.valign === 'bottom' ? 'flex-end' : 'center',
+      } : {}),
     };
 
     if (f.autoFit) {
       // Points converted here because AutoFitText measures in pixels, which is
       // what the browser lays out in whatever unit the page is written in.
       return (
-        <AutoFitText
-          key={f.id}
-          text={fieldText(f, item.values)}
-          fontSizePx={(f.fontSize || 16) * (96 / 72)}
-          style={typeStyle}
-        />
+        <div key={f.id} style={typeStyle}>
+          <AutoFitText
+            text={fieldText(f, item.values)}
+            fontSizePx={(f.fontSize || 16) * (96 / 72)}
+            style={{ width: '100%', textAlign: f.align || 'center' }}
+          />
+        </div>
       );
     }
 

@@ -284,6 +284,13 @@ export interface CertField {
   fontWeight?: number;
   color?: string;
   align?: 'left' | 'center' | 'right';
+  /**
+   * Where the text sits when the box has a height of its own.
+   *
+   * Only means anything alongside `h`. Without a height the box is exactly as
+   * tall as its text and there is nothing to align against.
+   */
+  valign?: 'top' | 'middle' | 'bottom';
   fontFamily?: string;
   /** Conditional text. Empty or absent = print the variable as it is. */
   rules?: CertRule[];
