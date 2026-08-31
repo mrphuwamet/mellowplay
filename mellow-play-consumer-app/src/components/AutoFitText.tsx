@@ -29,10 +29,22 @@ const AutoFitText = ({ text, fontSizePx, style, className }: {
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(fontSizePx);
+  /** The width the current size was worked out for. */
+  const measuredAt = useRef(0);
 
   const measure = useCallback(() => {
     const el = ref.current;
-    if (!el || !text) { setSize(fontSizePx); return; }
+    if (!el) return;
+    if (!text) { setSize(fontSizePx); return; }
+
+    const available = el.clientWidth;
+    // Nothing to measure against yet — before layout, or while an ancestor is
+    // display:none, the box reports no width at all. Measuring then finds that
+    // NOTHING fits and shrinks the text to the floor, which is how a 44pt name
+    // ends up tiny in a box built for it. The observer below re-runs this the
+    // moment the box has a real width.
+    if (available <= 0) return;
+    measuredAt.current = available;
 
     const floor = Math.max(1, fontSizePx * FLOOR_RATIO);
     const fits = (px: number) => {
@@ -42,7 +54,7 @@ const AutoFitText = ({ text, fontSizePx, style, className }: {
       return el.scrollWidth <= el.clientWidth + 1;
     };
 
-    if (fits(fontSizePx)) { setSize(fontSizePx); el.style.fontSize = ''; return; }
+    if (fits(fontSizePx)) { el.style.fontSize = ''; setSize(fontSizePx); return; }
 
     let lo = floor;
     let hi = fontSizePx;
@@ -57,19 +69,26 @@ const AutoFitText = ({ text, fontSizePx, style, className }: {
     setSize(best);
   }, [text, fontSizePx]);
 
-  useLayoutEffect(() => { measure(); }, [measure]);
+  useLayoutEffect(() => { measuredAt.current = 0; measure(); }, [measure]);
 
   useEffect(() => {
     // A web font arriving after the first measurement changes every width, so
     // the whole thing has to be measured again once it lands.
     const fonts = (document as any).fonts;
-    if (fonts?.ready?.then) fonts.ready.then(() => measure()).catch(() => {});
+    if (fonts?.ready?.then) fonts.ready.then(() => { measuredAt.current = 0; measure(); }).catch(() => {});
 
-    // And again when the page is resized, since the box is a percentage of it.
     if (typeof ResizeObserver === 'undefined') return;
     const el = ref.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => measure());
+
+    // Only when the WIDTH changes. This element's own height moves every time
+    // the size is set, so reacting to any resize would have the component
+    // measuring its own output — a loop, and one that can settle on the wrong
+    // answer.
+    const observer = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0 && w !== measuredAt.current) measure();
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, [measure]);

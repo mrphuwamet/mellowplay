@@ -177,7 +177,22 @@ const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => 
   return createPortal(
     <div id="certificate-print-root">
       <style>{`
-        @media screen { #certificate-print-root { display: none; } }
+        /* Off-screen rather than display:none.
+         *
+         * A hidden box has no width, and shrink-to-fit measures the width it
+         * is given — so under display:none every auto-fitting name found that
+         * nothing fitted and printed at the smallest size allowed. Positioned
+         * away instead, the sheet is laid out for real and measures correctly,
+         * while still being invisible and unclickable. */
+        @media screen {
+          #certificate-print-root {
+            position: fixed;
+            left: -200vw;
+            top: 0;
+            opacity: 0;
+            pointer-events: none;
+          }
+        }
         @media print {
           /* Paper taken from the first certificate's template. A batch that
              mixes paper sizes still prints — the odd ones keep their own mm
@@ -185,7 +200,7 @@ const CertificatePrintSheet = ({ items }: { items: PrintableCertificate[] }) => 
           @page { size: ${w}mm ${h}mm; margin: 0; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
           body > *:not(#certificate-print-root) { display: none !important; }
-          #certificate-print-root { display: block; }
+          #certificate-print-root { position: static; opacity: 1; display: block; }
           .cert-page {
             page-break-after: always;
             break-after: page;
