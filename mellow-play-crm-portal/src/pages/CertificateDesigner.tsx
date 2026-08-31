@@ -685,6 +685,7 @@ const CertificateDesigner = () => {
       );
     }
     const shown = fieldText(f, previewData, !usingReal) || '—';
+    const vAlign = f.valign === 'top' ? 'flex-start' : f.valign === 'bottom' ? 'flex-end' : 'center';
     const typeSx = {
       ...common,
       fontWeight: f.fontWeight || 400,
@@ -738,26 +739,30 @@ const CertificateDesigner = () => {
         onPointerDown={start} onContextMenu={onContextMenu}
         sx={{
           ...typeSx,
-          ...(f.autoFit ? {} : { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }),
           // A height turns the box into something the text sits INSIDE, which
           // is the only reading under which vertical alignment means anything.
-          ...(f.h ? {
-            height: `${f.h}%`,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: f.valign === 'top' ? 'flex-start' : f.valign === 'bottom' ? 'flex-end' : 'center',
-          } : {}),
+          ...(f.h ? { height: `${f.h}%` } : {}),
+          ...(f.autoFit ? {} : {
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px`,
+            ...(f.h ? { display: 'flex', flexDirection: 'column', justifyContent: vAlign } : {}),
+          }),
         }}
       >
-        <Box component="div" sx={{ width: '100%' }}>
-          {f.autoFit ? (
-            <AutoFitText text={shown} fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)} />
-          ) : (
-            <Box component="span" sx={{ fontSize: `${ptToPx(f.fontSize || 16, pageW, renderWidth)}px` }}>
-              {shown}
-            </Box>
-          )}
-        </Box>
+        {f.autoFit ? (
+          // Given the box, height and all, so the fit is measured against what
+          // the field actually is rather than against a wrapper.
+          <AutoFitText
+            text={shown}
+            fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
+            multiline={!!f.h}
+            style={{
+              width: '100%',
+              ...(f.h ? { height: '100%', display: 'flex', flexDirection: 'column', justifyContent: vAlign } : {}),
+            }}
+          />
+        ) : shown}
         {isSel && !f.locked && [handle('l'), handle('r'), handle('t'), handle('b')]}
       </Box>
     );

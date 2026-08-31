@@ -105,13 +105,13 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
       // Points converted here because AutoFitText measures in pixels, which is
       // what the browser lays out in whatever unit the page is written in.
       return (
-        <div key={f.id} style={typeStyle}>
-          <AutoFitText
-            text={fieldText(f, item.values)}
-            fontSizePx={(f.fontSize || 16) * (96 / 72)}
-            style={{ width: '100%', textAlign: f.align || 'center' }}
-          />
-        </div>
+        <AutoFitText
+          key={f.id}
+          text={fieldText(f, item.values)}
+          fontSizePx={(f.fontSize || 16) * (96 / 72)}
+          style={typeStyle}
+          multiline={!!f.h}
+        />
       );
     }
 

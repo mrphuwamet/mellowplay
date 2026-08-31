@@ -141,13 +141,13 @@ const CertificateView: React.FC = () => {
 
     if (f.autoFit) {
       return (
-        <div key={f.id} style={typeStyle}>
-          <AutoFitText
-            text={fieldText(f, data)}
-            fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
-            style={{ width: '100%', textAlign: f.align || 'center' }}
-          />
-        </div>
+        <AutoFitText
+          key={f.id}
+          text={fieldText(f, data)}
+          fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
+          style={typeStyle}
+          multiline={!!f.h}
+        />
       );
     }
 
