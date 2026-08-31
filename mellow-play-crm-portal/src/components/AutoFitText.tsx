@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
- * Text that shrinks until it fits the box it is in — across and down.
+ * Text that shrinks until it fits the box it is in.
  *
  * Mirrored in mellow-play-consumer-app/src/components/AutoFitText.tsx — a
  * certificate is drawn in three places (the designer, the sheet that prints,
@@ -10,20 +10,33 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
  *
  * Widths cannot be worked out from the character count: "มานะ" and "ณัฐฐาพัชร์"
  * are four characters each and nowhere near the same width, and a Latin name
- * differs again. So it is measured, by binary search over the point size —
- * six layout passes, once, rather than a guess that is wrong for somebody.
+ * differs again. So the text is MEASURED — but with a canvas, not by watching
+ * an element overflow.
+ *
+ * That choice is the whole design here. Reading scrollWidth against clientWidth
+ * depends on overflow, on flex, on whether an ancestor is hidden, and on
+ * whether layout has happened yet; get any of those wrong and every name
+ * collapses to the smallest size allowed, which is exactly what happened. A
+ * canvas measurement needs none of it: given a font and a string it returns a
+ * width, and the size that fits is then arithmetic.
  *
  * Shrinking only. A short name stays at the size it was designed at; the point
  * is that one long name does not force every certificate to be set smaller.
- *
- * The text is measured in an inner element and compared against the outer box.
- * Measuring the box against itself does not work once it centres its contents:
- * overflow then spills equally above and below, and the scroll height never
- * reports it.
  */
 
 /** Below this the line is unreadable on paper, so it stops and overflows. */
 const FLOOR_RATIO = 0.4;
+
+/** One canvas for the whole app — creating one per measurement is wasteful. */
+let sharedCanvas: HTMLCanvasElement | null = null;
+const textWidth = (text: string, font: string): number => {
+  if (typeof document === 'undefined') return 0;
+  if (!sharedCanvas) sharedCanvas = document.createElement('canvas');
+  const ctx = sharedCanvas.getContext('2d');
+  if (!ctx) return 0;
+  ctx.font = font;
+  return ctx.measureText(text).width;
+};
 
 const AutoFitText = ({ text, fontSizePx, style, className, multiline }: {
   text: string;
@@ -57,38 +70,41 @@ const AutoFitText = ({ text, fontSizePx, style, className, multiline }: {
     const availW = outer.clientWidth;
     const availH = outer.clientHeight;
     // Nothing to measure against yet — before layout, or while an ancestor is
-    // display:none, the box reports no size at all. Measuring then finds that
-    // NOTHING fits and shrinks the text to the floor, which is how a 44pt name
-    // ends up tiny in a box built for it.
+    // display:none, the box reports no size. Sizing then would find that
+    // nothing fits and shrink to the floor; the observer below re-runs this the
+    // moment the box has a real width.
     if (availW <= 0) return;
     measuredAt.current = `${availW}x${availH}`;
 
     const floor = Math.max(1, fontSizePx * FLOOR_RATIO);
-    const fits = (px: number) => {
-      inner.style.fontSize = `${px}px`;
-      // A pixel of slack on each: sub-pixel rounding otherwise reports a line
-      // that fits exactly as overflowing, and the text shrinks for no reason.
-      const wideEnough = inner.scrollWidth <= outer.clientWidth + 1;
-      // A box with no height of its own grows with its text, so this is only
-      // ever a real constraint when the field was given one.
-      const tallEnough = inner.scrollHeight <= outer.clientHeight + 1;
-      return wideEnough && tallEnough;
-    };
+    const cs = window.getComputedStyle(inner);
+    // The family and weight the box is actually set in, so the measurement is
+    // of this text in this typeface and not an approximation of it.
+    const fontAt = (px: number) => `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`;
 
-    if (fits(fontSizePx)) { inner.style.fontSize = ''; setSize(fontSizePx); return; }
+    // One line: the size that fits is the design size scaled by how much too
+    // wide the text is. No search, no dependence on layout.
+    const wideAt = textWidth(text, fontAt(fontSizePx));
+    let next = wideAt > 0 && wideAt > availW
+      ? Math.max(floor, fontSizePx * (availW / wideAt))
+      : fontSizePx;
 
-    let lo = floor;
-    let hi = fontSizePx;
-    let best = floor;
-    // Six passes puts it within about 1.5% of the largest size that fits,
-    // which is far finer than anyone can see.
-    for (let i = 0; i < 6; i++) {
-      const mid = (lo + hi) / 2;
-      if (fits(mid)) { best = mid; lo = mid; } else { hi = mid; }
+    // With a height to wrap into, the wrapped text can still be too tall. That
+    // one cannot be worked out from a single measurement, so it is stepped down
+    // against the real laid-out height — which is meaningful here precisely
+    // because the box HAS a height.
+    if (multiline && availH > 0) {
+      for (let i = 0; i < 8; i++) {
+        inner.style.fontSize = `${next}px`;
+        if (inner.scrollHeight <= availH + 1) break;
+        next = Math.max(floor, next * 0.9);
+        if (next <= floor) break;
+      }
+      inner.style.fontSize = '';
     }
-    inner.style.fontSize = '';
-    setSize(best);
-  }, [text, fontSizePx]);
+
+    setSize(next);
+  }, [text, fontSizePx, multiline]);
 
   useLayoutEffect(() => { measuredAt.current = ''; measure(); }, [measure]);
 
