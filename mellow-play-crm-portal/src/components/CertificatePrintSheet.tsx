@@ -110,7 +110,6 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
           text={fieldText(f, item.values)}
           fontSizePx={(f.fontSize || 16) * (96 / 72)}
           style={typeStyle}
-          multiline={!!f.h}
           align={f.align || 'center'}
         />
       );

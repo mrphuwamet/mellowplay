@@ -27,12 +27,15 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
  * The failure mode is chosen too: anything unmeasurable leaves the scale at 1,
  * so the text appears at the size it was designed at. Too big is a layout
  * problem someone can see and fix; silently tiny is what wasted a day.
+ *
+ * The text never wraps. A long name gets smaller — that is the entire
+ * behaviour asked for, and wrapping would let it "fit" without shrinking.
  */
 
 /** A squeeze past this is unreadable, so it stops and lets the box clip. */
 const MIN_SCALE = 0.35;
 
-const AutoFitText = ({ text, fontSizePx, style, className, multiline, align }: {
+const AutoFitText = ({ text, fontSizePx, style, className, align }: {
   text: string;
   /** The size the box was designed at, already converted to pixels. */
   fontSizePx: number;
@@ -43,8 +46,6 @@ const AutoFitText = ({ text, fontSizePx, style, className, multiline, align }: {
    */
   style?: React.CSSProperties;
   className?: string;
-  /** Let the text wrap. Only useful when the box has a height to wrap into. */
-  multiline?: boolean;
   /** Which edge the text is anchored to, so a squeeze does not slide it. */
   align?: 'left' | 'center' | 'right';
 }) => {
@@ -109,16 +110,14 @@ const AutoFitText = ({ text, fontSizePx, style, className, multiline, align }: {
           // is what makes the natural width meaningful. A block at width:100%
           // would report the box's width and never look too big.
           display: 'inline-block',
-          maxWidth: multiline ? '100%' : undefined,
           fontSize: `${fontSizePx}px`,
           transform: scale < 1 ? `scale(${scale})` : undefined,
           transformOrigin: origin,
-          ...(multiline
-            ? { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-            // One line: wrapping would make the text fit without shrinking,
-            // and a name broken across two lines is not what anyone laid the
-            // page out for.
-            : { whiteSpace: 'nowrap' }),
+          // ALWAYS one line. Wrapping was the wrong answer twice over: it lets
+          // any text "fit" without shrinking, and a name broken across two
+          // lines is not what anyone laid a certificate out for — the whole
+          // request was that a long name gets smaller, and nothing else.
+          whiteSpace: 'nowrap',
         }}
       >
         {text}

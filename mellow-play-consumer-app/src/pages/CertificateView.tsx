@@ -146,7 +146,6 @@ const CertificateView: React.FC = () => {
           text={fieldText(f, data)}
           fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
           style={typeStyle}
-          multiline={!!f.h}
           align={f.align || 'center'}
         />
       );

@@ -756,7 +756,6 @@ const CertificateDesigner = () => {
           <AutoFitText
             text={shown}
             fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
-            multiline={!!f.h}
             align={f.align || 'center'}
             style={{
               width: '100%',
