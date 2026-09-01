@@ -757,6 +757,7 @@ const CertificateDesigner = () => {
             text={shown}
             fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
             multiline={!!f.h}
+            align={f.align || 'center'}
             style={{
               width: '100%',
               ...(f.h ? { height: '100%', display: 'flex', flexDirection: 'column', justifyContent: vAlign } : {}),

@@ -1,141 +1,118 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
- * Text that shrinks until it fits the box it is in.
+ * Text kept at the size it was designed at, and squeezed only when it does not
+ * fit the box.
  *
  * Mirrored in mellow-play-consumer-app/src/components/AutoFitText.tsx — a
  * certificate is drawn in three places (the designer, the sheet that prints,
  * and the page a family opens) and a name that fits in one and overflows in
  * another is the failure this exists to prevent. Change both together.
  *
- * Widths cannot be worked out from the character count: "มานะ" and "ณัฐฐาพัชร์"
- * are four characters each and nowhere near the same width, and a Latin name
- * differs again. So the text is MEASURED — but with a canvas, not by watching
- * an element overflow.
+ * ── Why a transform, after two attempts that did not work ──────────────────
  *
- * That choice is the whole design here. Reading scrollWidth against clientWidth
- * depends on overflow, on flex, on whether an ancestor is hidden, and on
- * whether layout has happened yet; get any of those wrong and every name
- * collapses to the smallest size allowed, which is exactly what happened. A
- * canvas measurement needs none of it: given a font and a string it returns a
- * width, and the size that fits is then arithmetic.
+ * The first versions changed the font-size and then measured whether the text
+ * still overflowed. That is circular: the thing being measured is the thing
+ * being changed, so the measurement moves under the measurer. It also depended
+ * on scrollWidth against clientWidth, which is thrown off by overflow, by flex,
+ * by an ancestor being hidden, and by whether layout has run at all — and every
+ * one of those failures reads as "nothing fits", which shrinks the text to the
+ * smallest size allowed. That is precisely what kept happening.
  *
- * Shrinking only. A short name stays at the size it was designed at; the point
- * is that one long name does not force every certificate to be set smaller.
+ * A CSS transform does not affect layout. So the text is laid out ONCE, always
+ * at its designed size, and its natural width never changes no matter what
+ * scale is applied. Measuring is therefore stable, and squeezing cannot feed
+ * back into the measurement.
+ *
+ * The failure mode is chosen too: anything unmeasurable leaves the scale at 1,
+ * so the text appears at the size it was designed at. Too big is a layout
+ * problem someone can see and fix; silently tiny is what wasted a day.
  */
 
-/** Below this the line is unreadable on paper, so it stops and overflows. */
-const FLOOR_RATIO = 0.4;
+/** A squeeze past this is unreadable, so it stops and lets the box clip. */
+const MIN_SCALE = 0.35;
 
-/** One canvas for the whole app — creating one per measurement is wasteful. */
-let sharedCanvas: HTMLCanvasElement | null = null;
-const textWidth = (text: string, font: string): number => {
-  if (typeof document === 'undefined') return 0;
-  if (!sharedCanvas) sharedCanvas = document.createElement('canvas');
-  const ctx = sharedCanvas.getContext('2d');
-  if (!ctx) return 0;
-  ctx.font = font;
-  return ctx.measureText(text).width;
-};
-
-const AutoFitText = ({ text, fontSizePx, style, className, multiline }: {
+const AutoFitText = ({ text, fontSizePx, style, className, multiline, align }: {
   text: string;
   /** The size the box was designed at, already converted to pixels. */
   fontSizePx: number;
   /**
    * The box itself — position, width, and a height with its flex alignment
    * when the field has one. Passed whole so the caller keeps one description of
-   * where the box is, and this component only decides how big the type gets.
+   * where the box is, and this component only decides how much to squeeze.
    */
   style?: React.CSSProperties;
   className?: string;
-  /**
-   * Let the text wrap. Worth it only when the box has a height to wrap into —
-   * without one, wrapping makes any text "fit" and nothing ever shrinks.
-   */
+  /** Let the text wrap. Only useful when the box has a height to wrap into. */
   multiline?: boolean;
+  /** Which edge the text is anchored to, so a squeeze does not slide it. */
+  align?: 'left' | 'center' | 'right';
 }) => {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState(fontSizePx);
-  /** The box size the current type size was worked out for. */
-  const measuredAt = useRef('');
+  const [scale, setScale] = useState(1);
 
   const measure = useCallback(() => {
     const outer = outerRef.current;
     const inner = innerRef.current;
     if (!outer || !inner) return;
-    if (!text) { setSize(fontSizePx); return; }
 
     const availW = outer.clientWidth;
     const availH = outer.clientHeight;
-    // Nothing to measure against yet — before layout, or while an ancestor is
-    // display:none, the box reports no size. Sizing then would find that
-    // nothing fits and shrink to the floor; the observer below re-runs this the
-    // moment the box has a real width.
-    if (availW <= 0) return;
-    measuredAt.current = `${availW}x${availH}`;
+    // The natural size, unaffected by whatever scale is currently applied —
+    // a transform does not change layout, which is the whole reason this
+    // measurement is trustworthy.
+    const naturalW = inner.offsetWidth;
+    const naturalH = inner.offsetHeight;
 
-    const floor = Math.max(1, fontSizePx * FLOOR_RATIO);
-    const cs = window.getComputedStyle(inner);
-    // The family and weight the box is actually set in, so the measurement is
-    // of this text in this typeface and not an approximation of it.
-    const fontAt = (px: number) => `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`;
+    // Unmeasurable — before layout, or inside something hidden. Leave the text
+    // at its designed size rather than guessing it does not fit.
+    if (availW <= 0 || naturalW <= 0) { setScale(1); return; }
 
-    // One line: the size that fits is the design size scaled by how much too
-    // wide the text is. No search, no dependence on layout.
-    const wideAt = textWidth(text, fontAt(fontSizePx));
-    let next = wideAt > 0 && wideAt > availW
-      ? Math.max(floor, fontSizePx * (availW / wideAt))
-      : fontSizePx;
+    let next = 1;
+    if (naturalW > availW) next = availW / naturalW;
+    // Only bites when the field was given a height; without one the box grows
+    // with its text and this is always true.
+    if (availH > 0 && naturalH * next > availH) next = availH / naturalH;
 
-    // With a height to wrap into, the wrapped text can still be too tall. That
-    // one cannot be worked out from a single measurement, so it is stepped down
-    // against the real laid-out height — which is meaningful here precisely
-    // because the box HAS a height.
-    if (multiline && availH > 0) {
-      for (let i = 0; i < 8; i++) {
-        inner.style.fontSize = `${next}px`;
-        if (inner.scrollHeight <= availH + 1) break;
-        next = Math.max(floor, next * 0.9);
-        if (next <= floor) break;
-      }
-      inner.style.fontSize = '';
-    }
+    setScale(Math.max(MIN_SCALE, Math.min(1, next)));
+  }, []);
 
-    setSize(next);
-  }, [text, fontSizePx, multiline]);
-
-  useLayoutEffect(() => { measuredAt.current = ''; measure(); }, [measure]);
+  useLayoutEffect(() => { measure(); });
 
   useEffect(() => {
     // A web font arriving after the first measurement changes every width, so
-    // the whole thing has to be measured again once it lands.
+    // it all has to be measured again once it lands.
     const fonts = (document as any).fonts;
-    if (fonts?.ready?.then) fonts.ready.then(() => { measuredAt.current = ''; measure(); }).catch(() => {});
+    if (fonts?.ready?.then) fonts.ready.then(() => measure()).catch(() => {});
 
     if (typeof ResizeObserver === 'undefined') return;
     const outer = outerRef.current;
-    if (!outer) return;
-
-    // Watching the OUTER box, and only when its size actually changed. The
-    // inner element's height moves every time the size is set, so watching
-    // that would have the component reacting to its own output.
-    const observer = new ResizeObserver(() => {
-      const key = `${outer.clientWidth}x${outer.clientHeight}`;
-      if (outer.clientWidth > 0 && key !== measuredAt.current) measure();
-    });
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    // Safe to watch both: neither element's LAYOUT size is affected by the
+    // scale, so this cannot react to its own output.
+    const observer = new ResizeObserver(() => measure());
     observer.observe(outer);
+    observer.observe(inner);
     return () => observer.disconnect();
   }, [measure]);
+
+  const origin = align === 'left' ? 'left center' : align === 'right' ? 'right center' : 'center center';
 
   return (
     <div ref={outerRef} className={className} style={{ ...style, overflow: 'hidden' }}>
       <div
         ref={innerRef}
         style={{
-          width: '100%',
-          fontSize: `${size}px`,
+          // Inline-block so the element is exactly as wide as its text, which
+          // is what makes the natural width meaningful. A block at width:100%
+          // would report the box's width and never look too big.
+          display: 'inline-block',
+          maxWidth: multiline ? '100%' : undefined,
+          fontSize: `${fontSizePx}px`,
+          transform: scale < 1 ? `scale(${scale})` : undefined,
+          transformOrigin: origin,
           ...(multiline
             ? { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
             // One line: wrapping would make the text fit without shrinking,

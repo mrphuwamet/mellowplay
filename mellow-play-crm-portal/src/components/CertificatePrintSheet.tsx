@@ -111,6 +111,7 @@ const CertificatePage = ({ item }: { item: PrintableCertificate }) => {
           fontSizePx={(f.fontSize || 16) * (96 / 72)}
           style={typeStyle}
           multiline={!!f.h}
+          align={f.align || 'center'}
         />
       );
     }
