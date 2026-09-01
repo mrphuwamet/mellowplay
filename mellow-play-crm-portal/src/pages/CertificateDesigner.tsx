@@ -269,7 +269,13 @@ const CertificateDesigner = () => {
     return () => window.removeEventListener('resize', measure);
   }, [activeId]);
 
-  const currentSnapshot = snapshotOf({ name, background, pageW, pageH, fields });
+  // Memoised: this serialises the whole design, and it was running on every
+  // render — which during a drag is every pointer move, twice over, since the
+  // print sheet stringifies the fields as well.
+  const currentSnapshot = useMemo(
+    () => snapshotOf({ name, background, pageW, pageH, fields }),
+    [name, background, pageW, pageH, fields],
+  );
 
   const applySnapshot = (snap: string) => {
     try {

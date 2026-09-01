@@ -76,10 +76,16 @@ const AutoFitText = ({ text, fontSizePx, style, className, align }: {
     // with its text and this is always true.
     if (availH > 0 && naturalH * next > availH) next = availH / naturalH;
 
-    setScale(Math.max(MIN_SCALE, Math.min(1, next)));
+    const wanted = Math.max(MIN_SCALE, Math.min(1, next));
+    // Only when it actually moved, and not for a rounding difference. Setting
+    // state unconditionally here re-renders, which re-runs this, which sets
+    // state again — the page crawls and nothing looks obviously wrong.
+    setScale(prev => (Math.abs(prev - wanted) < 0.001 ? prev : wanted));
   }, []);
 
-  useLayoutEffect(() => { measure(); });
+  // Re-measured when the TEXT or the designed size changes, not on every
+  // render. Anything else that moves the box is caught by the observer below.
+  useLayoutEffect(() => { measure(); }, [measure, text, fontSizePx, style?.width, style?.height]);
 
   useEffect(() => {
     // A web font arriving after the first measurement changes every width, so
@@ -89,13 +95,12 @@ const AutoFitText = ({ text, fontSizePx, style, className, align }: {
 
     if (typeof ResizeObserver === 'undefined') return;
     const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
-    // Safe to watch both: neither element's LAYOUT size is affected by the
-    // scale, so this cannot react to its own output.
+    if (!outer) return;
+    // The outer box only. Its layout size is not affected by the scale, so
+    // this cannot react to its own output — and watching the inner element too
+    // was one more measurement per frame for nothing.
     const observer = new ResizeObserver(() => measure());
     observer.observe(outer);
-    observer.observe(inner);
     return () => observer.disconnect();
   }, [measure]);
 
