@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { emptyIdentity, fullNameOf } from '../utils/respondentName';
+import { accountIdentity, emptyIdentity, fullNameOf } from '../utils/respondentName';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -21,18 +21,14 @@ const SurveyDetail = () => {
   const { lang } = useTranslation();
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
-  const account = (() => {
-    try {
-      const user = JSON.parse(localStorage.getItem('mellow_user') || 'null');
-      if (!user) return { name: '', phone: '' };
-      const name = user.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ');
-      return { name, phone: user.phone || '' };
-    } catch { return { name: '', phone: '' }; }
-  })();
+  const account = accountIdentity();
+  // No usable name behind the token means "ใช้ข้อมูลของฉัน" would show a dash
+  // and never validate — send that person straight to the manual boxes.
+  const canPrefill = isLoggedIn && !!account.name;
 
   const [form, setForm] = useState<any | null | undefined>(undefined);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [identity, setIdentity] = useState(emptyIdentity(isLoggedIn));
+  const [identity, setIdentity] = useState(emptyIdentity(canPrefill));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; resultTextHtml?: string; imageUrl?: string } | null } | null>(null);
@@ -147,7 +143,7 @@ const SurveyDetail = () => {
                   onIdentityChange={setIdentity}
                   accountName={account.name}
                   accountPhone={account.phone}
-                  isLoggedIn={isLoggedIn}
+                  isLoggedIn={canPrefill}
                   onSubmit={handleSubmit}
                   submitting={submitting}
                   lang={lang}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { emptyIdentity, fullNameOf } from '../utils/respondentName';
+import { accountIdentity, emptyIdentity, fullNameOf } from '../utils/respondentName';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
@@ -40,17 +40,16 @@ const SessionDetail = () => {
   const t = (th: string, en: string) => (lang === 'en' ? en : th);
 
   const isLoggedIn = !!localStorage.getItem('mellow_token');
-  const account = (() => {
-    try {
-      const raw = localStorage.getItem('mellow_user');
-      return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
-  })();
+  const account = accountIdentity();
+  // A token with no usable name behind it (or a stale mellow_user) would make
+  // "ใช้ข้อมูลของฉัน" show "-" and block the start button — someone in that
+  // state should land straight on the type-it-yourself boxes.
+  const canPrefill = isLoggedIn && !!account.name;
 
   const [session, setSession] = useState<any | null | undefined>(undefined);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [identity, setIdentity] = useState(emptyIdentity(isLoggedIn));
+  const [identity, setIdentity] = useState(emptyIdentity(canPrefill));
   const [started, setStarted] = useState(false);
   const [checkingName, setCheckingName] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -93,13 +92,19 @@ const SessionDetail = () => {
   const totalPages = pagesPerStep.reduce((a, b) => a + b, 0);
   const pagesBefore = pagesPerStep.slice(0, stepIndex).reduce((a, b) => a + b, 0);
 
-  const resolvedName = identity.mode === 'prefill'
-    ? (account.display_name || `${account.first_name || ''} ${account.last_name || ''}`.trim())
-    : fullNameOf(identity);
-  const resolvedPhone = identity.mode === 'prefill' ? (account.phone || '') : identity.phone.trim();
+  const resolvedName = identity.mode === 'prefill' ? account.name : fullNameOf(identity);
+  const resolvedPhone = identity.mode === 'prefill' ? account.phone : identity.phone.trim();
 
   const handleStart = async () => {
-    if (!resolvedName) { setError(t('กรุณากรอกชื่อและนามสกุล', 'Please enter your first and last name')); return; }
+    if (!resolvedName) {
+      // Say which half is missing: fullNameOf() is blank when EITHER box is
+      // empty, and "กรอกชื่อ" alone sent people back to retype the box they
+      // had already filled.
+      setError(identity.firstName.trim() || identity.lastName.trim()
+        ? t('กรุณากรอกทั้งชื่อและนามสกุลให้ครบทั้งสองช่อง', 'Please fill in both first and last name')
+        : t('กรุณากรอกชื่อและนามสกุล', 'Please enter your first and last name'));
+      return;
+    }
     setError('');
     if (!session?.requireUniqueName) { setStarted(true); return; }
 
@@ -229,7 +234,7 @@ const SessionDetail = () => {
         <label className="text-xs font-bold text-slate-600 block mb-1.5">
           {t('ชื่อ-นามสกุล', 'Full name')}<span className="text-mellow-red ml-0.5">*</span>
         </label>
-        {isLoggedIn && (
+        {canPrefill && (
           <div className="flex gap-2 mb-2">
             <button type="button" onClick={() => setIdentity({ ...identity, mode: 'prefill' })}
               className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all ${identity.mode === 'prefill' ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
@@ -241,9 +246,9 @@ const SessionDetail = () => {
             </button>
           </div>
         )}
-        {isLoggedIn && identity.mode === 'prefill' ? (
+        {canPrefill && identity.mode === 'prefill' ? (
           <div className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800">
-            {resolvedName || '-'}{resolvedPhone ? ` · ${resolvedPhone}` : ''}
+            {resolvedName}{resolvedPhone ? ` · ${resolvedPhone}` : ''}
           </div>
         ) : (
           <div className="space-y-2">
@@ -292,7 +297,7 @@ const SessionDetail = () => {
         onIdentityChange={setIdentity}
         accountName={resolvedName}
         accountPhone={resolvedPhone}
-        isLoggedIn={isLoggedIn}
+        isLoggedIn={canPrefill}
         onSubmit={handleStepSubmit}
         submitting={submitting}
         lang={lang}

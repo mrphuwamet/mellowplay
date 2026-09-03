@@ -21,6 +21,27 @@ export const emptyIdentity = (isLoggedIn: boolean): RespondentIdentity => ({
   phone: '',
 });
 
+/**
+ * The logged-in account as a survey respondent, read once from localStorage.
+ *
+ * The login API stores the user camelCase (displayName/firstName/lastName),
+ * but this object has been reshaped over time and older sessions may still
+ * hold snake_case keys — reading only one shape is exactly the bug that made
+ * "ใช้ข้อมูลของฉัน" show "-" instead of a name, so both are accepted here and
+ * every survey screen reads through this one function.
+ */
+export const accountIdentity = (): { name: string; phone: string } => {
+  try {
+    const user = JSON.parse(localStorage.getItem('mellow_user') || 'null');
+    if (!user) return { name: '', phone: '' };
+    const name =
+      user.displayName || user.display_name ||
+      [user.firstName || user.first_name, user.lastName || user.last_name]
+        .filter(Boolean).join(' ').trim();
+    return { name: name || '', phone: user.phone || '' };
+  } catch { return { name: '', phone: '' }; }
+};
+
 /** The two boxes as one name. Blank when either half is missing. */
 export const fullNameOf = (identity: RespondentIdentity): string => {
   const first = identity.firstName.trim();

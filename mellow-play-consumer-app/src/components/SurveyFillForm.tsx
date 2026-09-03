@@ -303,6 +303,16 @@ const SurveyFillForm: React.FC<Props> = ({
                         ? (lang === 'en' ? 'Phone' : 'เบอร์โทร')
                         : (lang === 'en' ? 'Phone (optional)' : 'เบอร์โทร (ไม่บังคับ)')}
                       className={inputClass} />
+                    {/* The red ring alone doesn't say WHICH box is the problem —
+                        a first name with no last name looks filled-in to the
+                        person who typed it. */}
+                    {isInvalid && (
+                      <p className="text-xs font-bold text-mellow-red">
+                        {lang === 'en'
+                          ? 'Please fill in both first and last name'
+                          : 'กรุณากรอกทั้งชื่อและนามสกุลให้ครบทั้งสองช่อง'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
