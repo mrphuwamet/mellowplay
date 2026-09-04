@@ -56,6 +56,20 @@ const CertificateView: React.FC = () => {
     return () => window.removeEventListener('resize', measure);
   }, []);
 
+  /**
+   * The template names the typeface; this page has to go and get it, or a
+   * certificate designed in Kanit reaches the family in whatever their phone
+   * happens to default to.
+   *
+   * ABOVE the early returns below, with every other hook. It sat under them,
+   * which meant this page called one more hook once the certificate had loaded
+   * than it did while loading — and React refuses to continue, so the page went
+   * blank at the exact moment the data arrived.
+   */
+  useEffect(() => {
+    for (const f of parseFields(template?.fields_json)) ensureFontLoaded(f.fontFamily);
+  }, [template?.fields_json]);
+
   if (state === 'loading') {
     return <div className="min-h-screen flex items-center justify-center text-sm font-bold text-slate-400">กำลังเปิดเกียรติบัตร...</div>;
   }
@@ -77,10 +91,6 @@ const CertificateView: React.FC = () => {
   const pageH = template?.page_height || 210;
   // Hidden boxes are hidden here too — see CertField.hidden.
   const fields = parseFields(template?.fields_json).filter(f => !f.hidden);
-  // The template names the typeface; this page has to go and get it, or a
-  // certificate designed in Kanit reaches the family in whatever their phone
-  // happens to default to.
-  useEffect(() => { for (const f of fields) ensureFontLoaded(f.fontFamily); }, [template?.fields_json]);
   const height = renderWidth * (pageH / pageW);
   const verifyUrl = `${window.location.origin}/verify/${cert.public_code}`;
 
