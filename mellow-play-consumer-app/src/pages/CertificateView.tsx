@@ -128,8 +128,30 @@ const CertificateView: React.FC = () => {
     }
 
     if (f.type === 'image') {
+      /**
+       * A signature is decorative here — nothing on the page needs to click
+       * it — so the pointer passes straight through. That takes "Save image
+       * as" and drag-to-desktop off the picture, which is what turns a
+       * signature into a clean transparent PNG someone can paste onto another
+       * document.
+       *
+       * Deterrence, not protection: a screenshot still works, and anyone
+       * opening developer tools still gets the file. The only way to have no
+       * liftable signature is to have no separate signature file — bake it
+       * into the certificate background instead.
+       */
       return f.value
-        ? <img key={f.id} src={f.value} alt="" style={{ ...common, height: 'auto' }} />
+        ? (
+          <img
+            key={f.id} src={f.value} alt="" draggable={false}
+            style={{
+              ...common, height: 'auto',
+              pointerEvents: 'none',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+            }}
+          />
+        )
         : null;
     }
 
