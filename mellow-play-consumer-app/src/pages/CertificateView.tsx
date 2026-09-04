@@ -6,6 +6,7 @@ import {
   CertField, CertTemplate, parseFields, ptToPx, fieldText, formatCertDate,
 } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
+import html2canvas from 'html2canvas';
 import AutoFitText from '../components/AutoFitText';
 
 /**
@@ -33,6 +34,8 @@ const CertificateView: React.FC = () => {
   // real paper size; both read the same percentages, so one measurement is all
   // the difference between them.
   const [renderWidth, setRenderWidth] = useState(900);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     if (!code) { setState('missing'); return; }
@@ -92,6 +95,10 @@ const CertificateView: React.FC = () => {
   // Hidden boxes are hidden here too — see CertField.hidden.
   const fields = parseFields(template?.fields_json).filter(f => !f.hidden);
   const height = renderWidth * (pageH / pageW);
+  // The page is drawn at renderWidth pixels; the sheet is pageW millimetres.
+  // 96/25.4 is pixels per millimetre in CSS, so this is the one factor that
+  // takes the whole drawing from the screen to the paper.
+  const printScale = (pageW * (96 / 25.4)) / renderWidth;
   const verifyUrl = `${window.location.origin}/verify/${cert.public_code}`;
 
   // The whole frozen map, so a template may print any answer from the
@@ -104,6 +111,48 @@ const CertificateView: React.FC = () => {
     serial: cert.serial,
     public_code: cert.public_code,
     ...(cert.values || {}),
+  };
+
+  /**
+   * The certificate as a PNG of exactly what is on screen.
+   *
+   * Asked for because the printed sheet did not match the preview, and an
+   * image cannot disagree with itself: it is a photograph of the very pixels
+   * the person is looking at. It is also what most people actually want — a
+   * file to keep and send, rather than a print dialog.
+   *
+   * Three times the screen size, so a 900px preview saves at about 2700px —
+   * enough to print at A4 without going soft. The background is served with
+   * CORS open, so the canvas is not tainted and this can be read back.
+   */
+  const downloadImage = async () => {
+    const node = document.getElementById(PAGE_ID);
+    if (!node) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      // Web fonts have to have arrived, or the capture is of the fallback.
+      const fonts = (document as any).fonts;
+      if (fonts?.ready) await fonts.ready;
+
+      const canvas = await html2canvas(node, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `certificate-${cert.serial || cert.public_code}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      setSaveError('บันทึกรูปไม่สำเร็จ — ลองใช้ปุ่มพิมพ์แทนได้ค่ะ');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const renderField = (f: CertField) => {
@@ -205,14 +254,31 @@ const CertificateView: React.FC = () => {
       <style>{`
         @page { size: ${pageW}mm ${pageH}mm; margin: 0; }
         @media print {
-          html, body { background: #fff !important; }
+          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
           .no-print { display: none !important; }
+          /*
+           * SCALED, not resized.
+           *
+           * The page is laid out at a pixel width and its type is sized from
+           * that width. Re-declaring the box in millimetres for print left the
+           * type at its screen size inside a much larger sheet, so everything
+           * printed smaller than it looked — which is why the printout did not
+           * match the preview. Scaling the whole thing by one factor takes the
+           * text, the images and the positions along together.
+           */
           #${PAGE_ID} {
-            width: ${pageW}mm !important;
-            height: ${pageH}mm !important;
+            transform: scale(${printScale});
+            transform-origin: top left;
             box-shadow: none !important;
             border-radius: 0 !important;
             break-inside: avoid;
+          }
+          /* The scaled box still occupies its original size in the layout, so
+             the wrapper is pinned to the sheet and the overflow trimmed. */
+          #${PAGE_ID}-wrap {
+            width: ${pageW}mm;
+            height: ${pageH}mm;
+            overflow: hidden;
           }
         }
       `}</style>
@@ -223,6 +289,7 @@ const CertificateView: React.FC = () => {
         </div>
       )}
 
+      <div id={`${PAGE_ID}-wrap`}>
       <div
         id={PAGE_ID}
         style={{
@@ -238,17 +305,28 @@ const CertificateView: React.FC = () => {
       >
         {fields.map(renderField)}
       </div>
+      </div>
 
       <div className="no-print flex flex-col items-center gap-2">
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="px-6 py-3 bg-mellow-purple text-white rounded-2xl text-sm font-black active:scale-95 transition-transform"
-        >
-          บันทึกเป็น PDF / พิมพ์
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => void downloadImage()}
+            disabled={saving}
+            className="px-6 py-3 bg-mellow-purple text-white rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {saving ? 'กำลังบันทึกรูป...' : 'ดาวน์โหลดเป็นรูป'}
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-6 py-3 bg-white text-mellow-purple border-2 border-mellow-purple rounded-2xl text-sm font-black active:scale-95 transition-transform"
+          >
+            พิมพ์ / บันทึก PDF
+          </button>
+        </div>
         <p className="text-[12px] font-medium text-slate-400 text-center max-w-xs leading-relaxed">
-          ในหน้าต่างพิมพ์ เลือกปลายทางเป็น “บันทึกเป็น PDF” เพื่อเก็บไฟล์ไว้
+          {saveError || 'ดาวน์โหลดเป็นรูปจะได้ไฟล์ตรงกับที่เห็นบนหน้าจอ · พิมพ์ให้เลือกปลายทางเป็น “บันทึกเป็น PDF” เพื่อเก็บไฟล์'}
         </p>
       </div>
     </div>
