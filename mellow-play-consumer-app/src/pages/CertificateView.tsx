@@ -7,6 +7,7 @@ import {
 } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
 import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import AutoFitText from '../components/AutoFitText';
 
 /**
@@ -34,8 +35,16 @@ const CertificateView: React.FC = () => {
   // real paper size; both read the same percentages, so one measurement is all
   // the difference between them.
   const [renderWidth, setRenderWidth] = useState(900);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<'' | 'png' | 'pdf'>('');
   const [saveError, setSaveError] = useState('');
+  /**
+   * Bake the auto-fit squeeze into the type size for the moment of capture.
+   *
+   * html2canvas reproduces a scaled text node only approximately, which is
+   * enough to shift a line inside a box that centres it — and that showed up
+   * as the saved file not matching the preview.
+   */
+  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     if (!code) { setState('missing'); return; }
@@ -114,45 +123,85 @@ const CertificateView: React.FC = () => {
   };
 
   /**
-   * The certificate as a PNG of exactly what is on screen.
+   * One capture of exactly what is on screen. Both downloads are made from it.
    *
-   * Asked for because the printed sheet did not match the preview, and an
-   * image cannot disagree with itself: it is a photograph of the very pixels
-   * the person is looking at. It is also what most people actually want — a
-   * file to keep and send, rather than a print dialog.
+   * An image cannot disagree with itself: it is the pixels the person is
+   * looking at. That is the whole reason the browser's own print was dropped —
+   * it re-laid the page out for paper and produced something else.
    *
-   * Three times the screen size, so a 900px preview saves at about 2700px —
+   * Three times the screen size, so a 900px preview captures near 2700px —
    * enough to print at A4 without going soft. The background is served with
-   * CORS open, so the canvas is not tainted and this can be read back.
+   * CORS open, so the canvas is readable rather than tainted.
    */
-  const downloadImage = async () => {
+  const capture = async (): Promise<HTMLCanvasElement | null> => {
     const node = document.getElementById(PAGE_ID);
-    if (!node) return;
-    setSaving(true);
-    setSaveError('');
-    try {
-      // Web fonts have to have arrived, or the capture is of the fallback.
-      const fonts = (document as any).fonts;
-      if (fonts?.ready) await fonts.ready;
+    if (!node) return null;
 
-      const canvas = await html2canvas(node, {
+    // Web fonts have to have arrived, or the capture is of the fallback face.
+    const fonts = (document as any).fonts;
+    if (fonts?.ready) await fonts.ready;
+
+    // Flatten the auto-fit transforms, then let React paint before capturing.
+    setCapturing(true);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      return await html2canvas(node, {
         scale: 3,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
       });
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `certificate-${cert.serial || cert.public_code}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      setSaveError('บันทึกรูปไม่สำเร็จ — ลองใช้ปุ่มพิมพ์แทนได้ค่ะ');
     } finally {
-      setSaving(false);
+      setCapturing(false);
     }
+  };
+
+  const save = (href: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const baseName = `certificate-${cert.serial || cert.public_code}`;
+
+  const downloadImage = async () => {
+    setSaving('png');
+    setSaveError('');
+    try {
+      const canvas = await capture();
+      if (!canvas) return;
+      save(canvas.toDataURL('image/png'), `${baseName}.png`);
+    } catch {
+      setSaveError('บันทึกรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally { setSaving(''); }
+  };
+
+  /**
+   * The PDF is the image, placed on a sheet of the certificate's own size.
+   *
+   * Not a re-drawing of the page: a PDF laid out again from the HTML is a
+   * second rendering that can differ from the preview, which is the fault this
+   * replaces. One capture, one sheet, edge to edge.
+   */
+  const downloadPdf = async () => {
+    setSaving('pdf');
+    setSaveError('');
+    try {
+      const canvas = await capture();
+      if (!canvas) return;
+      const pdf = new jsPDF({
+        orientation: pageW >= pageH ? 'landscape' : 'portrait',
+        unit: 'mm',
+        format: [pageW, pageH],
+      });
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+      pdf.save(`${baseName}.pdf`);
+    } catch {
+      setSaveError('บันทึก PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally { setSaving(''); }
   };
 
   const renderField = (f: CertField) => {
@@ -228,6 +277,7 @@ const CertificateView: React.FC = () => {
           fontSizePx={ptToPx(f.fontSize || 16, pageW, renderWidth)}
           style={typeStyle}
           align={f.align || 'center'}
+          flatten={capturing}
         />
       );
     }
@@ -249,7 +299,10 @@ const CertificateView: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center gap-4 py-6 px-4 print:bg-white print:p-0 print:gap-0">
-      {/* @page carries the real paper size, so the browser's own Save as PDF
+      {/* No longer an advertised route — the buttons below both go through one
+          capture, because a page re-laid-out for paper produced something other
+          than the preview. This stays for anyone who presses Ctrl+P anyway, and
+          gets the paper size right from an @page rule
           produces the right sheet without anyone choosing a size. */}
       <style>{`
         @page { size: ${pageW}mm ${pageH}mm; margin: 0; }
@@ -312,21 +365,22 @@ const CertificateView: React.FC = () => {
           <button
             type="button"
             onClick={() => void downloadImage()}
-            disabled={saving}
+            disabled={!!saving}
             className="px-6 py-3 bg-mellow-purple text-white rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
           >
-            {saving ? 'กำลังบันทึกรูป...' : 'ดาวน์โหลดเป็นรูป'}
+            {saving === 'png' ? 'กำลังบันทึก...' : 'ดาวน์โหลดรูป (PNG)'}
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
-            className="px-6 py-3 bg-white text-mellow-purple border-2 border-mellow-purple rounded-2xl text-sm font-black active:scale-95 transition-transform"
+            onClick={() => void downloadPdf()}
+            disabled={!!saving}
+            className="px-6 py-3 bg-white text-mellow-purple border-2 border-mellow-purple rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
           >
-            พิมพ์ / บันทึก PDF
+            {saving === 'pdf' ? 'กำลังบันทึก...' : 'ดาวน์โหลด PDF'}
           </button>
         </div>
         <p className="text-[12px] font-medium text-slate-400 text-center max-w-xs leading-relaxed">
-          {saveError || 'ดาวน์โหลดเป็นรูปจะได้ไฟล์ตรงกับที่เห็นบนหน้าจอ · พิมพ์ให้เลือกปลายทางเป็น “บันทึกเป็น PDF” เพื่อเก็บไฟล์'}
+          {saveError || 'ทั้งสองแบบได้ไฟล์ตรงกับที่เห็นบนหน้าจอ · PDF เป็นขนาดเดียวกับเกียรติบัตร พิมพ์ได้เลย'}
         </p>
       </div>
     </div>

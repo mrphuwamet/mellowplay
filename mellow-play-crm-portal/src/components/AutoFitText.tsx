@@ -35,7 +35,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 /** A squeeze past this is unreadable, so it stops and lets the box clip. */
 const MIN_SCALE = 0.35;
 
-const AutoFitText = ({ text, fontSizePx, style, className, align }: {
+const AutoFitText = ({ text, fontSizePx, style, className, align, flatten }: {
   text: string;
   /** The size the box was designed at, already converted to pixels. */
   fontSizePx: number;
@@ -48,6 +48,16 @@ const AutoFitText = ({ text, fontSizePx, style, className, align }: {
   className?: string;
   /** Which edge the text is anchored to, so a squeeze does not slide it. */
   align?: 'left' | 'center' | 'right';
+  /**
+   * Apply the fit as a font-size rather than a transform.
+   *
+   * For image capture. html2canvas reproduces a scaled text node only
+   * approximately — enough to shift a line inside a box that centres it — so
+   * the squeeze is baked into the type size for the moment of the capture. The
+   * scale is already known by then, so nothing is re-measured and the two
+   * cannot disagree.
+   */
+  flatten?: boolean;
 }) => {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -115,8 +125,8 @@ const AutoFitText = ({ text, fontSizePx, style, className, align }: {
           // is what makes the natural width meaningful. A block at width:100%
           // would report the box's width and never look too big.
           display: 'inline-block',
-          fontSize: `${fontSizePx}px`,
-          transform: scale < 1 ? `scale(${scale})` : undefined,
+          fontSize: `${flatten ? fontSizePx * scale : fontSizePx}px`,
+          transform: !flatten && scale < 1 ? `scale(${scale})` : undefined,
           transformOrigin: origin,
           // ALWAYS one line. Wrapping was the wrong answer twice over: it lets
           // any text "fit" without shrinking, and a name broken across two
