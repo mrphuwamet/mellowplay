@@ -3123,6 +3123,12 @@ const BookingManagement = () => {
   // correcting records genuinely need to exceed a quota sometimes — what was
   // wrong before was doing it without anyone being told.
   const [teamQuotaWarning, setTeamQuotaWarning] = useState<string>('');
+  /**
+   * Set whenever the round now selected has no seats left.
+   *
+   * Derived rather than stored, so it cannot go stale against the selection —
+   * see the useMemo below, which is the only thing that decides it.
+   */
   const [forceStatusSuccess, setForceStatusSuccess] = useState(false);
 
   // Round/slot picker for the edit dialog — same date-chip + slot-button
@@ -3137,6 +3143,26 @@ const BookingManagement = () => {
   const [rescheduleSelectedSlot, setRescheduleSelectedSlot] = useState<TimeSlot | null>(null);
   const rescheduleCourse = courses.find(c => c.id === forceStatusBooking?.course_id);
   const usesReschedulePicker = !!rescheduleCourse?.calendar_id;
+
+  /**
+   * The warning shown when the round now chosen has no seats left.
+   *
+   * Derived from the selection rather than set alongside it, so the two cannot
+   * disagree: every path that changes the round — clicking a chip, the
+   * pre-selection when the dialog opens, a reload of the slot list — produces
+   * the right warning without having to remember to.
+   *
+   * The seat count already excludes this booking (excludeBookingId), so
+   * re-saving a booking into the round it is already in never warns.
+   */
+  const slotFullWarning = useMemo(() => {
+    if (!usesReschedulePicker || !rescheduleSelectedSlot) return '';
+    if (rescheduleSelectedSlot.available > 0) return '';
+    const when = rescheduleSelectedDate
+      ? `${rescheduleSelectedDate.date} ${rescheduleSelectedSlot.startTime}`
+      : rescheduleSelectedSlot.startTime;
+    return `รอบ ${when} เต็มแล้ว — บันทึกได้ แต่จะทำให้รอบนี้เกินจำนวนที่รับได้ ตรวจสอบก่อนกดบันทึก`;
+  }, [usesReschedulePicker, rescheduleSelectedDate, rescheduleSelectedSlot]);
 
   useEffect(() => {
     setRescheduleDates([]);
@@ -3659,6 +3685,12 @@ const BookingManagement = () => {
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
           </Typography>
           {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
+          {/* Said before บันทึก, not after: there is nothing to confirm against
+              — the server accepts this — so the only useful moment is while the
+              choice is still on screen and can be changed. */}
+          {slotFullWarning && (
+            <Alert severity="warning" sx={{ mb: 2 }}>{slotFullWarning}</Alert>
+          )}
           {teamQuotaWarning && (
             <Alert
               severity="warning"
@@ -3722,13 +3754,22 @@ const BookingManagement = () => {
                       return (
                         <Box
                           key={ud.date}
-                          onClick={() => { if (!ud.isFull) { setRescheduleSelectedDate(ud); setRescheduleSelectedSlot(null); } }}
+                          // Selectable even when full. Staff are usually
+                          // recording something that already happened, and the
+                          // seat rule exists to stop a customer overbooking
+                          // themselves — the backend has always skipped it for
+                          // this route. Blocking the click only meant the
+                          // correction could not be entered at all.
+                          onClick={() => { setRescheduleSelectedDate(ud); setRescheduleSelectedSlot(null); }}
                           sx={{
-                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: ud.isFull ? 'not-allowed' : 'pointer',
+                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: 'pointer',
                             bgcolor: isSelected ? 'primary.main' : '#fafafa',
+                            // Still visibly full — dimmed and outlined in amber,
+                            // so choosing one is a decision rather than a slip.
                             color: isSelected ? 'white' : ud.isFull ? 'text.disabled' : 'text.primary',
-                            border: '1px solid', borderColor: isSelected ? 'primary.main' : '#eee',
-                            opacity: ud.isFull ? 0.5 : 1,
+                            border: '1px solid',
+                            borderColor: isSelected ? 'primary.main' : ud.isFull ? 'warning.light' : '#eee',
+                            opacity: ud.isFull && !isSelected ? 0.6 : 1,
                           }}
                         >
                           <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', fontSize: '10px' }}>{THAI_DAYS[d.getDay()]}</Typography>
@@ -3748,12 +3789,18 @@ const BookingManagement = () => {
                           <Chip
                             key={slot.startTime}
                             label={`${slot.label ? `${slot.label} (${slot.startTime})` : slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
-                            clickable={!isFull}
-                            disabled={isFull}
-                            color={isSelected ? 'primary' : 'default'}
+                            clickable
+                            // A full round says so on its face and in amber,
+                            // and the warning below spells out what saving it
+                            // means. Disabling it was the wrong lever: it hid
+                            // the round instead of telling staff about it.
+                            color={isSelected ? (isFull ? 'warning' : 'primary') : 'default'}
                             variant={isSelected ? 'filled' : 'outlined'}
                             onClick={() => setRescheduleSelectedSlot(slot)}
-                            sx={{ fontWeight: 700 }}
+                            sx={{
+                              fontWeight: 700,
+                              ...(isFull && !isSelected && { borderColor: 'warning.main', color: 'warning.dark' }),
+                            }}
                           />
                         );
                       })}
