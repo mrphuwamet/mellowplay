@@ -90,6 +90,10 @@ interface ReminderCandidate {
   booking_id: number;
   course_id: number;
   scheduled_at: string;
+  slot_date?: string | null;
+  slot_start_time?: string | null;
+  /** 1 when someone has been ticked in at the door. */
+  checked_in?: number;
   status: string;
   child_name: string;
   child_real_name?: string;
@@ -105,6 +109,87 @@ interface ReminderCandidate {
 }
 
 interface SendResult { sent: number; failed: number; results: { bookingId: number; ok: boolean; detail?: string }[] }
+
+interface RoundOption {
+  slot_date: string | null;
+  slot_start_time: string | null;
+  booking_count: number;
+  arrived_count: number;
+}
+
+/** Same wording as the tournament screen, so one round reads one way. */
+const roundLabel = (date: string | null, time: string | null) =>
+  date ? `${date}${time ? ` · ${String(time).slice(0, 5)}` : ''}` : 'ไม่ระบุรอบ';
+
+/** One string for a round, matching what the API splits on its side. */
+const roundKey = (r: RoundOption) => `${r.slot_date ?? ''}|${r.slot_start_time ?? ''}`;
+
+/**
+ * The rounds of the chosen course, reloaded whenever it changes.
+ *
+ * The selection is cleared with it, deliberately: a round key from the previous
+ * course matches no booking at all, and an empty list reads as "nobody is
+ * registered" rather than "you are still filtering by last week's session".
+ */
+function useCourseRounds(courseId: number) {
+  const [rounds, setRounds] = useState<RoundOption[]>([]);
+  const [round, setRound] = useState('');
+  useEffect(() => {
+    setRound('');
+    if (!courseId) { setRounds([]); return; }
+    axios.get(`${API_BASE}/sms/rounds`, { params: { courseId } })
+      .then(res => setRounds(res.data?.success ? res.data.rounds : []))
+      .catch(() => setRounds([]));
+  }, [courseId]);
+  return { rounds, round, setRound };
+}
+
+/**
+ * Pick one session to send to.
+ *
+ * A date range cannot say "the 10:00 group" when two rounds share a day, and
+ * that is the normal case for an event — which is why this exists beside the
+ * dates rather than instead of them. Disabled until a course is chosen, since
+ * rounds only mean anything within one.
+ */
+function RoundSelect({ courseId, rounds, round, setRound }: {
+  courseId: number; rounds: RoundOption[]; round: string; setRound: (v: string) => void;
+}) {
+  return (
+    <FormControl fullWidth size="small" disabled={!courseId}>
+      <InputLabel>รอบ</InputLabel>
+      <Select value={round} label="รอบ" onChange={e => setRound(String(e.target.value))}>
+        <MenuItem value="">{courseId ? 'ทุกรอบ' : 'เลือกคอร์สก่อน'}</MenuItem>
+        {rounds.map(r => (
+          <MenuItem key={roundKey(r)} value={roundKey(r)}>
+            {roundLabel(r.slot_date, r.slot_start_time)} · {r.booking_count} คน
+            {r.arrived_count > 0 ? ` (มาแล้ว ${r.arrived_count})` : ''}
+          </MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
+}
+
+/**
+ * Everyone, only those who have not arrived, or only those who have.
+ *
+ * "ยังไม่มา" is the reason this is here — chasing the people who are late while
+ * the session is running. It reads the same tick the check-in screen writes, so
+ * the two screens never disagree about who is in the room.
+ */
+function AttendanceSelect({ value, onChange }: { value: '' | 'in' | 'out'; onChange: (v: '' | 'in' | 'out') => void }) {
+  return (
+    <FormControl fullWidth size="small">
+      <InputLabel>การมา</InputLabel>
+      <Select value={value} label="การมา" onChange={e => onChange(e.target.value as '' | 'in' | 'out')}>
+        <MenuItem value="">ทั้งหมด</MenuItem>
+        <MenuItem value="out">ยังไม่มา (ยังไม่เช็คอิน)</MenuItem>
+        <MenuItem value="in">มาแล้ว</MenuItem>
+      </Select>
+    </FormControl>
+  );
+}
 
 // Client-side instant filter + pagination, shared by all 3 tabs — search
 // resets to page 1 so a query never lands on a now-out-of-range page.
@@ -210,7 +295,19 @@ function RecipientTable({
               </TableCell>
               <TableCell>{row.course_name}</TableCell>
               <TableCell>{row.branch_name || '-'}</TableCell>
-              <TableCell>{formatThaiDateTime(row.scheduled_at)}</TableCell>
+              <TableCell>
+                {formatThaiDateTime(row.scheduled_at)}
+                {/* Whether they are in the room. Shown on every row, not only
+                    when filtered, because a list of people to chase is only
+                    trustworthy if you can see the fact it was built on. */}
+                <Chip
+                  size="small"
+                  label={row.checked_in ? 'มาแล้ว' : 'ยังไม่มา'}
+                  color={row.checked_in ? 'success' : 'default'}
+                  variant={row.checked_in ? 'filled' : 'outlined'}
+                  sx={{ ml: 0.75, height: 18, fontSize: 10, fontWeight: 700 }}
+                />
+              </TableCell>
               <TableCell align="right">
                 <Tooltip title="ดูรายละเอียดการจอง">
                   <IconButton size="small" onClick={() => window.open(`/crm/bookings?bookingId=${row.booking_id}`, '_blank')}>
@@ -308,6 +405,8 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const { rounds, round, setRound } = useCourseRounds(courseId);
+  const [attendance, setAttendance] = useState<'' | 'in' | 'out'>('');
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState('');
@@ -348,6 +447,8 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
       if (status) params.status = status;
       if (dateFrom) params.dateFrom = dateFrom;
       if (dateTo) params.dateTo = dateTo;
+      if (round) params.round = round;
+      if (attendance) params.attendance = attendance;
       const res = await axios.get(`${API_BASE}/sms/reminder-candidates`, { params });
       setRows(res.data.success ? res.data.bookings : []);
       setSelected(new Set());
@@ -414,6 +515,12 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
                 {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <RoundSelect courseId={courseId} rounds={rounds} round={round} setRound={setRound} />
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <AttendanceSelect value={attendance} onChange={setAttendance} />
           </Grid>
           <Grid item xs={12} sm={2}>
             <FormControl fullWidth size="small">
@@ -649,6 +756,9 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
   const [courseId, setCourseId] = useState<number>(0);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // A round, but no attendance filter: these are confirmations that never went
+  // out, and whether someone turned up says nothing about that.
+  const { rounds, round, setRound } = useCourseRounds(courseId);
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -662,6 +772,7 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
       if (courseId) params.courseId = String(courseId);
       if (dateFrom) params.dateFrom = dateFrom;
       if (dateTo) params.dateTo = dateTo;
+      if (round) params.round = round;
       const res = await axios.get(`${API_BASE}/sms/unsent-confirmations`, { params });
       setRows(res.data.success ? res.data.bookings : []);
       setSelected(new Set());
@@ -700,7 +811,7 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
     <Box>
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={5}>
+          <Grid item xs={12} sm={4}>
             <FormControl fullWidth size="small">
               <InputLabel>คอร์ส/กิจกรรม/บริการ</InputLabel>
               <Select value={courseId} label="คอร์ส/กิจกรรม/บริการ" onChange={e => setCourseId(Number(e.target.value))}>
@@ -708,6 +819,9 @@ function ResendTab({ courses }: { courses: CourseOption[] }) {
                 {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <RoundSelect courseId={courseId} rounds={rounds} round={round} setRound={setRound} />
           </Grid>
           <Grid item xs={6} sm={2}>
             <TextField label="ตั้งแต่วันที่" type="date" fullWidth size="small" value={dateFrom} onChange={e => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />

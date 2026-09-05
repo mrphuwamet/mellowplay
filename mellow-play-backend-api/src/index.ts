@@ -1011,6 +1011,7 @@ app.post('/api/v1/admin/broadcasts/drain',          (c) => broadcastController.d
 
 app.get('/api/v1/admin/sms/reminder-candidates', (c) => smsController.getReminderCandidates(c));
 app.post('/api/v1/admin/sms/send-reminder', (c) => smsController.sendReminder(c));
+app.get('/api/v1/admin/sms/rounds', (c) => smsController.getRounds(c));
 app.get('/api/v1/admin/sms/non-registered-members', (c) => smsController.getNonRegisteredMembers(c));
 app.get('/api/v1/admin/sms/unsent-confirmations', (c) => smsController.getUnsentConfirmations(c));
 app.post('/api/v1/admin/sms/resend-confirmation', (c) => smsController.resendConfirmation(c));

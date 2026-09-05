@@ -6,6 +6,8 @@
 const BOOKING_RECIPIENT_SELECT = `
   SELECT
     b.id as booking_id, b.course_id, b.scheduled_at, b.status, b.form_submission_id,
+    b.slot_date, b.slot_start_time,
+    EXISTS (SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checked_in,
     COALESCE(hp.nickname, hp.name) as child_name,
     hp.name as child_real_name,
     hp.nickname as child_nickname,
@@ -26,6 +28,56 @@ const BOOKING_RECIPIENT_SELECT = `
   LEFT JOIN Branches br ON b.branch_id = br.id
   WHERE (u.phone IS NOT NULL OR u.email IS NOT NULL) AND b.status != 'cancelled'
 `;
+
+export interface RecipientFilters {
+  courseId?: number;
+  branchId?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: string;
+  /** One round, as "slot_date|slot_start_time". Empty halves are meaningful. */
+  round?: string;
+  /** 'in' = turned up, 'out' = has not. Undefined leaves attendance alone. */
+  attendance?: 'in' | 'out';
+}
+
+/**
+ * The filters the reminder list and the resend list share.
+ *
+ * One builder rather than two copies. They are the same audience narrowed
+ * differently, and a round that means one thing on one tab and something else
+ * on the next is exactly the drift this shape prevents.
+ */
+function recipientFilterSql(filters: RecipientFilters): { sql: string; params: any[] } {
+  let sql = '';
+  const params: any[] = [];
+  if (filters.courseId) { sql += ` AND b.course_id = ?`; params.push(filters.courseId); }
+  if (filters.branchId) { sql += ` AND b.branch_id = ?`; params.push(filters.branchId); }
+  if (filters.dateFrom) { sql += ` AND date(b.scheduled_at) >= ?`; params.push(filters.dateFrom); }
+  if (filters.dateTo) { sql += ` AND date(b.scheduled_at) <= ?`; params.push(filters.dateTo); }
+  if (filters.status) { sql += ` AND b.status = ?`; params.push(filters.status); }
+
+  if (filters.round) {
+    // A round travels as one "date|time" string, so the dropdown value, the
+    // query parameter and this comparison cannot drift apart. Both halves are
+    // COALESCEd: an activity with no timetable is a real bucket of bookings,
+    // and NULL = NULL would quietly match none of them.
+    const [slotDate = '', slotStartTime = ''] = filters.round.split('|');
+    sql += ` AND COALESCE(b.slot_date, '') = ? AND COALESCE(b.slot_start_time, '') = ?`;
+    params.push(slotDate, slotStartTime);
+  }
+
+  if (filters.attendance === 'in' || filters.attendance === 'out') {
+    // Turned up means a tick exists — the very test the check-in screen uses,
+    // so "ยังไม่มา" here and "ยังไม่เช็คอิน" there stay one fact rather than two
+    // that can disagree.
+    sql += ` AND ${filters.attendance === 'out' ? 'NOT ' : ''}EXISTS (
+      SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
+    )`;
+  }
+
+  return { sql, params };
+}
 
 export class SmsRepository {
   private db: D1Database;
@@ -99,16 +151,9 @@ export class SmsRepository {
     ).run();
   }
 
-  async getReminderCandidates(filters: {
-    courseId?: number; branchId?: number; dateFrom?: string; dateTo?: string; status?: string;
-  }): Promise<any[]> {
-    let query = BOOKING_RECIPIENT_SELECT;
-    const params: any[] = [];
-    if (filters.courseId) { query += ` AND b.course_id = ?`; params.push(filters.courseId); }
-    if (filters.branchId) { query += ` AND b.branch_id = ?`; params.push(filters.branchId); }
-    if (filters.dateFrom) { query += ` AND date(b.scheduled_at) >= ?`; params.push(filters.dateFrom); }
-    if (filters.dateTo) { query += ` AND date(b.scheduled_at) <= ?`; params.push(filters.dateTo); }
-    if (filters.status) { query += ` AND b.status = ?`; params.push(filters.status); }
+  async getReminderCandidates(filters: RecipientFilters): Promise<any[]> {
+    const { sql, params } = recipientFilterSql(filters);
+    let query = BOOKING_RECIPIENT_SELECT + sql;
     query += ` ORDER BY b.scheduled_at ASC`;
     const stmt = this.db.prepare(query);
     const { results } = await (params.length > 0 ? stmt.bind(...params) : stmt).all();
@@ -123,9 +168,7 @@ export class SmsRepository {
   // Both channels are checked because either can be the one that was turned on:
   // an email-only course has no SMS log by design, and looking only at SMS
   // listed every one of its bookings as unsent forever.
-  async getUnsentConfirmations(filters: {
-    courseId?: number; dateFrom?: string; dateTo?: string;
-  }): Promise<any[]> {
+  async getUnsentConfirmations(filters: RecipientFilters): Promise<any[]> {
     let query = BOOKING_RECIPIENT_SELECT + `
       AND (
         co.sms_success_enabled = 1
@@ -139,10 +182,8 @@ export class SmsRepository {
         SELECT 1 FROM Email_Logs el WHERE el.booking_id = b.id AND el.type = 'booking_success' AND el.status = 'sent'
       )
     `;
-    const params: any[] = [];
-    if (filters.courseId) { query += ` AND b.course_id = ?`; params.push(filters.courseId); }
-    if (filters.dateFrom) { query += ` AND date(b.scheduled_at) >= ?`; params.push(filters.dateFrom); }
-    if (filters.dateTo) { query += ` AND date(b.scheduled_at) <= ?`; params.push(filters.dateTo); }
+    const { sql, params } = recipientFilterSql(filters);
+    query += sql;
     query += ` ORDER BY b.scheduled_at ASC`;
     const stmt = this.db.prepare(query);
     const { results } = await (params.length > 0 ? stmt.bind(...params) : stmt).all();
@@ -167,6 +208,37 @@ export class SmsRepository {
         )
       ORDER BY u.created_at DESC
     `).bind(courseId).all();
+    return results;
+  }
+
+  /**
+   * The rounds this course has bookings in, with how many people are in each.
+   *
+   * Counted through the same joins as the recipient list, so the number beside
+   * a round is the number of rows that will actually appear when it is picked.
+   * A count taken off Bookings alone would include guest bookings and children
+   * with no reachable parent, and reading "12 คน" then seeing nine is the kind
+   * of small lie that makes staff stop trusting the screen.
+   */
+  async getRounds(courseId: number): Promise<{
+    slot_date: string | null; slot_start_time: string | null;
+    booking_count: number; arrived_count: number;
+  }[]> {
+    const { results } = await this.db.prepare(`
+      SELECT b.slot_date, b.slot_start_time,
+             COUNT(*) AS booking_count,
+             SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
+             ) THEN 1 ELSE 0 END) AS arrived_count
+      FROM Bookings b
+      JOIN Children ch ON b.child_id = ch.id AND b.child_id != 0
+      JOIN HD_Profiles hp ON ch.hd_profile_id = hp.id
+      JOIN Users u ON ch.parent_id = u.id
+      WHERE b.course_id = ? AND b.status != 'cancelled'
+        AND (u.phone IS NOT NULL OR u.email IS NOT NULL)
+      GROUP BY b.slot_date, b.slot_start_time
+      ORDER BY b.slot_date, b.slot_start_time
+    `).bind(courseId).all<any>();
     return results;
   }
 

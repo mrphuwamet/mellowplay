@@ -26,6 +26,8 @@ export class SmsController {
         dateFrom: q.dateFrom || undefined,
         dateTo: q.dateTo || undefined,
         status: q.status || undefined,
+        round: q.round || undefined,
+        attendance: q.attendance === 'in' || q.attendance === 'out' ? q.attendance : undefined,
       });
       return c.json({ success: true, bookings });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
@@ -192,6 +194,20 @@ export class SmsController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * The rounds of one course, for the round picker.
+   *
+   * Reminders are almost always aimed at one session — "the 10:00 group has not
+   * arrived" — and a date range cannot say that when two rounds share a day.
+   */
+  async getRounds(c: C) {
+    try {
+      const courseId = parseInt(c.req.query('courseId') || '');
+      if (!courseId) return c.json({ success: false, message: 'courseId required' }, 400);
+      return c.json({ success: true, rounds: await this.repo(c).getRounds(courseId) });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async getNonRegisteredMembers(c: C) {
     try {
       const courseId = parseInt(c.req.query('courseId') || '');
@@ -206,6 +222,8 @@ export class SmsController {
       const q = c.req.query();
       const bookings = await this.repo(c).getUnsentConfirmations({
         courseId: q.courseId ? parseInt(q.courseId) : undefined,
+        round: q.round || undefined,
+        attendance: q.attendance === 'in' || q.attendance === 'out' ? q.attendance : undefined,
         dateFrom: q.dateFrom || undefined,
         dateTo: q.dateTo || undefined,
       });
