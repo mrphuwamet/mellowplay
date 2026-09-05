@@ -222,6 +222,15 @@ const TournamentManagement: React.FC = () => {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [targetHeat, setTargetHeat] = useState<number | ''>('');
   const [roundFilter, setRoundFilter] = useStickyState<string>('tournaments.roundFilter', 'all');
+  /**
+   * Whether to offer everyone, or only the people who have arrived.
+   *
+   * Not sticky, unlike the round. This is a thing you turn on for the twenty
+   * minutes before a draw and want off again next time — a filter still on
+   * from last week silently hides half the entrants.
+   */
+  const [checkinFilter, setCheckinFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [checkedInBookings, setCheckedInBookings] = useState<Set<number>>(new Set());
 
   const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null; tournamentId: number | null }>({ open: false, editing: null, tournamentId: null });
   const [heatForm, setHeatForm] = useState({ name: '', slot_date: '', slot_start_time: '', capacity: '', note: '', advance_count: '' });
@@ -283,6 +292,7 @@ const TournamentManagement: React.FC = () => {
       setTeamFields(data.teamFields || []);
       setRounds(data.rounds || []);
       setRegistrantCount(data.registrantCount || 0);
+      setCheckedInBookings(new Set<number>((data.checkedInBookingIds || []).map(Number)));
       setCapacityCount(data.capacityCount || 0);
       setPicked(new Set());
       // No team field on this form means no team rows to show — start on the
@@ -373,9 +383,24 @@ const TournamentManagement: React.FC = () => {
         const key = `${o.slotDate ?? ''}|${o.slotStartTime ?? ''}`;
         if (key !== roundFilter) return false;
       }
+      if (checkinFilter !== 'all') {
+        // ANY of the entry's bookings, not all of them: a team with four
+        // members and three at the door has turned up. Requiring every one
+        // would drop the team over a single late arrival, which is the
+        // opposite of what this filter is for.
+        const arrived = o.bookingIds.some(id => checkedInBookings.has(id));
+        if (checkinFilter === 'in' && !arrived) return false;
+        if (checkinFilter === 'out' && arrived) return false;
+      }
       return true;
     });
-  }, [options, entryType, usedKeys, roundFilter]);
+  }, [options, entryType, usedKeys, roundFilter, checkinFilter, checkedInBookings]);
+
+  /** How many of the entrants on offer have arrived — the count on the chip. */
+  const checkedInCount = useMemo(
+    () => (options[entryType] || []).filter(o => o.bookingIds.some(id => checkedInBookings.has(id))).length,
+    [options, entryType, checkedInBookings],
+  );
 
   const togglePick = (refKey: string) => setPicked(prev => {
     const next = new Set(prev);
@@ -994,6 +1019,21 @@ const TournamentManagement: React.FC = () => {
                   </FormControl>
                 )}
 
+                {/* Building a draw from the people who are actually in the
+                    building. Shown with counts, because "เช็คอินแล้ว" meaning
+                    zero people is a fact worth seeing before the filter hides
+                    everyone and looks broken. */}
+                <ToggleButtonGroup
+                  exclusive size="small" fullWidth value={checkinFilter} sx={{ mb: 1.5 }}
+                  onChange={(_, v) => { if (v) { setCheckinFilter(v); setPicked(new Set()); } }}
+                >
+                  <ToggleButton value="all" sx={{ fontWeight: 700, textTransform: 'none' }}>ทั้งหมด</ToggleButton>
+                  <ToggleButton value="in" sx={{ fontWeight: 700, textTransform: 'none' }}>
+                    เช็คอินแล้ว ({checkedInCount})
+                  </ToggleButton>
+                  <ToggleButton value="out" sx={{ fontWeight: 700, textTransform: 'none' }}>ยังไม่เช็คอิน</ToggleButton>
+                </ToggleButtonGroup>
+
                 <Box sx={{ maxHeight: 420, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                   {available.length === 0 && (
                     <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
@@ -1019,7 +1059,17 @@ const TournamentManagement: React.FC = () => {
                     >
                       <Checkbox size="small" checked={picked.has(o.refKey)} sx={{ p: 0.5 }} />
                       <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{o.label}</Typography>
+                        <Stack direction="row" alignItems="center" spacing={0.75}>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{o.label}</Typography>
+                          {/* Marked on every row, not only when the filter is
+                              on: whoever is placing people wants to know who is
+                              here while looking at the whole list. */}
+                          {o.bookingIds.some(id => checkedInBookings.has(id)) && (
+                            <Tooltip title="เช็คอินแล้ว">
+                              <FlagIcon sx={{ fontSize: 15, color: '#2e7d32' }} />
+                            </Tooltip>
+                          )}
+                        </Stack>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           {o.subLabel}{o.slotDate ? ` · ${roundLabel(o.slotDate, o.slotStartTime)}` : ''}
                         </Typography>

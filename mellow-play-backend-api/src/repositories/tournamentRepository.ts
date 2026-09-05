@@ -490,6 +490,23 @@ export class TournamentRepository {
     return results;
   }
 
+  /**
+   * The bookings on this course that have been ticked in at the door.
+   *
+   * Ids only. The start list needs to know WHETHER someone arrived, not what
+   * was ticked — and an entry can stand for several bookings, so the caller
+   * decides what "this entry has arrived" means for a team.
+   */
+  async getCheckedInBookingIds(courseId: number): Promise<number[]> {
+    const { results } = await this.db.prepare(`
+      SELECT DISTINCT b.id
+        FROM Bookings b
+        JOIN Booking_Checkin_Log l ON l.booking_id = b.id
+       WHERE b.course_id = ? AND b.status != 'cancelled'
+    `).bind(courseId).all<{ id: number }>();
+    return (results as any[]).map(r => Number(r.id));
+  }
+
   /** The team_select fields this course's registration form offers. */
   async getTeamFields(courseId: number): Promise<{ field_key: string; label: string }[]> {
     const { results } = await this.db.prepare(`

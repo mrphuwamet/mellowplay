@@ -48,6 +48,9 @@ export class TournamentController {
       // Every round the course has, not only the ones that happen to have a
       // registrant in the current grouping — a heat is often created first.
       const rounds = await repo.getRounds(courseId);
+      // Who actually turned up, so the start list can be built from the people
+      // in the building rather than from everyone who registered.
+      const checkedInBookingIds = await repo.getCheckedInBookingIds(courseId);
       // What the bracket should be built for. Falls back to the booking count
       // for a round with no rule behind it (a one-off typed straight onto a
       // booking), so a course with no calendar still gets a usable number.
@@ -58,6 +61,7 @@ export class TournamentController {
         return c.json({
           success: true, tournament: null, tournaments, brackets: [], heats: [], entries: [], links: [],
           options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
+          checkedInBookingIds,
         });
       }
 
@@ -91,6 +95,7 @@ export class TournamentController {
         tournament, tournaments, brackets,
         heats: selected.heats, entries: selected.entries, links: await repo.getLinks(tournament.id),
         options, teamFields, rounds, registrantCount: registrants.length, capacityCount,
+        checkedInBookingIds,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
