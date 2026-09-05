@@ -2,7 +2,7 @@ import { API_URL } from '../config';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControl, FormControlLabel, Grid, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, Tab, Table,
+  DialogTitle, FormControl, FormControlLabel, Grid, IconButton, InputAdornment, InputLabel, ListSubheader, MenuItem, Paper, Select, Stack, Tab, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import { NotificationsActive as NotifyIcon, Visibility as ViewIcon, Person as ProfileIcon, Search as SearchIcon } from '@mui/icons-material';
@@ -96,6 +96,8 @@ interface ReminderCandidate {
   checked_in?: number;
   /** When a reminder last actually went out, on either channel. Null = never. */
   last_reminder_at?: string | null;
+  /** The check-in steps already ticked, by the name they had at the time. */
+  checkin_done_labels?: string | null;
   status: string;
   child_name: string;
   child_real_name?: string;
@@ -173,6 +175,27 @@ function RoundSelect({ courseId, rounds, round, setRound }: {
   );
 }
 
+interface CheckinAction { id: number; label: string; sort_order?: number }
+
+/**
+ * The check-in steps the chosen course defines.
+ *
+ * Most courses have one ("เช็คอิน") and the filter stays a plain arrived / not
+ * arrived. Some have several — report in, then collect a keepsake — and there
+ * the difference matters: on a live round 21 of 24 had reported in and not one
+ * had done the second step, which the coarse filter cannot see at all.
+ */
+function useCheckinActions(courseId: number) {
+  const [actions, setActions] = useState<CheckinAction[]>([]);
+  useEffect(() => {
+    if (!courseId) { setActions([]); return; }
+    axios.get(`${API_BASE}/courses/${courseId}/checkin-actions`)
+      .then(res => setActions(res.data?.success ? (res.data.actions || []) : []))
+      .catch(() => setActions([]));
+  }, [courseId]);
+  return actions;
+}
+
 /**
  * Everyone, only those who have not arrived, or only those who have.
  *
@@ -180,14 +203,27 @@ function RoundSelect({ courseId, rounds, round, setRound }: {
  * the session is running. It reads the same tick the check-in screen writes, so
  * the two screens never disagree about who is in the room.
  */
-function AttendanceSelect({ value, onChange }: { value: '' | 'in' | 'out'; onChange: (v: '' | 'in' | 'out') => void }) {
+function AttendanceSelect({ value, onChange, actions }: {
+  value: string; onChange: (v: string) => void; actions: CheckinAction[];
+}) {
+  // One step is just "checked in" under another name, and offering both the
+  // coarse pair and a single identical step would be two ways to say one thing.
+  const showSteps = actions.length > 1;
   return (
     <FormControl fullWidth size="small">
-      <InputLabel>การมา</InputLabel>
-      <Select value={value} label="การมา" onChange={e => onChange(e.target.value as '' | 'in' | 'out')}>
+      <InputLabel>การมา / ขั้นตอน</InputLabel>
+      <Select value={value} label="การมา / ขั้นตอน" onChange={e => onChange(String(e.target.value))}>
         <MenuItem value="">ทั้งหมด</MenuItem>
-        <MenuItem value="out">ยังไม่มา (ยังไม่เช็คอิน)</MenuItem>
+        <MenuItem value="out">ยังไม่มา (ยังไม่เช็คอินเลย)</MenuItem>
         <MenuItem value="in">มาแล้ว</MenuItem>
+        {showSteps && <ListSubheader sx={{ fontWeight: 800 }}>ยังไม่ได้ทำขั้นตอน</ListSubheader>}
+        {showSteps && actions.map(a => (
+          <MenuItem key={`todo-${a.id}`} value={`todo:${a.id}`}>ยังไม่ได้ {a.label}</MenuItem>
+        ))}
+        {showSteps && <ListSubheader sx={{ fontWeight: 800 }}>ทำขั้นตอนแล้ว</ListSubheader>}
+        {showSteps && actions.map(a => (
+          <MenuItem key={`done-${a.id}`} value={`done:${a.id}`}>{a.label} แล้ว</MenuItem>
+        ))}
       </Select>
     </FormControl>
   );
@@ -332,6 +368,14 @@ function RecipientTable({
                   variant={row.checked_in ? 'filled' : 'outlined'}
                   sx={{ ml: 0.75, height: 18, fontSize: 10, fontWeight: 700 }}
                 />
+                {/* Which steps are ticked, not just whether any are. A row
+                    reading "รายงานตัว" alone is someone in the building who has
+                    not finished — invisible under a plain arrived / not flag. */}
+                {row.checkin_done_labels && (
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                    {row.checkin_done_labels}
+                  </Typography>
+                )}
                 {/* When they were last told. Shown with the date rather than a
                     bare tick, because "already reminded" three weeks ago and
                     "already reminded" this morning call for opposite decisions. */}
@@ -431,7 +475,16 @@ const STATUS_OPTIONS = [
   { key: 'confirmed_paid', label: 'ชำระแล้ว' },
   { key: 'awaiting_report', label: 'รอกรอกรายงาน' },
   { key: 'completed', label: 'เสร็จสิ้น' },
+  // Marked absent by staff. Its own group because chasing someone already
+  // written off is a different decision from chasing someone merely late.
+  { key: 'no_show', label: 'ไม่มา (ทำเครื่องหมายแล้ว)' },
 ];
+
+/** Today in the staff's own timezone — toISOString would hand back UTC. */
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches: { id: number; name: string }[] }) {
   const [courseId, setCourseId] = useState<number>(0);
@@ -440,7 +493,8 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const { rounds, round, setRound } = useCourseRounds(courseId);
-  const [attendance, setAttendance] = useState<'' | 'in' | 'out'>('');
+  const [attendance, setAttendance] = useState('');
+  const checkinActions = useCheckinActions(courseId);
   const [reminded, setReminded] = useState<'' | 'yes' | 'no'>('');
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -564,7 +618,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
           </Grid>
 
           <Grid item xs={12} sm={3}>
-            <AttendanceSelect value={attendance} onChange={setAttendance} />
+            <AttendanceSelect value={attendance} onChange={setAttendance} actions={checkinActions} />
           </Grid>
           <Grid item xs={12} sm={3}>
             <FormControl fullWidth size="small">
@@ -590,9 +644,18 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
             <TextField label="ถึงวันที่" type="date" fullWidth size="small" value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
           </Grid>
           <Grid item xs={12} sm={3}>
-            <Button fullWidth variant="contained" onClick={search} disabled={loading} sx={{ borderRadius: 2, py: 1 }}>
-              {loading ? <CircularProgress size={20} /> : 'ค้นหา'}
-            </Button>
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={() => { const t = todayIso(); setDateFrom(t); setDateTo(t); }}
+                sx={{ borderRadius: 2, py: 1, whiteSpace: 'nowrap' }}
+              >
+                วันนี้
+              </Button>
+              <Button fullWidth variant="contained" onClick={search} disabled={loading} sx={{ borderRadius: 2, py: 1 }}>
+                {loading ? <CircularProgress size={20} /> : 'ค้นหา'}
+              </Button>
+            </Stack>
           </Grid>
         </Grid>
       </Paper>

@@ -27,7 +27,7 @@ export class SmsController {
         dateTo: q.dateTo || undefined,
         status: q.status || undefined,
         round: q.round || undefined,
-        attendance: q.attendance === 'in' || q.attendance === 'out' ? q.attendance : undefined,
+        attendance: q.attendance || undefined,
         reminded: q.reminded === 'yes' || q.reminded === 'no' ? q.reminded : undefined,
       });
       return c.json({ success: true, bookings });
@@ -224,7 +224,7 @@ export class SmsController {
       const bookings = await this.repo(c).getUnsentConfirmations({
         courseId: q.courseId ? parseInt(q.courseId) : undefined,
         round: q.round || undefined,
-        attendance: q.attendance === 'in' || q.attendance === 'out' ? q.attendance : undefined,
+        attendance: q.attendance || undefined,
         dateFrom: q.dateFrom || undefined,
         dateTo: q.dateTo || undefined,
       });

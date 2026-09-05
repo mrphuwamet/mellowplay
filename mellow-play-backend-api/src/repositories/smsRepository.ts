@@ -26,6 +26,8 @@ const BOOKING_RECIPIENT_SELECT = `
     b.slot_date, b.slot_start_time,
     EXISTS (SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checked_in,
     ${LAST_REMINDER_SQL} AS last_reminder_at,
+    (SELECT GROUP_CONCAT(l.label_snapshot, ' · ')
+       FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checkin_done_labels,
     COALESCE(hp.nickname, hp.name) as child_name,
     hp.name as child_real_name,
     hp.nickname as child_nickname,
@@ -55,8 +57,18 @@ export interface RecipientFilters {
   status?: string;
   /** One round, as "slot_date|slot_start_time". Empty halves are meaningful. */
   round?: string;
-  /** 'in' = turned up, 'out' = has not. Undefined leaves attendance alone. */
-  attendance?: 'in' | 'out';
+  /**
+   * Check-in state, as one string:
+   *
+   *   'in'  | 'out'        — any tick at all / none
+   *   'done:<actionId>'    — that one step is ticked
+   *   'todo:<actionId>'    — that one step is not
+   *
+   * Both grains exist on purpose. A course with several steps — arrive, then
+   * collect a keepsake — has two useful senses of "has not turned up", and the
+   * coarse one has to keep working for the courses that define no steps at all.
+   */
+  attendance?: string;
   /** 'yes' = already reminded, 'no' = never. Undefined leaves it alone. */
   reminded?: 'yes' | 'no';
 }
@@ -87,13 +99,33 @@ function recipientFilterSql(filters: RecipientFilters): { sql: string; params: a
     params.push(slotDate, slotStartTime);
   }
 
-  if (filters.attendance === 'in' || filters.attendance === 'out') {
+  if (filters.attendance) {
     // Turned up means a tick exists — the very test the check-in screen uses,
     // so "ยังไม่มา" here and "ยังไม่เช็คอิน" there stay one fact rather than two
     // that can disagree.
-    sql += ` AND ${filters.attendance === 'out' ? 'NOT ' : ''}EXISTS (
-      SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
-    )`;
+    const [kind, rawId] = filters.attendance.split(':');
+    const actionId = rawId ? parseInt(rawId, 10) : NaN;
+
+    if (kind === 'in' || kind === 'out') {
+      sql += ` AND ${kind === 'out' ? 'NOT ' : ''}EXISTS (
+        SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
+      )`;
+    } else if ((kind === 'done' || kind === 'todo') && Number.isFinite(actionId)) {
+      // The id OR the label, because neither alone is a durable identity here.
+      //
+      // Saving the check-in steps deletes and reinserts every row (see
+      // checkinRepository), so ids churn on an ordinary edit while the logs keep
+      // pointing at the old ones — matching on the id alone would report every
+      // person as not having done a step they did. label_snapshot survives that,
+      // and the id covers the other direction, a step that was renamed.
+      sql += ` AND ${kind === 'todo' ? 'NOT ' : ''}EXISTS (
+        SELECT 1 FROM Booking_Checkin_Log l
+         WHERE l.booking_id = b.id
+           AND (l.action_id = ?
+                OR l.label_snapshot = (SELECT a.label FROM Course_Checkin_Actions a WHERE a.id = ?))
+      )`;
+      params.push(actionId, actionId);
+    }
   }
 
   if (filters.reminded === 'yes' || filters.reminded === 'no') {
