@@ -94,6 +94,8 @@ interface ReminderCandidate {
   slot_start_time?: string | null;
   /** 1 when someone has been ticked in at the door. */
   checked_in?: number;
+  /** When a reminder last actually went out, on either channel. Null = never. */
+  last_reminder_at?: string | null;
   status: string;
   child_name: string;
   child_real_name?: string;
@@ -186,6 +188,29 @@ function AttendanceSelect({ value, onChange }: { value: '' | 'in' | 'out'; onCha
         <MenuItem value="">ทั้งหมด</MenuItem>
         <MenuItem value="out">ยังไม่มา (ยังไม่เช็คอิน)</MenuItem>
         <MenuItem value="in">มาแล้ว</MenuItem>
+      </Select>
+    </FormControl>
+  );
+}
+
+/**
+ * Everyone, only those never reminded, or only those already reminded.
+ *
+ * The reason this tab needed it: send to a hundred people, come back an hour
+ * later, and the list looks exactly the same. There was no way to tell who had
+ * already been told, so the safe move was to skip the send — or to send twice.
+ *
+ * A send counts only when it actually left, on either channel: a failed attempt
+ * is not a reminder, and an email-only course has no SMS log by design.
+ */
+function RemindedSelect({ value, onChange }: { value: '' | 'yes' | 'no'; onChange: (v: '' | 'yes' | 'no') => void }) {
+  return (
+    <FormControl fullWidth size="small">
+      <InputLabel>การแจ้งเตือน</InputLabel>
+      <Select value={value} label="การแจ้งเตือน" onChange={e => onChange(e.target.value as '' | 'yes' | 'no')}>
+        <MenuItem value="">ทั้งหมด</MenuItem>
+        <MenuItem value="no">ยังไม่ได้ส่ง</MenuItem>
+        <MenuItem value="yes">ส่งแล้ว</MenuItem>
       </Select>
     </FormControl>
   );
@@ -307,6 +332,15 @@ function RecipientTable({
                   variant={row.checked_in ? 'filled' : 'outlined'}
                   sx={{ ml: 0.75, height: 18, fontSize: 10, fontWeight: 700 }}
                 />
+                {/* When they were last told. Shown with the date rather than a
+                    bare tick, because "already reminded" three weeks ago and
+                    "already reminded" this morning call for opposite decisions. */}
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', color: row.last_reminder_at ? 'text.secondary' : 'text.disabled' }}
+                >
+                  {row.last_reminder_at ? `แจ้งเตือนแล้ว ${formatThaiDateTime(row.last_reminder_at)}` : 'ยังไม่ได้แจ้งเตือน'}
+                </Typography>
               </TableCell>
               <TableCell align="right">
                 <Tooltip title="ดูรายละเอียดการจอง">
@@ -407,6 +441,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
   const [dateTo, setDateTo] = useState('');
   const { rounds, round, setRound } = useCourseRounds(courseId);
   const [attendance, setAttendance] = useState<'' | 'in' | 'out'>('');
+  const [reminded, setReminded] = useState<'' | 'yes' | 'no'>('');
   const [rows, setRows] = useState<ReminderCandidate[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState('');
@@ -449,6 +484,7 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
       if (dateTo) params.dateTo = dateTo;
       if (round) params.round = round;
       if (attendance) params.attendance = attendance;
+      if (reminded) params.reminded = reminded;
       const res = await axios.get(`${API_BASE}/sms/reminder-candidates`, { params });
       setRows(res.data.success ? res.data.bookings : []);
       setSelected(new Set());
@@ -507,7 +543,11 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
     <Box>
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={3}>
+          {/* Who: the course, the session, and the two facts that decide whether
+              this person still needs telling. Kept on the first line because
+              they are the filters actually reached for; the branch, status and
+              date range below narrow an already-sensible list. */}
+          <Grid item xs={12} sm={4}>
             <FormControl fullWidth size="small">
               <InputLabel>คอร์ส/กิจกรรม/บริการ</InputLabel>
               <Select value={courseId} label="คอร์ส/กิจกรรม/บริการ" onChange={e => setCourseId(Number(e.target.value))}>
@@ -516,13 +556,17 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} sm={3}>
+          <Grid item xs={12} sm={4}>
             <RoundSelect courseId={courseId} rounds={rounds} round={round} setRound={setRound} />
           </Grid>
+          <Grid item xs={12} sm={4}>
+            <RemindedSelect value={reminded} onChange={setReminded} />
+          </Grid>
+
           <Grid item xs={12} sm={3}>
             <AttendanceSelect value={attendance} onChange={setAttendance} />
           </Grid>
-          <Grid item xs={12} sm={2}>
+          <Grid item xs={12} sm={3}>
             <FormControl fullWidth size="small">
               <InputLabel>สาขา</InputLabel>
               <Select value={branchId} label="สาขา" onChange={e => setBranchId(Number(e.target.value))}>
@@ -545,8 +589,8 @@ function ReminderTab({ courses, branches }: { courses: CourseOption[]; branches:
           <Grid item xs={6} sm={2}>
             <TextField label="ถึงวันที่" type="date" fullWidth size="small" value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
           </Grid>
-          <Grid item xs={12} sm={2}>
-            <Button fullWidth variant="contained" onClick={search} disabled={loading} sx={{ borderRadius: 2, height: '100%' }}>
+          <Grid item xs={12} sm={3}>
+            <Button fullWidth variant="contained" onClick={search} disabled={loading} sx={{ borderRadius: 2, py: 1 }}>
               {loading ? <CircularProgress size={20} /> : 'ค้นหา'}
             </Button>
           </Grid>

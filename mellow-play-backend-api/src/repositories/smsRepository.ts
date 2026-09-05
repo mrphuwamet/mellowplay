@@ -3,11 +3,29 @@
 // Extra Class/Event booking, which legitimately has no branch_id) and
 // requires a resolvable parent phone, since a guest booking (child_id = 0)
 // or a child with no linked account has nobody to text.
+/**
+ * When this booking last had a reminder that actually went out.
+ *
+ * BOTH channels, for the reason getUnsentConfirmations already learned the hard
+ * way: a course set to email-only has no SMS log by design, and asking only the
+ * SMS table says nobody has ever been reminded. NULL means never.
+ */
+const LAST_REMINDER_SQL = `(
+  SELECT MAX(sent_at) FROM (
+    SELECT MAX(sl.created_at) AS sent_at FROM Sms_Logs sl
+     WHERE sl.booking_id = b.id AND sl.type = 'reminder' AND sl.status = 'sent'
+    UNION ALL
+    SELECT MAX(el.created_at) FROM Email_Logs el
+     WHERE el.booking_id = b.id AND el.type = 'reminder' AND el.status = 'sent'
+  )
+)`;
+
 const BOOKING_RECIPIENT_SELECT = `
   SELECT
     b.id as booking_id, b.course_id, b.scheduled_at, b.status, b.form_submission_id,
     b.slot_date, b.slot_start_time,
     EXISTS (SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checked_in,
+    ${LAST_REMINDER_SQL} AS last_reminder_at,
     COALESCE(hp.nickname, hp.name) as child_name,
     hp.name as child_real_name,
     hp.nickname as child_nickname,
@@ -39,6 +57,8 @@ export interface RecipientFilters {
   round?: string;
   /** 'in' = turned up, 'out' = has not. Undefined leaves attendance alone. */
   attendance?: 'in' | 'out';
+  /** 'yes' = already reminded, 'no' = never. Undefined leaves it alone. */
+  reminded?: 'yes' | 'no';
 }
 
 /**
@@ -74,6 +94,12 @@ function recipientFilterSql(filters: RecipientFilters): { sql: string; params: a
     sql += ` AND ${filters.attendance === 'out' ? 'NOT ' : ''}EXISTS (
       SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
     )`;
+  }
+
+  if (filters.reminded === 'yes' || filters.reminded === 'no') {
+    // The same expression the row reports, so a chip saying "ยังไม่ได้ส่ง" and a
+    // filter for exactly those people can never disagree about one booking.
+    sql += ` AND ${LAST_REMINDER_SQL} IS ${filters.reminded === 'yes' ? 'NOT ' : ''}NULL`;
   }
 
   return { sql, params };

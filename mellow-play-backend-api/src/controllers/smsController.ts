@@ -28,6 +28,7 @@ export class SmsController {
         status: q.status || undefined,
         round: q.round || undefined,
         attendance: q.attendance === 'in' || q.attendance === 'out' ? q.attendance : undefined,
+        reminded: q.reminded === 'yes' || q.reminded === 'no' ? q.reminded : undefined,
       });
       return c.json({ success: true, bookings });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
