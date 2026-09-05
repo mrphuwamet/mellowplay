@@ -74,20 +74,27 @@ export async function resolveFormNames(
       const value = answers[f.field_key];
       if (value == null || String(value).trim() === '') continue;
 
-      // The consumer form records these two sibling keys alongside the display
-      // value (see DynamicRegistrationForm.tsx). Submissions predating that
-      // simply have neither, and the caller keeps whatever it already had.
+      // The real name rides in a sibling key; submissions predating it have
+      // none, and the caller then keeps whatever it already had.
       const realName = answers[`${f.field_key}__realname`];
-      const nickname = answers[`${f.field_key}__nickname`];
 
+      // The NICKNAME is the display value itself, not the __nickname sibling.
+      //
+      // The consumer writes the two identically, so the sibling never carried
+      // anything extra — but the CRM's edit path updated __realname and left
+      // __nickname alone, so on a corrected booking it holds the PREVIOUS
+      // person's nickname. Four live bookings had exactly that: display
+      // "ขวัญข้าว", __realname "ขวัญชนก ชั่งทอง", and __nickname still "แม่นก".
+      // Reading the display value cannot go stale, because it is the answer
+      // itself rather than a copy of it.
       if (role === 'child') {
         names.child_name = String(value);
+        names.child_nickname = String(value);
         if (realName) names.child_real_name = String(realName);
-        if (nickname) names.child_nickname = String(nickname);
       } else if (role === 'adult') {
         names.parent_name = String(value);
+        names.parent_nickname = String(value);
         if (realName) names.parent_real_name = String(realName);
-        if (nickname) names.parent_nickname = String(nickname);
       }
     }
     if (Object.keys(names).length > 0) out.set(s.id, names);

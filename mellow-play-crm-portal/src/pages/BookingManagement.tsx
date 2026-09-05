@@ -3297,15 +3297,24 @@ const BookingManagement = () => {
     if (overrideTeamQuota) setTeamQuotaWarning('');
     // Built before the patch, not after: the round change is judged against
     // the team this save is moving to, and the two go in separate requests.
-    // A person picker's stored answer has a `${key}__realname` companion (the
-    // consumer app writes both). Re-picking a person here must update that
-    // companion too, or displays keep pairing the NEW nickname with the OLD
-    // person's real name.
+    // A person picker's stored answer has TWO companions the consumer app
+    // writes: `${key}__realname` and `${key}__nickname`. Re-picking here has to
+    // update both. Updating only the real name is what actually happened, and
+    // it left four live bookings holding the PREVIOUS person's nickname beside
+    // the new one's real name — the check-in roster reads nickname first, so it
+    // went on calling out the wrong person after the correction was made.
     const answersToSave: Record<string, any> = { ...editFormAnswers };
     for (const f of (editFormFields || [])) {
       if (f.type !== 'family_member_picker') continue;
-      const picked = editFamilyRoster.find(m => m.display === answersToSave[f.fieldKey]);
+      const display = answersToSave[f.fieldKey];
+      const picked = editFamilyRoster.find(m => m.display === display);
       if (picked?.name) answersToSave[`${f.fieldKey}__realname`] = picked.name;
+      // The display value IS the nickname for this field — same thing the
+      // consumer writes into both — so this stays right even for a name typed
+      // in rather than matched against the roster.
+      if (display != null && String(display).trim() !== '') {
+        answersToSave[`${f.fieldKey}__nickname`] = String(display);
+      }
     }
     try {
       await axios.patch(`${API_BASE}/bookings/${forceStatusBooking.id}/status`, {
