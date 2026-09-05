@@ -147,6 +147,8 @@ interface Booking {
   no_show_at?: string | null;
   /** Check-in steps ticked, and how many steps the item has. */
   checkin_done?: number;
+  /** 1 when a live (un-revoked) certificate exists for this booking. */
+  has_certificate?: number;
   checkin_total?: number;
   /** Staff's own note on this registration — a phone call, something to check. */
   staff_note?: string | null;
@@ -1109,6 +1111,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   // Three groups, not two: "came but did not finish the steps" is its own list
   // of people to chase, not a rounding error on either side.
   const [checkinFilter, setCheckinFilter] = useStickyState<'all' | 'in' | 'partial' | 'out'>('bookings.checkinFilter', 'all');
+  const [certFilter, setCertFilter] = useStickyState<'all' | 'yes' | 'no'>('bookings.certFilter', 'all');
   const [markingNoShow, setMarkingNoShow] = useState(false);
   // Counted across everything loaded, not the filtered view — it is the size of
   // the haystack, so it must not shrink as you search it.
@@ -1248,12 +1251,19 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       // answer a question nobody asked.
       return total > 0 && done > 0 && done < total;
     });
-    if (!search.trim()) return byCheckin;
+    // Read off the row, not off certByBooking: that map is loaded for the
+    // visible page only, so filtering on it would judge the whole list by one
+    // page of evidence and hide people for not having been scrolled to.
+    const byCert = certFilter === 'all' ? byCheckin : byCheckin.filter(b => {
+      const issued = !!b.has_certificate;
+      return certFilter === 'yes' ? issued : !issued;
+    });
+    if (!search.trim()) return byCert;
     const q = search.toLowerCase();
     // Filtered from byNoted, not byField: typing in the search box used to
     // silently drop whichever chips were on, so a search inside "ชื่อซ้ำ"
     // quietly went back to searching everything.
-    return byCheckin.filter(b => {
+    return byCert.filter(b => {
       if (
         b.child_name?.toLowerCase().includes(q) ||
         b.child_nickname?.toLowerCase().includes(q) ||
@@ -1277,7 +1287,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates, checkinFilter]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates, checkinFilter, certFilter]);
 
   /**
    * Issue for these bookings.
@@ -1540,7 +1550,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, checkinFilter, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, checkinFilter, certFilter, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -2232,6 +2242,18 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               <MenuItem value="in">เช็คอินแล้ว</MenuItem>
               <MenuItem value="partial">เช็คอินไม่ครบ</MenuItem>
               <MenuItem value="out">ยังไม่เช็คอิน</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180, flex: '0 1 180px' }}>
+            <InputLabel sx={{ fontWeight: 700 }}>เกียรติบัตร</InputLabel>
+            <Select
+              label="เกียรติบัตร" value={certFilter}
+              onChange={e => setCertFilter(e.target.value as any)}
+              sx={{ fontWeight: 700, borderRadius: 2 }}
+            >
+              <MenuItem value="all">ทั้งหมด</MenuItem>
+              <MenuItem value="no">ยังไม่ออกเกียรติบัตร</MenuItem>
+              <MenuItem value="yes">ออกแล้ว</MenuItem>
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 200, flex: '1 1 200px' }}>

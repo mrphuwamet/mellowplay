@@ -303,6 +303,20 @@ export class AdminRepository {
         -- log would multiply every booking row by its ticks.
         (SELECT COUNT(*) FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS checkin_done,
         (SELECT COUNT(*) FROM Course_Checkin_Actions a WHERE a.course_id = b.course_id) AS checkin_total,
+        -- Whether a LIVE certificate exists, on the row rather than fetched
+        -- separately. The page already loads certificates for the visible page
+        -- alone (to draw the link icon), and a filter reading that could only
+        -- ever see one page of the answer — it would hide people simply because
+        -- they had not been scrolled to yet.
+        --
+        -- revoked_at IS NULL because a revoked certificate is one that has been
+        -- taken back: that person needs a new one, so they belong in
+        -- "ยังไม่ออกเกียรติบัตร", which is the same rule the unique index uses
+        -- to decide a booking may be issued again.
+        EXISTS (
+          SELECT 1 FROM Certificates ct
+           WHERE ct.booking_id = b.id AND ct.revoked_at IS NULL
+        ) AS has_certificate,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,
