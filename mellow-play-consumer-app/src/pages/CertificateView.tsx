@@ -7,7 +7,6 @@ import {
 } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
 import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 import AutoFitText from '../components/AutoFitText';
 
 /**
@@ -35,7 +34,7 @@ const CertificateView: React.FC = () => {
   // real paper size; both read the same percentages, so one measurement is all
   // the difference between them.
   const [renderWidth, setRenderWidth] = useState(900);
-  const [saving, setSaving] = useState<'' | 'png' | 'pdf'>('');
+  const [saving, setSaving] = useState<'' | 'png'>('');
   const [saveError, setSaveError] = useState('');
   /**
    * Bake the auto-fit squeeze into the type size for the moment of capture.
@@ -176,31 +175,6 @@ const CertificateView: React.FC = () => {
       save(canvas.toDataURL('image/png'), `${baseName}.png`);
     } catch {
       setSaveError('บันทึกรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
-    } finally { setSaving(''); }
-  };
-
-  /**
-   * The PDF is the image, placed on a sheet of the certificate's own size.
-   *
-   * Not a re-drawing of the page: a PDF laid out again from the HTML is a
-   * second rendering that can differ from the preview, which is the fault this
-   * replaces. One capture, one sheet, edge to edge.
-   */
-  const downloadPdf = async () => {
-    setSaving('pdf');
-    setSaveError('');
-    try {
-      const canvas = await capture();
-      if (!canvas) return;
-      const pdf = new jsPDF({
-        orientation: pageW >= pageH ? 'landscape' : 'portrait',
-        unit: 'mm',
-        format: [pageW, pageH],
-      });
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
-      pdf.save(`${baseName}.pdf`);
-    } catch {
-      setSaveError('บันทึก PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     } finally { setSaving(''); }
   };
 
@@ -360,27 +334,21 @@ const CertificateView: React.FC = () => {
       </div>
       </div>
 
+      {/* PDF was retired on purpose: it was the same captured image wrapped in
+          a one-page PDF, one more format to get wrong and nothing the PNG does
+          not already do — the image prints fine and is what people actually
+          share. */}
       <div className="no-print flex flex-col items-center gap-2">
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={() => void downloadImage()}
-            disabled={!!saving}
-            className="px-6 py-3 bg-mellow-purple text-white rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
-          >
-            {saving === 'png' ? 'กำลังบันทึก...' : 'ดาวน์โหลดรูป (PNG)'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void downloadPdf()}
-            disabled={!!saving}
-            className="px-6 py-3 bg-white text-mellow-purple border-2 border-mellow-purple rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
-          >
-            {saving === 'pdf' ? 'กำลังบันทึก...' : 'ดาวน์โหลด PDF'}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void downloadImage()}
+          disabled={!!saving}
+          className="px-6 py-3 bg-mellow-purple text-white rounded-2xl text-sm font-black active:scale-95 transition-transform disabled:opacity-60"
+        >
+          {saving === 'png' ? 'กำลังบันทึก...' : 'ดาวน์โหลดรูปเกียรติบัตร'}
+        </button>
         <p className="text-[12px] font-medium text-slate-400 text-center max-w-xs leading-relaxed">
-          {saveError || 'ทั้งสองแบบได้ไฟล์ตรงกับที่เห็นบนหน้าจอ · PDF เป็นขนาดเดียวกับเกียรติบัตร พิมพ์ได้เลย'}
+          {saveError || 'ไฟล์รูปความละเอียดสูง ตรงกับที่เห็นบนหน้าจอ นำไปพิมพ์หรือแชร์ได้เลย'}
         </p>
       </div>
     </div>
