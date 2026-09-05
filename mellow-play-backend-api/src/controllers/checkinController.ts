@@ -6,6 +6,7 @@ import { AuthService } from '../services/authService';
 import { awardParticipation, revokeParticipation } from '../services/stampService';
 import { autoIssue as autoIssueCertificate, revokeAutoIssued as revokeAutoIssuedCertificate } from '../services/certificateService';
 import { markNoShow, clearNoShow, noShowHistory } from '../services/attendanceService';
+import { resolveFormNames } from '../services/attendeeNames';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -224,7 +225,7 @@ export class CheckinController {
       if (!courseId || !slotDate) return c.json({ success: false, message: 'ต้องระบุรอบ' }, 400);
 
       const { results } = await db.prepare(`
-        SELECT b.id, b.qr_token, b.status, b.slot_start_time,
+        SELECT b.id, b.qr_token, b.status, b.slot_start_time, b.form_submission_id,
                COALESCE(NULLIF(hp.nickname, ''), hp.name) AS who,
                hp.name AS full_name, hp.nickname AS nickname,
                -- The phone is how staff find someone whose QR will not open,
@@ -242,7 +243,30 @@ export class CheckinController {
          ORDER BY who
       `).bind(courseId, slotDate, slotStart, slotStart).all<any>();
 
-      const rows = results as any[];
+      // The registration form's answer wins over the account's linked child.
+      //
+      // Correcting who is attending writes only to the form (see
+      // adminController.updateBookingFormAnswers), so a roster reading
+      // HD_Profiles alone kept showing the person the seat was booked under.
+      // On live data that meant a round calling out a mother's nickname for a
+      // child who was somebody else. The booking list and the scanner card
+      // already led with this answer; now the roster does too.
+      const names = await resolveFormNames(db, (results as any[]).map(r => r.form_submission_id));
+      const rows = (results as any[]).map(r => {
+        const n = names.get(Number(r.form_submission_id));
+        if (!n) return r;
+        return {
+          ...r,
+          who: n.child_name ?? r.who,
+          full_name: n.child_real_name ?? r.full_name,
+          nickname: n.child_nickname ?? r.nickname,
+          parent_name: n.parent_real_name ?? n.parent_name ?? r.parent_name,
+        };
+      // Re-sorted here rather than in SQL: the ORDER BY ran on the name the
+      // roster used to show, and substituting afterwards would leave the list
+      // in an order that matches nothing on screen.
+      }).sort((a, b) => String(a.who || '').localeCompare(String(b.who || ''), 'th'));
+
       const arrived = rows.filter(r => Number(r.ticks) > 0);
       const missing = rows.filter(r => Number(r.ticks) === 0 && r.status !== 'no_show');
 

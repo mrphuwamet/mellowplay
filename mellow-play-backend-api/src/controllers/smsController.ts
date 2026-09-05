@@ -17,10 +17,37 @@ type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 export class SmsController {
   private repo(c: C) { return new SmsRepository(new ConfigService(c.env).db); }
 
+  /**
+   * Show the name the send will actually use.
+   *
+   * sendReminder already substitutes the registration form's answer per row
+   * (see getFormPreferredNames), so without this the table listed the account's
+   * child while the message went out addressed to somebody else — and staff
+   * picked recipients off the wrong name. Applied to the LIST for the same
+   * reason the roster needed it: one fact, read one way, on every screen.
+   */
+  private async withFormNames(repo: SmsRepository, rows: any[]): Promise<any[]> {
+    const names = await repo.getFormPreferredNamesBulk(rows.map(r => r.form_submission_id));
+    return rows.map(r => {
+      const n = names.get(Number(r.form_submission_id));
+      if (!n) return r;
+      return {
+        ...r,
+        child_name: n.child_name ?? r.child_name,
+        child_real_name: n.child_real_name ?? r.child_real_name,
+        child_nickname: n.child_nickname ?? r.child_nickname,
+        parent_name: n.parent_name ?? r.parent_name,
+        parent_real_name: n.parent_real_name ?? r.parent_real_name,
+        parent_nickname: n.parent_nickname ?? r.parent_nickname,
+      };
+    });
+  }
+
   async getReminderCandidates(c: C) {
     try {
       const q = c.req.query();
-      const bookings = await this.repo(c).getReminderCandidates({
+      const repo = this.repo(c);
+      const bookings = await repo.getReminderCandidates({
         courseId: q.courseId ? parseInt(q.courseId) : undefined,
         branchId: q.branchId ? parseInt(q.branchId) : undefined,
         dateFrom: q.dateFrom || undefined,
@@ -30,7 +57,7 @@ export class SmsController {
         attendance: q.attendance || undefined,
         reminded: q.reminded === 'yes' || q.reminded === 'no' ? q.reminded : undefined,
       });
-      return c.json({ success: true, bookings });
+      return c.json({ success: true, bookings: await this.withFormNames(repo, bookings as any[]) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -221,14 +248,15 @@ export class SmsController {
   async getUnsentConfirmations(c: C) {
     try {
       const q = c.req.query();
-      const bookings = await this.repo(c).getUnsentConfirmations({
+      const repo = this.repo(c);
+      const bookings = await repo.getUnsentConfirmations({
         courseId: q.courseId ? parseInt(q.courseId) : undefined,
         round: q.round || undefined,
         attendance: q.attendance || undefined,
         dateFrom: q.dateFrom || undefined,
         dateTo: q.dateTo || undefined,
       });
-      return c.json({ success: true, bookings });
+      return c.json({ success: true, bookings: await this.withFormNames(repo, bookings as any[]) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

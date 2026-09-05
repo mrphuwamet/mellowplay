@@ -1,3 +1,5 @@
+import { resolveFormNames, FormNames } from '../services/attendeeNames';
+
 // Shared recipient-resolving join — mirrors adminRepository.getAllBookings,
 // but LEFT JOINs Branches (that query's inner join silently drops every
 // Extra Class/Event booking, which legitimately has no branch_id) and
@@ -148,51 +150,13 @@ export class SmsRepository {
   // account where either could be the one showing up. When such a field
   // exists and was actually answered, that's a better default child_name/
   // parent_name than the account's own linked child/parent.
-  async getFormPreferredNames(formSubmissionId: number): Promise<{
-    child_name?: string; parent_name?: string;
-    child_real_name?: string; child_nickname?: string;
-    parent_real_name?: string; parent_nickname?: string;
-  }> {
-    const submission = await this.db.prepare('SELECT form_id, answers_json FROM Form_Submissions WHERE id = ?')
-      .bind(formSubmissionId).first<{ form_id: number; answers_json: string }>();
-    if (!submission) return {};
+  async getFormPreferredNames(formSubmissionId: number): Promise<FormNames> {
+    return (await resolveFormNames(this.db, [formSubmissionId])).get(formSubmissionId) || {};
+  }
 
-    const { results: fields } = await this.db.prepare(
-      `SELECT field_key, config_json FROM Registration_Form_Fields WHERE form_id = ? AND type = 'family_member_picker'`
-    ).bind(submission.form_id).all<{ field_key: string; config_json: string | null }>();
-    if (fields.length === 0) return {};
-
-    let answers: Record<string, any> = {};
-    try { answers = JSON.parse(submission.answers_json || '{}'); } catch { /* malformed shouldn't block a send */ }
-
-    const result: {
-      child_name?: string; parent_name?: string;
-      child_real_name?: string; child_nickname?: string;
-      parent_real_name?: string; parent_nickname?: string;
-    } = {};
-    for (const f of fields) {
-      let role: string | undefined;
-      try { role = JSON.parse(f.config_json || '{}').role; } catch { /* ignore malformed config */ }
-      const value = answers[f.field_key];
-      if (value == null || String(value).trim() === '') continue;
-      // The consumer app's family_member_picker records these two sibling
-      // keys alongside the plain display value (see DynamicRegistrationForm.
-      // tsx) — older submissions predating that just won't have them, so
-      // real_name/nickname silently stay at whatever the account-based
-      // default already resolved to.
-      const realName = answers[`${f.field_key}__realname`];
-      const nickname = answers[`${f.field_key}__nickname`];
-      if (role === 'child') {
-        result.child_name = String(value);
-        if (realName) result.child_real_name = String(realName);
-        if (nickname) result.child_nickname = String(nickname);
-      } else if (role === 'adult') {
-        result.parent_name = String(value);
-        if (realName) result.parent_real_name = String(realName);
-        if (nickname) result.parent_nickname = String(nickname);
-      }
-    }
-    return result;
+  /** The same resolution for a whole list, without a query per row. */
+  async getFormPreferredNamesBulk(ids: (number | null | undefined)[]): Promise<Map<number, FormNames>> {
+    return resolveFormNames(this.db, ids);
   }
 
   async logSms(entry: {
