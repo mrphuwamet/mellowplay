@@ -18,6 +18,84 @@ import { copyText } from '../utils/clipboard';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
+interface TeamRow { label: string; booked: number; arrived: number; no_show: number; missing: number }
+interface TeamField { field_key: string; label: string; teams: TeamRow[] }
+
+/**
+ * How each team in the round is doing, at a glance.
+ *
+ * Counted in people, the unit a door works in — a family of three arriving is
+ * three through it. That is deliberately NOT the unit the capacity board uses
+ * (one checkout is one entry in a team), which is why no ceiling is shown here:
+ * "5/6" where the 5 counts people and the 6 counts checkouts would be a number
+ * nobody can act on.
+ */
+function TeamSummary({ fields }: { fields: TeamField[] }) {
+  if (fields.length === 0) return null;
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      {fields.map(f => (
+        <Box key={f.field_key} sx={{ mb: 1 }}>
+          <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary' }}>
+            {f.label}
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              // Fills whatever width the panel has, so this reads on a laptop
+              // at a desk and on a phone held at the door.
+              gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+              gap: 1,
+              mt: 0.5,
+            }}
+          >
+            {f.teams.map(t => {
+              const done = t.booked > 0 && t.missing === 0;
+              return (
+                <Paper
+                  key={t.label}
+                  variant="outlined"
+                  sx={{
+                    p: 1, borderRadius: 2,
+                    // A finished team goes quiet and an unfinished one stays
+                    // loud: the whole job of this box is to say where to look.
+                    // Literal tints: the semantic palettes carry light/main/dark
+                    // and no numeric shades, so success.50 resolves to nothing
+                    // and the card would silently lose its background.
+                    borderColor: done ? '#a5d6a7' : t.missing > 0 ? '#ffcc80' : 'divider',
+                    bgcolor: done ? '#f1f8f2' : t.missing > 0 ? '#fff8ef' : 'transparent',
+                  }}
+                >
+                  <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', lineHeight: 1.3 }} noWrap title={t.label}>
+                    {t.label}
+                  </Typography>
+                  <Stack direction="row" alignItems="baseline" spacing={0.5}>
+                    <Typography sx={{ fontWeight: 900, fontSize: 20, lineHeight: 1.2 }}>{t.arrived}</Typography>
+                    <Typography variant="caption" color="text.secondary">/ {t.booked} คน</Typography>
+                  </Stack>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 800, color: done ? 'success.main' : t.missing > 0 ? 'warning.dark' : 'text.disabled' }}
+                  >
+                    {t.booked === 0 ? 'ไม่มีคนจอง' : done ? 'มาครบแล้ว' : `ขาด ${t.missing} คน`}
+                  </Typography>
+                  {/* Only when there are any. A permanent "ไม่มา 0" on every
+                      card is noise on a screen meant to be read at a glance. */}
+                  {t.no_show > 0 && (
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled' }}>
+                      ทำเครื่องหมายไม่มา {t.no_show}
+                    </Typography>
+                  )}
+                </Paper>
+              );
+            })}
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 /**
  * The round being run, and who is still missing from it.
  *
@@ -82,6 +160,7 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, child
   const [rounds, setRounds] = useState<RoundOption[]>([]);
   const [picked, setPicked] = useState<RoundOption | null>(null);
   const [roster, setRoster] = useState<RosterRow[] | null>(null);
+  const [teamFields, setTeamFields] = useState<TeamField[]>([]);
   const [show, setShow] = useState<'missing' | 'all'>('missing');
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -104,15 +183,24 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, child
   }, [client, date]);
 
   const loadRoster = useCallback(async (r: RoundOption | null) => {
-    if (!r) { setRoster(null); return; }
+    if (!r) { setRoster(null); setTeamFields([]); return; }
     setLoading(true);
+    const params = { course_id: r.course_id, slot_date: r.slot_date, slot_start_time: r.slot_start_time };
     try {
-      const { data } = await client.get(`${API_BASE}/checkin/round-attendance`, {
-        params: { course_id: r.course_id, slot_date: r.slot_date, slot_start_time: r.slot_start_time },
-      });
-      setRoster(data.success ? data.bookings : []);
+      // Both in one go, and refreshed together on every scan — a summary that
+      // lags the roster by one tick is worse than none, because it is the
+      // number someone reads out loud.
+      const [attendance, teams] = await Promise.all([
+        client.get(`${API_BASE}/checkin/round-attendance`, { params }),
+        // A course with no team question simply returns nothing, and the
+        // summary renders nothing — never an empty box.
+        client.get(`${API_BASE}/checkin/round-teams`, { params }).catch(() => ({ data: { fields: [] } })),
+      ]);
+      setRoster(attendance.data.success ? attendance.data.bookings : []);
+      setTeamFields(teams.data?.fields || []);
     } catch {
       setRoster([]);
+      setTeamFields([]);
     } finally { setLoading(false); }
   }, [client]);
 
@@ -257,6 +345,8 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, child
               sx={{ height: 8, borderRadius: 4 }}
             />
           </Box>
+
+          <TeamSummary fields={teamFields} />
 
           {notice && <Alert severity="info" sx={{ mb: 1.5, borderRadius: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
 

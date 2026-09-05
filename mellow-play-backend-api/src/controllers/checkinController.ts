@@ -257,6 +257,99 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * How each team in this round is doing: booked, arrived, still missing.
+   *
+   * Only for courses whose registration form actually asks for a team — an
+   * empty list is the honest answer for everything else, and the screen shows
+   * nothing rather than an empty box.
+   *
+   * COUNTED IN PEOPLE, not in submissions. The capacity board counts a family
+   * checkout as one entry in a team; a door counts bodies, and a family of
+   * three arriving is three people through it. The two numbers are answers to
+   * different questions, so this one never shows the form's capacity beside
+   * them — putting "5/6" on screen where the 5 counts people and the 6 counts
+   * checkouts is worse than showing no ceiling at all.
+   */
+  async roundTeams(c: C) {
+    try {
+      const db = new ConfigService(c.env).db;
+      const courseId = parseInt(c.req.query('course_id') || '');
+      const slotDate = c.req.query('slot_date') || '';
+      const slotStart = c.req.query('slot_start_time') || '';
+      if (!courseId || !slotDate) return c.json({ success: false, message: 'ต้องระบุรอบ' }, 400);
+
+      const { results: fieldRows } = await db.prepare(`
+        SELECT DISTINCT f.field_key, f.label, f.options_json
+          FROM Courses c
+          JOIN Registration_Form_Fields f ON f.form_id = c.registration_form_id
+         WHERE c.id = ? AND f.type = 'team_select'
+         ORDER BY f.page_index, f.field_index
+      `).bind(courseId).all<any>();
+
+      if ((fieldRows as any[]).length === 0) return c.json({ success: true, fields: [] });
+
+      const { results: bookingRows } = await db.prepare(`
+        SELECT b.id, b.status, fs.answers_json,
+               EXISTS (SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id) AS arrived
+          FROM Bookings b
+          JOIN Form_Submissions fs ON fs.id = b.form_submission_id
+         WHERE b.course_id = ? AND b.slot_date = ?
+           AND (? = '' OR SUBSTR(b.slot_start_time, 1, 5) = SUBSTR(?, 1, 5))
+           AND b.status != 'cancelled'
+      `).bind(courseId, slotDate, slotStart, slotStart).all<any>();
+
+      const bookings = (bookingRows as any[]).map(r => {
+        let answers: Record<string, any> = {};
+        try { answers = JSON.parse(r.answers_json || '{}'); } catch { /* one bad row must not blank the board */ }
+        return { status: r.status, arrived: Number(r.arrived) > 0, answers };
+      });
+
+      const fields = (fieldRows as any[]).map(f => {
+        // Every team the form defines, in the form's own order, whether or not
+        // anyone picked it — a team that nobody booked into is a fact worth
+        // seeing, and a fixed order stops the board reshuffling under the eye
+        // of whoever is watching it fill up.
+        const teams = new Map<string, { label: string; booked: number; arrived: number; no_show: number }>();
+        try {
+          for (const t of JSON.parse(f.options_json || '[]')) {
+            if (t && t.label != null) {
+              teams.set(String(t.label), { label: String(t.label), booked: 0, arrived: 0, no_show: 0 });
+            }
+          }
+        } catch { /* a malformed field simply starts with no named teams */ }
+
+        for (const b of bookings) {
+          const chosen = b.answers[f.field_key];
+          // Someone who booked before the team question was added, or skipped
+          // it. They are in the room either way, so they are shown rather than
+          // dropped — a summary that quietly loses people is worse than one
+          // with an awkward row in it.
+          const key = chosen ? String(chosen) : 'ไม่ได้เลือกทีม';
+          if (!teams.has(key)) teams.set(key, { label: key, booked: 0, arrived: 0, no_show: 0 });
+          const row = teams.get(key)!;
+          row.booked++;
+          if (b.arrived) row.arrived++;
+          else if (b.status === 'no_show') row.no_show++;
+        }
+
+        return {
+          field_key: f.field_key,
+          label: f.label,
+          teams: Array.from(teams.values()).map(t => ({
+            ...t,
+            // Still to come: booked, less those in, less those already written
+            // off. Someone marked absent is settled, and leaving them in the
+            // missing count keeps a finished round looking unfinished.
+            missing: t.booked - t.arrived - t.no_show,
+          })),
+        };
+      });
+
+      return c.json({ success: true, fields });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async toggleAction(c: C) {
     try {
       const bookingId = parseInt(c.req.param('bookingId'));
