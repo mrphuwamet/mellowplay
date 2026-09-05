@@ -42,6 +42,7 @@ import {
   Close as CloseIcon,
   Block as RevokeIcon,
   Print as PrintIcon,
+  HowToReg as CheckinIcon,
 } from '@mui/icons-material';
 import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
@@ -1446,6 +1447,73 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     } finally { setMarkingNoShow(false); }
   };
 
+  // Bulk check-in from the list — the same ticks the QR scanner sets, minus
+  // the scanning: select the names, pick which steps to tick, done. Actions
+  // are configured per course, so a selection spanning several courses is
+  // shown grouped and each course only gets its own actions applied.
+  const [bulkCheckinGroups, setBulkCheckinGroups] = useState<
+    { courseId: number; courseName: string; bookingIds: number[]; actions: { id: number; label: string }[] }[] | null
+  >(null);
+  const [bulkCheckinPicked, setBulkCheckinPicked] = useState<Set<number>>(new Set());
+  const [bulkCheckinBusy, setBulkCheckinBusy] = useState(false);
+  const [bulkCheckinError, setBulkCheckinError] = useState('');
+
+  const openBulkCheckin = async (list: Booking[]) => {
+    const eligible = list.filter(b => b.status !== 'cancelled');
+    if (eligible.length === 0) return;
+    setBulkCheckinBusy(true);
+    setBulkCheckinError('');
+    try {
+      const byCourse = new Map<number, number[]>();
+      for (const b of eligible) {
+        if (!byCourse.has(b.course_id)) byCourse.set(b.course_id, []);
+        byCourse.get(b.course_id)!.push(b.id);
+      }
+      const groups = await Promise.all([...byCourse.entries()].map(async ([courseId, bookingIds]) => {
+        const { data } = await axios.get(`${API_BASE}/courses/${courseId}/checkin-actions`);
+        return {
+          courseId,
+          courseName: courseMap.get(courseId)?.name || `กิจกรรม #${courseId}`,
+          bookingIds,
+          actions: (data.success ? data.actions : []) as { id: number; label: string }[],
+        };
+      }));
+      // Everything ticked by default — checking everyone fully in is the
+      // common case; unticking a step is the exception.
+      setBulkCheckinPicked(new Set(groups.flatMap(g => g.actions.map(a => a.id))));
+      setBulkCheckinGroups(groups);
+    } catch (e: any) {
+      setIssueResult(e?.response?.data?.message || 'โหลดรายการเช็คอินไม่สำเร็จ');
+    } finally { setBulkCheckinBusy(false); }
+  };
+
+  const submitBulkCheckin = async () => {
+    if (!bulkCheckinGroups) return;
+    setBulkCheckinBusy(true);
+    setBulkCheckinError('');
+    try {
+      let inserted = 0, arrived = 0;
+      for (const g of bulkCheckinGroups) {
+        const actionIds = g.actions.map(a => a.id).filter(id => bulkCheckinPicked.has(id));
+        if (actionIds.length === 0) continue;
+        const { data } = await axios.post(`${API_BASE}/checkin/bulk`, {
+          booking_ids: g.bookingIds,
+          action_ids: actionIds,
+        });
+        if (!data.success) throw new Error(data.message || 'เช็คอินไม่สำเร็จ');
+        inserted += data.inserted ?? 0;
+        arrived += data.newly_arrived ?? 0;
+      }
+      setIssueResult(inserted === 0
+        ? 'ทุกรายการที่เลือกถูกเช็คอินไว้แล้ว'
+        : `เช็คอินแล้ว ${arrived > 0 ? `ผู้เข้าร่วมใหม่ ${arrived} คน · ` : ''}ติ๊กเพิ่ม ${inserted} รายการ`);
+      setBulkCheckinGroups(null);
+      onRefresh();
+    } catch (e: any) {
+      setBulkCheckinError(e?.response?.data?.message || e.message || 'เช็คอินไม่สำเร็จ');
+    } finally { setBulkCheckinBusy(false); }
+  };
+
   const copyCertificateLink = async (bookingId: number) => {
     const cert = certByBooking[bookingId];
     if (!cert) return;
@@ -2253,6 +2321,15 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               >
                 พิมพ์เกียรติบัตรที่เลือก
               </Button>
+              <Button
+                size="small" variant="contained" color="success"
+                startIcon={bulkCheckinBusy && !bulkCheckinGroups ? <CircularProgress size={14} color="inherit" /> : <CheckinIcon />}
+                onClick={() => openBulkCheckin(selectedBookings)}
+                disabled={bulkCheckinBusy || selectedBookings.filter(b => b.status !== 'cancelled').length === 0}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                เช็คอิน ({selectedBookings.filter(b => b.status !== 'cancelled').length})
+              </Button>
               {/* Not "cancel": no coupon goes back, the seat stays used, and
                   the history still says what actually happened. */}
               <Button
@@ -2330,6 +2407,68 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           )}
         </Box>
       )}
+
+      {/* Bulk check-in: which steps get ticked for the selected names. Set-
+          only — someone already checked in just stays checked in, so running
+          this over a mixed selection is always safe. */}
+      <Dialog open={!!bulkCheckinGroups} onClose={() => !bulkCheckinBusy && setBulkCheckinGroups(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          เช็คอิน {bulkCheckinGroups?.reduce((n, g) => n + g.bookingIds.length, 0) ?? 0} รายการ
+        </DialogTitle>
+        <DialogContent>
+          {bulkCheckinGroups?.map(g => (
+            <Box key={g.courseId} sx={{ mb: 2 }}>
+              {(bulkCheckinGroups.length > 1) && (
+                <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>
+                  {g.courseName} · {g.bookingIds.length} รายการ
+                </Typography>
+              )}
+              {g.actions.length === 0 ? (
+                <Typography variant="body2" sx={{ color: 'warning.main', fontWeight: 600 }}>
+                  กิจกรรมนี้ยังไม่ได้ตั้งค่ารายการเช็คอิน (ตั้งได้ในหน้าแก้ไขกิจกรรม แท็บเดียวกับฟอร์มลงทะเบียน)
+                </Typography>
+              ) : (
+                <Stack spacing={0.5}>
+                  {g.actions.map(a => (
+                    <Box key={a.id} component="label" sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}>
+                      <Checkbox
+                        size="small"
+                        checked={bulkCheckinPicked.has(a.id)}
+                        onChange={() => setBulkCheckinPicked(prev => {
+                          const next = new Set(prev);
+                          if (next.has(a.id)) next.delete(a.id); else next.add(a.id);
+                          return next;
+                        })}
+                        sx={{ p: 0.5 }}
+                      />
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.label}</Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+          ))}
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block' }}>
+            รายการที่เช็คอินขั้นตอนนั้นไว้แล้วจะไม่ถูกแก้ — การเช็คอินจากตรงนี้มีผลเหมือนสแกน QR ที่หน้างาน
+            (ล้างเครื่องหมายไม่มา และให้แสตมป์/เกียรติบัตรตามการตั้งค่า)
+          </Typography>
+          {bulkCheckinError && (
+            <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 700, mt: 1 }}>{bulkCheckinError}</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkCheckinGroups(null)} disabled={bulkCheckinBusy} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
+          <Button
+            variant="contained" color="success"
+            onClick={submitBulkCheckin}
+            disabled={bulkCheckinBusy || !bulkCheckinGroups?.some(g => g.actions.some(a => bulkCheckinPicked.has(a.id)))}
+            startIcon={bulkCheckinBusy ? <CircularProgress size={14} color="inherit" /> : <CheckinIcon />}
+            sx={{ fontWeight: 700, borderRadius: 2 }}
+          >
+            ยืนยันเช็คอิน
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Sending a message to a real parent is not undoable, so it asks
           first and names who is about to be contacted. */}

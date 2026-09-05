@@ -1022,6 +1022,7 @@ app.get('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.g
 app.put('/api/v1/admin/courses/:id/checkin-actions',  (c) => checkinController.saveActions(c));
 app.get('/api/v1/admin/checkin/lookup/:token',        (c) => checkinController.lookup(c));
 app.get('/api/v1/admin/checkin/search-by-phone/:phone', (c) => checkinController.searchByPhone(c));
+app.post('/api/v1/admin/checkin/bulk',                 (c) => checkinController.bulkCheck(c));
 app.post('/api/v1/admin/checkin/:bookingId/actions/:actionId/toggle', (c) => checkinController.toggleAction(c));
 app.get('/api/v1/admin/checkin/:bookingId/survey-history', (c) => checkinController.surveyHistory(c));
 

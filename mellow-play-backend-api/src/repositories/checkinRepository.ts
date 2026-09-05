@@ -9,18 +9,52 @@ export class CheckinRepository {
     return results;
   }
 
-  // Delete-all-reinsert on every save, same convention as
-  // Registration_Form_Fields — action `id`s aren't stable across edits,
-  // which is exactly why Booking_Checkin_Log keeps its own label_snapshot
-  // instead of trusting the action row to still exist/mean the same thing.
-  async saveActionsForCourse(courseId: number, actions: Array<{ label: string }>): Promise<void> {
-    await this.db.batch([
-      this.db.prepare('DELETE FROM Course_Checkin_Actions WHERE course_id = ?').bind(courseId),
-      ...actions.map((action, index) =>
-        this.db.prepare('INSERT INTO Course_Checkin_Actions (course_id, label, sort_order) VALUES (?, ?, ?)')
-          .bind(courseId, action.label, index)
-      ),
-    ]);
+  // Diff-in-place, NOT delete-all-reinsert. Booking_Checkin_Log.action_id
+  // cascades on delete, so the old delete-everything save silently erased a
+  // course's entire check-in history the moment staff fixed a typo in a
+  // label. Rows sent with their id are renamed in place; rows without one
+  // (an old client, or a freshly typed line) claim the next unmatched
+  // existing row in order before falling back to INSERT, so editing "on the
+  // same box" never produces a new id. Only rows genuinely absent from the
+  // payload are deleted — removing an action is the one edit that is meant
+  // to take its ticks with it.
+  async saveActionsForCourse(courseId: number, actions: Array<{ id?: number | null; label: string }>): Promise<void> {
+    const existing = await this.getActionsForCourse(courseId);
+    const claimed = new Set<number>();
+    // A payload that carries ids is authoritative: a row without one is a
+    // newly typed line. Only a fully id-less payload (an old client) falls
+    // back to pairing by position, so its in-place edits still keep their ids.
+    const payloadHasIds = actions.some(a => a.id != null);
+
+    const statements: D1PreparedStatement[] = [];
+    for (let index = 0; index < actions.length; index++) {
+      const action = actions[index];
+      let rowId: number | null = null;
+      const byId = action.id != null ? existing.find((r: any) => r.id === Number(action.id)) : null;
+      if (byId && !claimed.has(byId.id)) rowId = byId.id;
+      else if (!payloadHasIds) {
+        const next = existing.find((r: any) => !claimed.has(r.id));
+        if (next) rowId = next.id;
+      }
+      if (rowId != null) {
+        claimed.add(rowId);
+        statements.push(
+          this.db.prepare('UPDATE Course_Checkin_Actions SET label = ?, sort_order = ? WHERE id = ? AND course_id = ?')
+            .bind(action.label, index, rowId, courseId)
+        );
+      } else {
+        statements.push(
+          this.db.prepare('INSERT INTO Course_Checkin_Actions (course_id, label, sort_order) VALUES (?, ?, ?)')
+            .bind(courseId, action.label, index)
+        );
+      }
+    }
+    for (const row of existing as any[]) {
+      if (!claimed.has(row.id)) {
+        statements.push(this.db.prepare('DELETE FROM Course_Checkin_Actions WHERE id = ? AND course_id = ?').bind(row.id, courseId));
+      }
+    }
+    if (statements.length > 0) await this.db.batch(statements);
   }
 
   // Scanning a QR looks up everything staff need in one call: who this is,
@@ -145,6 +179,61 @@ export class CheckinRepository {
       LIMIT 20
     `).bind(phone.trim()).all();
     return results;
+  }
+
+  /**
+   * Bulk check-in from the booking list: SET the given actions checked for
+   * every booking — never a toggle, so re-running it over a mixed selection
+   * can only add ticks, not silently undo someone already checked in.
+   *
+   * Returns the bookings that went from zero ticks to some — the ones that
+   * "arrived" by this call — so the controller can run the same stamp/
+   * certificate side effects a door scan triggers.
+   */
+  async setActionsChecked(
+    bookingIds: number[], actionIds: number[], checkedByCrmUserId: number | null
+  ): Promise<{ newlyArrived: number[]; inserted: number }> {
+    if (bookingIds.length === 0 || actionIds.length === 0) return { newlyArrived: [], inserted: 0 };
+
+    const actionPh = actionIds.map(() => '?').join(',');
+    const { results: actionRows } = await this.db.prepare(
+      `SELECT id, label FROM Course_Checkin_Actions WHERE id IN (${actionPh})`
+    ).bind(...actionIds).all();
+    const labelById = new Map((actionRows as any[]).map(r => [r.id, r.label]));
+
+    // One read for the whole selection, chunked under D1's 100-bind cap.
+    const existing = new Set<string>();
+    const tickedBookings = new Set<number>();
+    for (let i = 0; i < bookingIds.length; i += 90) {
+      const chunk = bookingIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(
+        `SELECT booking_id, action_id FROM Booking_Checkin_Log WHERE booking_id IN (${chunk.map(() => '?').join(',')})`
+      ).bind(...chunk).all();
+      for (const r of results as any[]) {
+        existing.add(`${r.booking_id}:${r.action_id}`);
+        tickedBookings.add(Number(r.booking_id));
+      }
+    }
+
+    const statements: D1PreparedStatement[] = [];
+    const touched = new Set<number>();
+    for (const bookingId of bookingIds) {
+      for (const actionId of actionIds) {
+        if (!labelById.has(actionId) || existing.has(`${bookingId}:${actionId}`)) continue;
+        statements.push(
+          this.db.prepare(
+            'INSERT INTO Booking_Checkin_Log (booking_id, action_id, label_snapshot, checked_by_crm_user_id) VALUES (?, ?, ?, ?)'
+          ).bind(bookingId, actionId, labelById.get(actionId), checkedByCrmUserId)
+        );
+        touched.add(bookingId);
+      }
+    }
+    if (statements.length > 0) await this.db.batch(statements);
+
+    return {
+      newlyArrived: [...touched].filter(id => !tickedBookings.has(id)),
+      inserted: statements.length,
+    };
   }
 
   async toggleAction(bookingId: number, actionId: number, checkedByCrmUserId: number | null): Promise<boolean> {

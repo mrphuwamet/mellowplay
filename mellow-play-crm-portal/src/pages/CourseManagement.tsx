@@ -440,7 +440,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     registrationCloseAt: '',
     stampsOnCompletion: 0,
     stampExpiryMonths: 12,
-    checkinActions: [] as string[],
+    // id travels with the label so a wording fix updates the row in place —
+    // losing the id regenerates the action and cascades away its check-ins.
+    checkinActions: [] as { id?: number; label: string }[],
     confirmationChannelMode: 'off',
     smsSuccessEnabled: false,
     smsSuccessTemplate: '',
@@ -501,7 +503,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   }[]>>({});
   // Which team's size is being edited, as "round|field|team".
   const [editingTeamCap, setEditingTeamCap] = useState<string | null>(null);
-  const [teamCapDraft, setTeamCapDraft] = useState('');
+  const [teamCapDraft, setTeamCapDraft] = useState('');
   const [teamCapError, setTeamCapError] = useState('');
 
   /**
@@ -1181,10 +1183,10 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
       let metrics = [];
       try { metrics = course.metrics_json ? JSON.parse(course.metrics_json) : []; } catch (e) { }
 
-      let checkinActions: string[] = [];
+      let checkinActions: { id?: number; label: string }[] = [];
       try {
         const actionsRes = await axios.get(`${API_BASE}/courses/${course.id}/checkin-actions`);
-        if (actionsRes.data.success) checkinActions = actionsRes.data.actions.map((a: any) => a.label);
+        if (actionsRes.data.success) checkinActions = actionsRes.data.actions.map((a: any) => ({ id: a.id, label: a.label }));
       } catch (e) {
         console.error('Failed to fetch checkin actions', e);
       }
@@ -1280,11 +1282,16 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // as the registration form, so different events can ask for different
   // things. Saved as a whole array on course save (see handleSubmit), not
   // incrementally, matching how coupon requirements/skills already work.
-  const addCheckinAction = () => setFormData(f => ({ ...f, checkinActions: [...f.checkinActions, ''] }));
+  const addCheckinAction = () => setFormData(f => ({ ...f, checkinActions: [...f.checkinActions, { label: '' }] }));
   const updateCheckinAction = (index: number, label: string) =>
-    setFormData(f => ({ ...f, checkinActions: f.checkinActions.map((a, i) => i === index ? label : a) }));
-  const removeCheckinAction = (index: number) =>
+    setFormData(f => ({ ...f, checkinActions: f.checkinActions.map((a, i) => i === index ? { ...a, label } : a) }));
+  const removeCheckinAction = (index: number) => {
+    const target = formData.checkinActions[index];
+    // Deleting a saved action takes its recorded ticks with it (renaming does
+    // not) — that has to be a decision, not a slip of the finger.
+    if (target?.id != null && !window.confirm('ลบรายการเช็คอินนี้ออกจากกิจกรรม? ข้อมูลการเช็คอินที่เคยติ๊กไว้ในรายการนี้จะถูกลบไปด้วย (การแก้ชื่อในช่องเดิมไม่ทำให้ข้อมูลหาย)')) return;
     setFormData(f => ({ ...f, checkinActions: f.checkinActions.filter((_, i) => i !== index) }));
+  };
 
 
   const addCouponRequirement = () => {
@@ -1382,7 +1389,9 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
         });
         await saveImageViewsAndFocals(courseId);
         await axios.put(`${API_BASE}/courses/${courseId}/checkin-actions`, {
-          actions: formData.checkinActions.filter(label => label.trim()).map(label => ({ label: label.trim() })),
+          actions: formData.checkinActions
+            .filter(a => a.label.trim())
+            .map(a => ({ id: a.id ?? null, label: a.label.trim() })),
         });
         await axios.put(`${API_BASE}/courses/${courseId}/reward-settings`, rewardSettings);
       }
@@ -1675,7 +1684,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                           size="small"
                           fullWidth
                           placeholder="เช่น เช็คอิน, รับของที่ระลึก"
-                          value={action}
+                          value={action.label}
                           onChange={e => updateCheckinAction(index, e.target.value)}
                         />
                         <IconButton size="small" onClick={() => removeCheckinAction(index)} sx={{ color: 'error.main' }}>
