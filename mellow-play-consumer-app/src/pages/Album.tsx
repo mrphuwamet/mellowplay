@@ -472,6 +472,24 @@ const Album = () => {
         </div>
       </header>
 
+      {/* Doorway to the event albums (อัลบั้มรูปกิจกรรม) — a different
+          feature from this per-child journey gallery: bulk photos the staff
+          publish per activity, with face search. */}
+      <div className="px-5 pt-4">
+        <button
+          onClick={() => navigate('/event-albums')}
+          className="w-full bg-gradient-to-r from-mellow-purple to-mellow-blue text-white rounded-2xl px-5 py-3.5 flex items-center justify-between active:scale-[0.98] transition-transform"
+        >
+          <span className="text-sm font-black">
+            {lang === 'en' ? 'Event photo albums' : 'อัลบั้มรูปจากกิจกรรม'}
+            <span className="block text-[11px] font-bold opacity-80 mt-0.5">
+              {lang === 'en' ? 'Official photos · face search' : 'รูปจากทีมงาน · ค้นหาด้วยใบหน้าได้'}
+            </span>
+          </span>
+          <ChevronLeft size={20} className="rotate-180" />
+        </button>
+      </div>
+
       {/* Who filter — "All" pools everyone's media into one combined
           gallery (each thumbnail tagged with whose it is); tapping a
           person narrows it down to just them. Hidden entirely for an

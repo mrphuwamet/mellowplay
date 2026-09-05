@@ -130,6 +130,7 @@ import POSSalesHistory from './pages/POSSalesHistory';
 import RedemptionManagement from './pages/RedemptionManagement';
 import RewardsManagement from './pages/RewardsManagement';
 import NewsFeedManagement from './pages/NewsFeedManagement';
+import EventAlbumManagement from './pages/EventAlbumManagement';
 import CommunityModeration from './pages/CommunityModeration';
 import AdsManagement from './pages/AdsManagement';
 import BirthdayWishManagement from './pages/BirthdayWishManagement';
@@ -486,6 +487,7 @@ const AppContent = () => {
       { text: 'รายการแลกของรางวัล', icon: <GiftMenuIcon />, path: '/crm/redemptions', feature: 'bookings' },
       { text: 'แสตมป์ & เหรียญรางวัล', icon: <StampImageMenuIcon />, path: '/crm/stamp-images', feature: 'stamp_images' },
       { text: 'จัดการฟีดข่าวสาร', icon: <NewsFeedMenuIcon />, path: '/crm/news-feed', feature: 'news_feed' },
+      { text: 'อัลบั้มรูปกิจกรรม', icon: <NewsFeedMenuIcon />, path: '/crm/event-albums', feature: 'news_feed' },
       { text: 'ตรวจสอบโพสต์ชุมชน', icon: <CommunityModerationMenuIcon />, path: '/crm/community-moderation', feature: 'news_feed' },
       { text: 'คลังคำอวยพรวันเกิด', icon: <NewsFeedMenuIcon />, path: '/crm/birthday-wishes', feature: 'news_feed' },
       { text: 'โฆษณาในฟีด', icon: <AdsMenuIcon />, path: '/crm/ads', feature: 'ads' },
@@ -1143,6 +1145,7 @@ const AppContent = () => {
             <Route path="/crm/reports"         element={protect('dashboard', <Reports />)} />
             <Route path="/crm/calendars"       element={protect('settings', <CalendarManagement />)} />
             <Route path="/crm/news-feed"       element={protect('news_feed', <NewsFeedManagement />)} />
+            <Route path="/crm/event-albums"    element={protect('news_feed', <EventAlbumManagement />)} />
             <Route path="/crm/community-moderation" element={protect('news_feed', <CommunityModeration />)} />
             <Route path="/crm/birthday-wishes" element={protect('news_feed', <BirthdayWishManagement />)} />
             <Route path="/crm/ads"             element={protect('ads', <AdsManagement />)} />

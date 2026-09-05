@@ -26,6 +26,7 @@
     "@tiptap/pm": "^3.29.2",
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
+    "@vladmandic/face-api": "^1.7.15",
     "axios": "^1.6.7",
     "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",

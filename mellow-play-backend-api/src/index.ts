@@ -33,6 +33,7 @@ import { RewardsController } from './controllers/rewardsController';
 import { CertificateController } from './controllers/certificateController';
 import { TournamentController } from './controllers/tournamentController';
 import { NewsFeedController } from './controllers/newsFeedController';
+import { EventAlbumController } from './controllers/eventAlbumController';
 import { CourseEngagementController } from './controllers/courseEngagementController';
 import { CommunityController } from './controllers/communityController';
 import { ContactController } from './controllers/contactController';
@@ -72,6 +73,7 @@ const rewardsController        = new RewardsController();
 const tournamentController     = new TournamentController();
 const certificateController    = new CertificateController();
 const newsFeedController       = new NewsFeedController();
+const eventAlbumController     = new EventAlbumController();
 const courseEngagementController = new CourseEngagementController();
 const communityController      = new CommunityController();
 const contactController        = new ContactController();
@@ -724,6 +726,35 @@ app.get('/api/v1/admin/news-feed', (c) => newsFeedController.getAll(c));
 app.post('/api/v1/admin/news-feed', (c) => newsFeedController.create(c));
 app.put('/api/v1/admin/news-feed/:id', (c) => newsFeedController.update(c));
 app.delete('/api/v1/admin/news-feed/:id', (c) => newsFeedController.delete(c));
+
+// ================= EVENT ALBUMS (อัลบั้มรูปกิจกรรม) =================
+// CRM: albums + photos + face indexes managed under the /admin guard. The
+// consumer routes get their own requireActiveUser guard below (albums are
+// gated per course booking, so an anonymous caller has nothing to see).
+app.get('/api/v1/admin/event-albums/config',            (c) => eventAlbumController.config(c));
+app.get('/api/v1/admin/event-albums',                   (c) => eventAlbumController.list(c));
+app.post('/api/v1/admin/event-albums',                  (c) => eventAlbumController.create(c));
+app.put('/api/v1/admin/event-albums/:id',               (c) => eventAlbumController.update(c));
+app.delete('/api/v1/admin/event-albums/:id',            (c) => eventAlbumController.remove(c));
+app.get('/api/v1/admin/event-albums/:id/photos',        (c) => eventAlbumController.listPhotos(c));
+app.post('/api/v1/admin/event-albums/:id/photos',       (c) => eventAlbumController.addPhotos(c));
+app.post('/api/v1/admin/event-albums/:id/publish',      (c) => eventAlbumController.publish(c));
+app.put('/api/v1/admin/event-albums/photos/:photoId/faces', (c) => eventAlbumController.replaceFaces(c));
+app.delete('/api/v1/admin/event-albums/photos/:photoId', (c) => eventAlbumController.removePhoto(c));
+
+// Both forms, same as the /profiles guard: '/x/*' does not match the bare
+// '/x' list route in Hono.
+app.use('/api/v1/event-albums', async (c, next) => {
+  const config = new ConfigService(c.env);
+  return requireActiveUser(config)(c, next);
+});
+app.use('/api/v1/event-albums/*', async (c, next) => {
+  const config = new ConfigService(c.env);
+  return requireActiveUser(config)(c, next);
+});
+app.get('/api/v1/event-albums',                  (c) => eventAlbumController.listMine(c));
+app.get('/api/v1/event-albums/:id',              (c) => eventAlbumController.getMine(c));
+app.post('/api/v1/event-albums/:id/face-search', (c) => eventAlbumController.faceSearch(c));
 
 // ================= COMMUNITY (member posts on Home) =================
 app.get('/api/v1/community/posts', (c) => communityController.getFeed(c));

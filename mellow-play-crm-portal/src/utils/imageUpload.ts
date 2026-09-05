@@ -71,6 +71,36 @@ export async function compressImage(file: File): Promise<File> {
   return new File([blob], `${baseName}.${ext}`, { type: outType });
 }
 
+/**
+ * Downscale a decoded bitmap to a JPEG capped at `maxDim` on its long edge.
+ *
+ * The event-album importer needs two renditions of every Drive photo (a
+ * ~1920px display copy and a ~400px thumbnail) from one decode, which is why
+ * this takes an ImageBitmap rather than a File like compressImage above.
+ * Returns the blob plus the output dimensions so the caller can record them.
+ */
+export async function resizeToJpeg(
+  bitmap: ImageBitmap, maxDim: number, quality: number,
+): Promise<{ blob: Blob; width: number; height: number } | null> {
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  return blob ? { blob, width: canvas.width, height: canvas.height } : null;
+}
+
+export async function uploadRawFile(file: File, folder: string): Promise<UploadResult | null> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('folder', folder);
+  const res = await axios.post(`${API_URL}/api/v1/admin/upload`, fd);
+  return res.data?.success ? { url: res.data.url as string } : null;
+}
+
 export async function uploadEditorImage(file: File, folder: string): Promise<UploadResult | null> {
   const prepared = await compressImage(file);
   const fd = new FormData();

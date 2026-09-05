@@ -4,6 +4,8 @@ import Home from './pages/Home';
 import Roadmap from './pages/Roadmap';
 import KnowMyChild from './pages/KnowMyChild';
 import Album from './pages/Album';
+import EventAlbums from './pages/EventAlbums';
+import EventAlbumDetail from './pages/EventAlbumDetail';
 import Explore from './pages/Explore';
 import Rewards from './pages/Rewards';
 import Login from './pages/Login';
@@ -135,6 +137,8 @@ const AppContent = () => {
         <Route path="/know-my-child" element={<Navigate to="/" replace />} />
         <Route path="/know-my-child/:type" element={<Navigate to="/" replace />} />
         <Route path="/album" element={<Album />} />
+        <Route path="/event-albums" element={<EventAlbums />} />
+        <Route path="/event-albums/:id" element={<EventAlbumDetail />} />
         <Route path="/report/:bookingId" element={<ReportDetail />} />
         <Route path="/survey/:idOrSlug" element={<SurveyDetail />} />
         <Route path="/session/:idOrSlug" element={<SessionDetail />} />
