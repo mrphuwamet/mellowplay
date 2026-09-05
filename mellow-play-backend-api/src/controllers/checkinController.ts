@@ -374,6 +374,39 @@ export class CheckinController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * Check several bookings in at once, from the booking list's multi-select.
+   *
+   * Set-only (see repository): running it twice, or over a row someone
+   * already scanned at the door, adds nothing and undoes nothing. The
+   * stamp/certificate side effects run only for bookings that had no tick
+   * at all before this call — exactly the moment the door scan awards them.
+   */
+  async bulkCheck(c: C) {
+    try {
+      const body = await c.req.json();
+      const bookingIds: number[] = (Array.isArray(body.booking_ids) ? body.booking_ids : [])
+        .map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
+      const actionIds: number[] = (Array.isArray(body.action_ids) ? body.action_ids : [])
+        .map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
+      if (bookingIds.length === 0) return c.json({ success: false, message: 'ยังไม่ได้เลือกรายการจอง' }, 400);
+      if (actionIds.length === 0) return c.json({ success: false, message: 'ยังไม่ได้เลือกขั้นตอนเช็คอิน' }, 400);
+
+      const checkedByCrmUserId = c.get('crmUser')?.userId ?? null;
+      const db = new ConfigService(c.env).db;
+      const { newlyArrived, inserted } = await this.repo(c).setActionsChecked(bookingIds, actionIds, checkedByCrmUserId);
+
+      // Same as a door scan: being ticked in beats a no-show mark set earlier.
+      await clearNoShow(db, bookingIds);
+      for (const bookingId of newlyArrived) {
+        await awardParticipation(db, { bookingId, source: 'checkin', actorId: checkedByCrmUserId });
+        await autoIssueCertificate(db, { bookingId, moment: 'checkin', actorId: checkedByCrmUserId });
+      }
+
+      return c.json({ success: true, inserted, newly_arrived: newlyArrived.length });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async toggleAction(c: C) {
     try {
       const bookingId = parseInt(c.req.param('bookingId'));
