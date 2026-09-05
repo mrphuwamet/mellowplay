@@ -177,6 +177,9 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
   const [formLoading, setFormLoading] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  // Not an error. A desk machine has no camera, and saying "เปิดกล้องไม่ได้" to
+  // someone who was never going to use one reads as a fault to be reported.
+  const [noCamera, setNoCamera] = useState(false);
   const [starting, setStarting] = useState(true);
   // A hardware scanner is a keyboard: it types the code and presses Enter.
   // The field is kept focused whenever the camera view is on screen so a
@@ -222,9 +225,13 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
         // queue in front of them.
         const cameras = await Html5Qrcode.getCameras();
         if (cancelled) return;
-        const constraint = cameras.length > 0
-          ? { deviceId: { exact: pickRearCamera(cameras) } }
-          : { facingMode: 'environment' };
+        // No camera at all — a desk machine. Say so and stop, rather than
+        // asking to start one anyway and reporting the failure as a fault.
+        if (cameras.length === 0) {
+          setNoCamera(true);
+          return;
+        }
+        const constraint = { deviceId: { exact: pickRearCamera(cameras) } };
         await scanner.start(
           constraint as any,
           { fps: 10, qrbox: 250 },
@@ -244,9 +251,25 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
 
     return () => {
       cancelled = true;
-      // stop() rejects when it was never started; either way the element is
-      // about to go away.
-      scanner.stop().catch(() => {}).finally(() => scanner.clear());
+      /**
+       * Shutting a scanner down that never started.
+       *
+       * html5-qrcode's stop() THROWS synchronously when the camera was never
+       * running — it does not return a rejected promise — so a .catch() on the
+       * call was never reached, and refreshing this page on a machine with no
+       * camera threw out of the cleanup. Hence the try, not just the catch.
+       */
+      try {
+        const state = scanner.getState?.();
+        const running = state === Html5QrcodeScannerState.SCANNING
+          || state === Html5QrcodeScannerState.PAUSED;
+        const stopped = running ? scanner.stop() : Promise.resolve();
+        Promise.resolve(stopped)
+          .catch(() => {})
+          .finally(() => { try { scanner.clear(); } catch { /* already gone */ } });
+      } catch {
+        try { scanner.clear(); } catch { /* already gone */ }
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -449,7 +472,12 @@ const CheckinScannerCore: React.FC<Props> = ({ client, onUnauthorized, canCloseR
             <Typography variant="caption" color="text.secondary">กำลังเปิดกล้อง...</Typography>
           </Box>
         )}
-        {cameraError && (
+        {noCamera && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            เครื่องนี้ไม่มีกล้อง — ใช้เครื่องสแกนยิงที่ช่องด้านบน กดชื่อจากรายชื่อ หรือกรอกเบอร์โทรแทนได้
+          </Alert>
+        )}
+        {cameraError && !noCamera && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             เปิดกล้องไม่ได้ ({cameraError}) — ใช้เครื่องสแกนยิงที่ช่องด้านบน หรือกรอกเบอร์โทรแทนได้
           </Alert>
