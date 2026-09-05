@@ -113,13 +113,14 @@ function recipientFilterSql(filters: RecipientFilters): { sql: string; params: a
         SELECT 1 FROM Booking_Checkin_Log l WHERE l.booking_id = b.id
       )`;
     } else if ((kind === 'done' || kind === 'todo') && Number.isFinite(actionId)) {
-      // The id OR the label, because neither alone is a durable identity here.
+      // The id OR the label, because neither alone is a durable identity.
       //
-      // Saving the check-in steps deletes and reinserts every row (see
-      // checkinRepository), so ids churn on an ordinary edit while the logs keep
-      // pointing at the old ones — matching on the id alone would report every
-      // person as not having done a step they did. label_snapshot survives that,
-      // and the id covers the other direction, a step that was renamed.
+      // The id is the primary match and holds across a rename, now that saving
+      // the steps diffs in place rather than reinserting them (see
+      // checkinRepository.saveActionsForCourse). label_snapshot covers what the
+      // id cannot: rows ticked before that fix, when an ordinary edit churned
+      // every id and left the logs pointing at ones that no longer exist, and
+      // any step later removed and added back.
       sql += ` AND ${kind === 'todo' ? 'NOT ' : ''}EXISTS (
         SELECT 1 FROM Booking_Checkin_Log l
          WHERE l.booking_id = b.id
