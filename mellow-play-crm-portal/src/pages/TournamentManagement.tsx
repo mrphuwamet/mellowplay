@@ -230,6 +230,14 @@ const TournamentManagement: React.FC = () => {
    * from last week silently hides half the entrants.
    */
   const [checkinFilter, setCheckinFilter] = useState<'all' | 'in' | 'out'>('all');
+  /**
+   * Whether entrants already drawn into a heat are on offer.
+   *
+   * 'unplaced' by default, which is what the list did before and what the work
+   * usually is. 'all' is for the case that made this a setting: someone whose
+   * heat is over asking to race another one.
+   */
+  const [placedFilter, setPlacedFilter] = useState<'unplaced' | 'all'>('unplaced');
   const [checkedInBookings, setCheckedInBookings] = useState<Set<number>>(new Set());
 
   const [heatDialog, setHeatDialog] = useState<{ open: boolean; editing: Heat | null; tournamentId: number | null }>({ open: false, editing: null, tournamentId: null });
@@ -358,12 +366,18 @@ const TournamentManagement: React.FC = () => {
   const usedKeys = useMemo(() => {
     const used = new Set<string>();
     const usedBookings = new Set<number>();
+    // Which heats each entrant is already in, by name — so a row can say
+    // "อยู่ใน รอบคัดเลือก · 2 แล้ว" rather than silently disappearing.
+    const placedIn = new Map<string, string[]>();
     for (const e of entries) {
-      used.add(`${e.entry_type}:${e.ref_key}`);
+      const key = `${e.entry_type}:${e.ref_key}`;
+      used.add(key);
       e.booking_ids?.forEach(id => usedBookings.add(id));
+      const heat = heats.find(h => h.id === e.heat_id);
+      if (heat) placedIn.set(key, [...(placedIn.get(key) || []), heat.name]);
     }
-    return { used, usedBookings };
-  }, [entries]);
+    return { used, usedBookings, placedIn };
+  }, [entries, heats]);
 
   // Straight from the course's bookings, so a round with nobody drawn into a
   // heat yet is still on the list — the previous version derived these from
@@ -375,10 +389,15 @@ const TournamentManagement: React.FC = () => {
 
   const available = useMemo(() => {
     return (options[entryType] || []).filter(o => {
-      if (usedKeys.used.has(`${o.entryType}:${o.refKey}`)) return false;
-      // Someone already racing as part of a team should not also be offered as
-      // an individual — that is the double-entry the unique index would reject.
-      if (o.bookingIds.every(id => usedKeys.usedBookings.has(id))) return false;
+      // Already placed somewhere. Hidden by default, because the usual job is
+      // "who is left to draw" — but offered when asked for, since an entrant
+      // who has finished one heat often wants another.
+      if (placedFilter === 'unplaced') {
+        if (usedKeys.used.has(`${o.entryType}:${o.refKey}`)) return false;
+        // Someone already racing as part of a team should not also be offered
+        // as an individual under the same booking.
+        if (o.bookingIds.every(id => usedKeys.usedBookings.has(id))) return false;
+      }
       if (roundFilter !== 'all') {
         const key = `${o.slotDate ?? ''}|${o.slotStartTime ?? ''}`;
         if (key !== roundFilter) return false;
@@ -394,7 +413,7 @@ const TournamentManagement: React.FC = () => {
       }
       return true;
     });
-  }, [options, entryType, usedKeys, roundFilter, checkinFilter, checkedInBookings]);
+  }, [options, entryType, usedKeys, roundFilter, checkinFilter, checkedInBookings, placedFilter]);
 
   /** How many of the entrants on offer have arrived — the count on the chip. */
   const checkedInCount = useMemo(
@@ -417,7 +436,7 @@ const TournamentManagement: React.FC = () => {
         entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
       })),
     });
-    if (data.skipped?.length) setNotice(`ข้ามไป ${data.skipped.length} รายการ (อยู่ใน Heat อื่นแล้ว): ${data.skipped.join(', ')}`);
+    if (data.skipped?.length) setNotice(`ข้ามไป ${data.skipped.length} รายการ (มีชื่ออยู่ใน Heat นี้แล้ว): ${data.skipped.join(', ')}`);
     else setNotice('');
     load(Number(courseId));
   };
@@ -712,7 +731,7 @@ const TournamentManagement: React.FC = () => {
         entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
       })),
     });
-    setNotice(data.skipped?.length ? `ข้ามไป ${data.skipped.length} รายการ (อยู่ในรอบนี้แล้ว)` : '');
+    setNotice(data.skipped?.length ? `ข้ามไป ${data.skipped.length} รายการ (มีชื่ออยู่ใน Heat นั้นแล้ว)` : '');
     setPickerHeat(null);
     load(Number(courseId));
   };
@@ -1019,6 +1038,18 @@ const TournamentManagement: React.FC = () => {
                   </FormControl>
                 )}
 
+                {/* Whether someone already drawn into a heat is still on offer.
+                    Off by default, since the usual question is "who is left" —
+                    but a person whose heat is finished often wants another, and
+                    hiding them outright made that impossible to arrange. */}
+                <ToggleButtonGroup
+                  exclusive size="small" fullWidth value={placedFilter} sx={{ mb: 1.5 }}
+                  onChange={(_, v) => { if (v) { setPlacedFilter(v); setPicked(new Set()); } }}
+                >
+                  <ToggleButton value="unplaced" sx={{ fontWeight: 700, textTransform: 'none' }}>ยังไม่ได้ลง</ToggleButton>
+                  <ToggleButton value="all" sx={{ fontWeight: 700, textTransform: 'none' }}>รวมคนที่ลงแล้ว</ToggleButton>
+                </ToggleButtonGroup>
+
                 {/* Building a draw from the people who are actually in the
                     building. Shown with counts, because "เช็คอินแล้ว" meaning
                     zero people is a fact worth seeing before the filter hides
@@ -1042,9 +1073,11 @@ const TournamentManagement: React.FC = () => {
                           says the draw is done when it has not started. */}
                       {(options[entryType] || []).length === 0
                         ? (entryType === 'team' ? 'กิจกรรมนี้ยังไม่มีใครเลือกทีม' : 'ยังไม่มีผู้ลงทะเบียน')
-                        : roundFilter !== 'all'
-                          ? 'ไม่มีรายชื่อที่ยังว่างในรอบนี้'
-                          : 'จัดลง Heat ครบทุกคนแล้ว'}
+                        : placedFilter === 'unplaced'
+                          ? 'จัดลง Heat ครบทุกคนแล้ว — เลือก "รวมคนที่ลงแล้ว" เพื่อให้ลงซ้ำอีกรอบได้'
+                          : roundFilter !== 'all'
+                            ? 'ไม่มีรายชื่อในรอบนี้'
+                            : 'ไม่พบรายชื่อ'}
                     </Typography>
                   )}
                   {available.map(o => (
@@ -1068,6 +1101,17 @@ const TournamentManagement: React.FC = () => {
                             <Tooltip title="เช็คอินแล้ว">
                               <FlagIcon sx={{ fontSize: 15, color: '#2e7d32' }} />
                             </Tooltip>
+                          )}
+                          {/* Which heats they are already in. Adding them again
+                              is allowed now, so the list has to say where they
+                              stand — otherwise the same name goes in twice by
+                              accident instead of on purpose. */}
+                          {(usedKeys.placedIn.get(`${o.entryType}:${o.refKey}`) || []).length > 0 && (
+                            <Chip
+                              size="small"
+                              label={`ลงแล้ว: ${(usedKeys.placedIn.get(`${o.entryType}:${o.refKey}`) || []).join(', ')}`}
+                              sx={{ height: 18, fontSize: 10, fontWeight: 700, bgcolor: '#fff4e5', color: '#b45309' }}
+                            />
                           )}
                         </Stack>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
@@ -1530,6 +1574,18 @@ const TournamentManagement: React.FC = () => {
             ))}
           </ToggleButtonGroup>
 
+          {/* The same switch as the pool panel, repeated here because this
+              dialog is where heats are actually built — asking someone to close
+              it, flip a toggle behind it and reopen is how a setting goes
+              unfound. */}
+          <ToggleButtonGroup
+            exclusive size="small" fullWidth value={placedFilter} sx={{ mb: 1.5 }}
+            onChange={(_, v) => { if (v) { setPlacedFilter(v); setPickerPicked(new Set()); } }}
+          >
+            <ToggleButton value="unplaced" sx={{ fontWeight: 700, textTransform: 'none' }}>ยังไม่ได้ลง</ToggleButton>
+            <ToggleButton value="all" sx={{ fontWeight: 700, textTransform: 'none' }}>รวมคนที่ลงแล้ว</ToggleButton>
+          </ToggleButtonGroup>
+
           <TextField
             size="small" fullWidth placeholder="ค้นหาชื่อ ทีม หรือเบอร์โทร" sx={{ mb: 1.5 }}
             value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
@@ -1538,7 +1594,9 @@ const TournamentManagement: React.FC = () => {
           <Stack spacing={0.75}>
             {pickerRows.length === 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                ไม่พบรายชื่อที่ยังว่างอยู่
+                {placedFilter === 'unplaced'
+                  ? 'ทุกคนลงสายแล้ว — เลือก "รวมคนที่ลงแล้ว" เพื่อให้ลงซ้ำอีกรอบได้'
+                  : 'ไม่พบรายชื่อ'}
               </Typography>
             )}
             {pickerRows.map(o => (
@@ -1558,7 +1616,19 @@ const TournamentManagement: React.FC = () => {
               >
                 <Checkbox size="small" checked={pickerPicked.has(o.refKey)} sx={{ p: 0.5 }} />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 800 }}>{o.label}</Typography>
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography variant="body2" sx={{ fontWeight: 800 }}>{o.label}</Typography>
+                    {/* Where they already stand. A second heat is allowed now,
+                        so the row has to say so — otherwise the same name goes
+                        on twice by accident instead of on purpose. */}
+                    {(usedKeys.placedIn.get(`${o.entryType}:${o.refKey}`) || []).length > 0 && (
+                      <Chip
+                        size="small"
+                        label={`ลงแล้ว: ${(usedKeys.placedIn.get(`${o.entryType}:${o.refKey}`) || []).join(', ')}`}
+                        sx={{ height: 18, fontSize: 10, fontWeight: 700, bgcolor: '#fff4e5', color: '#b45309' }}
+                      />
+                    )}
+                  </Stack>
                   {o.subLabel && (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{o.subLabel}</Typography>
                   )}

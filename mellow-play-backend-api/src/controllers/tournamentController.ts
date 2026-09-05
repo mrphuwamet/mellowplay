@@ -188,9 +188,11 @@ export class TournamentController {
           });
           added++;
         } catch {
-          // The unique index caught it: this registrant is already in a heat of
-          // this tournament. Skipping is the right answer — the alternative is
-          // silently moving them out of the heat someone else just built.
+          // The unique index caught it: this registrant is already in THIS heat.
+          // Since the index gained heat_id they are welcome in another heat of
+          // the same round — someone whose heat is over asking for one more — so
+          // the only thing left to refuse is the same name twice on one start
+          // list, which is a double-click rather than an intention.
           skipped.push(e.label);
         }
       }

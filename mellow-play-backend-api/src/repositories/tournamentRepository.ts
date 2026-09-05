@@ -301,8 +301,9 @@ export class TournamentRepository {
       ).run();
       return true;
     } catch {
-      // Already through — the unique index per tournament means advancing twice
-      // is a no-op rather than a duplicate on the start list.
+      // Already through. Advancing names one destination heat, and the unique
+      // index still refuses the same entrant twice in that heat, so pressing
+      // advance again is a no-op rather than a duplicate on the start list.
       return false;
     }
   }
@@ -346,8 +347,9 @@ export class TournamentRepository {
     ).run();
   }
 
-  // Moving carries the stage AND the bracket with it. The stage because the "no
-  // racing twice in one round" index would otherwise check the wrong round; the
+  // Moving carries the stage AND the bracket with it. The stage because the "not
+  // twice on one start list" index reads it, and a stale one would guard the
+  // wrong round; the
   // bracket because winners of separate brackets meet each other, and that
   // meeting is an entry moving from one bracket's heat into another's.
   async moveEntry(entryId: number, heatId: number): Promise<void> {
