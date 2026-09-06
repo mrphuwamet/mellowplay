@@ -690,7 +690,7 @@ const EventAlbumManagement: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditOpen(false)} disabled={saving} sx={{ fontWeight: 700 }}>ยกเลิก</Button>
-          <Button variant="contained" onClick={saveAlbum} disabled={saving || !form.name.trim() || !form.courseId} sx={{ fontWeight: 700, borderRadius: 2 }}>
+          <Button variant="contained" onClick={saveAlbum} disabled={saving || !form.name.trim()} sx={{ fontWeight: 700, borderRadius: 2 }}>
             {saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>
         </DialogActions>
