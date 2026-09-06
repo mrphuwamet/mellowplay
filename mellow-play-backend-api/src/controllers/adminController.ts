@@ -2284,6 +2284,7 @@ export class AdminController {
   private static INTEGRATION_KEYS = [
     'beam_api_key', 'beam_merchant_id', 'sms_api_key', 'sms_api_secret', 'sms_sender_name', 'discord_webhook_url',
     'discord_notify_webhook_url', 'anthropic_api_key', 'google_ai_api_key', 'translation_provider', 'line_liff_id',
+    'google_drive_api_key',
   ] as const;
   // sms_sender_name is the registered ThaiBulkSMS sender ID shown to
   // recipients — a display label, not a credential, so it isn't masked.
