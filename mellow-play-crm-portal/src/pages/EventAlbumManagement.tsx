@@ -62,7 +62,9 @@ const splitRound = (key: string): { slotDate: string | null; slotStartTime: stri
 };
 
 interface Album {
-  id: number; name: string; description?: string | null; course_id: number;
+  id: number; name: string; description?: string | null;
+  /** NULL when the album is not about one activity. */
+  course_id?: number | null;
   /** Every round this album covers. Empty means the whole activity. */
   rounds?: { slot_date: string; slot_start_time?: string | null }[];
   /** Set once a share link exists. The token IS the permission to view. */
@@ -203,13 +205,13 @@ const EventAlbumManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditAlbum(null);
-    setForm({ name: '', courseId: courses[0]?.id || 0, rounds: [], description: '', driveLink: '' });
+    setForm({ name: '', courseId: 0, rounds: [], description: '', driveLink: '' });
     setEditOpen(true);
   };
   const openEdit = (a: Album) => {
     setEditAlbum(a);
     setForm({
-      name: a.name, courseId: a.course_id,
+      name: a.name, courseId: a.course_id || 0,
       rounds: (a.rounds || []).map(r => roundKey(r.slot_date, r.slot_start_time)),
       description: a.description || '',
       driveLink: a.drive_folder_id ? `https://drive.google.com/drive/folders/${a.drive_folder_id}` : '',
@@ -218,7 +220,7 @@ const EventAlbumManagement: React.FC = () => {
   };
 
   const saveAlbum = async () => {
-    if (!form.name.trim() || !form.courseId) return;
+    if (!form.name.trim()) return;
     const driveFolderId = parseDriveFolderId(form.driveLink);
     if (form.driveLink.trim() && !driveFolderId) {
       setError('ลิงก์ Google Drive ไม่ถูกต้อง — ต้องเป็นลิงก์โฟลเดอร์ (…/drive/folders/…)');
@@ -228,7 +230,7 @@ const EventAlbumManagement: React.FC = () => {
     setError('');
     try {
       const payload = {
-        name: form.name.trim(), courseId: form.courseId,
+        name: form.name.trim(), courseId: form.courseId || null,
         rounds: form.rounds,
         description: form.description || null, driveFolderId,
         coverPhotoUrl: editAlbum?.cover_photo_url || null,
@@ -576,7 +578,7 @@ const EventAlbumManagement: React.FC = () => {
                     <Box sx={{ minWidth: 0 }}>
                       <Typography sx={{ fontWeight: 800, lineHeight: 1.3 }} noWrap>{a.name}</Typography>
                       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block' }} noWrap>
-                        {a.course_name || courseName(a.course_id)}{roundsSummary(a.rounds)}
+                        {a.course_name || (a.course_id ? courseName(a.course_id) : 'ไม่ผูกกับกิจกรรม')}{roundsSummary(a.rounds)}
                       </Typography>
                     </Box>
                     <Chip
@@ -606,9 +608,16 @@ const EventAlbumManagement: React.FC = () => {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="ชื่ออัลบั้ม" fullWidth value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            <TextField select label="กิจกรรม / คลาส" fullWidth value={form.courseId || ''}
+            {/* Optional now. Several activities run at once in the same hall
+                and the photographer covers the room, not a timetable — tying
+                every album to one of them meant picking whichever was least
+                wrong and hiding it from everyone who came for the others. */}
+            <TextField select label="กิจกรรม / คลาส (ไม่บังคับ)" fullWidth value={form.courseId || 0}
               onChange={e => setForm({ ...form, courseId: Number(e.target.value), rounds: [] })}
-              helperText="ครอบครัวที่เคยจองกิจกรรมนี้เท่านั้นที่จะเห็นอัลบั้ม">
+              helperText={form.courseId
+                ? 'ครอบครัวที่เคยจองกิจกรรมนี้เท่านั้นที่จะเห็นอัลบั้ม'
+                : 'ไม่ผูกกับกิจกรรม — เผยแพร่แล้วทุกคนที่ล็อกอินจะเห็น เหมาะกับงานที่จัดหลายกิจกรรมพร้อมกัน'}>
+              <MenuItem value={0}>ไม่ผูกกับกิจกรรม</MenuItem>
               {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
             {/* A picked round, not a typed date: the rounds are known, and
@@ -622,6 +631,7 @@ const EventAlbumManagement: React.FC = () => {
                 said in the helper text rather than as a "ทุกรอบ" option, since
                 an option that must be unticked to tick a real round is a
                 checkbox pretending to be one. */}
+            {form.courseId > 0 && (
             <TextField select label="รอบ (ไม่บังคับ)" fullWidth
               value={form.rounds}
               onChange={e => setForm({
@@ -666,7 +676,11 @@ const EventAlbumManagement: React.FC = () => {
                 );
               })}
             </TextField>
-            <TextField label="คำอธิบาย (ไม่บังคับ)" fullWidth multiline rows={2} value={form.description}
+            )}
+            {/* Named as what it becomes. Publishing turns the album's name and
+                this text into the news post, so calling it "description" hid
+                the fact that families read it. */}
+            <TextField label="รายละเอียด (ใช้เป็นเนื้อหาโพสข่าวสารด้วย)" fullWidth multiline rows={3} value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })} />
             <TextField label="ลิงก์โฟลเดอร์ Google Drive" fullWidth value={form.driveLink}
               onChange={e => setForm({ ...form, driveLink: e.target.value })}

@@ -51,7 +51,7 @@ export class EventAlbumRepository {
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
       FROM Event_Albums a
-      JOIN Courses c ON c.id = a.course_id
+      LEFT JOIN Courses c ON c.id = a.course_id
       ORDER BY a.created_at DESC
     `).all();
     return this.withRounds(results as any[]);
@@ -60,7 +60,7 @@ export class EventAlbumRepository {
   async getById(id: number): Promise<any | null> {
     const album = await this.db.prepare(`
       SELECT a.*, c.name AS course_name
-      FROM Event_Albums a JOIN Courses c ON c.id = a.course_id
+      FROM Event_Albums a LEFT JOIN Courses c ON c.id = a.course_id
       WHERE a.id = ?
     `).bind(id).first();
     if (!album) return null;
@@ -68,13 +68,13 @@ export class EventAlbumRepository {
   }
 
   async create(data: {
-    name: string; courseId: number; rounds?: AlbumRound[];
+    name: string; courseId: number | null; rounds?: AlbumRound[];
     description?: string | null; driveFolderId?: string | null;
   }): Promise<number> {
     const res = await this.db.prepare(`
       INSERT INTO Event_Albums (name, course_id, description, drive_folder_id)
       VALUES (?, ?, ?, ?)
-    `).bind(data.name, data.courseId, data.description || null, data.driveFolderId || null).run();
+    `).bind(data.name, data.courseId ?? null, data.description || null, data.driveFolderId || null).run();
     const id = res.meta.last_row_id as number;
     await this.setRounds(id, data.rounds || []);
     return id;
@@ -123,7 +123,7 @@ export class EventAlbumRepository {
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
       FROM Event_Albums a
-      JOIN Courses c ON c.id = a.course_id
+      LEFT JOIN Courses c ON c.id = a.course_id
       WHERE a.share_token = ?
     `).bind(token).first();
     if (!album) return null;
@@ -182,7 +182,7 @@ export class EventAlbumRepository {
   }
 
   async update(id: number, data: {
-    name: string; courseId: number; rounds?: AlbumRound[];
+    name: string; courseId: number | null; rounds?: AlbumRound[];
     description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null;
   }): Promise<void> {
     await this.db.prepare(`
@@ -191,7 +191,7 @@ export class EventAlbumRepository {
              description = ?, drive_folder_id = ?,
              cover_photo_url = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
-    `).bind(data.name, data.courseId, data.description || null,
+    `).bind(data.name, data.courseId ?? null, data.description || null,
             data.driveFolderId || null, data.coverPhotoUrl || null, id).run();
     // Only when the caller actually said something about the rounds. Setting a
     // cover photo reuses this method and has no opinion on them — treating
@@ -311,8 +311,14 @@ export class EventAlbumRepository {
   // ── Consumer ─────────────────────────────────────────────────────────────
 
   /**
-   * Published albums the family can open: any non-cancelled booking for the
-   * album's course by any of the account's children unlocks it.
+   * Published albums the family can open.
+   *
+   * Two rules, because an album has two shapes. One tied to an activity is
+   * unlocked by a non-cancelled booking for it by any of the account's
+   * children — the original rule, unchanged. One tied to no activity is a
+   * general event album, announced as news, and open to anyone signed in:
+   * there is no booking that could gate it, and gating it on nothing would
+   * mean it could never be seen at all.
    */
   async listForUser(userId: number): Promise<any[]> {
     const { results } = await this.db.prepare(`
@@ -320,12 +326,15 @@ export class EventAlbumRepository {
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count
       FROM Event_Albums a
-      JOIN Courses c ON c.id = a.course_id
+      LEFT JOIN Courses c ON c.id = a.course_id
       WHERE a.is_published = 1
-        AND EXISTS (
-          SELECT 1 FROM Bookings b
-          JOIN Children ch ON b.child_id = ch.id
-          WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+        AND (
+          a.course_id IS NULL
+          OR EXISTS (
+            SELECT 1 FROM Bookings b
+            JOIN Children ch ON b.child_id = ch.id
+            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+          )
         )
       ORDER BY a.created_at DESC
     `).bind(userId).all();
@@ -339,12 +348,15 @@ export class EventAlbumRepository {
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
       FROM Event_Albums a
-      JOIN Courses c ON c.id = a.course_id
+      LEFT JOIN Courses c ON c.id = a.course_id
       WHERE a.id = ? AND a.is_published = 1
-        AND EXISTS (
-          SELECT 1 FROM Bookings b
-          JOIN Children ch ON b.child_id = ch.id
-          WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+        AND (
+          a.course_id IS NULL
+          OR EXISTS (
+            SELECT 1 FROM Bookings b
+            JOIN Children ch ON b.child_id = ch.id
+            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+          )
         )
     `).bind(albumId, userId).first();
     if (!album) return null;

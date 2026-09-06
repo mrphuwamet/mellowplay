@@ -182,12 +182,12 @@ export class EventAlbumController {
   async create(c: C) {
     try {
       const body = await c.req.json();
-      if (!body.name?.trim() || !body.courseId) {
-        return c.json({ success: false, message: 'ต้องระบุชื่ออัลบั้มและกิจกรรม' }, 400);
+      if (!body.name?.trim()) {
+        return c.json({ success: false, message: 'ต้องระบุชื่ออัลบั้ม' }, 400);
       }
       const id = await this.repo(c).create({
         name: String(body.name).trim(),
-        courseId: Number(body.courseId),
+        courseId: body.courseId ? Number(body.courseId) : null,
         rounds: parseRounds(body.rounds) || [],
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
@@ -200,12 +200,12 @@ export class EventAlbumController {
     try {
       const id = parseInt(c.req.param('id'));
       const body = await c.req.json();
-      if (!body.name?.trim() || !body.courseId) {
-        return c.json({ success: false, message: 'ต้องระบุชื่ออัลบั้มและกิจกรรม' }, 400);
+      if (!body.name?.trim()) {
+        return c.json({ success: false, message: 'ต้องระบุชื่ออัลบั้ม' }, 400);
       }
       await this.repo(c).update(id, {
         name: String(body.name).trim(),
-        courseId: Number(body.courseId),
+        courseId: body.courseId ? Number(body.courseId) : null,
         rounds: parseRounds(body.rounds),
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
@@ -314,7 +314,11 @@ export class EventAlbumController {
         newsFeedId = await news.create({
           type: 'media',
           title: album.name,
-          content: album.description || `ประมวลภาพกิจกรรม ${album.course_name}`,
+          // The album's own description is the post. The fallback names the
+          // activity only when there is one — an album spanning several
+          // activities in one hall has no single name to borrow.
+          content: album.description
+            || (album.course_name ? `ประมวลภาพกิจกรรม ${album.course_name}` : `ประมวลภาพ ${album.name}`),
           imageUrl: album.cover_photo_url || undefined,
           linkUrl: `/event-albums/${id}`,
           isPublished: true,
