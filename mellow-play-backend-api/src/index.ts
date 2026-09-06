@@ -742,16 +742,10 @@ app.post('/api/v1/admin/event-albums/:id/publish',      (c) => eventAlbumControl
 app.put('/api/v1/admin/event-albums/photos/:photoId/faces', (c) => eventAlbumController.replaceFaces(c));
 app.delete('/api/v1/admin/event-albums/photos/:photoId', (c) => eventAlbumController.removePhoto(c));
 
-// Both forms, same as the /profiles guard: '/x/*' does not match the bare
-// '/x' list route in Hono.
-app.use('/api/v1/event-albums', async (c, next) => {
-  const config = new ConfigService(c.env);
-  return requireActiveUser(config)(c, next);
-});
-app.use('/api/v1/event-albums/*', async (c, next) => {
-  const config = new ConfigService(c.env);
-  return requireActiveUser(config)(c, next);
-});
+// No auth middleware here on purpose: a 'public' album must open without a
+// login (a news post links straight to it). The controller resolves the
+// caller optionally and the repository enforces per-album visibility —
+// 'booked' albums still require a booking-holding account.
 app.get('/api/v1/event-albums',                  (c) => eventAlbumController.listMine(c));
 app.get('/api/v1/event-albums/:id',              (c) => eventAlbumController.getMine(c));
 app.post('/api/v1/event-albums/:id/face-search', (c) => eventAlbumController.faceSearch(c));

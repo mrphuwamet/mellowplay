@@ -49,22 +49,29 @@ export class EventAlbumRepository {
     `).bind(id).first();
   }
 
-  async create(data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null }): Promise<number> {
+  // visibility: 'public' opens the album to anyone with the link (no login),
+  // 'booked' keeps the original booking gate. Anything else is coerced to
+  // 'booked' — the safe direction to fail.
+  private static visibilityOf(v: any): string { return v === 'public' ? 'public' : 'booked'; }
+
+  async create(data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null; visibility?: string }): Promise<number> {
     const res = await this.db.prepare(`
-      INSERT INTO Event_Albums (name, course_id, slot_date, description, drive_folder_id)
-      VALUES (?, ?, ?, ?, ?)
-    `).bind(data.name, data.courseId, data.slotDate || null, data.description || null, data.driveFolderId || null).run();
+      INSERT INTO Event_Albums (name, course_id, slot_date, description, drive_folder_id, visibility)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(data.name, data.courseId, data.slotDate || null, data.description || null, data.driveFolderId || null,
+            EventAlbumRepository.visibilityOf(data.visibility)).run();
     return res.meta.last_row_id as number;
   }
 
-  async update(id: number, data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null }): Promise<void> {
+  async update(id: number, data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null; visibility?: string }): Promise<void> {
     await this.db.prepare(`
       UPDATE Event_Albums
          SET name = ?, course_id = ?, slot_date = ?, description = ?, drive_folder_id = ?,
-             cover_photo_url = ?, updated_at = CURRENT_TIMESTAMP
+             cover_photo_url = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
     `).bind(data.name, data.courseId, data.slotDate || null, data.description || null,
-            data.driveFolderId || null, data.coverPhotoUrl || null, id).run();
+            data.driveFolderId || null, data.coverPhotoUrl || null,
+            EventAlbumRepository.visibilityOf(data.visibility), id).run();
   }
 
   async setPublished(id: number, isPublished: boolean, newsFeedId?: number | null): Promise<void> {
@@ -161,42 +168,49 @@ export class EventAlbumRepository {
   // ── Consumer ─────────────────────────────────────────────────────────────
 
   /**
-   * Published albums the family can open: any non-cancelled booking for the
-   * album's course by any of the account's children unlocks it.
+   * Published albums this caller can open. `userId` is optional — a guest
+   * (null) sees only 'public' albums; a member additionally sees 'booked'
+   * albums for courses their family holds a non-cancelled booking on.
    */
-  async listForUser(userId: number): Promise<any[]> {
+  async listForUser(userId: number | null): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at, a.visibility,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count
       FROM Event_Albums a
       JOIN Courses c ON c.id = a.course_id
       WHERE a.is_published = 1
-        AND EXISTS (
-          SELECT 1 FROM Bookings b
-          JOIN Children ch ON b.child_id = ch.id
-          WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+        AND (
+          a.visibility = 'public'
+          OR (? IS NOT NULL AND EXISTS (
+            SELECT 1 FROM Bookings b
+            JOIN Children ch ON b.child_id = ch.id
+            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+          ))
         )
       ORDER BY a.created_at DESC
-    `).bind(userId).all();
+    `).bind(userId, userId).all();
     return results;
   }
 
-  async userCanView(userId: number, albumId: number): Promise<any | null> {
+  async userCanView(userId: number | null, albumId: number): Promise<any | null> {
     return await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at, a.visibility,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
       FROM Event_Albums a
       JOIN Courses c ON c.id = a.course_id
       WHERE a.id = ? AND a.is_published = 1
-        AND EXISTS (
-          SELECT 1 FROM Bookings b
-          JOIN Children ch ON b.child_id = ch.id
-          WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+        AND (
+          a.visibility = 'public'
+          OR (? IS NOT NULL AND EXISTS (
+            SELECT 1 FROM Bookings b
+            JOIN Children ch ON b.child_id = ch.id
+            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
+          ))
         )
-    `).bind(albumId, userId).first();
+    `).bind(albumId, userId, userId).first();
   }
 
   /**

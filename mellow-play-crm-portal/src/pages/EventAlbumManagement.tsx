@@ -34,6 +34,7 @@ interface Album {
   slot_date?: string | null; drive_folder_id?: string | null; cover_photo_url?: string | null;
   is_published: number; news_feed_id?: number | null; course_name?: string;
   photo_count?: number; face_count?: number; created_at?: string;
+  visibility?: 'public' | 'booked';
 }
 interface Photo {
   id: number; image_url: string; thumb_url?: string | null; width?: number; height?: number;
@@ -73,7 +74,7 @@ const EventAlbumManagement: React.FC = () => {
   // create/edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editAlbum, setEditAlbum] = useState<Album | null>(null);
-  const [form, setForm] = useState({ name: '', courseId: 0, slotDate: '', description: '', driveLink: '' });
+  const [form, setForm] = useState({ name: '', courseId: 0, slotDate: '', description: '', driveLink: '', visibility: 'booked' as 'public' | 'booked' });
   const [saving, setSaving] = useState(false);
 
   // photos dialog
@@ -115,7 +116,7 @@ const EventAlbumManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditAlbum(null);
-    setForm({ name: '', courseId: courses[0]?.id || 0, slotDate: '', description: '', driveLink: '' });
+    setForm({ name: '', courseId: courses[0]?.id || 0, slotDate: '', description: '', driveLink: '', visibility: 'booked' });
     setEditOpen(true);
   };
   const openEdit = (a: Album) => {
@@ -124,6 +125,7 @@ const EventAlbumManagement: React.FC = () => {
       name: a.name, courseId: a.course_id, slotDate: a.slot_date || '',
       description: a.description || '',
       driveLink: a.drive_folder_id ? `https://drive.google.com/drive/folders/${a.drive_folder_id}` : '',
+      visibility: a.visibility === 'public' ? 'public' : 'booked',
     });
     setEditOpen(true);
   };
@@ -142,6 +144,7 @@ const EventAlbumManagement: React.FC = () => {
         name: form.name.trim(), courseId: form.courseId, slotDate: form.slotDate || null,
         description: form.description || null, driveFolderId,
         coverPhotoUrl: editAlbum?.cover_photo_url || null,
+        visibility: form.visibility,
       };
       if (editAlbum) await axios.put(`${API_BASE}/event-albums/${editAlbum.id}`, payload);
       else await axios.post(`${API_BASE}/event-albums`, payload);
@@ -386,6 +389,9 @@ const EventAlbumManagement: React.FC = () => {
         description: openAlbum.description || null,
         driveFolderId: openAlbum.drive_folder_id || null,
         coverPhotoUrl: p.thumb_url || p.image_url,
+        // Omitting this would silently reset a public album to 'booked' —
+        // the server coerces an absent visibility to the safe default.
+        visibility: openAlbum.visibility === 'public' ? 'public' : 'booked',
       });
       setOpenAlbum({ ...openAlbum, cover_photo_url: p.thumb_url || p.image_url });
       fetchAll();
@@ -468,6 +474,8 @@ const EventAlbumManagement: React.FC = () => {
                   <Stack direction="row" spacing={1} sx={{ mt: 1 }} alignItems="center">
                     <Chip size="small" variant="outlined" label={`${a.photo_count ?? 0} รูป`} sx={{ fontWeight: 700 }} />
                     <Chip size="small" variant="outlined" icon={<FaceIcon />} label={a.face_count ?? 0} sx={{ fontWeight: 700 }} />
+                    <Chip size="small" variant="outlined" color={a.visibility === 'public' ? 'info' : 'default'}
+                      label={a.visibility === 'public' ? 'สาธารณะ' : 'เฉพาะผู้จอง'} sx={{ fontWeight: 700 }} />
                     <Box sx={{ flex: 1 }} />
                     <IconButton size="small" onClick={e => { e.stopPropagation(); openEdit(a); }}><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" color="error" onClick={e => { e.stopPropagation(); deleteAlbum(a); }}><DeleteIcon fontSize="small" /></IconButton>
@@ -494,6 +502,14 @@ const EventAlbumManagement: React.FC = () => {
               onChange={e => setForm({ ...form, slotDate: e.target.value })} InputLabelProps={{ shrink: true }} />
             <TextField label="คำอธิบาย (ไม่บังคับ)" fullWidth multiline rows={2} value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })} />
+            <TextField select label="การมองเห็น" fullWidth value={form.visibility}
+              onChange={e => setForm({ ...form, visibility: e.target.value as 'public' | 'booked' })}
+              helperText={form.visibility === 'public'
+                ? 'ทุกคนที่มีลิงก์เปิดดูได้เลย ไม่ต้องล็อกอิน — เหมาะกับอัลบั้มที่ลิงก์จากโพสข่าวสาร'
+                : 'เห็นเฉพาะบัญชีที่มีการจองกิจกรรมนี้ (ต้องล็อกอิน)'}>
+              <MenuItem value="booked">เฉพาะครอบครัวที่จองกิจกรรม</MenuItem>
+              <MenuItem value="public">สาธารณะ (ไม่ต้องล็อกอิน)</MenuItem>
+            </TextField>
             <TextField label="ลิงก์โฟลเดอร์ Google Drive" fullWidth value={form.driveLink}
               onChange={e => setForm({ ...form, driveLink: e.target.value })}
               placeholder="https://drive.google.com/drive/folders/..."
@@ -644,7 +660,9 @@ const EventAlbumManagement: React.FC = () => {
         <DialogTitle sx={{ fontWeight: 800 }}>เผยแพร่อัลบั้ม?</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-            ครอบครัวที่เคยจอง "{publishAsking && (publishAsking.course_name || courseName(publishAsking.course_id))}" จะเห็นอัลบั้มนี้ในแอป
+            {publishAsking?.visibility === 'public'
+              ? 'อัลบั้มนี้ตั้งเป็นสาธารณะ — ทุกคนที่มีลิงก์จะเปิดดูได้เลยโดยไม่ต้องล็อกอิน'
+              : `ครอบครัวที่เคยจอง "${publishAsking ? (publishAsking.course_name || courseName(publishAsking.course_id)) : ''}" จะเห็นอัลบั้มนี้ในแอป`}
           </Typography>
           {!publishAsking?.news_feed_id && (
             <FormControlLabel sx={{ mt: 1 }}
