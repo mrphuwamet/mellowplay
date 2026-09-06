@@ -312,7 +312,11 @@ export class EventAlbumController {
       if (isPublished && body.createNewsPost === true && !album.news_feed_id) {
         const news = new NewsFeedRepository(new ConfigService(c.env).db);
         newsFeedId = await news.create({
-          type: 'media',
+          // 'news' rather than 'media': this is an announcement that carries one
+          // picture and a way in, which is what the ข่าวสาร tab is. 'media' is
+          // the multi-image slideshow, and an album post has exactly one image
+          // — the album itself holds the rest.
+          type: 'news',
           title: album.name,
           // The album's own description is the post. The fallback names the
           // activity only when there is one — an album spanning several
