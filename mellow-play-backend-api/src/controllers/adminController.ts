@@ -2734,7 +2734,7 @@ export class AdminController {
       const config = new ConfigService(c.env);
       const id = parseInt(c.req.param('id'));
       const { status, scheduledAt, paidAt, calendarId, slotDate, slotStartTime,
-              overrideTeamQuota, formAnswers } = await c.req.json();
+              overrideTeamQuota, formAnswers, courseId } = await c.req.json();
       // Every status value actually used anywhere in the system (both the
       // 'pending'/'pending_payment' naming variants included — the two are
       // used inconsistently across the codebase for the same conceptual
@@ -2742,6 +2742,11 @@ export class AdminController {
       // any of them, not a limited subset.
       const allowed = ['pending_payment', 'pending', 'confirmed', 'confirmed_paid', 'awaiting_report', 'completed', 'cancelled'];
       if (!allowed.includes(status)) return c.json({ success: false, message: 'invalid status' }, 400);
+
+      // The activity this booking is on right now, so a move can be told apart
+      // from a save that simply resends the same one.
+      const current = await config.db.prepare('SELECT course_id FROM Bookings WHERE id = ?')
+        .bind(id).first<{ course_id: number }>();
 
       // scheduledAt/paidAt are optional overrides for Super Admin error-correction
       // (e.g. backdating a payment or fixing a wrong class date) — normal status
@@ -2835,10 +2840,42 @@ export class AdminController {
         sets.push('slot_start_time = ?'); binds.push(slotStartTime ?? derivedTime ?? null);
       }
       if (calendarId) { sets.push('calendar_id = ?'); binds.push(parseInt(calendarId)); }
+
+      /*
+       * Moving a booking to a different activity.
+       *
+       * Staff correcting a booking made against the wrong item should not have
+       * to cancel and re-enter it: that loses the payment, the check-in history
+       * and the seat, and re-entering it is where the second mistake happens.
+       *
+       * The registration form's answers are deliberately left alone. They are a
+       * record of what the family actually told us, and the new activity may
+       * ask entirely different questions — silently discarding the answers
+       * would destroy information to tidy up a display, and silently keeping
+       * them under the new form's field keys would attribute answers to
+       * questions nobody asked. The CRM says which activity the answers were
+       * filled in for instead, and staff can correct them there.
+       *
+       * The transaction's course_id moves too, or the sales figures keep
+       * crediting the old item for money that was taken for this one.
+       */
+      if (courseId && Number(courseId) !== Number(current?.course_id)) {
+        sets.push('course_id = ?'); binds.push(parseInt(courseId));
+      }
+
       if (paidAt) { sets.push('paid_at = ?'); binds.push(paidAt); }
       binds.push(id);
 
       await config.db.prepare(`UPDATE Bookings SET ${sets.join(', ')} WHERE id=?`).bind(...binds).run();
+
+      // Kept in step with the booking, not left pointing at the old activity —
+      // a report that sums revenue per item would otherwise credit the wrong
+      // one for this sale forever.
+      if (courseId && Number(courseId) !== Number(current?.course_id)) {
+        await config.db.prepare(
+          'UPDATE Transactions SET course_id = ? WHERE booking_id = ? AND is_voided = 0'
+        ).bind(parseInt(courseId), id).run();
+      }
 
       // getAllBookings/CSV export/booking-detail all show COALESCE(t.created_at,
       // b.paid_at) — a Transaction row exists for virtually every paid booking,

@@ -3163,8 +3163,20 @@ const BookingManagement = () => {
   const [rescheduleLoading, setRescheduleLoading] = useState(false);
   const [rescheduleSelectedDate, setRescheduleSelectedDate] = useState<UpcomingSlotDate | null>(null);
   const [rescheduleSelectedSlot, setRescheduleSelectedSlot] = useState<TimeSlot | null>(null);
-  const rescheduleCourse = courses.find(c => c.id === forceStatusBooking?.course_id);
+  /**
+   * The activity the dialog is currently pointed at.
+   *
+   * Starts as the booking's own and changes when staff move it. Everything
+   * downstream — the calendar the round picker reads, whether there IS a
+   * picker — follows from this rather than from the booking, so choosing a new
+   * activity reloads the rounds instead of offering the old one's.
+   */
+  const [forceCourseId, setForceCourseId] = useState<number>(0);
+  useEffect(() => { setForceCourseId(forceStatusBooking?.course_id || 0); }, [forceStatusBooking?.id]);
+
+  const rescheduleCourse = courses.find(c => c.id === (forceCourseId || forceStatusBooking?.course_id));
   const usesReschedulePicker = !!rescheduleCourse?.calendar_id;
+  const courseChanged = !!forceStatusBooking && !!forceCourseId && forceCourseId !== forceStatusBooking.course_id;
 
   /**
    * The warning shown when the round now chosen has no seats left.
@@ -3192,6 +3204,9 @@ const BookingManagement = () => {
     setRescheduleSelectedSlot(null);
     if (!forceStatusBooking || !rescheduleCourse?.calendar_id) return;
     setRescheduleLoading(true);
+    // Captured before the request so the check below reflects the activity this
+    // load is FOR, not whatever it may have become while it was in flight.
+    const movedCourse = !!forceCourseId && forceCourseId !== forceStatusBooking.course_id;
     axios.get(`${API_BASE}/calendar-slots/upcoming`, {
       // excludeBookingId: without it, this booking's own seat counts against
       // every round it's in — its current round always read one short, and
@@ -3208,6 +3223,17 @@ const BookingManagement = () => {
       // upcoming window, so opening the dialog shows where it is now
       // instead of forcing the admin to hunt for it before they can even
       // tell what's changing.
+      //
+      // Except when the activity has just been changed: the old round belongs
+      // to the old calendar, and pre-filling something that merely looks like
+      // it — the same date on a different timetable — invites saving a round
+      // nobody chose. An empty picker is the honest state, and the ตกลง button
+      // already refuses to save without a round.
+      if (movedCourse) {
+        setRescheduleSelectedDate(null);
+        setRescheduleSelectedSlot(null);
+        return;
+      }
       const curDate = forceStatusBooking.scheduled_at?.split(' ')[0] ?? forceStatusBooking.scheduled_at?.split('T')[0];
       const curTime = (forceStatusBooking.slot_start_time || forceStatusBooking.scheduled_at?.split(/[ T]/)[1] || '').slice(0, 5);
       const match = formatted.find(d => d.date === curDate) || formatted.find(d => !d.isFull) || formatted[0] || null;
@@ -3216,7 +3242,7 @@ const BookingManagement = () => {
         setRescheduleSelectedSlot(match.slots.find(s => s.startTime === curTime) || null);
       }
     }).catch(() => {}).finally(() => setRescheduleLoading(false));
-  }, [forceStatusBooking?.id, rescheduleCourse?.calendar_id]);
+  }, [forceStatusBooking?.id, rescheduleCourse?.calendar_id, forceCourseId]);
 
   // Registration-form answers, editable right inside this dialog — the one
   // "แก้ไขการลงทะเบียน" place edits everything about a registration,
@@ -3343,6 +3369,7 @@ const BookingManagement = () => {
         status: forceStatusValue,
         overrideTeamQuota,
         ...(editFormFields && editFormFields.length > 0 ? { formAnswers: answersToSave } : {}),
+        courseId: forceCourseId || undefined,
         scheduledAt: usesReschedulePicker
           ? `${rescheduleSelectedDate!.date} ${rescheduleSelectedSlot!.startTime}:00`
           : (forceScheduledAt ? fromDatetimeLocalValue(forceScheduledAt) : undefined),
@@ -3716,6 +3743,28 @@ const BookingManagement = () => {
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
           </Typography>
           {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
+          {isSuperAdmin && (
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>คลาส / กิจกรรม</InputLabel>
+              <Select
+                label="คลาส / กิจกรรม"
+                value={forceCourseId || ''}
+                onChange={e => setForceCourseId(Number(e.target.value))}
+              >
+                {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </Select>
+            </FormControl>
+          )}
+          {/* Moving an activity is not a rename: the round below belongs to the
+              new one's calendar, and the form answers below that were given to
+              the old one's questions. Both are worth saying out loud, because
+              neither is visible from the field that was just changed. */}
+          {courseChanged && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              กำลังย้ายไป “{rescheduleCourse?.name}” — เลือกวันและรอบของกิจกรรมใหม่ด้านล่างด้วย
+              {editFormFields && editFormFields.length > 0 && ' · ข้อมูลที่กรอกไว้เป็นของกิจกรรมเดิม ตรวจสอบอีกครั้งหลังบันทึก'}
+            </Alert>
+          )}
           {/* Said before บันทึก, not after: there is nothing to confirm against
               — the server accepts this — so the only useful moment is while the
               choice is still on screen and can be changed. */}
