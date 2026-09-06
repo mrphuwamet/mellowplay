@@ -19,6 +19,24 @@ type C = Context<{ Bindings: Bindings; Variables: Variables }>;
  * non-cancelled booking by one of the caller's children. Same join the
  * profile booking lists use.
  */
+/**
+ * The rounds an album covers, from whatever the client sent.
+ *
+ * Undefined stays undefined — that is "I am not talking about the rounds", and
+ * the update path relies on the difference so that saving a cover photo does
+ * not clear them. An empty array is a real answer: no particular round.
+ */
+function parseRounds(raw: any): { slotDate: string; slotStartTime: string | null }[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r: any) => (typeof r === 'string'
+      // "date|HH:MM", the shape the CRM's pickers use everywhere.
+      ? { slotDate: r.split('|')[0] || '', slotStartTime: r.split('|')[1] || null }
+      : { slotDate: String(r?.slotDate ?? ''), slotStartTime: r?.slotStartTime ?? null }))
+    .filter(r => r.slotDate);
+}
+
 export class EventAlbumController {
   private repo(c: C) { return new EventAlbumRepository(new ConfigService(c.env).db); }
 
@@ -54,8 +72,7 @@ export class EventAlbumController {
       const id = await this.repo(c).create({
         name: String(body.name).trim(),
         courseId: Number(body.courseId),
-        slotDate: body.slotDate || null,
-        slotStartTime: body.slotStartTime || null,
+        rounds: parseRounds(body.rounds) || [],
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
       });
@@ -73,8 +90,7 @@ export class EventAlbumController {
       await this.repo(c).update(id, {
         name: String(body.name).trim(),
         courseId: Number(body.courseId),
-        slotDate: body.slotDate || null,
-        slotStartTime: body.slotStartTime || null,
+        rounds: parseRounds(body.rounds),
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
         coverPhotoUrl: body.coverPhotoUrl || null,

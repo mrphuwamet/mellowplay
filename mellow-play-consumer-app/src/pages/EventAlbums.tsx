@@ -7,7 +7,8 @@ import { formatCustomDate } from '../utils/dateFormat';
 
 interface AlbumRow {
   id: number; name: string; description?: string | null;
-  slot_date?: string | null; slot_start_time?: string | null;
+  /** Every round the album covers. Empty means the whole activity. */
+  rounds?: { slot_date: string; slot_start_time?: string | null }[];
   cover_photo_url?: string | null; course_name: string; photo_count: number; created_at: string;
 }
 
@@ -16,6 +17,29 @@ interface AlbumRow {
  * filters to courses with a non-cancelled booking, so an empty list simply
  * means no attended activity has published its photos yet.
  */
+/**
+ * The dates an album covers, in a line under its name.
+ *
+ * A shoot spans several rounds, so this has to survive being a list. One round
+ * reads in full; several collapse to the span, because a family is placing the
+ * album in time, not auditing its timetable — and a card that wraps to four
+ * lines of dates buries the album's own name.
+ */
+const roundsText = (rounds: { slot_date: string; slot_start_time?: string | null }[] | undefined, lang: 'th' | 'en') => {
+  if (!rounds || rounds.length === 0) return '';
+  const time = (t?: string | null) => (t ? ` ${String(t).slice(0, 5)} น.` : '');
+  if (rounds.length === 1) {
+    return ` · ${formatCustomDate(rounds[0].slot_date, lang, 'full')}${time(rounds[0].slot_start_time)}`;
+  }
+  const dates = Array.from(new Set(rounds.map(r => r.slot_date))).sort();
+  // Several rounds on ONE day: name the day, then the times.
+  if (dates.length === 1) {
+    const times = rounds.map(r => String(r.slot_start_time || '').slice(0, 5)).filter(Boolean).sort();
+    return ` · ${formatCustomDate(dates[0], lang, 'full')}${times.length ? ` ${times.join(', ')} น.` : ''}`;
+  }
+  return ` · ${formatCustomDate(dates[0], lang, 'full')} – ${formatCustomDate(dates[dates.length - 1], lang, 'full')}`;
+};
+
 const EventAlbums: React.FC = () => {
   const navigate = useNavigate();
   const { lang } = useTranslation();
@@ -69,9 +93,7 @@ const EventAlbums: React.FC = () => {
                 <p className="text-[16px] font-black text-slate-800 leading-snug">{a.name}</p>
                 <p className="text-xs font-bold text-slate-500 mt-0.5">
                   {a.course_name}
-                  {a.slot_date
-                    ? ` · ${formatCustomDate(a.slot_date, lang, 'full')}${a.slot_start_time ? ` ${String(a.slot_start_time).slice(0, 5)} น.` : ''}`
-                    : ''}
+                  {roundsText(a.rounds, lang)}
                 </p>
                 <p className="text-[11px] font-bold text-mellow-purple mt-1">{a.photo_count} {t('รูป', 'photos')}</p>
               </div>

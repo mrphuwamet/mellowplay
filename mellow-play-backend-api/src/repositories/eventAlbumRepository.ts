@@ -36,6 +36,9 @@ function normaliseTime(value?: string | null): string | null {
   return t ? t.slice(0, 5) : null;
 }
 
+/** One round an album covers. A null time means the whole of that date. */
+export interface AlbumRound { slotDate: string; slotStartTime?: string | null }
+
 export class EventAlbumRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -51,44 +54,99 @@ export class EventAlbumRepository {
       JOIN Courses c ON c.id = a.course_id
       ORDER BY a.created_at DESC
     `).all();
-    return results;
+    return this.withRounds(results as any[]);
   }
 
   async getById(id: number): Promise<any | null> {
-    return await this.db.prepare(`
+    const album = await this.db.prepare(`
       SELECT a.*, c.name AS course_name
       FROM Event_Albums a JOIN Courses c ON c.id = a.course_id
       WHERE a.id = ?
     `).bind(id).first();
+    if (!album) return null;
+    return (await this.withRounds([album as any]))[0];
   }
 
   async create(data: {
-    name: string; courseId: number; slotDate?: string | null; slotStartTime?: string | null;
+    name: string; courseId: number; rounds?: AlbumRound[];
     description?: string | null; driveFolderId?: string | null;
   }): Promise<number> {
     const res = await this.db.prepare(`
-      INSERT INTO Event_Albums (name, course_id, slot_date, slot_start_time, description, drive_folder_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(
-      data.name, data.courseId, data.slotDate || null, normaliseTime(data.slotStartTime),
-      data.description || null, data.driveFolderId || null,
-    ).run();
-    return res.meta.last_row_id as number;
+      INSERT INTO Event_Albums (name, course_id, description, drive_folder_id)
+      VALUES (?, ?, ?, ?)
+    `).bind(data.name, data.courseId, data.description || null, data.driveFolderId || null).run();
+    const id = res.meta.last_row_id as number;
+    await this.setRounds(id, data.rounds || []);
+    return id;
+  }
+
+  /**
+   * Replace an album's rounds with exactly this set.
+   *
+   * Delete-then-insert rather than a diff: the set is a handful of rows that
+   * nothing else references, and working out which to add and which to remove
+   * is more code and more ways to be wrong than simply restating the answer.
+   */
+  async setRounds(albumId: number, rounds: AlbumRound[]): Promise<void> {
+    await this.db.prepare('DELETE FROM Event_Album_Rounds WHERE album_id = ?').bind(albumId).run();
+    const clean = rounds
+      .map(r => ({ slotDate: String(r.slotDate || '').trim(), slotStartTime: normaliseTime(r.slotStartTime) }))
+      .filter(r => r.slotDate);
+    if (clean.length === 0) return;
+    await this.db.batch(clean.map(r => this.db.prepare(
+      'INSERT OR IGNORE INTO Event_Album_Rounds (album_id, slot_date, slot_start_time) VALUES (?, ?, ?)'
+    ).bind(albumId, r.slotDate, r.slotStartTime)));
+  }
+
+  /**
+   * The rounds of each of these albums, keyed by album id.
+   *
+   * One query for the whole page rather than one per album — the list draws a
+   * grid of cards and each needs its rounds to be tellable apart.
+   */
+  async getRoundsForAlbums(albumIds: number[]): Promise<Map<number, any[]>> {
+    const out = new Map<number, any[]>();
+    if (albumIds.length === 0) return out;
+    // D1 caps bound parameters per statement; a page of albums stays well
+    // under, but chunking costs nothing and removes the ceiling.
+    for (let i = 0; i < albumIds.length; i += 90) {
+      const chunk = albumIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(`
+        SELECT album_id, slot_date, slot_start_time
+          FROM Event_Album_Rounds
+         WHERE album_id IN (${chunk.map(() => '?').join(',')})
+         ORDER BY slot_date, slot_start_time
+      `).bind(...chunk).all<any>();
+      for (const r of results as any[]) {
+        if (!out.has(r.album_id)) out.set(r.album_id, []);
+        out.get(r.album_id)!.push({ slot_date: r.slot_date, slot_start_time: r.slot_start_time });
+      }
+    }
+    return out;
+  }
+
+  /** Attaches a `rounds` array to each album row, in one extra query. */
+  private async withRounds(albums: any[]): Promise<any[]> {
+    const byAlbum = await this.getRoundsForAlbums(albums.map(a => Number(a.id)));
+    return albums.map(a => ({ ...a, rounds: byAlbum.get(Number(a.id)) || [] }));
   }
 
   async update(id: number, data: {
-    name: string; courseId: number; slotDate?: string | null; slotStartTime?: string | null;
+    name: string; courseId: number; rounds?: AlbumRound[];
     description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Event_Albums
-         SET name = ?, course_id = ?, slot_date = ?, slot_start_time = ?,
+         SET name = ?, course_id = ?,
              description = ?, drive_folder_id = ?,
              cover_photo_url = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
-    `).bind(data.name, data.courseId, data.slotDate || null, normaliseTime(data.slotStartTime),
-            data.description || null,
+    `).bind(data.name, data.courseId, data.description || null,
             data.driveFolderId || null, data.coverPhotoUrl || null, id).run();
+    // Only when the caller actually said something about the rounds. Setting a
+    // cover photo reuses this method and has no opinion on them — treating
+    // "not mentioned" as "empty" is how picking a cover would wipe them.
+    if (data.rounds !== undefined) await this.setRounds(id, data.rounds);
   }
 
   /**
@@ -208,7 +266,7 @@ export class EventAlbumRepository {
    */
   async listForUser(userId: number): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.slot_start_time, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count
       FROM Event_Albums a
@@ -221,12 +279,12 @@ export class EventAlbumRepository {
         )
       ORDER BY a.created_at DESC
     `).bind(userId).all();
-    return results;
+    return this.withRounds(results as any[]);
   }
 
   async userCanView(userId: number, albumId: number): Promise<any | null> {
-    return await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.slot_start_time, a.cover_photo_url, a.created_at,
+    const album = await this.db.prepare(`
+      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
@@ -239,6 +297,8 @@ export class EventAlbumRepository {
           WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
         )
     `).bind(albumId, userId).first();
+    if (!album) return null;
+    return (await this.withRounds([album as any]))[0];
   }
 
   /**
