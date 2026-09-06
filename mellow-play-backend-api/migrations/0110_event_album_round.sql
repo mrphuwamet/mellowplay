@@ -1,0 +1,13 @@
+-- An album can belong to ONE ROUND, not just one day.
+--
+-- 0109 gave albums a slot_date, which cannot name a round: an event runs
+-- several rounds on the same day (the live data has four on one Saturday), and
+-- the photos of the 10:00 group are not the photos of the 14:00 group. The rest
+-- of the system already spells a round as (slot_date, slot_start_time) — the
+-- check-in screen, the tournament brackets, the reminder filters — so this
+-- column makes an album say the same thing the same way.
+--
+-- NULL keeps its 0109 meaning: no round in particular. An album that covers a
+-- whole day, or a whole course, simply leaves it unset — which is what every
+-- album created before this migration did, and they stay valid untouched.
+ALTER TABLE Event_Albums ADD COLUMN slot_start_time TEXT;

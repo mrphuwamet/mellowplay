@@ -23,6 +23,19 @@ export const decodeEmbedding = (b64: string): Uint8Array => {
   return bytes;
 };
 
+/**
+ * "HH:MM", or null.
+ *
+ * Bookings hold start times both ways ("14:00" and "14:00:00") depending on the
+ * path that wrote them, and the picker sends whatever the list gave it. Trimming
+ * on the way in means an album's round compares equal to a booking's round
+ * without every reader having to remember to SUBSTR.
+ */
+function normaliseTime(value?: string | null): string | null {
+  const t = String(value ?? '').trim();
+  return t ? t.slice(0, 5) : null;
+}
+
 export class EventAlbumRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -49,22 +62,51 @@ export class EventAlbumRepository {
     `).bind(id).first();
   }
 
-  async create(data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null }): Promise<number> {
+  async create(data: {
+    name: string; courseId: number; slotDate?: string | null; slotStartTime?: string | null;
+    description?: string | null; driveFolderId?: string | null;
+  }): Promise<number> {
     const res = await this.db.prepare(`
-      INSERT INTO Event_Albums (name, course_id, slot_date, description, drive_folder_id)
-      VALUES (?, ?, ?, ?, ?)
-    `).bind(data.name, data.courseId, data.slotDate || null, data.description || null, data.driveFolderId || null).run();
+      INSERT INTO Event_Albums (name, course_id, slot_date, slot_start_time, description, drive_folder_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      data.name, data.courseId, data.slotDate || null, normaliseTime(data.slotStartTime),
+      data.description || null, data.driveFolderId || null,
+    ).run();
     return res.meta.last_row_id as number;
   }
 
-  async update(id: number, data: { name: string; courseId: number; slotDate?: string | null; description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null }): Promise<void> {
+  async update(id: number, data: {
+    name: string; courseId: number; slotDate?: string | null; slotStartTime?: string | null;
+    description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null;
+  }): Promise<void> {
     await this.db.prepare(`
       UPDATE Event_Albums
-         SET name = ?, course_id = ?, slot_date = ?, description = ?, drive_folder_id = ?,
+         SET name = ?, course_id = ?, slot_date = ?, slot_start_time = ?,
+             description = ?, drive_folder_id = ?,
              cover_photo_url = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
-    `).bind(data.name, data.courseId, data.slotDate || null, data.description || null,
+    `).bind(data.name, data.courseId, data.slotDate || null, normaliseTime(data.slotStartTime),
+            data.description || null,
             data.driveFolderId || null, data.coverPhotoUrl || null, id).run();
+  }
+
+  /**
+   * The rounds this course actually ran, for the album's round picker.
+   *
+   * Read from the bookings rather than the calendar rules, because an album is
+   * made after the event: what matters is the rounds that happened and have
+   * people in them, not the ones that were once schedulable.
+   */
+  async getRounds(courseId: number): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      SELECT b.slot_date, SUBSTR(b.slot_start_time, 1, 5) AS slot_start_time, COUNT(*) AS booking_count
+        FROM Bookings b
+       WHERE b.course_id = ? AND b.status != 'cancelled' AND b.slot_date IS NOT NULL
+       GROUP BY b.slot_date, SUBSTR(b.slot_start_time, 1, 5)
+       ORDER BY b.slot_date DESC, slot_start_time
+    `).bind(courseId).all();
+    return results;
   }
 
   async setPublished(id: number, isPublished: boolean, newsFeedId?: number | null): Promise<void> {
@@ -166,7 +208,7 @@ export class EventAlbumRepository {
    */
   async listForUser(userId: number): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.slot_date, a.slot_start_time, a.cover_photo_url, a.created_at,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count
       FROM Event_Albums a
@@ -184,7 +226,7 @@ export class EventAlbumRepository {
 
   async userCanView(userId: number, albumId: number): Promise<any | null> {
     return await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.slot_date, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.slot_date, a.slot_start_time, a.cover_photo_url, a.created_at,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count

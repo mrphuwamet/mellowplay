@@ -29,9 +29,28 @@ const API_BASE = `${API_URL}/api/v1/admin`;
  * stopped.
  */
 
+/**
+ * A round travels as one "date|HH:MM" string.
+ *
+ * The same shape the rest of the CRM uses for a round, so the dropdown value,
+ * what goes to the API and what comes back cannot drift into three spellings of
+ * one thing. Empty means no particular round.
+ */
+const roundKey = (date?: string | null, time?: string | null) =>
+  date ? `${date}|${String(time || '').slice(0, 5)}` : '';
+
+const roundLabel = (date?: string | null, time?: string | null) =>
+  date ? `${date}${time ? ` · ${String(time).slice(0, 5)}` : ''}` : 'ทุกรอบ';
+
+const splitRound = (key: string): { slotDate: string | null; slotStartTime: string | null } => {
+  const [date = '', time = ''] = String(key || '').split('|');
+  return { slotDate: date || null, slotStartTime: time || null };
+};
+
 interface Album {
   id: number; name: string; description?: string | null; course_id: number;
-  slot_date?: string | null; drive_folder_id?: string | null; cover_photo_url?: string | null;
+  slot_date?: string | null; slot_start_time?: string | null;
+  drive_folder_id?: string | null; cover_photo_url?: string | null;
   is_published: number; news_feed_id?: number | null; course_name?: string;
   photo_count?: number; face_count?: number; created_at?: string;
 }
@@ -73,7 +92,23 @@ const EventAlbumManagement: React.FC = () => {
   // create/edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editAlbum, setEditAlbum] = useState<Album | null>(null);
-  const [form, setForm] = useState({ name: '', courseId: 0, slotDate: '', description: '', driveLink: '' });
+  const [form, setForm] = useState({ name: '', courseId: 0, round: '', description: '', driveLink: '' });
+  /**
+   * The rounds of the course now chosen, for the round picker.
+   *
+   * An event runs several rounds in one day and the photos differ per round, so
+   * a date on its own cannot say which album is which. Read from the bookings,
+   * so the list is the rounds that actually ran with people in them.
+   */
+  const [rounds, setRounds] = useState<{ slot_date: string; slot_start_time: string | null; booking_count: number }[]>([]);
+  useEffect(() => {
+    if (!form.courseId) { setRounds([]); return; }
+    let cancelled = false;
+    axios.get(`${API_BASE}/event-albums/rounds`, { params: { courseId: form.courseId } })
+      .then(res => { if (!cancelled && res.data?.success) setRounds(res.data.rounds || []); })
+      .catch(() => { if (!cancelled) setRounds([]); });
+    return () => { cancelled = true; };
+  }, [form.courseId]);
   const [saving, setSaving] = useState(false);
 
   // photos dialog
@@ -115,13 +150,13 @@ const EventAlbumManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditAlbum(null);
-    setForm({ name: '', courseId: courses[0]?.id || 0, slotDate: '', description: '', driveLink: '' });
+    setForm({ name: '', courseId: courses[0]?.id || 0, round: '', description: '', driveLink: '' });
     setEditOpen(true);
   };
   const openEdit = (a: Album) => {
     setEditAlbum(a);
     setForm({
-      name: a.name, courseId: a.course_id, slotDate: a.slot_date || '',
+      name: a.name, courseId: a.course_id, round: roundKey(a.slot_date, a.slot_start_time),
       description: a.description || '',
       driveLink: a.drive_folder_id ? `https://drive.google.com/drive/folders/${a.drive_folder_id}` : '',
     });
@@ -139,7 +174,8 @@ const EventAlbumManagement: React.FC = () => {
     setError('');
     try {
       const payload = {
-        name: form.name.trim(), courseId: form.courseId, slotDate: form.slotDate || null,
+        name: form.name.trim(), courseId: form.courseId,
+        ...splitRound(form.round),
         description: form.description || null, driveFolderId,
         coverPhotoUrl: editAlbum?.cover_photo_url || null,
       };
@@ -382,7 +418,12 @@ const EventAlbumManagement: React.FC = () => {
     if (!openAlbum) return;
     try {
       await axios.put(`${API_BASE}/event-albums/${openAlbum.id}`, {
-        name: openAlbum.name, courseId: openAlbum.course_id, slotDate: openAlbum.slot_date || null,
+        // The round goes along with it. This is the whole album update, so a
+        // field left out is a field set to null: sending only the date would
+        // quietly drop the round every time someone picked a cover photo.
+        name: openAlbum.name, courseId: openAlbum.course_id,
+        slotDate: openAlbum.slot_date || null,
+        slotStartTime: openAlbum.slot_start_time || null,
         description: openAlbum.description || null,
         driveFolderId: openAlbum.drive_folder_id || null,
         coverPhotoUrl: p.thumb_url || p.image_url,
@@ -455,7 +496,7 @@ const EventAlbumManagement: React.FC = () => {
                     <Box sx={{ minWidth: 0 }}>
                       <Typography sx={{ fontWeight: 800, lineHeight: 1.3 }} noWrap>{a.name}</Typography>
                       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block' }} noWrap>
-                        {a.course_name || courseName(a.course_id)}{a.slot_date ? ` · ${a.slot_date}` : ''}
+                        {a.course_name || courseName(a.course_id)}{a.slot_date ? ` · ${roundLabel(a.slot_date, a.slot_start_time)}` : ''}
                       </Typography>
                     </Box>
                     <Chip
@@ -490,8 +531,24 @@ const EventAlbumManagement: React.FC = () => {
               helperText="ครอบครัวที่เคยจองกิจกรรมนี้เท่านั้นที่จะเห็นอัลบั้ม">
               {courses.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
-            <TextField label="วันที่จัด (ไม่บังคับ)" type="date" fullWidth value={form.slotDate}
-              onChange={e => setForm({ ...form, slotDate: e.target.value })} InputLabelProps={{ shrink: true }} />
+            {/* A picked round, not a typed date: the rounds are known, and
+                typing one invites a date that matches nothing. "ทุกรอบ" stays
+                first because an album covering the whole event is still the
+                ordinary case. */}
+            <TextField select label="รอบ (ไม่บังคับ)" fullWidth value={form.round}
+              onChange={e => setForm({ ...form, round: e.target.value })}
+              helperText={form.courseId
+                ? (rounds.length > 0
+                    ? 'เลือกรอบได้ ถ้าอัลบั้มนี้เป็นของรอบใดรอบหนึ่ง'
+                    : 'กิจกรรมนี้ยังไม่มีการจองในรอบใด')
+                : 'เลือกกิจกรรมก่อน'}>
+              <MenuItem value="">ทุกรอบ (ทั้งกิจกรรม)</MenuItem>
+              {rounds.map(r => (
+                <MenuItem key={roundKey(r.slot_date, r.slot_start_time)} value={roundKey(r.slot_date, r.slot_start_time)}>
+                  {roundLabel(r.slot_date, r.slot_start_time)} · {r.booking_count} คน
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField label="คำอธิบาย (ไม่บังคับ)" fullWidth multiline rows={2} value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })} />
             <TextField label="ลิงก์โฟลเดอร์ Google Drive" fullWidth value={form.driveLink}

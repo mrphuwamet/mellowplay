@@ -6,7 +6,8 @@ import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
 
 interface AlbumRow {
-  id: number; name: string; description?: string | null; slot_date?: string | null;
+  id: number; name: string; description?: string | null;
+  slot_date?: string | null; slot_start_time?: string | null;
   cover_photo_url?: string | null; course_name: string; photo_count: number; created_at: string;
 }
 
@@ -68,7 +69,9 @@ const EventAlbums: React.FC = () => {
                 <p className="text-[16px] font-black text-slate-800 leading-snug">{a.name}</p>
                 <p className="text-xs font-bold text-slate-500 mt-0.5">
                   {a.course_name}
-                  {a.slot_date ? ` · ${formatCustomDate(a.slot_date, lang, 'full')}` : ''}
+                  {a.slot_date
+                    ? ` · ${formatCustomDate(a.slot_date, lang, 'full')}${a.slot_start_time ? ` ${String(a.slot_start_time).slice(0, 5)} น.` : ''}`
+                    : ''}
                 </p>
                 <p className="text-[11px] font-bold text-mellow-purple mt-1">{a.photo_count} {t('รูป', 'photos')}</p>
               </div>

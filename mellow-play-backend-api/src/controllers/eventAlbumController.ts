@@ -55,6 +55,7 @@ export class EventAlbumController {
         name: String(body.name).trim(),
         courseId: Number(body.courseId),
         slotDate: body.slotDate || null,
+        slotStartTime: body.slotStartTime || null,
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
       });
@@ -73,11 +74,26 @@ export class EventAlbumController {
         name: String(body.name).trim(),
         courseId: Number(body.courseId),
         slotDate: body.slotDate || null,
+        slotStartTime: body.slotStartTime || null,
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
         coverPhotoUrl: body.coverPhotoUrl || null,
       });
       return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * The rounds of one course, so an album can be scoped to the one it covers.
+   *
+   * An event runs several rounds in a day and the photos differ per round, so a
+   * date alone cannot say which album is which.
+   */
+  async rounds(c: C) {
+    try {
+      const courseId = parseInt(c.req.query('courseId') || '');
+      if (!courseId) return c.json({ success: false, message: 'courseId required' }, 400);
+      return c.json({ success: true, rounds: await this.repo(c).getRounds(courseId) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
