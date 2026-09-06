@@ -70,6 +70,8 @@ interface Album {
   /** Set once a share link exists. The token IS the permission to view. */
   share_token?: string | null;
   drive_folder_id?: string | null; cover_photo_url?: string | null;
+  /** The cover, or the first photo when no cover was chosen. Read-only. */
+  preview_url?: string | null;
   is_published: number; news_feed_id?: number | null; course_name?: string;
   photo_count?: number; face_count?: number; created_at?: string;
 }
@@ -570,12 +572,12 @@ const EventAlbumManagement: React.FC = () => {
                   component="div"
                   sx={{
                     height: 140, bgcolor: 'grey.100',
-                    backgroundImage: a.cover_photo_url ? `url(${a.cover_photo_url})` : undefined,
+                    backgroundImage: a.preview_url ? `url(${a.preview_url})` : undefined,
                     backgroundSize: 'cover', backgroundPosition: 'center',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}
                 >
-                  {!a.cover_photo_url && <AlbumIcon sx={{ fontSize: 42, color: 'grey.400' }} />}
+                  {!a.preview_url && <AlbumIcon sx={{ fontSize: 42, color: 'grey.400' }} />}
                 </CardMedia>
                 <CardContent sx={{ pb: '12px !important' }}>
                   <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>

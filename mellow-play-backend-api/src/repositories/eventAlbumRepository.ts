@@ -49,7 +49,22 @@ export class EventAlbumRepository {
     const { results } = await this.db.prepare(`
       SELECT a.*, c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
-        (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
+        (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count,
+        -- What to show on the card: the chosen cover, or failing that the first
+        -- photo. An album holding 122 pictures should never be drawn as an
+        -- empty box just because nobody has picked one out.
+        --
+        -- thumb_url first here, the opposite of the news image, and for the
+        -- same reason: this is a small grid cell and the thumb is exactly what
+        -- 400px was made for, while a news card is the width of a phone.
+        COALESCE(
+          a.cover_photo_url,
+          (SELECT COALESCE(p.thumb_url, p.image_url)
+             FROM Event_Album_Photos p
+            WHERE p.album_id = a.id
+            ORDER BY p.display_order, p.id
+            LIMIT 1)
+        ) AS preview_url
       FROM Event_Albums a
       LEFT JOIN Courses c ON c.id = a.course_id
       ORDER BY a.created_at DESC
