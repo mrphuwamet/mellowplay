@@ -62,7 +62,7 @@ interface Branch {
 }
 
 
-type IntegrationService = 'beam' | 'sms' | 'discord' | 'claude' | 'gemini' | 'line';
+type IntegrationService = 'beam' | 'sms' | 'discord' | 'claude' | 'gemini' | 'line' | 'drive';
 
 // sensitive: true fields use the "type a new value to change it" masked
 // pattern; non-sensitive ones (just a display label, not a credential) are
@@ -84,6 +84,10 @@ const INTEGRATION_KEY_FIELDS: { key: string; label: string; sensitive: boolean; 
   { key: 'anthropic_api_key', label: 'Anthropic API Key (Claude)', sensitive: true, service: 'claude' },
   { key: 'google_ai_api_key', label: 'Google AI API Key (Gemini)', sensitive: true, service: 'gemini' },
   {
+    key: 'google_drive_api_key', label: 'Google Drive API Key', sensitive: true, service: 'drive',
+    hint: 'Google Cloud Console → เลือกโปรเจกต์ → APIs & Services → Library → เปิดใช้ "Google Drive API" → Credentials → Create credentials → API key. แนะนำให้กด Restrict key แล้วเลือก HTTP referrers ใส่โดเมน CRM (คีย์นี้ถูกเรียกจากเบราว์เซอร์ ไม่ใช่จากเซิร์ฟเวอร์) และจำกัด API เหลือเฉพาะ Google Drive API. โฟลเดอร์ที่จะดึงรูปต้องแชร์เป็น "ทุกคนที่มีลิงก์" ไม่งั้นคีย์อ่านไม่เห็น',
+  },
+  {
     key: 'line_liff_id', label: 'LINE LIFF ID', sensitive: false, service: 'line',
     hint: 'จาก LINE Developers Console → LIFF app ที่สร้างไว้ → คัดลอกค่า "LIFF ID" (ไม่ใช่ Channel Secret) มาวางที่นี่ ไม่ใช่ความลับ ใช้ฝั่งเว็บแอปได้เลย',
   },
@@ -96,6 +100,9 @@ const SERVICE_GROUPS: { service: IntegrationService; label: string; hideTest?: b
   { service: 'claude', label: 'Claude (Anthropic) — สำหรับแปลภาษาอัตโนมัติ' },
   { service: 'gemini', label: 'Gemini (Google AI) — สำหรับแปลภาษาอัตโนมัติ' },
   { service: 'line', label: 'LINE LIFF (แชร์ไป LINE จากในแอปลูกค้า)', hideTest: true },
+  // hideTest: there is nothing to call without also naming a folder, and a
+  // "test" button that cannot really test anything is worse than none.
+  { service: 'drive', label: 'Google Drive (ดึงรูปเข้าอัลบั้มกิจกรรม)', hideTest: true },
 ];
 
 const SystemSettings = () => {
