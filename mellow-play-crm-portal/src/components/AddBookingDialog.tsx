@@ -6,7 +6,7 @@ import {
   DialogActions, TextField, MenuItem, FormControl, InputLabel, Select,
   Stack, Divider, RadioGroup, Radio, FormControlLabel, FormLabel, Alert,
   InputAdornment, CircularProgress, Checkbox,
-  Switch,
+  Switch, List, ListItemButton, ListItemText,
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
@@ -45,7 +45,12 @@ export interface Course {
 interface TimeSlot { ruleId: number; label?: string | null; startTime: string; endTime: string; maxCapacity: number; booked: number; available: number; }
 interface UpcomingSlotDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 interface Child { id: number; name: string; }
-interface Member { id: number; phone: string; first_name: string; last_name: string; children: Child[]; }
+interface Member {
+  id: number; phone: string; first_name: string; last_name: string; children: Child[];
+  /** The names inside this account that the search term hit, for telling two
+   *  families with a "น้องมิว" apart. Empty on a phone search. */
+  matchedNames?: string[];
+}
 interface FamilyRosterMember { id: number; name: string; nickname: string | null; relation?: string | null; display: string; }
 
 interface RegFormField {
@@ -345,6 +350,9 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
   const [member, setMember] = useState<Member | null>(null);
   const [memberLoading, setMemberLoading] = useState(false);
   const [memberError, setMemberError] = useState('');
+  /** Every account the term matched. A nickname is not unique across accounts,
+   *  so the search answers with a list and staff pick; one result picks itself. */
+  const [candidates, setCandidates] = useState<Member[]>([]);
   const [selectedChildIds, setSelectedChildIds] = useState<number[]>([]);
   const [familyRoster, setFamilyRoster] = useState<FamilyRosterMember[]>([]);
   const [guestName, setGuestName] = useState('');
@@ -429,6 +437,7 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
     setCustomerType('member');
     setPhone('');
     setMember(null);
+    setCandidates([]);
     setMemberError('');
     setSelectedChildIds([]);
     setFamilyRoster([]);
@@ -452,28 +461,39 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
 
   const handleClose = () => { reset(); onClose(); };
 
+  /** Everything that follows from "this is the account", wherever it was
+   *  decided — the only hit, or the one tapped out of several. */
+  const chooseMember = (m: Member) => {
+    setMember(m);
+    setSelectedChildIds(m.children?.length ? [m.children[0].id] : []);
+    // Family roster (adults + CRM-added members, not just bookable HD
+    // children) — needed for the form's own adult/child pickers above.
+    axios.get(`${API_BASE}/users/${m.id}/family-roster`)
+      .then(r => setFamilyRoster(r.data.success ? r.data.roster : []))
+      .catch(() => setFamilyRoster([]));
+  };
+
   const searchMember = async () => {
     if (!phone.trim()) return;
     setMemberLoading(true);
     setMemberError('');
     setMember(null);
+    setCandidates([]);
     setFamilyRoster([]);
     setSelectedChildIds([]);
     try {
-      const res = await axios.post(`${API_BASE}/pos/lookup-member`, { phone: phone.trim() });
+      const res = await axios.post(`${API_BASE}/pos/lookup-member`, { q: phone.trim() });
       if (res.data.success) {
-        setMember(res.data.member);
-        if (res.data.member.children?.length > 0) setSelectedChildIds([res.data.member.children[0].id]);
-        // Family roster (adults + CRM-added members, not just bookable HD
-        // children) — needed for the form's own adult/child pickers above.
-        axios.get(`${API_BASE}/users/${res.data.member.id}/family-roster`)
-          .then(r => setFamilyRoster(r.data.success ? r.data.roster : []))
-          .catch(() => setFamilyRoster([]));
+        const list: Member[] = res.data.members ?? [res.data.member];
+        setCandidates(list);
+        // One answer needs no choosing — the counter should not have to tap
+        // through a list of one to get back the old single-step flow.
+        if (list.length === 1) chooseMember(list[0]);
       } else {
-        setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้');
+        setMemberError('ไม่พบสมาชิกที่ตรงกับคำค้นนี้');
       }
     } catch {
-      setMemberError('ไม่พบสมาชิกที่ใช้เบอร์นี้');
+      setMemberError('ไม่พบสมาชิกที่ตรงกับคำค้นนี้');
     } finally {
       setMemberLoading(false);
     }
@@ -585,7 +605,7 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
         <Stack spacing={2.5} sx={{ mt: 2 }}>
           <FormControl>
             <FormLabel sx={{ fontWeight: 700, mb: 0.5, fontSize: '0.85rem' }}>ประเภทลูกค้า</FormLabel>
-            <RadioGroup row value={customerType} onChange={e => { setCustomerType(e.target.value as 'member' | 'guest'); setMember(null); setMemberError(''); setFamilyRoster([]); setSelectedChildIds([]); }}>
+            <RadioGroup row value={customerType} onChange={e => { setCustomerType(e.target.value as 'member' | 'guest'); setMember(null); setCandidates([]); setMemberError(''); setFamilyRoster([]); setSelectedChildIds([]); }}>
               <FormControlLabel value="member" control={<Radio size="small" />} label="สมาชิกในระบบ" />
               <FormControlLabel value="guest" control={<Radio size="small" />} label="ลูกค้าทั่วไป" />
             </RadioGroup>
@@ -594,7 +614,9 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
           {customerType === 'member' && (
             <Box>
               <TextField
-                label="ค้นหาด้วยเบอร์โทร" size="small" fullWidth value={phone}
+                label="ค้นหาด้วยเบอร์โทร / ชื่อ / ชื่อเล่น" size="small" fullWidth value={phone}
+                placeholder="เช่น 0812345678 หรือ ชื่อเล่นลูก"
+                helperText="ค้นได้ทั้งชื่อผู้ปกครองและชื่อ-ชื่อเล่นของทุกคนในครอบครัว"
                 onChange={e => setPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchMember()}
                 InputProps={{
                   endAdornment: (
@@ -607,10 +629,42 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
                 }}
               />
               {memberError && <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>{memberError}</Alert>}
+              {/* Only when the term was ambiguous. Each row names the account
+                  holder AND the family members that matched, because two
+                  accounts can both hold a "น้องมิว" and the parent's name is
+                  the one thing the person searching did not know. */}
+              {!member && candidates.length > 1 && (
+                <Paper variant="outlined" sx={{ mt: 1.5, borderRadius: 2, overflow: 'hidden' }}>
+                  <Typography variant="caption" sx={{ display: 'block', px: 1.5, pt: 1, fontWeight: 700, color: 'text.secondary' }}>
+                    พบ {candidates.length} บัญชี — เลือกบัญชีที่ต้องการ
+                  </Typography>
+                  <List dense disablePadding>
+                    {candidates.map(cm => (
+                      <ListItemButton key={cm.id} onClick={() => chooseMember(cm)}>
+                        <ListItemText
+                          primary={`${cm.first_name} ${cm.last_name || ''}`.trim()}
+                          secondary={[cm.phone, (cm.matchedNames || []).join(', ')].filter(Boolean).join(' · ')}
+                          primaryTypographyProps={{ fontWeight: 700, fontSize: '0.85rem' }}
+                          secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                        />
+                      </ListItemButton>
+                    ))}
+                  </List>
+                </Paper>
+              )}
               {member && (
                 <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{member.first_name} {member.last_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{member.phone}</Typography>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{member.first_name} {member.last_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">{member.phone}</Typography>
+                    </Box>
+                    {candidates.length > 1 && (
+                      <Button size="small" onClick={() => { setMember(null); setFamilyRoster([]); setSelectedChildIds([]); }}>
+                        เปลี่ยนบัญชี
+                      </Button>
+                    )}
+                  </Stack>
                   {/* Skipped once the course's own registration form has a
                       child-role family_member_picker — that field takes
                       over child selection entirely, same as the consumer

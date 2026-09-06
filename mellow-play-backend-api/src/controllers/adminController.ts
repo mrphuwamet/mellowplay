@@ -2620,29 +2620,120 @@ export class AdminController {
   }
 
   // --- POS Endpoints ---
+  /**
+   * Find the account, by whatever the person at the counter actually knows.
+   *
+   * A phone number is what the account is keyed on, but it is rarely what
+   * staff are told — a parent says "จองให้น้องมิว" and the child's nickname is
+   * the only name anyone at the desk has. So a non-numeric term is matched
+   * against every person the account holds: the account holder's own name,
+   * nickname and display name, each HD profile, and each CRM-added family
+   * member. Any one of them hitting brings the whole account back.
+   *
+   * A numeric term still means the phone, matched exactly first — the POS
+   * screens re-look-up by member.phone and must keep landing on the one
+   * account they started from.
+   *
+   * A name can belong to several families, so the answer is a LIST. "member"
+   * stays on the response as the first match for the callers that only ever
+   * pass a phone and expect one.
+   */
   async posLookupMember(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
-      const { phone } = await c.req.json();
-      const user = await config.db.prepare('SELECT id, phone, first_name, last_name FROM Users WHERE phone = ?').bind(phone).first();
-      if (!user) return c.json({ success: false, message: 'Member not found' }, 404);
-      
-      // Fetch children and their coupons
+      const body = await c.req.json();
+      const term = String(body.q ?? body.phone ?? '').trim();
+      if (!term) return c.json({ success: false, message: 'Member not found' }, 404);
+
+      const digits = term.replace(/[^0-9]/g, '');
+      const looksLikePhone = digits.length >= 4 && /^[0-9s+()-]+$/.test(term);
+      let ids: number[] = [];
+
+      if (looksLikePhone) {
+        const exact = await config.db.prepare(
+          'SELECT id FROM Users WHERE phone = ? AND deleted_at IS NULL'
+        ).bind(term).all<{ id: number }>();
+        ids = exact.results.map(r => r.id);
+        if (ids.length === 0) {
+          // Typed without the leading zero, or with dashes in it. Suffix
+          // rather than substring: 4 digits anywhere would match half the
+          // customer list.
+          const like = await config.db.prepare(
+            "SELECT id FROM Users WHERE REPLACE(REPLACE(phone, '-', ''), ' ', '') LIKE ? AND deleted_at IS NULL LIMIT 20"
+          ).bind('%' + digits).all<{ id: number }>();
+          ids = like.results.map(r => r.id);
+        }
+      } else {
+        const like = '%' + term + '%';
+        const found = await config.db.prepare(`
+          SELECT u.id FROM Users u
+          WHERE u.deleted_at IS NULL AND (
+            (u.first_name || ' ' || COALESCE(u.last_name, '')) LIKE ?
+            OR COALESCE(u.nickname, '') LIKE ?
+            OR COALESCE(u.display_name, '') LIKE ?
+            OR EXISTS (SELECT 1 FROM HD_Profiles h WHERE h.user_id = u.id
+                         AND COALESCE(h.is_deleted, 0) = 0
+                         AND (h.name LIKE ? OR COALESCE(h.nickname, '') LIKE ?))
+            OR EXISTS (SELECT 1 FROM User_CRM_Children cc WHERE cc.user_id = u.id
+                         AND (cc.full_name LIKE ? OR COALESCE(cc.nickname, '') LIKE ?))
+          )
+          ORDER BY u.id DESC LIMIT 20
+        `).bind(like, like, like, like, like, like, like).all<{ id: number }>();
+        ids = found.results.map(r => r.id);
+      }
+
+      if (ids.length === 0) return c.json({ success: false, message: 'Member not found' }, 404);
+
+      const holes = ids.map(() => '?').join(',');
+      const { results: users } = await config.db.prepare(
+        `SELECT id, phone, first_name, last_name FROM Users WHERE id IN (${holes})`
+      ).bind(...ids).all<any>();
+
+      // Children and coupons for every match at once, rather than a query per
+      // account — the list can be twenty accounts long.
       const { results: children } = await config.db.prepare(`
-        SELECT 
-          c.id, h.name, h.birth_date,
+        SELECT
+          c.parent_id, c.id, h.name, h.nickname, h.birth_date,
           COALESCE(mc.little_junior_balance, 0) as little_junior_balance,
           COALESCE(mc.junior_balance, 0) as junior_balance
         FROM Children c
         JOIN HD_Profiles h ON c.hd_profile_id = h.id
         LEFT JOIN Member_Coupons mc ON c.id = mc.child_id
-        WHERE c.parent_id = ?
-      `).bind(user.id).all();
-      
-      return c.json({ 
-        success: true, 
-        member: { ...user, children } 
-      });
+        WHERE c.parent_id IN (${holes})
+      `).bind(...ids).all<any>();
+
+      // Which names in the account the term actually hit. Without this a
+      // search for "มิว" returns a column of parents' names and the person at
+      // the counter has no way to tell the three families apart.
+      let matched: any[] = [];
+      if (!looksLikePhone) {
+        const like = '%' + term + '%';
+        const { results } = await config.db.prepare(`
+          SELECT user_id, name FROM (
+            SELECT h.user_id AS user_id,
+                   COALESCE(NULLIF(h.nickname, ''), h.name) AS name,
+                   h.name AS full_name, h.nickname AS nick
+              FROM HD_Profiles h WHERE h.user_id IN (${holes}) AND COALESCE(h.is_deleted, 0) = 0
+            UNION ALL
+            SELECT cc.user_id,
+                   COALESCE(NULLIF(cc.nickname, ''), cc.full_name),
+                   cc.full_name, cc.nickname
+              FROM User_CRM_Children cc WHERE cc.user_id IN (${holes})
+          ) WHERE full_name LIKE ? OR COALESCE(nick, '') LIKE ?
+        `).bind(...ids, ...ids, like, like).all<any>();
+        matched = results;
+      }
+
+      const members = (users as any[]).map(u => ({
+        ...u,
+        children: (children as any[]).filter(ch => ch.parent_id === u.id),
+        matchedNames: matched.filter(m => m.user_id === u.id).map(m => m.name),
+      }));
+      // Same order the ids came back in, so the newest account is not shuffled
+      // to the bottom by the IN() lookup.
+      members.sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id));
+
+      return c.json({ success: true, member: members[0], members });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }
