@@ -580,6 +580,11 @@ const EventAlbumManagement: React.FC = () => {
                 },
                 displayEmpty: true,
               }}
+              // displayEmpty means the field always renders something — "ทุกรอบ
+              // (ทั้งกิจกรรม)" when nothing is ticked — but MUI decides whether
+              // to float the label from whether the VALUE is empty, which it
+              // still is. Without this the label sat on top of that text.
+              InputLabelProps={{ shrink: true }}
               helperText={form.courseId
                 ? (rounds.length > 0
                     ? 'เลือกได้หลายรอบ · ไม่เลือกเลย = ทั้งกิจกรรม'
