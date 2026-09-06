@@ -8,9 +8,11 @@ import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Sync as SyncIcon,
   CloudUpload as UploadIcon, Collections as AlbumIcon, Star as CoverIcon,
   Public as PublishIcon, PublicOff as UnpublishIcon, Face as FaceIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
-import { API_URL } from '../config';
+import { API_URL, CONSUMER_APP_URL } from '../config';
+import { copyText } from '../utils/clipboard';
 import { resizeToJpeg, uploadRawFile } from '../utils/imageUpload';
 import { describeFaces, loadFaceModels, DetectedFace } from '../utils/faceIndexer';
 
@@ -63,6 +65,8 @@ interface Album {
   id: number; name: string; description?: string | null; course_id: number;
   /** Every round this album covers. Empty means the whole activity. */
   rounds?: { slot_date: string; slot_start_time?: string | null }[];
+  /** Set once a share link exists. The token IS the permission to view. */
+  share_token?: string | null;
   drive_folder_id?: string | null; cover_photo_url?: string | null;
   is_published: number; news_feed_id?: number | null; course_name?: string;
   photo_count?: number; face_count?: number; created_at?: string;
@@ -101,6 +105,8 @@ const EventAlbumManagement: React.FC = () => {
   const [driveApiKey, setDriveApiKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /** Confirmations that are not failures — the copied link, the revoked one. */
+  const [notice, setNotice] = useState('');
 
   // create/edit dialog
   const [editOpen, setEditOpen] = useState(false);
@@ -116,6 +122,38 @@ const EventAlbumManagement: React.FC = () => {
    * so the list is the rounds that actually ran with people in them.
    */
   const [rounds, setRounds] = useState<{ slot_date: string; slot_start_time: string | null; booking_count: number }[]>([]);
+  const [shareBusy, setShareBusy] = useState(false);
+
+  /**
+   * Make the unlisted link, or copy the one that already exists.
+   *
+   * Creating is idempotent server-side, so pressing this twice cannot
+   * invalidate a link someone was already sent — taking it back is the separate
+   * ยกเลิกลิงก์ button, which is the only thing that should break an old copy.
+   */
+  const copyShareLink = async (album: Album) => {
+    setShareBusy(true);
+    try {
+      const { data } = await axios.post(`${API_BASE}/event-albums/${album.id}/share-link`, {});
+      if (!data.success) { setError(data.message || 'สร้างลิงก์ไม่สำเร็จ'); return; }
+      const link = `${CONSUMER_APP_URL}/shared-albums/${data.shareToken}`;
+      setNotice(await copyText(link) ? `คัดลอกลิงก์แล้ว — ${link}` : link);
+      fetchAll();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'สร้างลิงก์ไม่สำเร็จ');
+    } finally { setShareBusy(false); }
+  };
+
+  const revokeShareLink = async (album: Album) => {
+    setShareBusy(true);
+    try {
+      await axios.delete(`${API_BASE}/event-albums/${album.id}/share-link`);
+      setNotice('ยกเลิกลิงก์แล้ว — ลิงก์เดิมที่แจกไปจะเปิดไม่ได้อีก');
+      fetchAll();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ยกเลิกลิงก์ไม่สำเร็จ');
+    } finally { setShareBusy(false); }
+  };
   useEffect(() => {
     if (!form.courseId) { setRounds([]); return; }
     let cancelled = false;
@@ -494,6 +532,14 @@ const EventAlbumManagement: React.FC = () => {
       </Stack>
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
+      {/* The link itself is shown, not just "copied": a clipboard write can be
+          refused by the browser, and a message claiming success over an empty
+          clipboard is worse than showing the text to copy by hand. */}
+      {notice && (
+        <Alert severity="success" onClose={() => setNotice('')} sx={{ mb: 2, wordBreak: 'break-all' }}>
+          {notice}
+        </Alert>
+      )}
       {!driveApiKey && !loading && (
         <Alert severity="info" sx={{ mb: 2 }}>
           ยังไม่ได้ตั้งค่า Google Drive API key — เพิ่มคีย์ <b>google_drive_api_key</b> ในหน้าตั้งค่าระบบเพื่อเปิดใช้การซิงค์จาก Drive
@@ -682,7 +728,34 @@ const EventAlbumManagement: React.FC = () => {
                     เผยแพร่อัลบั้ม
                   </Button>
                 )}
+
+                {/* Separate from publishing on purpose. Publishing decides who
+                    SEES the album in their list; this link decides who can open
+                    it without being in that list at all — a coach, a
+                    grandparent, a school that sent a group. Neither implies the
+                    other, so they are two controls rather than one setting. */}
+                <Button
+                  variant="outlined" startIcon={<LinkIcon />} disabled={shareBusy || photos.length === 0}
+                  onClick={() => void copyShareLink(openAlbum)} sx={{ borderRadius: 2, fontWeight: 700 }}
+                >
+                  {openAlbum.share_token ? 'คัดลอกลิงก์แชร์' : 'สร้างลิงก์แชร์'}
+                </Button>
+                {openAlbum.share_token && (
+                  <Button
+                    variant="text" color="error" disabled={shareBusy}
+                    onClick={() => void revokeShareLink(openAlbum)} sx={{ borderRadius: 2, fontWeight: 700 }}
+                  >
+                    ยกเลิกลิงก์
+                  </Button>
+                )}
               </Stack>
+
+              {openAlbum.share_token && (
+                <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+                  มีลิงก์แชร์อยู่ — ใครก็ตามที่ได้ลิงก์นี้เปิดดูอัลบั้มได้โดยไม่ต้องล็อกอิน
+                  และอัลบั้มจะไม่ไปโผล่ในรายการของใคร
+                </Alert>
+              )}
 
               {sync && (
                 <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>

@@ -741,8 +741,15 @@ app.delete('/api/v1/admin/event-albums/:id',            (c) => eventAlbumControl
 app.get('/api/v1/admin/event-albums/:id/photos',        (c) => eventAlbumController.listPhotos(c));
 app.post('/api/v1/admin/event-albums/:id/photos',       (c) => eventAlbumController.addPhotos(c));
 app.post('/api/v1/admin/event-albums/:id/publish',      (c) => eventAlbumController.publish(c));
+app.post('/api/v1/admin/event-albums/:id/share-link',   (c) => eventAlbumController.shareLink(c));
+app.delete('/api/v1/admin/event-albums/:id/share-link', (c) => eventAlbumController.revokeShareLink(c));
 app.put('/api/v1/admin/event-albums/photos/:photoId/faces', (c) => eventAlbumController.replaceFaces(c));
 app.delete('/api/v1/admin/event-albums/photos/:photoId', (c) => eventAlbumController.removePhoto(c));
+
+// Share links, deliberately ahead of the login guard below: the token IS the
+// permission, and someone holding one has no account to sign in with.
+app.get('/api/v1/shared-albums/:token',             (c) => eventAlbumController.getShared(c));
+app.post('/api/v1/shared-albums/:token/face-search',(c) => eventAlbumController.faceSearchShared(c));
 
 // Both forms, same as the /profiles guard: '/x/*' does not match the bare
 // '/x' list route in Hono.

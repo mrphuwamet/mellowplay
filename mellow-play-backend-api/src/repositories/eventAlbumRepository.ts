@@ -81,6 +81,56 @@ export class EventAlbumRepository {
   }
 
   /**
+   * Give this album a share link, or hand back the one it already has.
+   *
+   * Idempotent on purpose: pressing the button twice must not invalidate the
+   * link someone was already given. Replacing it is a separate, deliberate act
+   * — see revokeShareToken.
+   */
+  async ensureShareToken(albumId: number): Promise<string> {
+    const row = await this.db.prepare('SELECT share_token FROM Event_Albums WHERE id = ?')
+      .bind(albumId).first<{ share_token: string | null }>();
+    if (row?.share_token) return row.share_token;
+
+    // 32 hex characters from the platform's CSPRNG. The token IS the
+    // permission, so it has to be unguessable rather than merely unique.
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    await this.db.prepare('UPDATE Event_Albums SET share_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(token, albumId).run();
+    return token;
+  }
+
+  /** Take the link back. Anything already sent out stops working. */
+  async revokeShareToken(albumId: number): Promise<void> {
+    await this.db.prepare('UPDATE Event_Albums SET share_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(albumId).run();
+  }
+
+  /**
+   * The album a share token opens.
+   *
+   * No is_published check. The link is its own permission and is handed out by
+   * staff for exactly this album — requiring publication as well would mean the
+   * only way to share a private album is to make it public first, which is the
+   * opposite of what the link is for.
+   */
+  async getByShareToken(token: string): Promise<any | null> {
+    const album = await this.db.prepare(`
+      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at,
+             c.name AS course_name,
+        (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
+        (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
+      FROM Event_Albums a
+      JOIN Courses c ON c.id = a.course_id
+      WHERE a.share_token = ?
+    `).bind(token).first();
+    if (!album) return null;
+    return (await this.withRounds([album as any]))[0];
+  }
+
+  /**
    * Replace an album's rounds with exactly this set.
    *
    * Delete-then-insert rather than a diff: the set is a handful of rows that

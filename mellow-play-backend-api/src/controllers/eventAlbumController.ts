@@ -122,6 +122,63 @@ export class EventAlbumController {
     }
   }
 
+  /** Create the share link, or return the existing one. */
+  async shareLink(c: C) {
+    try {
+      const id = parseInt(c.req.param('id'));
+      const token = await this.repo(c).ensureShareToken(id);
+      return c.json({ success: true, shareToken: token });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /** Revoke it. Every copy of the old link stops working immediately. */
+  async revokeShareLink(c: C) {
+    try {
+      await this.repo(c).revokeShareToken(parseInt(c.req.param('id')));
+      return c.json({ success: true });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Open an album by its share link. No account required — the token is the
+   * permission.
+   *
+   * A wrong token and a deleted album give the same answer, so the endpoint
+   * cannot be used to learn which tokens exist.
+   */
+  async getShared(c: C) {
+    try {
+      const token = String(c.req.param('token') || '');
+      if (!/^[a-f0-9]{32}$/.test(token)) return c.json({ success: false, message: 'ไม่พบอัลบั้มนี้' }, 404);
+      const repo = this.repo(c);
+      const album = await repo.getByShareToken(token);
+      if (!album) return c.json({ success: false, message: 'ไม่พบอัลบั้มนี้' }, 404);
+
+      const after = parseInt(c.req.query('after') || '0') || 0;
+      const limit = Math.min(parseInt(c.req.query('limit') || '60') || 60, 200);
+      const photos = await repo.listPhotos(album.id, after, limit);
+      return c.json({ success: true, album, photos });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Face search inside a shared album.
+   *
+   * Offered because it is what the album is for, and it gives away nothing the
+   * link does not already: whoever holds it can see every photo anyway, and the
+   * reference face never leaves the device — only its embedding is sent.
+   */
+  async faceSearchShared(c: C) {
+    try {
+      const token = String(c.req.param('token') || '');
+      if (!/^[a-f0-9]{32}$/.test(token)) return c.json({ success: false, message: 'ไม่พบอัลบั้มนี้' }, 404);
+      const repo = this.repo(c);
+      const album = await repo.getByShareToken(token);
+      if (!album) return c.json({ success: false, message: 'ไม่พบอัลบั้มนี้' }, 404);
+      return await this.runFaceSearch(c, album.id);
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async create(c: C) {
     try {
       const body = await c.req.json();
@@ -316,26 +373,38 @@ export class EventAlbumController {
       const repo = this.repo(c);
       const album = await repo.userCanView(userId, id);
       if (!album) return c.json({ success: false, message: 'ไม่พบอัลบั้มนี้' }, 404);
-
-      const body = await c.req.json();
-      if (typeof body.embedding !== 'string' || !body.embedding) {
-        return c.json({ success: false, message: 'embedding is required' }, 400);
-      }
-      const config = new ConfigService(c.env);
-      const settings = new SettingsRepository(config.db);
-      const defaultThreshold = parseFloat(await settings.getOverridable('face_search_threshold', '0.55')) || 0.55;
-      const requested = typeof body.maxDistance === 'number' ? body.maxDistance : defaultThreshold;
-      const maxDistance = Math.min(Math.max(requested, 0.3), 0.65);
-
-      const matches = await repo.faceSearch(id, body.embedding, maxDistance);
-      const photoMap = await repo.getPhotosByIds(matches.map(m => m.photoId));
-      return c.json({
-        success: true,
-        threshold: maxDistance,
-        matches: matches
-          .filter(m => photoMap.has(m.photoId))
-          .map(m => ({ ...photoMap.get(m.photoId), distance: Math.round(m.distance * 1000) / 1000 })),
-      });
+      return await this.runFaceSearch(c, id);
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * The search itself, once the caller has been shown to be allowed in.
+   *
+   * Shared by the logged-in path and the share-link path so the threshold and
+   * its clamp are decided in one place — a shared album quietly matching on
+   * looser rules than a private one is the kind of difference nobody would
+   * think to check.
+   */
+  private async runFaceSearch(c: C, albumId: number) {
+    const repo = this.repo(c);
+    const body = await c.req.json();
+    if (typeof body.embedding !== 'string' || !body.embedding) {
+      return c.json({ success: false, message: 'embedding is required' }, 400);
+    }
+    const config = new ConfigService(c.env);
+    const settings = new SettingsRepository(config.db);
+    const defaultThreshold = parseFloat(await settings.getOverridable('face_search_threshold', '0.55')) || 0.55;
+    const requested = typeof body.maxDistance === 'number' ? body.maxDistance : defaultThreshold;
+    const maxDistance = Math.min(Math.max(requested, 0.3), 0.65);
+
+    const matches = await repo.faceSearch(albumId, body.embedding, maxDistance);
+    const photoMap = await repo.getPhotosByIds(matches.map(m => m.photoId));
+    return c.json({
+      success: true,
+      threshold: maxDistance,
+      matches: matches
+        .filter(m => photoMap.has(m.photoId))
+        .map(m => ({ ...photoMap.get(m.photoId), distance: Math.round(m.distance * 1000) / 1000 })),
+    });
   }
 }

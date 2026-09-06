@@ -23,7 +23,15 @@ const PAGE = 60;
  */
 const EventAlbumDetail: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
+  // Two ways in, one page. /event-albums/:id is the signed-in route; the album
+  // is found by id and the server checks the account booked the course.
+  // /shared-albums/:token is the link staff hand out, where the token itself is
+  // the permission and there may be no account at all. Only the two URLs below
+  // differ — everything the page does with the album is the same, and keeping
+  // it one component is what stops the shared view quietly drifting behind.
+  const { id, token } = useParams<{ id: string; token: string }>();
+  const base = token ? `/shared-albums/${token}` : `/event-albums/${id}`;
+  const key = token || id;
   const { lang } = useTranslation();
   const t = (th: string, en: string) => (lang === 'en' ? en : th);
 
@@ -40,13 +48,13 @@ const EventAlbumDetail: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadPage = useCallback(async (after: number) => {
-    const res = await apiClient.get(`/event-albums/${id}`, { params: { after, limit: PAGE } });
+    const res = await apiClient.get(base, { params: { after, limit: PAGE } });
     if (!res.data.success) throw new Error(res.data.message);
     return res.data as { album: AlbumMeta; photos: Photo[] };
-  }, [id]);
+  }, [base]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!key) return;
     loadPage(0)
       .then(data => {
         setAlbum(data.album);
@@ -88,7 +96,7 @@ const EventAlbumDetail: React.FC = () => {
         return;
       }
       setSearchState('searching');
-      const res = await apiClient.post(`/event-albums/${id}/face-search`, { embedding });
+      const res = await apiClient.post(`${base}/face-search`, { embedding });
       if (!res.data.success) throw new Error(res.data.message);
       setMatches(res.data.matches);
     } catch (e: any) {

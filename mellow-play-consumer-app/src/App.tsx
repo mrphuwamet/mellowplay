@@ -139,6 +139,9 @@ const AppContent = () => {
         <Route path="/album" element={<Album />} />
         <Route path="/event-albums" element={<EventAlbums />} />
         <Route path="/event-albums/:id" element={<EventAlbumDetail />} />
+        {/* The unlisted share link. Public like /certificate/:code — whoever
+            holds it can open this one album, and it appears in nobody's list. */}
+        <Route path="/shared-albums/:token" element={<EventAlbumDetail />} />
         <Route path="/report/:bookingId" element={<ReportDetail />} />
         <Route path="/survey/:idOrSlug" element={<SurveyDetail />} />
         <Route path="/session/:idOrSlug" element={<SessionDetail />} />
