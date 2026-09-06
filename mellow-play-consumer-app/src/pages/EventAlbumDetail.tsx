@@ -133,7 +133,15 @@ const EventAlbumDetail: React.FC = () => {
           <p className="text-sm font-medium text-slate-500 leading-relaxed">
             {t('อัลบั้มอาจยังไม่เผยแพร่ หรือเปิดได้เฉพาะครอบครัวที่จองกิจกรรมนั้น', 'It may be unpublished, or visible only to families who booked the activity')}
           </p>
-          <button onClick={() => navigate(-1)} className="mt-2 px-6 py-2.5 bg-mellow-purple text-white rounded-2xl text-sm font-black">
+          {/* A guest hitting a booked-only album is the likeliest case here —
+              logging in is the fix, so offer it directly. */}
+          {!localStorage.getItem('mellow_token') && (
+            <button onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/event-albums/${id}`)}`)}
+              className="mt-2 px-6 py-2.5 bg-mellow-purple text-white rounded-2xl text-sm font-black w-full">
+              {t('เข้าสู่ระบบเพื่อดูอัลบั้ม', 'Log in to view')}
+            </button>
+          )}
+          <button onClick={() => navigate(-1)} className="mt-2 px-6 py-2.5 bg-slate-100 text-slate-600 rounded-2xl text-sm font-black">
             {t('ย้อนกลับ', 'Back')}
           </button>
         </div>

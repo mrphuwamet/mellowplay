@@ -82,14 +82,20 @@ export class EventAlbumRepository {
     return (await this.withRounds([album as any]))[0];
   }
 
+  // visibility: 'public' opens the album to anyone with the link (no login),
+  // 'booked' keeps the original booking gate. Anything else is coerced to
+  // 'booked' — the safe direction to fail.
+  private static visibilityOf(v: any): string { return v === 'public' ? 'public' : 'booked'; }
+
   async create(data: {
     name: string; courseId: number | null; rounds?: AlbumRound[];
-    description?: string | null; driveFolderId?: string | null;
+    description?: string | null; driveFolderId?: string | null; visibility?: string;
   }): Promise<number> {
     const res = await this.db.prepare(`
-      INSERT INTO Event_Albums (name, course_id, description, drive_folder_id)
-      VALUES (?, ?, ?, ?)
-    `).bind(data.name, data.courseId ?? null, data.description || null, data.driveFolderId || null).run();
+      INSERT INTO Event_Albums (name, course_id, description, drive_folder_id, visibility)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(data.name, data.courseId ?? null, data.description || null, data.driveFolderId || null,
+            EventAlbumRepository.visibilityOf(data.visibility)).run();
     const id = res.meta.last_row_id as number;
     await this.setRounds(id, data.rounds || []);
     return id;
@@ -218,15 +224,17 @@ export class EventAlbumRepository {
   async update(id: number, data: {
     name: string; courseId: number | null; rounds?: AlbumRound[];
     description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null;
+    visibility?: string;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Event_Albums
          SET name = ?, course_id = ?,
              description = ?, drive_folder_id = ?,
-             cover_photo_url = ?, updated_at = CURRENT_TIMESTAMP
+             cover_photo_url = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
     `).bind(data.name, data.courseId ?? null, data.description || null,
-            data.driveFolderId || null, data.coverPhotoUrl || null, id).run();
+            data.driveFolderId || null, data.coverPhotoUrl || null,
+            EventAlbumRepository.visibilityOf(data.visibility), id).run();
     // Only when the caller actually said something about the rounds. Setting a
     // cover photo reuses this method and has no opinion on them — treating
     // "not mentioned" as "empty" is how picking a cover would wipe them.
@@ -345,54 +353,53 @@ export class EventAlbumRepository {
   // ── Consumer ─────────────────────────────────────────────────────────────
 
   /**
-   * Published albums the family can open.
+   * Published albums this caller can open. `userId` is optional.
    *
-   * Two rules, because an album has two shapes. One tied to an activity is
-   * unlocked by a non-cancelled booking for it by any of the account's
-   * children — the original rule, unchanged. One tied to no activity is a
-   * general event album, announced as news, and open to anyone signed in:
-   * there is no booking that could gate it, and gating it on nothing would
-   * mean it could never be seen at all.
+   * Three rules, combined:
+   * - visibility = 'public': anyone with the link, guests included — an
+   *   album announced in the news feed must open as freely as the article.
+   * - 'booked' + tied to an activity: a non-cancelled booking for it by any
+   *   of the signed-in account's children — the original rule.
+   * - 'booked' + tied to NO activity: a general event album; open to anyone
+   *   signed in, since there is no booking that could gate it.
    */
-  async listForUser(userId: number): Promise<any[]> {
+  private static readonly ACCESS_CLAUSE = `(
+          a.visibility = 'public'
+          OR (?1 IS NOT NULL AND (
+            a.course_id IS NULL
+            OR EXISTS (
+              SELECT 1 FROM Bookings b
+              JOIN Children ch ON b.child_id = ch.id
+              WHERE ch.parent_id = ?1 AND b.course_id = a.course_id AND b.status != 'cancelled'
+            )
+          ))
+        )`;
+
+  async listForUser(userId: number | null): Promise<any[]> {
     const { results } = await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at, a.visibility,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count
       FROM Event_Albums a
       LEFT JOIN Courses c ON c.id = a.course_id
       WHERE a.is_published = 1
-        AND (
-          a.course_id IS NULL
-          OR EXISTS (
-            SELECT 1 FROM Bookings b
-            JOIN Children ch ON b.child_id = ch.id
-            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
-          )
-        )
+        AND ${EventAlbumRepository.ACCESS_CLAUSE}
       ORDER BY a.created_at DESC
     `).bind(userId).all();
     return this.withRounds(results as any[]);
   }
 
-  async userCanView(userId: number, albumId: number): Promise<any | null> {
+  async userCanView(userId: number | null, albumId: number): Promise<any | null> {
     const album = await this.db.prepare(`
-      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at,
+      SELECT a.id, a.name, a.description, a.cover_photo_url, a.created_at, a.visibility,
              c.name AS course_name,
         (SELECT COUNT(*) FROM Event_Album_Photos p WHERE p.album_id = a.id) AS photo_count,
         (SELECT COUNT(*) FROM Event_Photo_Faces f WHERE f.album_id = a.id) AS face_count
       FROM Event_Albums a
       LEFT JOIN Courses c ON c.id = a.course_id
-      WHERE a.id = ? AND a.is_published = 1
-        AND (
-          a.course_id IS NULL
-          OR EXISTS (
-            SELECT 1 FROM Bookings b
-            JOIN Children ch ON b.child_id = ch.id
-            WHERE ch.parent_id = ? AND b.course_id = a.course_id AND b.status != 'cancelled'
-          )
-        )
-    `).bind(albumId, userId).first();
+      WHERE a.id = ?2 AND a.is_published = 1
+        AND ${EventAlbumRepository.ACCESS_CLAUSE}
+    `).bind(userId, albumId).first();
     if (!album) return null;
     return (await this.withRounds([album as any]))[0];
   }

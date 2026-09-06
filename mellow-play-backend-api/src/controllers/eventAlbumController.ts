@@ -4,6 +4,7 @@ import { ConfigService } from '../services/configService';
 import { EventAlbumRepository } from '../repositories/eventAlbumRepository';
 import { NewsFeedRepository } from '../repositories/newsFeedRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { AuthService } from '../services/authService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -15,9 +16,11 @@ type C = Context<{ Bindings: Bindings; Variables: Variables }>;
  * only receives the finished artifacts (R2 URLs + face embeddings) and gates
  * who may read them. The Worker never talks to Drive.
  *
- * Consumer access rule, everywhere: the album's course must have a
- * non-cancelled booking by one of the caller's children. Same join the
- * profile booking lists use.
+ * Consumer access rule, everywhere: a 'public' album opens for anyone with
+ * the link — no login, same as a news article — while a 'booked' album needs
+ * a non-cancelled booking for its course by one of the caller's children
+ * (same join the profile booking lists use). The consumer routes therefore
+ * carry no auth middleware; the caller is resolved optionally per request.
  */
 /**
  * The rounds an album covers, from whatever the client sent.
@@ -191,6 +194,7 @@ export class EventAlbumController {
         rounds: parseRounds(body.rounds) || [],
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
+        visibility: body.visibility,
       });
       return c.json({ success: true, id });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
@@ -210,6 +214,7 @@ export class EventAlbumController {
         description: body.description || null,
         driveFolderId: body.driveFolderId || null,
         coverPhotoUrl: body.coverPhotoUrl || null,
+        visibility: body.visibility,
       });
       return c.json({ success: true });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
@@ -338,23 +343,31 @@ export class EventAlbumController {
 
   // ── Consumer ─────────────────────────────────────────────────────────────
 
-  private userId(c: C): number | null {
-    const payload = c.get('jwtPayload') as any;
-    return payload?.userId ? Number(payload.userId) : null;
+  /**
+   * Optional caller: same shape as NewsFeedController.getOptionalUserId. A
+   * missing, expired or garbage token simply reads as a guest — a guest with
+   * a stale token in localStorage must still be able to open a public album.
+   */
+  private async userId(c: C): Promise<number | null> {
+    const authHeader = c.req.header('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return null;
+    try {
+      const payload = await AuthService.verifyToken(token, new ConfigService(c.env).jwtSecret);
+      return payload?.userId ? Number(payload.userId) : null;
+    } catch { return null; }
   }
 
   async listMine(c: C) {
     try {
-      const userId = this.userId(c);
-      if (!userId) return c.json({ success: false, message: 'unauthorized' }, 401);
+      const userId = await this.userId(c);
       return c.json({ success: true, albums: await this.repo(c).listForUser(userId) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
   async getMine(c: C) {
     try {
-      const userId = this.userId(c);
-      if (!userId) return c.json({ success: false, message: 'unauthorized' }, 401);
+      const userId = await this.userId(c);
       const id = parseInt(c.req.param('id'));
       const repo = this.repo(c);
       // "Not yours" and "does not exist" are the same answer on purpose:
@@ -378,8 +391,7 @@ export class EventAlbumController {
    */
   async faceSearch(c: C) {
     try {
-      const userId = this.userId(c);
-      if (!userId) return c.json({ success: false, message: 'unauthorized' }, 401);
+      const userId = await this.userId(c);
       const id = parseInt(c.req.param('id'));
       const repo = this.repo(c);
       const album = await repo.userCanView(userId, id);
