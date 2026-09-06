@@ -63,6 +63,65 @@ export class EventAlbumController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * Fetch one Drive file's bytes through the Worker.
+   *
+   * The browser used to call googleapis.com directly with the API key. Google's
+   * abuse protection answers a run of downloads from one address with a 403
+   * "your computer or network may be sending automated queries" — an HTML page
+   * carrying NO CORS headers, so the browser cannot read it at all and reports
+   * only "Failed to fetch". Every import failed with a message that named the
+   * wrong problem, and the status check in the sync loop never got to run.
+   *
+   * Proxying fixes three things at once. Same-origin, so CORS stops mattering
+   * and a real status code reaches the caller. Retried here with backoff, where
+   * a throttle can actually be waited out. And the key stays on the server
+   * rather than being handed to every CRM browser.
+   */
+  async driveFile(c: C) {
+    try {
+      const fileId = c.req.param('fileId');
+      if (!fileId || !/^[A-Za-z0-9_-]{10,}$/.test(fileId)) {
+        return c.json({ success: false, message: 'file id ไม่ถูกต้อง' }, 400);
+      }
+      const config = new ConfigService(c.env);
+      const key = await new SettingsRepository(config.db).getOverridable('google_drive_api_key', '');
+      if (!key) return c.json({ success: false, message: 'ยังไม่ได้ตั้งค่า Google Drive API key' }, 400);
+
+      const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&key=${encodeURIComponent(key)}`;
+
+      // Three tries, waiting longer each time. Google's throttle lifts on its
+      // own; giving up on the first refusal turns a pause into a failed import
+      // that someone has to notice and restart.
+      let last: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 400 * Math.pow(3, attempt)));
+        last = await fetch(url);
+        if (last.ok) {
+          return new Response(last.body, {
+            status: 200,
+            headers: {
+              'Content-Type': last.headers.get('Content-Type') || 'application/octet-stream',
+              // Never cached: the bytes are wanted once, at import.
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
+        // 403 here is nearly always the abuse throttle rather than permission —
+        // a genuinely unshared file fails the listing step long before this.
+        if (last.status !== 403 && last.status !== 429 && last.status < 500) break;
+      }
+
+      const status = last?.status ?? 502;
+      const detail = status === 403 || status === 429
+        ? 'Google กำลังจำกัดการดาวน์โหลดชั่วคราว (ยิงถี่เกินไป) — รอสักครู่แล้วกดซิงค์ต่อได้ รูปที่เข้าไปแล้วจะไม่ถูกโหลดซ้ำ'
+        : `ดาวน์โหลดจาก Google Drive ไม่สำเร็จ (${status})`;
+      return c.json({ success: false, message: detail }, status === 403 || status === 429 ? 429 : 502);
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message }, 500);
+    }
+  }
+
   async create(c: C) {
     try {
       const body = await c.req.json();

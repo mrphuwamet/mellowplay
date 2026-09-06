@@ -326,9 +326,14 @@ const EventAlbumManagement: React.FC = () => {
         if (syncAbort.current) break;
         setSync(s => s ? { ...s, currentName: f.name } : s);
         try {
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&key=${driveApiKey}`);
-          if (!res.ok) throw new Error(`ดาวน์โหลดไม่ได้ (${res.status})`);
-          const blob = await res.blob();
+          // Through our own Worker, not googleapis.com. Google answers a run of
+          // direct downloads with a 403 abuse page that carries no CORS headers,
+          // which the browser can only report as "Failed to fetch" — a message
+          // naming the wrong problem, and one this status check never saw
+          // because the fetch rejected before returning. Same-origin means the
+          // real reason arrives intact.
+          const res = await axios.get(`${API_BASE}/event-albums/drive-file/${f.id}`, { responseType: 'blob' });
+          const blob = res.data as Blob;
           const bitmap = await createImageBitmap(blob);
           try {
             const photo = await processBitmapToPhoto(bitmap, album.id, f.name, f.id, indexFaces);
@@ -342,7 +347,22 @@ const EventAlbumManagement: React.FC = () => {
           }
           setSync(s => s ? { ...s, done: s.done + 1, facesFound } : s);
         } catch (err: any) {
-          setSync(s => s ? { ...s, done: s.done + 1, failed: [...s.failed, { name: f.name, reason: err?.message || 'error' }] } : s);
+          // The server explains itself in JSON, but responseType 'blob' hands
+          // even the error body back as a Blob — so it has to be read back out
+          // before it can be shown, or every failure reads "Request failed with
+          // status code 429".
+          let reason = err?.message || 'error';
+          const body = err?.response?.data;
+          if (body instanceof Blob) {
+            try { reason = JSON.parse(await body.text())?.message || reason; } catch { /* keep the axios wording */ }
+          } else if (body?.message) {
+            reason = body.message;
+          }
+          setSync(s => s ? { ...s, done: s.done + 1, failed: [...s.failed, { name: f.name, reason }] } : s);
+          // A throttle applies to the next file as much as this one, so pushing
+          // straight on just collects 120 identical failures. Backing off gives
+          // the run a chance to finish instead.
+          if (err?.response?.status === 429) await new Promise(r => setTimeout(r, 4000));
         }
       }
       await flushPending(album.id, pending);

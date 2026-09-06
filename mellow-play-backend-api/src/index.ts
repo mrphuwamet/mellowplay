@@ -734,6 +734,7 @@ app.delete('/api/v1/admin/news-feed/:id', (c) => newsFeedController.delete(c));
 app.get('/api/v1/admin/event-albums/config',            (c) => eventAlbumController.config(c));
 app.get('/api/v1/admin/event-albums',                   (c) => eventAlbumController.list(c));
 app.get('/api/v1/admin/event-albums/rounds',            (c) => eventAlbumController.rounds(c));
+app.get('/api/v1/admin/event-albums/drive-file/:fileId', (c) => eventAlbumController.driveFile(c));
 app.post('/api/v1/admin/event-albums',                  (c) => eventAlbumController.create(c));
 app.put('/api/v1/admin/event-albums/:id',               (c) => eventAlbumController.update(c));
 app.delete('/api/v1/admin/event-albums/:id',            (c) => eventAlbumController.remove(c));
