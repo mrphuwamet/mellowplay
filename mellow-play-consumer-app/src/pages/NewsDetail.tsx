@@ -26,6 +26,21 @@ const getVideoEmbed = (url: string): { type: 'youtube' | 'direct'; src: string }
 // Used for both "ข่าวสาร" and "เรื่องน่ารู้" (news and media types) — a
 // separate TikTok-style swipe feed was tried for media and reverted in
 // favor of this single consistent article layout for everything.
+/**
+ * What the button at the foot of an article should say.
+ *
+ * Named by its destination rather than by the fact that it is a link: "ดูภาพ
+ * กิจกรรม" tells someone what they will get, and "เปิดลิงก์" only tells them
+ * that tapping does something. Both album routes are covered — the signed-in
+ * one and the unlisted share link — because a post can carry either.
+ */
+const linkLabel = (url: string, lang: string) => {
+  if (/^\/(event-albums|shared-albums)\//.test(url)) {
+    return lang === 'en' ? 'View event photos' : 'ดูภาพกิจกรรม';
+  }
+  return lang === 'en' ? 'Open Link' : 'เปิดลิงก์';
+};
+
 const NewsDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -236,10 +251,11 @@ const NewsDetail = () => {
           onTagClick={openTag}
         />
 
-        {/* The image carousel above already opens link_url on tap when there
-            IS an image (see its onClick) — this button is only the fallback
-            for link-only articles with no image to tap. */}
-        {item.link_url && images.length === 0 && (
+        {/* Shown whenever there is somewhere to go, including on posts that
+            have a picture. The picture opens the link too, but nothing says so
+            — a photo album announced with a photo looked like an article that
+            simply ended, and the way in was a tap nobody knew to make. */}
+        {item.link_url && (
           <a
             href={item.link_url}
             target={item.link_url.startsWith('/') ? undefined : '_blank'}
@@ -247,7 +263,7 @@ const NewsDetail = () => {
             onClick={e => { if (item.link_url.startsWith('/')) { e.preventDefault(); navigate(item.link_url); } }}
             className="block w-full mt-6 py-3.5 bg-slate-100 text-slate-700 rounded-xl font-black text-[15px] text-center active:scale-95 transition-transform"
           >
-            {lang === 'en' ? 'Open Link' : 'เปิดลิงก์'}
+            {linkLabel(item.link_url, lang)}
           </a>
         )}
 

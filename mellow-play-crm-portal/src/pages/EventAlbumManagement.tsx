@@ -500,9 +500,13 @@ const EventAlbumManagement: React.FC = () => {
         name: openAlbum.name, courseId: openAlbum.course_id,
         description: openAlbum.description || null,
         driveFolderId: openAlbum.drive_folder_id || null,
-        coverPhotoUrl: p.thumb_url || p.image_url,
+        // The display image, not the thumb. The cover is shown as a news card
+        // the width of a phone at two or three device pixels each; the thumb is
+        // 400px for a grid cell, and stretching it there is what made the
+        // picture look soft.
+        coverPhotoUrl: p.image_url || p.thumb_url,
       });
-      setOpenAlbum({ ...openAlbum, cover_photo_url: p.thumb_url || p.image_url });
+      setOpenAlbum({ ...openAlbum, cover_photo_url: p.image_url || p.thumb_url });
       fetchAll();
     } catch (e: any) { setError(e?.response?.data?.message || 'ตั้งรูปปกไม่สำเร็จ'); }
   };

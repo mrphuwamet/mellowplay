@@ -319,7 +319,10 @@ export class EventAlbumController {
           // activities in one hall has no single name to borrow.
           content: album.description
             || (album.course_name ? `ประมวลภาพกิจกรรม ${album.course_name}` : `ประมวลภาพ ${album.name}`),
-          imageUrl: album.cover_photo_url || undefined,
+          // The chosen cover, or failing that the album's first photo. A post
+          // with no picture at all reads as broken next to the ones that have
+          // one, and an album always has a picture to offer.
+          imageUrl: album.cover_photo_url || (await repo.firstPhotoUrl(id)) || undefined,
           linkUrl: `/event-albums/${id}`,
           isPublished: true,
         });

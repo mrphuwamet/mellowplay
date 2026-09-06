@@ -102,6 +102,25 @@ export class EventAlbumRepository {
     return token;
   }
 
+  /**
+   * The album's first photo, at full display size.
+   *
+   * Backs the news post's picture when nobody has chosen a cover. The FIRST
+   * one rather than any one: photographers put the establishing shot at the
+   * front, and a stable choice means the post does not change picture every
+   * time the album is re-synced.
+   *
+   * image_url, never thumb_url — the thumb is 400px for a grid cell, and a news
+   * card is the width of a phone at two or three device pixels each, which is
+   * exactly why the picture looked soft.
+   */
+  async firstPhotoUrl(albumId: number): Promise<string | null> {
+    const row = await this.db.prepare(
+      'SELECT image_url FROM Event_Album_Photos WHERE album_id = ? ORDER BY display_order, id LIMIT 1'
+    ).bind(albumId).first<{ image_url: string }>();
+    return row?.image_url ?? null;
+  }
+
   /** Take the link back. Anything already sent out stops working. */
   async revokeShareToken(albumId: number): Promise<void> {
     await this.db.prepare('UPDATE Event_Albums SET share_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
