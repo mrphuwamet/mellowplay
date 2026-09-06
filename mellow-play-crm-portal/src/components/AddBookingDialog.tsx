@@ -492,6 +492,16 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
       }).catch(() => {}).finally(() => setSlotsLoading(false));
   };
 
+  /**
+   * True when the round now chosen has no seats left.
+   *
+   * Derived from the selection rather than tracked alongside it, so it cannot
+   * fall out of step with what is on screen — and it is the same value that
+   * decides both the warning and whether the server is asked to waive the
+   * check, which is what stops the two from disagreeing.
+   */
+  const slotIsFull = usesSlotPicker && !!selectedSlot && selectedSlot.available === 0;
+
   const handleSubmit = async () => {
     if (!courseId) { setError('กรุณาเลือกคลาส'); return; }
     if (usesSlotPicker) {
@@ -517,9 +527,11 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
     setError('');
     try {
       const res = await axios.post(`${API_BASE}/bookings`, {
-        // Tells the server this is a staff entry for a round the picker cannot
-        // offer — see createBooking, which honours it only for a CRM token.
-        overrideSlotCheck: manualDateTime,
+        // Tells the server this is a staff entry the capacity rule should not
+        // stop — see createBooking, which honours it only for a CRM token.
+        // Two cases: a date typed in by hand (no picker to check against), and
+        // a round picked deliberately while full.
+        overrideSlotCheck: manualDateTime || slotIsFull,
         isGuest: customerType === 'guest',
         childIds: customerType === 'member' ? selectedChildIds : [0],
         courseId: parseInt(courseId),
@@ -669,13 +681,19 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
                       const d = new Date(`${ud.date}T00:00:00`);
                       const isSelected = selectedDateObj?.date === ud.date;
                       return (
-                        <Box key={ud.date} onClick={() => { if (!ud.isFull) { setSelectedDateObj(ud); setSelectedSlot(null); } }}
+                        // Selectable even when full, the same as the edit
+                        // dialog: staff booking someone in over capacity is a
+                        // decision they are allowed to make, and the server has
+                        // always honoured overrideSlotCheck for a CRM token.
+                        // Refusing the click only meant it could not be entered.
+                        <Box key={ud.date} onClick={() => { setSelectedDateObj(ud); setSelectedSlot(null); }}
                           sx={{
-                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: ud.isFull ? 'not-allowed' : 'pointer',
+                            flexShrink: 0, width: 56, py: 1, textAlign: 'center', borderRadius: 2, cursor: 'pointer',
                             bgcolor: isSelected ? 'primary.main' : '#fafafa',
                             color: isSelected ? 'white' : ud.isFull ? 'text.disabled' : 'text.primary',
-                            border: '1px solid', borderColor: isSelected ? 'primary.main' : '#eee',
-                            opacity: ud.isFull ? 0.5 : 1,
+                            border: '1px solid',
+                            borderColor: isSelected ? 'primary.main' : ud.isFull ? 'warning.light' : '#eee',
+                            opacity: ud.isFull && !isSelected ? 0.6 : 1,
                           }}>
                           <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', fontSize: '10px' }}>{THAI_DAYS[d.getDay()]}</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 900 }}>{d.getDate()}</Typography>
@@ -691,11 +709,24 @@ export const AddBookingDialog = ({ open, onClose, branchId, branchName, onSucces
                         const isFull = slot.available === 0;
                         return (
                           <Chip key={slot.startTime} label={`${slot.label ? `${slot.label} (${slot.startTime})` : slot.startTime} ${isFull ? '(เต็ม)' : `(ว่าง ${slot.available})`}`}
-                            clickable={!isFull} disabled={isFull} color={isSelected ? 'primary' : 'default'}
-                            variant={isSelected ? 'filled' : 'outlined'} onClick={() => setSelectedSlot(slot)} sx={{ fontWeight: 700 }} />
+                            clickable color={isSelected ? (isFull ? 'warning' : 'primary') : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'} onClick={() => setSelectedSlot(slot)}
+                            sx={{
+                              fontWeight: 700,
+                              ...(isFull && !isSelected && { borderColor: 'warning.main', color: 'warning.dark' }),
+                            }} />
                         );
                       })}
                     </Box>
+                  )}
+                  {/* Said while the choice is still on screen, not as a second
+                      confirm after บันทึก: the save goes through either way, so
+                      the only useful moment to raise it is the one where it can
+                      still be changed. */}
+                  {slotIsFull && (
+                    <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>
+                      รอบนี้เต็มแล้ว — ลงทะเบียนได้ แต่จะทำให้รอบนี้เกินจำนวนที่รับได้
+                    </Alert>
                   )}
                 </>
               )}
