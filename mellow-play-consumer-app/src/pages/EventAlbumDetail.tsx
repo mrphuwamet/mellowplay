@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Download, Loader2, ScanFace, X, Images } from 'lucide-react';
+import { Check, CheckSquare, ChevronLeft, Download, Loader2, ScanFace, X, Images } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import SkeletonImage from '../components/SkeletonImage';
+import { downloadBlobUrl, saveMany, saveViaShare } from '../utils/mediaSave';
 import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
 
@@ -70,6 +71,71 @@ const EventAlbumDetail: React.FC = () => {
   const [lightboxLoaded, setLightboxLoaded] = useState(false);
   const openLightbox = (p: Photo) => { setLightboxLoaded(false); setLightbox(p); };
 
+  // ── multi-select (long-press to enter, tap to toggle) ─────────────────────
+  // Capped like the journey Album page: the share sheet and the browser both
+  // get unhappy past a few dozen files at once.
+  const MAX_SELECTION = 30;
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Blob fetches are the slow part on a phone; this feeds the progress label.
+  const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
+  const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
+
+  const toggleSelect = (id: number) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else if (next.size < MAX_SELECTION) next.add(id);
+    return next;
+  });
+  const enterSelectMode = (firstId?: number) => {
+    setSelectMode(true);
+    if (firstId != null) setSelectedIds(new Set([firstId]));
+    (navigator as any).vibrate?.(10);
+  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
+
+  // A long-press is a press that neither ends nor travels: scrolling with a
+  // thumb resting on a tile must never flip the page into select mode.
+  const pressStart = (id: number) => (e: React.PointerEvent) => {
+    if (selectMode) return;
+    const x = e.clientX, y = e.clientY;
+    const timer = window.setTimeout(() => { longPress.current = null; enterSelectMode(id); }, 450);
+    longPress.current = { timer, x, y };
+  };
+  const pressCancel = (e?: React.PointerEvent) => {
+    if (!longPress.current) return;
+    if (e && Math.hypot(e.clientX - longPress.current.x, e.clientY - longPress.current.y) < 10) return;
+    window.clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  };
+  const pressEnd = () => {
+    if (!longPress.current) return;
+    window.clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  };
+
+  const saveSelected = async () => {
+    const urls = shown.filter(p => selectedIds.has(p.id)).map(p => p.image_url);
+    if (urls.length === 0) return;
+    setSaveProgress({ done: 0, total: urls.length });
+    try {
+      await saveMany(urls, (done, total) => setSaveProgress({ done, total }));
+    } finally {
+      setSaveProgress(null);
+      exitSelectMode();
+    }
+  };
+
+  /**
+   * One photo, to the device. iOS has no download UX — the share sheet's
+   * "Save Image" IS saving there, so that path goes first; desktop falls
+   * back to the cross-origin-safe blob download.
+   */
+  const savePhoto = async (p: Photo) => {
+    if (await saveViaShare([p.image_url])) return;
+    await downloadBlobUrl(p.image_url, `photo-${p.id}.jpg`);
+  };
+
   // face search state
   const [matches, setMatches] = useState<Photo[] | null>(null);
   const [searchState, setSearchState] = useState<'' | 'loading-model' | 'detecting' | 'searching'>('');
@@ -131,20 +197,6 @@ const EventAlbumDetail: React.FC = () => {
     } catch (e: any) {
       setSearchError(e?.response?.data?.message || e?.message || t('ค้นหาไม่สำเร็จ', 'Search failed'));
     } finally { setSearchState(''); }
-  };
-
-  const download = async (p: Photo) => {
-    try {
-      const res = await fetch(p.image_url);
-      const blob = await res.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `photo-${p.id}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-    } catch { window.open(p.image_url, '_blank'); }
   };
 
   const shown = matches ?? photos;
@@ -212,7 +264,24 @@ const EventAlbumDetail: React.FC = () => {
             {album.course_name}{album.slot_date ? ` · ${formatCustomDate(album.slot_date, lang, 'full')}` : ''} · {album.photo_count} {t('รูป', 'photos')}
           </span>
         </div>
-        {album.face_count > 0 && (
+        {photos.length > 0 && !selectMode && (
+          <button
+            onClick={() => enterSelectMode()}
+            title={t('เลือกหลายรูป', 'Select photos')}
+            className="shrink-0 w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <CheckSquare size={18} />
+          </button>
+        )}
+        {selectMode && (
+          <button
+            onClick={exitSelectMode}
+            className="shrink-0 px-3.5 h-10 rounded-full bg-slate-100 text-slate-600 text-xs font-black flex items-center gap-1 active:scale-95 transition-transform"
+          >
+            <X size={14} /> {t('ยกเลิก', 'Cancel')}
+          </button>
+        )}
+        {album.face_count > 0 && !selectMode && (
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={searching}
@@ -264,15 +333,49 @@ const EventAlbumDetail: React.FC = () => {
             cells grow past 350px and the thumb is asked for pixels it never
             had; more columns on a wider screen keeps every cell near the size
             the thumb was cut for. */}
+        {selectMode && (
+          <div className="mb-3 flex items-center justify-between px-1">
+            <p className="text-sm font-black text-slate-700">
+              {t('เลือกแล้ว', 'Selected')} {selectedIds.size}{selectedIds.size >= MAX_SELECTION ? ` (${t('สูงสุด', 'max')})` : ''}
+            </p>
+            <button
+              onClick={() => setSelectedIds(new Set(shown.slice(0, MAX_SELECTION).map(p => p.id)))}
+              className="px-3 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-600 active:scale-95"
+            >
+              {t('เลือกทั้งหมด', 'Select all')}
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5">
-          {shown.map(p => (
-            <button key={p.id} onClick={() => openLightbox(p)}
-              className="aspect-square rounded-xl overflow-hidden bg-slate-100 active:scale-95 transition-transform">
+          {shown.map(p => {
+            const isSelected = selectedIds.has(p.id);
+            return (
+            // The iOS image callout is suppressed on the TILES only — here a
+            // long press means "start selecting", and the callout fighting the
+            // gesture is what made it feel broken. The lightbox keeps the
+            // native callout so long-press-to-save still works there.
+            <button key={p.id}
+              onClick={() => selectMode ? toggleSelect(p.id) : openLightbox(p)}
+              onPointerDown={pressStart(p.id)}
+              onPointerUp={pressEnd}
+              onPointerCancel={pressEnd}
+              onPointerMove={pressCancel}
+              onContextMenu={e => e.preventDefault()}
+              style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
+              className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 active:scale-95 transition-transform select-none">
               <SkeletonImage src={p.thumb_url || p.image_url}
                 srcSet={srcSetFor(p)} sizes={GRID_SIZES}
-                className="object-cover" />
+                className={`object-cover ${isSelected ? 'opacity-60' : ''}`} />
+              {selectMode && (
+                <span className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center border-2 ${
+                  isSelected ? 'bg-mellow-purple border-mellow-purple text-white' : 'bg-white/70 border-white'}`}>
+                  {isSelected && <Check size={14} strokeWidth={3.5} />}
+                </span>
+              )}
             </button>
-          ))}
+            );
+          })}
           {/* Loading more looks like more photos arriving, not a spinner
               interrupting the grid. */}
           {loadingMore && Array.from({ length: 6 }).map((_, i) => (
@@ -293,11 +396,27 @@ const EventAlbumDetail: React.FC = () => {
         )}
       </main>
 
+      {/* Bulk-save bar — pinned so it stays reachable however deep the grid
+          has been scrolled. */}
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-0 inset-x-0 z-40 p-4 bg-white/95 backdrop-blur-md border-t border-slate-100">
+          <button
+            onClick={() => void saveSelected()}
+            disabled={!!saveProgress}
+            className="w-full py-3.5 bg-mellow-purple text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-70"
+          >
+            {saveProgress
+              ? (<><Loader2 size={16} className="animate-spin" /> {t('กำลังเตรียมรูป', 'Preparing')} {saveProgress.done}/{saveProgress.total}</>)
+              : (<><Download size={16} /> {t('บันทึก', 'Save')} {selectedIds.size} {t('รูป', 'photos')}</>)}
+          </button>
+        </div>
+      )}
+
       {/* lightbox */}
       {lightbox && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col" onClick={() => setLightbox(null)}>
           <div className="flex justify-between items-center p-4">
-            <button onClick={e => { e.stopPropagation(); download(lightbox); }}
+            <button onClick={e => { e.stopPropagation(); void savePhoto(lightbox); }}
               className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center text-white active:scale-90">
               <Download size={20} />
             </button>
@@ -314,7 +433,13 @@ const EventAlbumDetail: React.FC = () => {
             {!lightboxLoaded && (
               <Loader2 className="absolute animate-spin text-white/80" size={28} />
             )}
+            {/* Tapping the photo itself does NOT close the lightbox (only the
+                backdrop does): a long press releasing over the image must not
+                dismiss it, or iOS's native "Save to Photos" callout — which we
+                deliberately leave enabled here — closes the viewer under the
+                user's finger. */}
             <img src={lightbox.image_url} alt=""
+              onClick={e => e.stopPropagation()}
               onLoad={() => setLightboxLoaded(true)}
               onError={() => setLightboxLoaded(true)}
               className={`max-w-full max-h-full object-contain rounded-lg relative transition-opacity duration-200 ${lightboxLoaded ? 'opacity-100' : 'opacity-0'}`} />
