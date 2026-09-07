@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Download, Loader2, ScanFace, X, Images } from 'lucide-react';
 import apiClient from '../utils/apiClient';
+import SkeletonImage from '../components/SkeletonImage';
 import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
 
@@ -40,6 +41,11 @@ const EventAlbumDetail: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [lightbox, setLightbox] = useState<Photo | null>(null);
+  // Whether the full-size copy has decoded; until then the lightbox shows the
+  // (already cached) thumbnail blurred up, so opening a photo is never a
+  // black screen while the 1920px file downloads.
+  const [lightboxLoaded, setLightboxLoaded] = useState(false);
+  const openLightbox = (p: Photo) => { setLightboxLoaded(false); setLightbox(p); };
 
   // face search state
   const [matches, setMatches] = useState<Photo[] | null>(null);
@@ -122,7 +128,29 @@ const EventAlbumDetail: React.FC = () => {
   const searching = searchState !== '';
 
   if (album === undefined) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-mellow-purple" /></div>;
+    // Skeleton of the real layout — header lines plus a full grid of pulsing
+    // tiles — instead of a lone spinner, so the page reads as "photos are
+    // coming" and nothing jumps when they do.
+    return (
+      <div className="pb-24 min-h-screen bg-[#fbfaf7]">
+        <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
+            <ChevronLeft size={24} className="mr-0.5" />
+          </button>
+          <div className="min-w-0 flex-1 animate-pulse space-y-1.5">
+            <div className="h-4 bg-slate-200 rounded-full w-40" />
+            <div className="h-3 bg-slate-100 rounded-full w-56" />
+          </div>
+        </header>
+        <main className="p-4">
+          <div className="grid grid-cols-3 gap-1.5">
+            {Array.from({ length: 15 }).map((_, i) => (
+              <div key={i} className="aspect-square rounded-xl bg-slate-200 animate-pulse" />
+            ))}
+          </div>
+        </main>
+      </div>
+    );
   }
   if (album === null) {
     return (
@@ -211,16 +239,19 @@ const EventAlbumDetail: React.FC = () => {
 
         <div className="grid grid-cols-3 gap-1.5">
           {shown.map(p => (
-            <button key={p.id} onClick={() => setLightbox(p)}
+            <button key={p.id} onClick={() => openLightbox(p)}
               className="aspect-square rounded-xl overflow-hidden bg-slate-100 active:scale-95 transition-transform">
-              <img src={p.thumb_url || p.image_url} alt="" loading="lazy" decoding="async"
-                className="w-full h-full object-cover" />
+              <SkeletonImage src={p.thumb_url || p.image_url} className="object-cover" />
             </button>
+          ))}
+          {/* Loading more looks like more photos arriving, not a spinner
+              interrupting the grid. */}
+          {loadingMore && Array.from({ length: 6 }).map((_, i) => (
+            <div key={`sk-${i}`} className="aspect-square rounded-xl bg-slate-200 animate-pulse" />
           ))}
         </div>
 
         {matches === null && hasMore && <div ref={sentinelRef} className="h-8" />}
-        {loadingMore && <div className="flex justify-center py-4"><Loader2 className="animate-spin text-mellow-purple" size={20} /></div>}
         {shown.length === 0 && matches === null && (
           <p className="text-center text-sm font-bold text-slate-400 py-12">{t('ยังไม่มีรูปในอัลบั้ม', 'No photos yet')}</p>
         )}
@@ -246,8 +277,18 @@ const EventAlbumDetail: React.FC = () => {
               <X size={20} />
             </button>
           </div>
-          <div className="flex-1 flex items-center justify-center p-2 min-h-0">
-            <img src={lightbox.image_url} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+          <div className="flex-1 flex items-center justify-center p-2 min-h-0 relative">
+            {!lightboxLoaded && lightbox.thumb_url && (
+              <img src={lightbox.thumb_url} alt=""
+                className="absolute inset-0 w-full h-full object-contain p-2 blur-sm scale-105 opacity-70" />
+            )}
+            {!lightboxLoaded && (
+              <Loader2 className="absolute animate-spin text-white/80" size={28} />
+            )}
+            <img src={lightbox.image_url} alt=""
+              onLoad={() => setLightboxLoaded(true)}
+              onError={() => setLightboxLoaded(true)}
+              className={`max-w-full max-h-full object-contain rounded-lg relative transition-opacity duration-200 ${lightboxLoaded ? 'opacity-100' : 'opacity-0'}`} />
           </div>
         </div>
       )}

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Images, Loader2 } from 'lucide-react';
+import { ChevronLeft, Images } from 'lucide-react';
 import apiClient from '../utils/apiClient';
+import SkeletonImage from '../components/SkeletonImage';
 import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
 
@@ -68,7 +69,18 @@ const EventAlbums: React.FC = () => {
 
       <main className="p-5 space-y-4">
         {albums === null ? (
-          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-mellow-purple" /></div>
+          // Skeleton cards in the exact shape of the real ones, so the page
+          // doesn't jump when data lands.
+          [0, 1, 2].map(i => (
+            <div key={i} className="w-full bg-white rounded-3xl shadow-sm overflow-hidden animate-pulse">
+              <div className="w-full aspect-[2/1] bg-slate-200" />
+              <div className="p-4 space-y-2">
+                <div className="h-4 bg-slate-200 rounded-full w-2/3" />
+                <div className="h-3 bg-slate-100 rounded-full w-1/2" />
+                <div className="h-3 bg-slate-100 rounded-full w-1/4" />
+              </div>
+            </div>
+          ))
         ) : albums.length === 0 ? (
           <div className="text-center py-16">
             <Images size={48} className="mx-auto text-slate-300 mb-3" />
@@ -86,7 +98,7 @@ const EventAlbums: React.FC = () => {
             >
               <div className="w-full aspect-[2/1] bg-slate-100">
                 {a.cover_photo_url
-                  ? <img src={a.cover_photo_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  ? <SkeletonImage src={a.cover_photo_url} className="object-cover" />
                   : <div className="w-full h-full flex items-center justify-center"><Images size={36} className="text-slate-300" /></div>}
               </div>
               <div className="p-4">
