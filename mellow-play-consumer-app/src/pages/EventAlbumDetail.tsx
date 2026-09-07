@@ -11,6 +11,29 @@ interface AlbumMeta {
 }
 interface Photo { id: number; image_url: string; thumb_url?: string | null; width?: number; height?: number; distance?: number }
 
+/** The long side each stored size was cut to, mirroring the CRM's sync. */
+const THUMB_LONG = 400;
+const DISPLAY_LONG = 1920;
+
+/**
+ * Offer the browser both stored sizes and let it pick per cell and per screen.
+ *
+ * The widths given are each image's SHORT side, not its long one, because
+ * these cells are square and object-cover throws the long side away: a 400px
+ * thumb of a 3:2 photo has only 267px left to fill the square, and describing
+ * it as 400 is what let a soft image win a cell it could not fill. Understating
+ * it this way makes a retina desktop reach for the display image exactly when
+ * the thumb would have been stretched, and leaves phones on the small file.
+ */
+const shortSide = (p: Photo, long: number) =>
+  p.width && p.height ? Math.round(long * Math.min(p.width, p.height) / Math.max(p.width, p.height)) : long;
+
+const srcSetFor = (p: Photo) =>
+  p.thumb_url ? `${p.thumb_url} ${shortSide(p, THUMB_LONG)}w, ${p.image_url} ${shortSide(p, DISPLAY_LONG)}w` : undefined;
+
+/** Roughly one cell, tracking the column counts on the grid below. */
+const GRID_SIZES = '(min-width: 1280px) 16vw, (min-width: 1024px) 19vw, (min-width: 640px) 24vw, 32vw';
+
 const PAGE = 60;
 
 /**
@@ -209,11 +232,16 @@ const EventAlbumDetail: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-1.5">
+        {/* Three columns is a phone layout. Left at three on a desktop the
+            cells grow past 350px and the thumb is asked for pixels it never
+            had; more columns on a wider screen keeps every cell near the size
+            the thumb was cut for. */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5">
           {shown.map(p => (
             <button key={p.id} onClick={() => setLightbox(p)}
               className="aspect-square rounded-xl overflow-hidden bg-slate-100 active:scale-95 transition-transform">
               <img src={p.thumb_url || p.image_url} alt="" loading="lazy" decoding="async"
+                srcSet={srcSetFor(p)} sizes={GRID_SIZES}
                 className="w-full h-full object-cover" />
             </button>
           ))}
