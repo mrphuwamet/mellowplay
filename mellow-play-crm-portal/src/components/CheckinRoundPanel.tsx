@@ -128,6 +128,9 @@ interface RosterRow {
   parent_phone: string | null;
   parent_name: string | null;
   ticks: number;
+  /** The team(s) this person's registration chose. Absent when the activity's
+   *  form asks no team question at all. */
+  teams?: { field_key: string; label: string; value: string }[];
 }
 
 /** Ten fits a phone without scrolling the page away from the scanner. */
@@ -217,6 +220,7 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, child
   const q = query.trim().toLowerCase();
   const matches = (r: RosterRow) => !q || [
     r.who, r.full_name, r.nickname, r.parent_name, r.parent_phone, String(r.id),
+    ...(r.teams || []).map(t => t.value),
   ].some(v => String(v ?? '').toLowerCase().includes(q));
 
   const listed = (show === 'missing' ? [...missing, ...marked] : rows).filter(matches);
@@ -424,6 +428,20 @@ const CheckinRoundPanel = ({ client, onPick, canClose, refreshKey, hidden, child
                             {nick && full && full !== nick && (
                               <Typography component="span" variant="caption" color="text.secondary">{full}</Typography>
                             )}
+                            {/* On the name line, not the grey line below it:
+                                the board above says a team is short by three
+                                and this is the only thing on screen that says
+                                which three to go and find. */}
+                            {(r.teams || []).map(t => (
+                              <Chip
+                                key={t.field_key}
+                                size="small"
+                                label={t.value}
+                                variant="outlined"
+                                title={t.label}
+                                sx={{ height: 20, fontWeight: 700, fontSize: 11, '& .MuiChip-label': { px: 0.75 } }}
+                              />
+                            ))}
                           </Box>
                         }
                         secondary={

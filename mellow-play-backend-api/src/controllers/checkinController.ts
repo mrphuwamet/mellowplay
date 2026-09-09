@@ -216,6 +216,50 @@ export class CheckinController {
    * was never run through the scanner, NOT that nobody came. Marking a whole
    * round absent on that basis would take away everyone's certificate.
    */
+  /**
+   * What to call a booking with no team answer.
+   *
+   * Someone who booked before the team question existed, or skipped it. They
+   * are in the room either way, so both the board and the roster name them the
+   * same thing — a person who appears in a tally under one label and in the
+   * list under another reads as two different people.
+   */
+  private static readonly NO_TEAM = 'ไม่ได้เลือกทีม';
+
+  /** The team question(s) this course's form asks, in the form's own order. */
+  private async teamSelectFields(db: D1Database, courseId: number): Promise<any[]> {
+    const { results } = await db.prepare(`
+      SELECT DISTINCT f.field_key, f.label, f.options_json
+        FROM Courses c
+        JOIN Registration_Form_Fields f ON f.form_id = c.registration_form_id
+       WHERE c.id = ? AND f.type = 'team_select'
+       ORDER BY f.page_index, f.field_index
+    `).bind(courseId).all<any>();
+    return results as any[];
+  }
+
+  /**
+   * The answers of the given submissions, by submission id.
+   *
+   * Chunked at 90 placeholders — D1 has a bind limit, and a busy round can
+   * hold more bookings than one statement will take.
+   */
+  private async answersBySubmission(db: D1Database, ids: number[]): Promise<Map<number, Record<string, any>>> {
+    const out = new Map<number, Record<string, any>>();
+    const wanted = [...new Set(ids.filter(n => Number.isFinite(n) && n > 0))];
+    for (let i = 0; i < wanted.length; i += 90) {
+      const chunk = wanted.slice(i, i + 90);
+      const { results } = await db.prepare(
+        `SELECT id, answers_json FROM Form_Submissions WHERE id IN (${chunk.map(() => '?').join(',')})`
+      ).bind(...chunk).all<any>();
+      for (const r of results as any[]) {
+        try { out.set(Number(r.id), JSON.parse(r.answers_json || '{}')); }
+        catch { /* one unreadable submission must not blank the rest */ }
+      }
+    }
+    return out;
+  }
+
   async roundAttendance(c: C) {
     try {
       const db = new ConfigService(c.env).db;
@@ -267,6 +311,25 @@ export class CheckinController {
       // in an order that matches nothing on screen.
       }).sort((a, b) => String(a.who || '').localeCompare(String(b.who || ''), 'th'));
 
+      // Which team each person is in, on their own line.
+      //
+      // The board above the list says a team is four people and one has come;
+      // it cannot say WHICH three to go and find. Only for courses whose form
+      // actually asks — everything else gets no team on any row rather than a
+      // column of blanks.
+      const teamFields = await this.teamSelectFields(db, courseId);
+      if (teamFields.length > 0) {
+        const answers = await this.answersBySubmission(db, rows.map(r => Number(r.form_submission_id)));
+        for (const r of rows) {
+          const a = answers.get(Number(r.form_submission_id));
+          r.teams = teamFields.map(f => ({
+            field_key: f.field_key,
+            label: f.label,
+            value: a && a[f.field_key] ? String(a[f.field_key]) : CheckinController.NO_TEAM,
+          }));
+        }
+      }
+
       const arrived = rows.filter(r => Number(r.ticks) > 0);
       const missing = rows.filter(r => Number(r.ticks) === 0 && r.status !== 'no_show');
 
@@ -303,15 +366,8 @@ export class CheckinController {
       const slotStart = c.req.query('slot_start_time') || '';
       if (!courseId || !slotDate) return c.json({ success: false, message: 'ต้องระบุรอบ' }, 400);
 
-      const { results: fieldRows } = await db.prepare(`
-        SELECT DISTINCT f.field_key, f.label, f.options_json
-          FROM Courses c
-          JOIN Registration_Form_Fields f ON f.form_id = c.registration_form_id
-         WHERE c.id = ? AND f.type = 'team_select'
-         ORDER BY f.page_index, f.field_index
-      `).bind(courseId).all<any>();
-
-      if ((fieldRows as any[]).length === 0) return c.json({ success: true, fields: [] });
+      const fieldRows = await this.teamSelectFields(db, courseId);
+      if (fieldRows.length === 0) return c.json({ success: true, fields: [] });
 
       const { results: bookingRows } = await db.prepare(`
         SELECT b.id, b.status, fs.answers_json,
@@ -329,7 +385,7 @@ export class CheckinController {
         return { status: r.status, arrived: Number(r.arrived) > 0, answers };
       });
 
-      const fields = (fieldRows as any[]).map(f => {
+      const fields = fieldRows.map(f => {
         // Every team the form defines, in the form's own order, whether or not
         // anyone picked it — a team that nobody booked into is a fact worth
         // seeing, and a fixed order stops the board reshuffling under the eye
@@ -349,7 +405,7 @@ export class CheckinController {
           // it. They are in the room either way, so they are shown rather than
           // dropped — a summary that quietly loses people is worse than one
           // with an awkward row in it.
-          const key = chosen ? String(chosen) : 'ไม่ได้เลือกทีม';
+          const key = chosen ? String(chosen) : CheckinController.NO_TEAM;
           if (!teams.has(key)) teams.set(key, { label: key, booked: 0, arrived: 0, no_show: 0 });
           const row = teams.get(key)!;
           row.booked++;
