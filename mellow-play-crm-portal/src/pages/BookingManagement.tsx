@@ -721,7 +721,112 @@ const sortBookings = (items: Booking[], sortKey: string): Booking[] => {
 };
 
 interface FormAnswerField { fieldKey: string; label: string; type: string; optionsJson?: string | null; config_json?: string | null; value: any; }
-interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; relation?: string | null; /** The Users row behind the account — always an adult, whatever relation says. */ isAccountOwner?: boolean }
+interface FamilyRosterMember { id: number; name: string; nickname: string | null; display: string; relation?: string | null; birthDate?: string | null; /** The Users row behind the account — always an adult, whatever relation says. */ isAccountOwner?: boolean }
+
+/**
+ * Correct a person's record in the ACCOUNT, from the registration that names
+ * them.
+ *
+ * The picker above this changes who a registration is about. This changes who
+ * the person is — the spelling of their name, their nickname, their birth
+ * date — which was previously only reachable by leaving this page, finding the
+ * account, and editing it there. A typo spotted while reading a registration
+ * should be fixable while reading it.
+ *
+ * The server carries the new name into the registrations that already quoted
+ * it (a picker answer is a copy taken at submit time), and says how many it
+ * touched — worth reporting, because that is the number staff would otherwise
+ * have gone looking for one by one.
+ */
+const FamilyMemberEditDialog = ({ member, parentUserId, canEditIdentity, onClose, onSaved }: {
+  member: FamilyRosterMember | null;
+  parentUserId: number | null;
+  canEditIdentity: boolean;
+  onClose: () => void;
+  onSaved: (message: string, oldDisplay: string, newDisplay: string) => void;
+}) => {
+  const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!member) return;
+    setName(member.name || '');
+    setNickname(member.nickname || '');
+    setBirthDate(member.birthDate || '');
+    setError('');
+  }, [member?.id, member?.name, member?.nickname, member?.birthDate]);
+
+  if (!member || parentUserId === null) return null;
+
+  const save = async () => {
+    if (!name.trim()) { setError('ชื่อ-สกุลว่างไม่ได้'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      // Only what actually changed is sent. The name and the birth date are
+      // Super Admin edits on the server, so an unchanged field must not be
+      // sent at all — otherwise correcting a nickname would be refused for
+      // everyone else on account of two fields nobody touched.
+      const body: Record<string, any> = {};
+      if (name.trim() !== (member.name || '')) body.name = name.trim();
+      if (nickname.trim() !== (member.nickname || '')) body.nickname = nickname.trim();
+      if (birthDate !== (member.birthDate || '')) body.birthDate = birthDate;
+      if (Object.keys(body).length === 0) { onClose(); return; }
+
+      const res = await axios.put(`${API_BASE}/users/${parentUserId}/family/${member.id}`, body);
+      if (!res.data.success) { setError(res.data.message || 'บันทึกไม่สำเร็จ'); return; }
+      const n = res.data.updatedAnswers || 0;
+      // The display name is nickname-first, the same rule the roster and the
+      // check-in list use — so what this dialog says the answer became is what
+      // the server actually wrote.
+      const newDisplay = (nickname.trim() || name.trim());
+      onSaved(
+        n > 0
+          ? `บันทึกแล้ว และแก้ชื่อในใบลงทะเบียนที่อ้างถึงคนนี้อีก ${n} รายการ`
+          : 'บันทึกข้อมูลสมาชิกแล้ว',
+        member.display,
+        newDisplay,
+      );
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={saving ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>แก้ไขข้อมูลสมาชิก</DialogTitle>
+      <DialogContent>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+          แก้ที่ข้อมูลบัญชีโดยตรง มีผลกับการลงทะเบียนอื่นและการเช็คอินด้วย
+        </Typography>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          <TextField label="ชื่อ-สกุล" size="small" fullWidth value={name}
+            onChange={e => setName(e.target.value)} disabled={!canEditIdentity}
+            helperText={canEditIdentity ? undefined : 'แก้ได้เฉพาะ Super Admin'} />
+          <TextField label="ชื่อเล่น" size="small" fullWidth value={nickname}
+            onChange={e => setNickname(e.target.value)}
+            helperText="ชื่อที่ใช้เรียกในรายการเช็คอินและใบลงทะเบียน" />
+          <TextField label="วันเกิด" size="small" fullWidth type="date" value={birthDate}
+            onChange={e => setBirthDate(e.target.value)} disabled={!canEditIdentity}
+            InputLabelProps={{ shrink: true }}
+            helperText={canEditIdentity ? 'ใช้คำนวณอายุสำหรับเงื่อนไขของคลาส' : 'แก้ได้เฉพาะ Super Admin'} />
+          {error && <Alert severity="error" sx={{ py: 0.5 }}>{error}</Alert>}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={saving}>ยกเลิก</Button>
+        <Button variant="contained" onClick={save} disabled={saving}>
+          {saving ? <CircularProgress size={18} /> : 'บันทึก'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 // One input per registration-form field type, mirroring what the consumer
 // app's DynamicRegistrationForm renders at submit time — lets staff correct
@@ -754,7 +859,7 @@ const isAdultMember = (m: FamilyRosterMember): boolean => {
   return !CHILD_RELATIONS.has(relation);
 };
 
-const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number> }) => {
+const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onEditMember }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number>; onEditMember?: (m: FamilyRosterMember) => void }) => {
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
   try {
@@ -839,8 +944,10 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: {
       // current roster member (renamed, removed, or never matched to begin
       // with), keep it selectable as a one-off extra option instead of
       // silently discarding it.
-      const currentMatches = rosterForRole.some(m => m.display === value);
+      const selectedMember = rosterForRole.find(m => m.display === value);
+      const currentMatches = !!selectedMember;
       return (
+        <Stack direction="row" spacing={0.5} alignItems="center">
         <FormControl fullWidth size="small">
           <InputLabel>{field.label}</InputLabel>
           <Select label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}>
@@ -853,6 +960,16 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts }: {
             {rosterForRole.map(m => <MenuItem key={m.id} value={m.display}>{m.display}{m.name !== m.display ? ` (${m.name})` : ''}</MenuItem>)}
           </Select>
         </FormControl>
+        {/* Only for someone the roster actually knows. A leftover answer that
+            matches nobody has no account record behind it to correct. */}
+        {onEditMember && selectedMember && (
+          <Tooltip title="แก้ไขชื่อ-สกุล / ชื่อเล่น / วันเกิด ของคนนี้">
+            <IconButton size="small" onClick={() => onEditMember(selectedMember)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        </Stack>
       );
     }
     return <TextField fullWidth size="small" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)}
@@ -3253,6 +3370,9 @@ const BookingManagement = () => {
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editFormAnswers, setEditFormAnswers] = useState<Record<string, any>>({});
   const [editFamilyRoster, setEditFamilyRoster] = useState<FamilyRosterMember[]>([]);
+  /** The family member whose own record is open for correction, if any. */
+  const [editingMember, setEditingMember] = useState<FamilyRosterMember | null>(null);
+  const [memberSavedMsg, setMemberSavedMsg] = useState('');
   // team_select field_key -> team label -> taken count for this round, so the
   // dropdown can show remaining/total instead of the flat capacity.
   const [editTeamCounts, setEditTeamCounts] = useState<Record<string, Record<string, number>>>({});
@@ -3692,6 +3812,50 @@ const BookingManagement = () => {
         </Alert>
       </Snackbar>
 
+      <FamilyMemberEditDialog
+        member={editingMember}
+        parentUserId={forceStatusBooking?.parent_user_id ?? null}
+        canEditIdentity={isSuperAdmin}
+        onClose={() => setEditingMember(null)}
+        onSaved={(msg, oldDisplay, newDisplay) => {
+          setEditingMember(null);
+          setMemberSavedMsg(msg);
+          // Follow the rename in the answers already on screen instead of
+          // refetching them: the dialog behind this one may hold edits that
+          // have not been saved yet, and rereading would throw them away —
+          // while leaving the old name here would save it straight back over
+          // the correction. Only the picker answers that named this person
+          // move, which is exactly what the server did to the stored copies.
+          if (oldDisplay !== newDisplay) {
+            setEditFormAnswers(prev => {
+              const next = { ...prev };
+              for (const k of Object.keys(next)) {
+                if (String(next[k] ?? '').trim() === oldDisplay) next[k] = newDisplay;
+              }
+              return next;
+            });
+          }
+          const parentId = forceStatusBooking?.parent_user_id;
+          if (parentId) {
+            axios.get(`${API_BASE}/users/${parentId}/family-roster`)
+              .then(r => setEditFamilyRoster(r.data.success ? r.data.roster : []))
+              .catch(() => { /* the names on screen are already right */ });
+          }
+          fetchBookings();
+        }}
+      />
+
+      <Snackbar
+        open={!!memberSavedMsg}
+        autoHideDuration={5000}
+        onClose={() => setMemberSavedMsg('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setMemberSavedMsg('')} sx={{ borderRadius: 2, fontWeight: 600 }}>
+          {memberSavedMsg}
+        </Alert>
+      </Snackbar>
+
       <Snackbar
         open={forceStatusSuccess}
         autoHideDuration={3500}
@@ -3739,8 +3903,28 @@ const BookingManagement = () => {
       <Dialog open={!!forceStatusBooking} onClose={() => { if (!forceStatusLoading) setForceStatusBooking(null); }} maxWidth={usesReschedulePicker || forceStatusBooking?.form_submission_id ? 'sm' : 'xs'} fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>{isSuperAdmin ? 'แก้ไขการลงทะเบียน (Super Admin)' : 'แก้ไขการลงทะเบียน'}</DialogTitle>
         <DialogContent>
+          {/* The person this booking is for, correctable from here. The
+              pickers further down cover registrations that use a form; this
+              covers every booking, including the ones that never had one. */}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {forceStatusBooking?.course_name} • {forceStatusBooking?.child_name}
+            {!!forceStatusBooking?.child_id && !!forceStatusBooking?.parent_user_id && (
+              <Tooltip title="แก้ไขชื่อ-สกุล / ชื่อเล่น / วันเกิด ของคนนี้ในบัญชี">
+                <IconButton
+                  size="small"
+                  sx={{ ml: 0.25, verticalAlign: 'baseline' }}
+                  onClick={() => setEditingMember({
+                    id: forceStatusBooking.child_id,
+                    name: forceStatusBooking.child_name,
+                    nickname: forceStatusBooking.child_nickname ?? null,
+                    birthDate: forceStatusBooking.child_birth_date ?? null,
+                    display: forceStatusBooking.child_nickname || forceStatusBooking.child_name,
+                  })}
+                >
+                  <EditIcon sx={{ fontSize: 15 }} />
+                </IconButton>
+              </Tooltip>
+            )}
           </Typography>
           {forceStatusError && <Alert severity="error" sx={{ mb: 2 }}>{forceStatusError}</Alert>}
           {isSuperAdmin && (
@@ -3932,6 +4116,7 @@ const BookingManagement = () => {
                       onChange={v => setEditFormAnswers(prev => ({ ...prev, [f.fieldKey]: v }))}
                       roster={editFamilyRoster}
                       teamCounts={editTeamCounts[f.fieldKey]}
+                      onEditMember={setEditingMember}
                     />
                   ))}
                 </Stack>

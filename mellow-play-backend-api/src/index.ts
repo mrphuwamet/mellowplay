@@ -580,6 +580,10 @@ app.delete('/api/v1/admin/users/:id', (c) => adminController.deleteUser(c));
 app.post('/api/v1/admin/users/:id/ban', (c) => adminController.banUser(c));
 app.delete('/api/v1/admin/users/:id/ban', (c) => adminController.unbanUser(c));
 app.get('/api/v1/admin/users/:id/family-roster', (c) => adminController.getUserFamilyRoster(c));
+// Correct one family member's own record. The member id is the roster's own
+// id shape, which spans three tables — adminController.updateFamilyMember is
+// the single place that decodes it.
+app.put('/api/v1/admin/users/:userId/family/:memberId', (c) => adminController.updateFamilyMember(c));
 app.get('/api/v1/admin/users/:id/coupons', (c) => adminController.getUserCoupons(c));
 app.post('/api/v1/admin/users/:id/coupons', (c) => adminController.addUserCoupon(c));
 app.put('/api/v1/admin/users/:id/coupons/:couponId', (c) => adminController.updateUserCoupon(c));

@@ -292,6 +292,194 @@ export class AdminController {
   //
   // What this does NOT do is recompute the HD chart. Those columns keep the
   // values worked out from the old date, so the CRM says so at the field.
+  /**
+   * Correct one family member's OWN record — the account, not the booking.
+   *
+   * A registration names a person; until now the CRM could only correct the
+   * name written on the registration, which left the account still holding the
+   * typo and every future booking repeating it. This edits the source.
+   *
+   * The id is whatever the family roster handed out, and that one number can
+   * mean three different tables (see getUserFamilyRoster, which mints them):
+   * 0 is the account holder in Users, a negative id is a CRM-added member in
+   * User_CRM_Children, and a positive id is either a Children row or — for an
+   * adult who has no Children row — an HD_Profiles row directly. Decoding it
+   * lives here, in one place, rather than in the caller.
+   *
+   * `userId` is not decoration: every lookup is scoped to it, so a member id
+   * cannot be used to edit somebody else's family.
+   */
+  async updateFamilyMember(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const userId = parseInt(c.req.param('userId'));
+      const memberId = parseInt(c.req.param('memberId'));
+      const { name, nickname, birthDate } = await c.req.json();
+
+      // Read the role from the TOKEN, never from the body — same rule as
+      // updateChildProfile, whose policy this deliberately matches: a name and
+      // a birth date are Super Admin edits wherever they are made, and a
+      // second door with a lower lock is not a feature.
+      const authHeader = c.req.header('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      const payload = token ? await AuthService.verifyToken(token, config.jwtSecret) : null;
+      const isSuperAdmin = payload?.type === 'admin' && payload?.role === 'super_admin';
+      if ((name !== undefined || birthDate !== undefined) && !isSuperAdmin) {
+        return c.json({ success: false, message: 'แก้ชื่อ-สกุลและวันเกิดได้เฉพาะ Super Admin' }, 403);
+      }
+
+      let newName: string | undefined;
+      if (name !== undefined) {
+        newName = String(name).trim();
+        // Not clearable: a blank name leaves a person with no way to be
+        // identified on a start list or a certificate. The field corrects.
+        if (!newName) return c.json({ success: false, message: 'ชื่อ-สกุลว่างไม่ได้' }, 400);
+      }
+      // '' clears, undefined leaves alone — without the distinction a wrong
+      // birthday could be corrected but never removed.
+      let newDob: string | null | undefined;
+      if (birthDate !== undefined) {
+        const rawDob = String(birthDate).trim();
+        if (rawDob !== '' && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(rawDob)) {
+          return c.json({ success: false, message: 'รูปแบบวันเกิดไม่ถูกต้อง (YYYY-MM-DD)' }, 400);
+        }
+        newDob = rawDob === '' ? null : rawDob;
+      }
+      const newNick = nickname === undefined ? undefined : (String(nickname).trim() || null);
+
+      // Same shape from all three tables, so everything below is written once.
+      let before: { name: string; nickname: string | null } | null = null;
+      let table: 'users' | 'crm' | 'hd';
+      let rowId = 0;
+
+      if (memberId === 0) {
+        const u = await config.db.prepare(
+          'SELECT first_name, last_name, nickname FROM Users WHERE id = ? AND deleted_at IS NULL'
+        ).bind(userId).first<any>();
+        if (!u) return c.json({ success: false, message: 'ไม่พบบัญชีนี้' }, 404);
+        before = { name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim(), nickname: u.nickname };
+        table = 'users'; rowId = userId;
+      } else if (memberId < 0) {
+        const cc = await config.db.prepare(
+          'SELECT id, full_name, nickname FROM User_CRM_Children WHERE id = ? AND user_id = ?'
+        ).bind(-memberId, userId).first<any>();
+        if (!cc) return c.json({ success: false, message: 'ไม่พบสมาชิกคนนี้ในบัญชี' }, 404);
+        before = { name: cc.full_name, nickname: cc.nickname };
+        table = 'crm'; rowId = cc.id;
+      } else {
+        // A Children id first, because that is what the roster prefers to
+        // hand out; an adult with no Children row falls through to their
+        // HD_Profiles id, which is what the roster used for them.
+        const viaChild = await config.db.prepare(`
+          SELECT h.id, h.name, h.nickname FROM Children ch
+          JOIN HD_Profiles h ON h.id = ch.hd_profile_id
+          WHERE ch.id = ? AND ch.parent_id = ?
+        `).bind(memberId, userId).first<any>();
+        const hd = viaChild || await config.db.prepare(
+          'SELECT id, name, nickname FROM HD_Profiles WHERE id = ? AND user_id = ? AND COALESCE(is_deleted, 0) = 0'
+        ).bind(memberId, userId).first<any>();
+        if (!hd) return c.json({ success: false, message: 'ไม่พบสมาชิกคนนี้ในบัญชี' }, 404);
+        // birth_date is NOT NULL on HD_Profiles and the HD chart is computed
+        // from it, so it can be corrected but not emptied.
+        if (newDob === null) {
+          return c.json({ success: false, message: 'สมาชิกที่มีโปรไฟล์ HD ต้องมีวันเกิด — แก้ไขได้แต่ลบออกไม่ได้' }, 400);
+        }
+        before = { name: hd.name, nickname: hd.nickname };
+        table = 'hd'; rowId = hd.id;
+      }
+
+      const sets: string[] = [];
+      const vals: any[] = [];
+      const put = (col: string, v: any) => { sets.push(`${col} = ?`); vals.push(v); };
+      if (table === 'users') {
+        if (newName !== undefined) {
+          // The roster joins first and last with a space, so splitting on the
+          // first one is that join read backwards. Everything after it stays
+          // together — "ณัฐ ภูมิ ศรีสุข" keeps its surname whole.
+          const gap = newName.indexOf(' ');
+          put('first_name', gap === -1 ? newName : newName.slice(0, gap));
+          put('last_name', gap === -1 ? '' : newName.slice(gap + 1).trim());
+        }
+        if (newNick !== undefined) put('nickname', newNick);
+        if (newDob !== undefined) put('dob', newDob);
+      } else if (table === 'crm') {
+        if (newName !== undefined) put('full_name', newName);
+        if (newNick !== undefined) put('nickname', newNick);
+        if (newDob !== undefined) put('date_of_birth', newDob);
+      } else {
+        if (newName !== undefined) put('name', newName);
+        if (newNick !== undefined) put('nickname', newNick);
+        if (newDob !== undefined) put('birth_date', newDob);
+      }
+      if (sets.length === 0) return c.json({ success: true, updatedAnswers: 0 });
+
+      const tableName = table === 'users' ? 'Users' : table === 'crm' ? 'User_CRM_Children' : 'HD_Profiles';
+      await config.db.prepare(`UPDATE ${tableName} SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, rowId).run();
+
+      const after = {
+        name: newName ?? before.name,
+        nickname: newNick !== undefined ? newNick : before.nickname,
+      };
+      const updatedAnswers = await this.renameInFormAnswers(config.db, userId, before, after);
+      return c.json({ success: true, updatedAnswers });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
+  /**
+   * Carry a corrected name into the registrations that already named them.
+   *
+   * A picker answer is a COPY of the name taken at submit time — the display
+   * value plus a __realname and __nickname companion. Correcting the account
+   * and stopping there is what left the check-in roster calling out a name the
+   * registration list had already fixed, twice.
+   *
+   * Only answers that both (a) sit beside a companion, which is what makes
+   * them a person-picker answer rather than a text field that happens to hold
+   * the same words, and (b) still read as the OLD name, are touched. An answer
+   * staff deliberately pointed at someone else is left alone.
+   *
+   * Returns how many submissions changed, so the CRM can say so.
+   */
+  private async renameInFormAnswers(
+    db: D1Database,
+    userId: number,
+    before: { name: string; nickname: string | null },
+    after: { name: string; nickname: string | null },
+  ): Promise<number> {
+    const oldDisplay = (before.nickname || before.name || '').trim();
+    const newDisplay = (after.nickname || after.name || '').trim();
+    if (!oldDisplay) return 0;
+    if (oldDisplay === newDisplay && before.name === after.name) return 0;
+
+    const { results } = await db.prepare(
+      'SELECT id, answers_json FROM Form_Submissions WHERE parent_user_id = ?'
+    ).bind(userId).all<{ id: number; answers_json: string }>();
+
+    let changed = 0;
+    for (const sub of results) {
+      let answers: Record<string, any>;
+      try { answers = JSON.parse(sub.answers_json || '{}'); } catch { continue; }
+      let touched = false;
+      for (const key of Object.keys(answers)) {
+        if (key.endsWith('__realname') || key.endsWith('__nickname')) continue;
+        const isPicker = `${key}__realname` in answers || `${key}__nickname` in answers;
+        if (!isPicker) continue;
+        if (String(answers[key] ?? '').trim() !== oldDisplay) continue;
+        answers[key] = newDisplay;
+        if (`${key}__realname` in answers) answers[`${key}__realname`] = after.name;
+        if (`${key}__nickname` in answers) answers[`${key}__nickname`] = newDisplay;
+        touched = true;
+      }
+      if (!touched) continue;
+      await db.prepare('UPDATE Form_Submissions SET answers_json = ? WHERE id = ?')
+        .bind(JSON.stringify(answers), sub.id).run();
+      changed++;
+    }
+    return changed;
+  }
+
   async updateChildProfile(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
@@ -395,6 +583,7 @@ export class AdminController {
         name: p.name,
         nickname: p.nickname,
         relation: p.relation,
+        birthDate: p.birth_date || null,
         display: p.nickname || p.name,
       }));
 
@@ -404,13 +593,14 @@ export class AdminController {
       // on a family_member_picker booking field. Negative ids keep them
       // from colliding with a real HD_Profiles/Children id in the same list.
       const { results: crmChildren } = await config.db.prepare(
-        'SELECT id, full_name, nickname, relation FROM User_CRM_Children WHERE user_id = ?'
+        'SELECT id, full_name, nickname, relation, date_of_birth FROM User_CRM_Children WHERE user_id = ?'
       ).bind(userId).all();
       const crmRoster = (crmChildren as any[]).map(cc => ({
         id: -cc.id,
         name: cc.full_name,
         nickname: cc.nickname,
         relation: cc.relation,
+        birthDate: cc.date_of_birth || null,
         display: cc.nickname || cc.full_name,
       }));
 
@@ -424,7 +614,7 @@ export class AdminController {
       // id 0 because they are neither an HD_Profiles row nor a
       // User_CRM_Children one; the other two use positive and negative ids.
       const owner = await config.db.prepare(
-        'SELECT first_name, last_name, nickname, display_name, relationship FROM Users WHERE id = ? AND deleted_at IS NULL'
+        'SELECT first_name, last_name, nickname, display_name, relationship, dob FROM Users WHERE id = ? AND deleted_at IS NULL'
       ).bind(userId).first<any>();
       const ownerName = owner ? [owner.first_name, owner.last_name].filter(Boolean).join(' ').trim() : '';
       const ownerRoster = ownerName ? [{
@@ -434,6 +624,7 @@ export class AdminController {
         // Their own stated relationship if they gave one, but never a blank —
         // a blank relation is what the CRM reads as "this is a child".
         relation: owner.relationship || 'account_owner',
+        birthDate: owner.dob || null,
         isAccountOwner: true,
         display: owner.nickname || owner.display_name || ownerName,
       }] : [];
