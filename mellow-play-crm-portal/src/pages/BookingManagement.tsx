@@ -44,7 +44,7 @@ import {
   Print as PrintIcon,
   HowToReg as CheckinIcon,
 } from '@mui/icons-material';
-import BookingAwardsDialog from '../components/stamps/BookingAwardsDialog';
+import BookingAwardsDialog, { TIER_COLOR, TIER_LABEL, parseTiers } from '../components/stamps/BookingAwardsDialog';
 import CertificatePrintSheet, { PrintableCertificate } from '../components/CertificatePrintSheet';
 import BookingNoteBox from '../components/BookingNoteBox';
 import { parseFields, fieldText, CERT_VARIABLES, FORM_PREFIX } from '../utils/certificateLayout';
@@ -149,6 +149,8 @@ interface Booking {
   checkin_done?: number;
   /** 1 when a live (un-revoked) certificate exists for this booking. */
   has_certificate?: number;
+  /** Comma-joined medal tiers held by this booking; see parseTiers. */
+  badge_tiers?: string | null;
   checkin_total?: number;
   /** Staff's own note on this registration — a phone call, something to check. */
   staff_note?: string | null;
@@ -2073,6 +2075,21 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                 The empty state is a button rather than nothing, so the space
                 says what it is for and the first note on a row is one click. */}
             <Box sx={{ flex: '2 1 200px', minWidth: 0, alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
+              {/* What this registration earned, beside the certificate: both
+                  answer "what did they get", and the medals are the half that
+                  previously took a menu and a dialog to find out. */}
+              {parseTiers(b.badge_tiers).map(tier => (
+                <Tooltip key={tier} title={`ได้รับ${TIER_LABEL[tier]}`}>
+                  <Chip
+                    size="small"
+                    label={TIER_LABEL[tier]}
+                    sx={{
+                      mr: 0.5, height: 20, fontSize: '11px', fontWeight: 800,
+                      alignSelf: 'flex-start', color: '#fff', bgcolor: TIER_COLOR[tier],
+                    }}
+                  />
+                </Tooltip>
+              ))}
               {certByBooking[b.id] && (
                 <Tooltip title="ออกเกียรติบัตรแล้ว — กดเพื่อเปิด">
                   <IconButton
@@ -2813,7 +2830,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
         bookingId={awardsBooking?.id ?? null}
         childName={awardsBooking?.child_name}
         courseName={awardsBooking ? courseMap.get(awardsBooking.course_id)?.name : undefined}
-        onClose={() => setAwardsBooking(null)}
+        onClose={() => { setAwardsBooking(null); onRefresh(); }}
       />
 
       <BookingDetailDialog

@@ -317,6 +317,25 @@ export class AdminRepository {
           SELECT 1 FROM Certificates ct
            WHERE ct.booking_id = b.id AND ct.revoked_at IS NULL
         ) AS has_certificate,
+        -- The medals this booking actually won, on the row.
+        --
+        -- Resolved in the listing query for the same reason has_certificate is
+        -- (above): a per-row request would load one page of the answer, and
+        -- anything reading it — a filter, an export — would then judge the
+        -- whole list by the page that happened to be on screen.
+        --
+        -- DISTINCT because the same tier can be granted, revoked and granted
+        -- again; revoked_at IS NULL because a medal taken back is not one they
+        -- have. Unordered on purpose — group_concat does not promise to honour
+        -- an inner ORDER BY, so the caller sorts.
+        (
+          SELECT group_concat(t.tier)
+            FROM (
+              SELECT DISTINCT bd.tier
+                FROM Child_Badges bd
+               WHERE bd.booking_id = b.id AND bd.revoked_at IS NULL
+            ) t
+        ) AS badge_tiers,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,

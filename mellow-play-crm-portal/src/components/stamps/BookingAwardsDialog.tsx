@@ -8,8 +8,22 @@ import { API_URL } from '../../config';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-const TIER_COLOR: Record<number, string> = { 1: '#f2b418', 2: '#a8b3c1', 3: '#c98a5e' };
-const TIER_LABEL: Record<number, string> = { 1: 'อันดับ 1', 2: 'อันดับ 2', 3: 'อันดับ 3' };
+export const TIER_COLOR: Record<number, string> = { 1: '#f2b418', 2: '#a8b3c1', 3: '#c98a5e' };
+export const TIER_LABEL: Record<number, string> = { 1: 'อันดับ 1', 2: 'อันดับ 2', 3: 'อันดับ 3' };
+
+/**
+ * The tiers a booking holds, from the listing query's comma-joined string.
+ *
+ * Sorted here because the SQL deliberately does not: gold, silver, bronze is
+ * the order a podium is read in, and a list that reshuffles between refreshes
+ * looks like the medals changed.
+ */
+export const parseTiers = (raw?: string | null): number[] =>
+  String(raw ?? '')
+    .split(',')
+    .map(v => Number(v.trim()))
+    .filter(n => n >= 1 && n <= 3)
+    .sort((a, b) => a - b);
 
 interface Props {
   bookingId: number | null;
