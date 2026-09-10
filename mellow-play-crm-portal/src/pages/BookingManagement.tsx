@@ -151,6 +151,9 @@ interface Booking {
   has_certificate?: number;
   /** Comma-joined medal tiers held by this booking; see parseTiers. */
   badge_tiers?: string | null;
+  /** JSON array of this account's non-cancelled bookings in OTHER courses;
+   *  see parseOtherCourses. */
+  other_courses_json?: string | null;
   checkin_total?: number;
   /** Staff's own note on this registration — a phone call, something to check. */
   staff_note?: string | null;
@@ -644,6 +647,37 @@ const fullNamesOf = (b: Booking, submissionsMap?: SubmissionsMap): string[] => {
  * left out entirely: cancelling and rebooking is how a change of round is made,
  * and flagging that as a duplicate would make the marker useless.
  */
+interface OtherCourseBooking {
+  id: number; course_id: number; course_name: string | null;
+  slot_date: string | null; slot_start_time: string | null; status: string;
+}
+
+/**
+ * The same account's bookings in other activities, from the listing query.
+ *
+ * A different question from findDuplicates below. That one is "this person,
+ * this event, twice" — a mistake to find. This one is "this family, another
+ * event too" — a fact to know: it is who to expect again in the afternoon
+ * round, who not to sell the same bundle to twice, and who the multi-activity
+ * album should be shown to. Keyed by account (one phone), not by name, and by
+ * course, not by round — the same event's other round is the duplicates
+ * check's territory, not this one's.
+ *
+ * Newest first, because "what else are they in" is usually asked about the
+ * upcoming thing, and a two-year-old booking belongs at the bottom of the
+ * answer rather than the top.
+ */
+const parseOtherCourses = (raw?: string | null): OtherCourseBooking[] => {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((o): o is OtherCourseBooking => o && typeof o.id === 'number')
+      .sort((a, b) => String(b.slot_date || '').localeCompare(String(a.slot_date || '')));
+  } catch { return []; }
+};
+
 const findDuplicates = (bookings: Booking[], submissionsMap?: SubmissionsMap): Map<number, number[]> => {
   const byNameAndCourse = new Map<string, number[]>();
   for (const b of bookings) {
@@ -1226,6 +1260,19 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
   const [fieldFilters, setFieldFilters] = useStickyState<Record<string, string[]>>('bookings.fieldFilters', {});
   const activeFilterFields = Object.keys(fieldFilters).filter(k => fieldFilters[k]?.length);
   const [dupesOnly, setDupesOnly] = useStickyState('bookings.dupesOnly', false);
+  // Accounts that are in more than this one activity. A sibling of dupesOnly
+  // in shape, deliberately not merged with it: one finds mistakes, the other
+  // finds families, and a toggle that does both answers neither question.
+  const [multiOnly, setMultiOnly] = useStickyState('bookings.multiOnly', false);
+  const otherCoursesById = useMemo(() => {
+    const m = new Map<number, OtherCourseBooking[]>();
+    for (const b of bookings) {
+      const others = parseOtherCourses(b.other_courses_json);
+      if (others.length > 0) m.set(b.id, others);
+    }
+    return m;
+  }, [bookings]);
+  const [otherDialogBooking, setOtherDialogBooking] = useState<Booking | null>(null);
   const [noteQuery, setNoteQuery] = useStickyState('bookings.noteQuery', '');
   // Three groups, not two: "came but did not finish the steps" is its own list
   // of people to chase, not a rounding error on either side.
@@ -1359,7 +1406,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       : bookings.filter(b => activeFilterFields.every(key =>
           fieldFilters[key].includes(getGroupValue(b, key, submissionsMap))));
     const byDupes = dupesOnly ? byField.filter(b => duplicates.has(b.id)) : byField;
-    const byNoted = noteQuery.trim() ? byDupes.filter(b => noteMatches(b.staff_note, noteQuery)) : byDupes;
+    const byMulti = multiOnly ? byDupes.filter(b => otherCoursesById.has(b.id)) : byDupes;
+    const byNoted = noteQuery.trim() ? byMulti.filter(b => noteMatches(b.staff_note, noteQuery)) : byMulti;
     const byCheckin = checkinFilter === 'all' ? byNoted : byNoted.filter(b => {
       const done = b.checkin_done ?? 0;
       const total = b.checkin_total ?? 0;
@@ -1406,7 +1454,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
       return Object.values(sub.answers || {}).some(v =>
         String(Array.isArray(v) ? v.join(' ') : v ?? '').toLowerCase().includes(q));
     });
-  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, noteQuery, duplicates, checkinFilter, certFilter]);
+  }, [bookings, search, fieldFilters, activeFilterFields, submissionsMap, dupesOnly, multiOnly, otherCoursesById, noteQuery, duplicates, checkinFilter, certFilter]);
 
   /**
    * Issue for these bookings.
@@ -1669,7 +1717,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
 
   // Reset back to page 1 whenever the result set or its order would change
   // out from under whatever page the user was looking at.
-  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, noteQuery, checkinFilter, certFilter, bookings]);
+  useEffect(() => { setPage(1); }, [search, sortKey, fieldFilters, dupesOnly, multiOnly, noteQuery, checkinFilter, certFilter, bookings]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
@@ -2063,6 +2111,21 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
                   />
                 </Tooltip>
               )}
+              {/* The same account is in another activity too. Blue, not the
+                  duplicates chip's orange: that one flags a mistake, this one
+                  states a fact, and the colour is what says which at a glance. */}
+              {otherCoursesById.has(b.id) && (
+                <Tooltip title={otherCoursesById.get(b.id)!.map(o => `#${o.id} ${o.course_name || ''}`).join(' · ')}>
+                  <Chip
+                    icon={<ListIcon sx={{ fontSize: 14 }} />}
+                    size="small" color="info" variant="outlined"
+                    clickable
+                    onClick={() => setOtherDialogBooking(b)}
+                    label={`ลงกิจกรรมอื่นอีก ${otherCoursesById.get(b.id)!.length}`}
+                    sx={{ mt: 0.5, ml: duplicates.has(b.id) ? 0.5 : 0, height: 20, fontSize: '11px', fontWeight: 800 }}
+                  />
+                </Tooltip>
+              )}
             </Box>
 
             {/* The note gets the empty run between the class and the status
@@ -2324,7 +2387,7 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               // range and the view are scoping, not filters, and wiping those
               // from under someone who asked to clear a field filter is a
               // surprise they then have to undo.
-              onClick={() => { setFieldFilters({}); setDupesOnly(false); setNoteQuery(''); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
+              onClick={() => { setFieldFilters({}); setDupesOnly(false); setMultiOnly(false); setNoteQuery(''); setSearch(''); clearStickyState('bookings.fieldFilters'); }}
             >
               ล้างตัวกรอง
             </Button>
@@ -2338,6 +2401,16 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
               color={dupesOnly ? 'warning' : 'default'}
               variant={dupesOnly ? 'filled' : 'outlined'}
               onClick={() => setDupesOnly(v => !v)}
+              sx={{ fontWeight: 800 }}
+            />
+          )}
+          {otherCoursesById.size > 0 && (
+            <Chip
+              icon={<ListIcon />}
+              label={`ลงหลายกิจกรรม (${otherCoursesById.size})`}
+              color={multiOnly ? 'info' : 'default'}
+              variant={multiOnly ? 'filled' : 'outlined'}
+              onClick={() => setMultiOnly(v => !v)}
               sx={{ fontWeight: 800 }}
             />
           )}
@@ -2951,6 +3024,54 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
           first, marked), so what exactly repeats — same person, which
           rounds, which teams — is readable in one place instead of hunting
           each partner booking down in the list. */}
+      {/* What else this account is registered for. Each other booking is a
+          link that opens it in this page in a new tab, because the next thing
+          asked is always "and is THAT one paid?" — a question this list, loaded
+          for one course and one window, cannot answer in place. */}
+      <Dialog open={!!otherDialogBooking} onClose={() => setOtherDialogBooking(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ListIcon color="info" /> กิจกรรมอื่นของบัญชีนี้
+        </DialogTitle>
+        <DialogContent dividers>
+          {otherDialogBooking && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {otherDialogBooking.parent_name || otherDialogBooking.child_name}
+              {otherDialogBooking.parent_phone ? ` · ${otherDialogBooking.parent_phone}` : ''}
+              {' — '}นับตามบัญชี (เบอร์เดียวกัน) ไม่นับรายการที่ยกเลิก และไม่รวมกิจกรรมนี้เอง
+            </Typography>
+          )}
+          <Stack spacing={1.25}>
+            {(otherDialogBooking ? otherCoursesById.get(otherDialogBooking.id) ?? [] : []).map(o => {
+              const si = getStatusInfo(o.status);
+              const d = o.slot_date ? new Date(o.slot_date + 'T00:00:00') : null;
+              return (
+                <Paper key={o.id} variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
+                  <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+                    <Typography sx={{ fontWeight: 900, fontSize: '15px' }}>#{o.id}</Typography>
+                    <Typography sx={{ fontWeight: 700, flex: '1 1 160px', minWidth: 0, wordBreak: 'break-word' }}>{o.course_name || '-'}</Typography>
+                    <Chip label={si.label} size="small" sx={{ height: 20, fontSize: '11px', fontWeight: 700, bgcolor: si.bgColor, color: si.fgColor }} />
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                      {d && !isNaN(d.getTime()) ? d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                      {o.slot_start_time ? ` · รอบ ${o.slot_start_time.slice(0, 5)} น.` : ''}
+                    </Typography>
+                    <Button
+                      size="small" component="a" target="_blank" rel="noopener noreferrer"
+                      href={`/crm/bookings?bookingId=${o.id}`}
+                      sx={{ fontWeight: 800, ml: 'auto' }}
+                    >
+                      เปิดรายการ
+                    </Button>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOtherDialogBooking(null)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={!!dupDialogBooking} onClose={() => setDupDialogBooking(null)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningIcon color="warning" /> รายการที่ชื่อซ้ำกันในกิจกรรมนี้

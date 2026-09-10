@@ -336,6 +336,36 @@ export class AdminRepository {
                WHERE bd.booking_id = b.id AND bd.revoked_at IS NULL
             ) t
         ) AS badge_tiers,
+        -- The same account's OTHER activities, on the row.
+        --
+        -- Not the duplicates check, which asks "is this person in this event
+        -- twice"; this asks "is this family also somewhere else", and the
+        -- answer is by ACCOUNT (Children.parent_id — one phone, one account),
+        -- across different courses, not by name.
+        --
+        -- Resolved here because the list is loaded for one branch and one date
+        -- window, and the other activity is by definition outside the course
+        -- being looked at — often outside the window too. Nothing loaded on the
+        -- page could answer it.
+        --
+        -- All time, on purpose, with the date carried so the reader can weigh
+        -- it: a family that came to a different event a year ago is a fact,
+        -- and the honest thing is to show it dated rather than hide it behind a
+        -- window nobody chose. Cancelled bookings are not "also registered".
+        -- Guest bookings (child_id 0) have no account, so ch.parent_id is NULL
+        -- and the comparison finds nothing — which is correct.
+        (
+          SELECT json_group_array(json_object(
+                   'id', o.id, 'course_id', o.course_id, 'course_name', oc.name,
+                   'slot_date', o.slot_date, 'slot_start_time', o.slot_start_time,
+                   'status', o.status))
+            FROM Bookings o
+            JOIN Children och ON och.id = o.child_id
+            LEFT JOIN Courses oc ON oc.id = o.course_id
+           WHERE och.parent_id = ch.parent_id
+             AND o.course_id != b.course_id
+             AND o.status != 'cancelled'
+        ) AS other_courses_json,
         COALESCE(hp.name, '(ลูกค้าทั่วไป)') as child_name,
         hp.name_en as child_name_en,
         hp.nickname as child_nickname,
