@@ -949,7 +949,9 @@ export class AdminController {
       const startDate = c.req.query('startDate');
       const endDate = c.req.query('endDate');
       const pendingPayment = c.req.query('pendingPayment') === '1';
-      const bookings = await adminRepo.getAllBookings({ branchId, startDate, endDate, pendingPayment });
+      const includeIdRaw = parseInt(c.req.query('includeId') || '');
+      const includeId = Number.isFinite(includeIdRaw) && includeIdRaw > 0 ? includeIdRaw : undefined;
+      const bookings = await adminRepo.getAllBookings({ branchId, startDate, endDate, pendingPayment, includeId });
       return c.json({ success: true, bookings });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);

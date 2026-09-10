@@ -292,7 +292,7 @@ export class AdminRepository {
       .bind(note, id).run();
   }
 
-  async getAllBookings(params?: { branchId?: string; startDate?: string; endDate?: string; pendingPayment?: boolean }): Promise<any[]> {
+  async getAllBookings(params?: { branchId?: string; startDate?: string; endDate?: string; pendingPayment?: boolean; includeId?: number }): Promise<any[]> {
     let query = `
       SELECT
         b.id, b.child_id, b.course_id, b.branch_id, b.scheduled_at, b.status, b.age_group,
@@ -392,17 +392,33 @@ export class AdminRepository {
     `;
     const sqlParams: any[] = [];
 
+    // The branch and the date window are the SCOPE the page asked for. A
+    // deep link (`?bookingId=X`, from another booking's "เปิดรายการ" or the SMS
+    // page) names one booking that is, by the nature of the link, usually
+    // outside that scope — another course, often another month. So the scope
+    // is applied as a group and the named booking is let through beside it:
+    // the page keeps the window it had, and the one row it was sent to is in
+    // the list regardless.
+    const scope: string[] = [];
     if (params?.branchId && params.branchId !== 'all') {
-      query += ` AND b.branch_id = ?`;
+      scope.push(`b.branch_id = ?`);
       sqlParams.push(parseInt(params.branchId));
     }
     if (params?.startDate) {
-      query += ` AND date(b.scheduled_at) >= ?`;
+      scope.push(`date(b.scheduled_at) >= ?`);
       sqlParams.push(params.startDate);
     }
     if (params?.endDate) {
-      query += ` AND date(b.scheduled_at) <= ?`;
+      scope.push(`date(b.scheduled_at) <= ?`);
       sqlParams.push(params.endDate);
+    }
+    if (scope.length > 0) {
+      if (params?.includeId) {
+        query += ` AND ((${scope.join(' AND ')}) OR b.id = ?)`;
+        sqlParams.push(params.includeId);
+      } else {
+        query += ` AND ${scope.join(' AND ')}`;
+      }
     }
     if (params?.pendingPayment) {
       query += ` AND b.status NOT IN ('cancelled')

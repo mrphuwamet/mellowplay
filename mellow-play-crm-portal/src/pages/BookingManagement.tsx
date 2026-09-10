@@ -1345,7 +1345,8 @@ const ListView = ({ bookings, onReport, onCancel, onBulkCancel, onMarkComplete, 
     const bookingId = searchParams.get('bookingId');
     if (!bookingId || bookings.length === 0) return;
     const target = bookings.find(b => String(b.id) === bookingId);
-    if (target) setDetailBooking(target);
+    if (!target) return;
+    setDetailBooking(target);
     setSearchParams(prev => { prev.delete('bookingId'); return prev; }, { replace: true });
   }, [bookings, searchParams]);
 
@@ -3295,6 +3296,14 @@ const BookingManagement = () => {
     };
   }, [viewMode, currentDate, listFrom, listTo]);
 
+  // A booking this page was sent to (`?bookingId=X`). Asked for by id along
+  // with the window, because the link almost always points outside it — a
+  // different course, often a different month — and a list that loads its
+  // window, finds nothing, and drops the parameter is the "กดแล้วไม่เกิดอะไร"
+  // that was reported. ListView opens the detail once the row is in the list.
+  const [pageSearchParams] = useSearchParams();
+  const deepLinkId = Number(pageSearchParams.get('bookingId') || 0) || 0;
+
   // ── fetch ────────────────────────────────────────────────────────────────
   const fetchBookings = useCallback(async () => {
     if (!selectedBranchId) {
@@ -3305,6 +3314,7 @@ const BookingManagement = () => {
     setFetchError('');
     try {
       const params = new URLSearchParams({ branchId: selectedBranchId, startDate, endDate });
+      if (deepLinkId > 0) params.set('includeId', String(deepLinkId));
       const res = await axios.get(`${API_BASE}/bookings?${params}`);
       if (res.data.success) {
         const fetchedBookings: Booking[] = res.data.bookings ?? [];
@@ -3331,7 +3341,7 @@ const BookingManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedBranchId, startDate, endDate]);
+  }, [selectedBranchId, startDate, endDate, deepLinkId]);
 
   useEffect(() => { fetchBookings(); }, [fetchBookings]);
 

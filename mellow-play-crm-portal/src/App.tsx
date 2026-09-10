@@ -320,6 +320,19 @@ const PinDialog = ({
   );
 };
 
+/**
+ * How long a confirmed PIN stays confirmed.
+ *
+ * The PIN is the lock on the CRM side of a shared counter machine — the thing
+ * that stops a POS user wandering into the office screens. Asking for it on
+ * every refresh made it a tax on the people it is meant to let through, and a
+ * tax that is paid twenty times a day stops being read as a lock at all. A
+ * day is the length of a shift: the next person on the machine tomorrow types
+ * it again.
+ */
+const PIN_TTL_MS = 24 * 60 * 60 * 1000;
+const pinUnlockKey = (userId: any) => `crm_pin_unlocked_until_${userId}`;
+
 const AppContent = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -327,6 +340,16 @@ const AppContent = () => {
   const [permissionTick, setPermissionTick] = useState(0);
   const [roleLabelsMap, setRoleLabelsMap] = useState<Record<string, string>>(getRoleLabels());
   const [crmUnlocked, setCrmUnlocked] = useState(false);
+  // Per user, because the key the PIN is checked against is per user too, and
+  // a stamp left by one account must not open the screens for the next one to
+  // sign in on the same machine.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    try {
+      const until = Number(localStorage.getItem(pinUnlockKey(currentUser.id)) || 0);
+      if (until > Date.now()) setCrmUnlocked(true);
+    } catch { /* storage unavailable: behave as before and ask */ }
+  }, [currentUser?.id]);
   const [mobileOpen, setMobileOpen] = useState(false);
   // Kept in localStorage, not state alone: someone who collapses the menu to
   // get room for a canvas wants it collapsed on the next page too, and on the
@@ -381,6 +404,10 @@ const AppContent = () => {
   }, [location.pathname, navigate]);
 
   const handleLogout = () => {
+    // Signing out is the one deliberate "lock it" gesture there is, so it
+    // must not leave the day's unlock behind for whoever sits down next.
+    try { if (currentUser?.id) localStorage.removeItem(pinUnlockKey(currentUser.id)); } catch { /* nothing to remove */ }
+    setCrmUnlocked(false);
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
     setCurrentUser(null);
@@ -937,6 +964,7 @@ const AppContent = () => {
     const storedPin = localStorage.getItem(`crm_pin_${userId}`) || '00000';
     if (pin === storedPin) {
       setCrmUnlocked(true);
+      try { localStorage.setItem(pinUnlockKey(userId), String(Date.now() + PIN_TTL_MS)); } catch { /* then it asks again next time, as before */ }
     } else {
       window.dispatchEvent(new Event('pin-wrong'));
     }
