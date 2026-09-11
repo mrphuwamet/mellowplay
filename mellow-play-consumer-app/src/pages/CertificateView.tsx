@@ -6,18 +6,16 @@ import {
   CertField, CertTemplate, parseFields, ptToPx, fieldText, formatCertDate,
 } from '../utils/certificateLayout';
 import { fontStack, ensureFontLoaded } from '../utils/certificateFonts';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import AutoFitText from '../components/AutoFitText';
 
 /**
- * One certificate, as a page you can read and as a page you can print.
+ * One certificate, as a page you can read and as an image you can save.
  *
- * Deliberately not a generated image. html2canvas — which this project already
- * uses for the tournament sheets — rasterises: type becomes pixels. A
- * certificate is a person's name set large in the middle of a page, so crisp
- * text is the whole product. Printing an ordinary web page through the
- * browser's own "Save as PDF" keeps the type as vectors, needs no library, and
- * gets the paper size right from an @page rule.
+ * The download is a capture of the live DOM via html-to-image (SVG
+ * foreignObject → the browser's own layout engine paints it), so the file is
+ * pixel-identical to the preview — see capture() below for why html2canvas
+ * was retired here.
  *
  * No login. A certificate is meant to be shown to people who have no account
  * here, and the code in the URL is the only credential there is.
@@ -39,9 +37,9 @@ const CertificateView: React.FC = () => {
   /**
    * Bake the auto-fit squeeze into the type size for the moment of capture.
    *
-   * html2canvas reproduces a scaled text node only approximately, which is
-   * enough to shift a line inside a box that centres it — and that showed up
-   * as the saved file not matching the preview.
+   * A real font-size is the belt-and-braces form of the fit: it survives any
+   * capture engine, while a transform is one more thing a serializer could
+   * reproduce approximately (html2canvas did, and the line shifted).
    */
   const [capturing, setCapturing] = useState(false);
 
@@ -122,17 +120,21 @@ const CertificateView: React.FC = () => {
   };
 
   /**
-   * One capture of exactly what is on screen. Both downloads are made from it.
+   * One capture of exactly what is on screen.
    *
-   * An image cannot disagree with itself: it is the pixels the person is
-   * looking at. That is the whole reason the browser's own print was dropped —
-   * it re-laid the page out for paper and produced something else.
+   * html-to-image, not html2canvas. html2canvas re-implements CSS/text
+   * painting itself, and its re-drawing is what shipped certificates with the
+   * name line in a fallback face and every block nudged downward — a file
+   * that disagreed with the preview. html-to-image serializes the live DOM
+   * into an SVG foreignObject and lets the browser's own layout engine paint
+   * it, with fonts and images embedded — the output matches the preview by
+   * construction. Google Fonts and the API-origin background/signatures are
+   * all CORS-open, which is all it needs.
    *
-   * Three times the screen size, so a 900px preview captures near 2700px —
-   * enough to print at A4 without going soft. The background is served with
-   * CORS open, so the canvas is readable rather than tainted.
+   * pixelRatio 3: a 900px preview captures near 2700px — enough to print at
+   * A4 without going soft.
    */
-  const capture = async (): Promise<HTMLCanvasElement | null> => {
+  const capture = async (): Promise<string | null> => {
     const node = document.getElementById(PAGE_ID);
     if (!node) return null;
 
@@ -144,12 +146,13 @@ const CertificateView: React.FC = () => {
     setCapturing(true);
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     try {
-      return await html2canvas(node, {
-        scale: 3,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
+      const options = { pixelRatio: 3, backgroundColor: '#ffffff', cacheBust: true };
+      // Twice, keeping the second: WebKit's first foreignObject render can
+      // come back before images/fonts are decoded into it (the well-known
+      // Safari workaround) — the first pass warms everything, the second is
+      // the real capture.
+      await toPng(node, options);
+      return await toPng(node, options);
     } finally {
       setCapturing(false);
     }
@@ -170,9 +173,9 @@ const CertificateView: React.FC = () => {
     setSaving('png');
     setSaveError('');
     try {
-      const canvas = await capture();
-      if (!canvas) return;
-      save(canvas.toDataURL('image/png'), `${baseName}.png`);
+      const dataUrl = await capture();
+      if (!dataUrl) return;
+      save(dataUrl, `${baseName}.png`);
     } catch {
       setSaveError('บันทึกรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     } finally { setSaving(''); }
