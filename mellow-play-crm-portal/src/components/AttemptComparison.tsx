@@ -87,7 +87,14 @@ const AttemptComparison = ({ submissions }: { submissions: ComparisonSubmission[
     const out: Pair[] = [];
     for (const [key, list] of byRespondent) {
       if (list.length < 2) continue;
-      const sorted = [...list].sort((a, b) => a.attemptNo - b.attemptNo);
+      // Two rows with the same round number are one sitting that submitted
+      // twice; the later one is what the respondent finished with.
+      const byRound = new Map<number, ComparisonSubmission>();
+      for (const s of [...list].sort((a, b) => a.attemptNo - b.attemptNo || (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))) {
+        byRound.set(s.attemptNo, s);
+      }
+      const sorted = [...byRound.values()];
+      if (sorted.length < 2) continue;
       const first = sorted[0];
       const last = sorted[sorted.length - 1];
       // A delta needs both ends graded; an ungraded round is not a zero.

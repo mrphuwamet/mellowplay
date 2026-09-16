@@ -1,3 +1,5 @@
+import { attemptNumbers, type RespondentRow } from '../services/respondentIdentity';
+
 export interface SurveyFieldInput {
   fieldKey: string; pageIndex: number; fieldIndex: number; type: string;
   label: string; required?: boolean; optionsJson?: string; configJson?: string;
@@ -349,21 +351,26 @@ export class SurveyRepository {
   // taken from the client — a "2nd attempt" a respondent can assert is a
   // respondent who can fake their own improvement.
   //
-  // Members are keyed by user_id; guests fall back to the phone they typed.
-  // Someone who answers anonymously with no phone at all is unpairable, so
-  // every such submission is round 1.
-  private async nextAttemptNo(formId: number, userId?: number | null, respondentPhone?: string | null): Promise<number> {
-    let prior: { n: number } | null = null;
-    if (userId != null) {
-      prior = await this.db.prepare(
-        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id = ? AND is_test = 0'
-      ).bind(formId, userId).first<{ n: number }>();
-    } else if (respondentPhone) {
-      prior = await this.db.prepare(
-        'SELECT COUNT(*) AS n FROM Survey_Submissions WHERE form_id = ? AND user_id IS NULL AND respondent_phone = ? AND is_test = 0'
-      ).bind(formId, respondentPhone).first<{ n: number }>();
-    }
-    return (prior?.n ?? 0) + 1;
+  // "This respondent" is decided by respondentIdentity (name first, account
+  // or phone to forgive a typo) over every real submission the form has, so
+  // the number the server stores is the pairing the CRM's before/after view
+  // draws. A row submitted from a sitting that already submitted (same
+  // session_run_id) is that sitting's round again, not a new one.
+  private async nextAttemptNo(formId: number, candidate: {
+    userId?: number | null; respondentName?: string | null; respondentPhone?: string | null; sessionRunId?: string | null;
+  }): Promise<number> {
+    const { results } = await this.db.prepare(
+      'SELECT id, user_id, respondent_name, respondent_phone, session_run_id, created_at FROM Survey_Submissions WHERE form_id = ? AND is_test = 0'
+    ).bind(formId).all<RespondentRow>();
+    const pending: RespondentRow = {
+      id: 'pending',
+      user_id: candidate.userId ?? null,
+      respondent_name: candidate.respondentName ?? null,
+      respondent_phone: candidate.respondentPhone ?? null,
+      session_run_id: candidate.sessionRunId ?? null,
+      created_at: '9999-12-31', // sorts after everything already stored
+    };
+    return attemptNumbers([...results, pending]).get('pending') ?? 1;
   }
 
   async createSubmission(data: {
@@ -389,7 +396,9 @@ export class SurveyRepository {
       result = this.matchScoreRange(form.score_ranges_json, totalScore);
     }
 
-    const attemptNo = await this.nextAttemptNo(data.formId, data.userId, data.respondentPhone);
+    const attemptNo = data.isTest ? 1 : await this.nextAttemptNo(data.formId, {
+      userId: data.userId, respondentName: data.respondentName, respondentPhone: data.respondentPhone, sessionRunId: data.sessionRunId,
+    });
 
     const inserted = await this.db.prepare(`
       INSERT INTO Survey_Submissions (form_id, user_id, respondent_name, respondent_phone, answers_json, total_score, max_score, attempt_no, attempt_label, session_id, session_run_id, is_test, course_id, slot_date, slot_start_time, booking_id)

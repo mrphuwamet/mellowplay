@@ -12,6 +12,7 @@ import { ArrowBack as BackIcon, Visibility as ViewIcon } from '@mui/icons-materi
 import FormResponseDashboard, { DashboardSubmission } from '../components/FormResponseDashboard';
 import ExportMenu, { CsvPayload } from '../components/ExportMenu';
 import AttemptComparison, { ComparisonSubmission } from '../components/AttemptComparison';
+import { groupRespondents } from '../utils/respondentIdentity';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
@@ -86,18 +87,23 @@ const SurveyResponses = () => {
 
   // Declared after respondentLabel because it calls it — a useMemo body runs
   // during render, so it can't sit above the const it depends on.
-  const comparisonSubmissions: ComparisonSubmission[] = useMemo(() => submissions.map(s => ({
-    // Members pair by account, guests by the phone they typed; anything else
-    // is anonymous and gets dropped by the comparison.
-    respondentKey: s.user_id ? `u${s.user_id}` : (s.respondent_phone ? `p${s.respondent_phone}` : ''),
-    respondentName: respondentLabel(s),
-    attemptNo: s.attempt_no ?? 1,
-    attemptLabel: s.attempt_label,
-    totalScore: s.total_score,
-    maxScore: s.max_score,
-    createdAt: s.created_at,
+  const comparisonSubmissions: ComparisonSubmission[] = useMemo(() => {
+    // Who is the same person: the typed name first, account or phone only to
+    // forgive a typo — the same rule the server numbers rounds with (see
+    // utils/respondentIdentity). A row with no name and no contact at all is
+    // alone in its group and simply never pairs.
+    const groups = groupRespondents(submissions);
+    return submissions.map(s => ({
+      respondentKey: groups.get(s.id) ?? '',
+      respondentName: respondentLabel(s),
+      attemptNo: s.attempt_no ?? 1,
+      attemptLabel: s.attempt_label,
+      totalScore: s.total_score,
+      maxScore: s.max_score,
+      createdAt: s.created_at,
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  })), [submissions]);
+  }, [submissions]);
 
   // Built on demand by ExportMenu — one row per submission, one column per
   // question, matching what the table shows.
