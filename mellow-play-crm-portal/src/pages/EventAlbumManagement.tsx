@@ -162,9 +162,11 @@ const EventAlbumManagement: React.FC = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [editAlbum, setEditAlbum] = useState<Album | null>(null);
   const [form, setForm] = useState<{
-    name: string; courseId: number; rounds: string[]; description: string; driveLinks: string;
+    name: string; courseId: number; rounds: string[]; description: string;
+    /** One Drive folder link per box. The form always shows at least one box. */
+    driveLinks: string[];
     visibility: 'public' | 'booked';
-  }>({ name: '', courseId: 0, rounds: [], description: '', driveLinks: '', visibility: 'booked' });
+  }>({ name: '', courseId: 0, rounds: [], description: '', driveLinks: [''], visibility: 'booked' });
   /**
    * The rounds of the course now chosen, for the round picker.
    *
@@ -255,7 +257,7 @@ const EventAlbumManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditAlbum(null);
-    setForm({ name: '', courseId: 0, rounds: [], description: '', driveLinks: '', visibility: 'booked' });
+    setForm({ name: '', courseId: 0, rounds: [], description: '', driveLinks: [''], visibility: 'booked' });
     setEditOpen(true);
   };
   const openEdit = (a: Album) => {
@@ -264,7 +266,7 @@ const EventAlbumManagement: React.FC = () => {
       name: a.name, courseId: a.course_id || 0,
       rounds: (a.rounds || []).map(r => roundKey(r.slot_date, r.slot_start_time)),
       description: a.description || '',
-      driveLinks: folderIdsOf(a).map(folderLink).join('\n'),
+      driveLinks: folderIdsOf(a).length > 0 ? folderIdsOf(a).map(folderLink) : [''],
       visibility: a.visibility === 'public' ? 'public' : 'booked',
     });
     setEditOpen(true);
@@ -272,10 +274,10 @@ const EventAlbumManagement: React.FC = () => {
 
   const saveAlbum = async () => {
     if (!form.name.trim()) return;
-    // One folder per line. Every line has to parse: a link that silently
+    // One folder per box. Every filled box has to parse: a link that silently
     // dropped out would be a folder of photos nobody notices is missing.
     const driveFolderIds: string[] = [];
-    for (const line of form.driveLinks.split(/\r?\n/).map(l => l.trim()).filter(Boolean)) {
+    for (const line of form.driveLinks.map(l => l.trim()).filter(Boolean)) {
       const id = parseDriveFolderId(line);
       if (!id) {
         setError(`ลิงก์ Google Drive ไม่ถูกต้อง: ${line} — ต้องเป็นลิงก์โฟลเดอร์ (…/drive/folders/…)`);
@@ -802,14 +804,42 @@ const EventAlbumManagement: React.FC = () => {
               <MenuItem value="booked">เฉพาะครอบครัวที่จองกิจกรรม</MenuItem>
               <MenuItem value="public">สาธารณะ (ไม่ต้องล็อกอิน)</MenuItem>
             </TextField>
-            {/* Several folders, one per line. One shoot rarely lands in one
+            {/* Several folders, one box each. One shoot rarely lands in one
                 folder — two photographers, or a folder per round — and the
-                sync walks subfolders too, so the top folder alone is enough. */}
-            <TextField label="ลิงก์โฟลเดอร์ Google Drive (บรรทัดละ 1 โฟลเดอร์)" fullWidth multiline minRows={2}
-              value={form.driveLinks}
-              onChange={e => setForm({ ...form, driveLinks: e.target.value })}
-              placeholder={'https://drive.google.com/drive/folders/...\nhttps://drive.google.com/drive/folders/...'}
-              helperText='ใส่ได้หลายโฟลเดอร์ · โฟลเดอร์ย่อยข้างในจะถูกซิงค์ด้วย · ทุกโฟลเดอร์ต้องแชร์แบบ "ทุกคนที่มีลิงก์ (Viewer)"' />
+                sync walks subfolders too, so the top folder alone is enough.
+                A box per link rather than one multi-line field: a pasted
+                Drive link wraps onto two lines and then reads as two links. */}
+            <Box>
+              <Stack spacing={1.5}>
+                {form.driveLinks.map((link, i) => (
+                  <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+                    <TextField
+                      label={form.driveLinks.length > 1 ? `ลิงก์โฟลเดอร์ Google Drive #${i + 1}` : 'ลิงก์โฟลเดอร์ Google Drive'}
+                      fullWidth value={link}
+                      onChange={e => setForm({ ...form, driveLinks: form.driveLinks.map((l, k) => (k === i ? e.target.value : l)) })}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                    />
+                    {/* The last box stays; removing it would only add it back empty. */}
+                    {form.driveLinks.length > 1 && (
+                      <Tooltip title="ลบโฟลเดอร์นี้ออกจากอัลบั้ม">
+                        <IconButton sx={{ mt: 1 }} onClick={() => setForm({ ...form, driveLinks: form.driveLinks.filter((_, k) => k !== i) })}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
+                ))}
+              </Stack>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 0.5 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1.75 }}>
+                  โฟลเดอร์ย่อยข้างในจะถูกซิงค์ด้วย · ทุกโฟลเดอร์ต้องแชร์แบบ "ทุกคนที่มีลิงก์ (Viewer)"
+                </Typography>
+                <Button size="small" startIcon={<AddIcon />} sx={{ fontWeight: 700, flexShrink: 0 }}
+                  onClick={() => setForm({ ...form, driveLinks: [...form.driveLinks, ''] })}>
+                  เพิ่มโฟลเดอร์
+                </Button>
+              </Stack>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
