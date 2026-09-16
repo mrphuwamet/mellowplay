@@ -122,6 +122,13 @@ const CountTooltip = ({ active, payload, respondents }: any) => {
   );
 };
 
+// The bars are drawn at their final size, with no entrance animation. recharts
+// 3.9 restarts a Bar's animation whenever the chart re-renders during it, and
+// while it is "animating" the bars sit at zero width with their labels hidden.
+// On this page the chart re-rendered often enough for that to never finish: the
+// summary showed axes scaled to the data and no bars at all. A report gains
+// nothing from a 400 ms grow-in anyway, and the PDF export captures whatever
+// frame is on screen, so a static bar is the one that is always right.
 /** Horizontal bars: one row per option, value at the tip. */
 const CountBars = ({ rows, respondents }: { rows: { label: string; count: number }[]; respondents: number }) => (
   <ResponsiveContainer width="100%" height={Math.max(120, rows.length * 40 + 24)}>
@@ -132,7 +139,7 @@ const CountBars = ({ rows, respondents }: { rows: { label: string; count: number
       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: AXIS_INK }} axisLine={false} tickLine={false} />
       <YAxis type="category" dataKey="label" width={CAT_AXIS_WIDTH} tick={<CategoryTick />} axisLine={false} tickLine={false} interval={0} />
       <RechartsTooltip cursor={{ fill: 'rgba(116,82,214,0.06)' }} content={<CountTooltip respondents={respondents} />} />
-      <Bar dataKey="count" fill={SERIES} radius={[0, 4, 4, 0]} maxBarSize={24}>
+      <Bar dataKey="count" fill={SERIES} radius={[0, 4, 4, 0]} maxBarSize={24} isAnimationActive={false}>
         <LabelList
           dataKey="count"
           position="right"
@@ -160,7 +167,7 @@ const BucketColumns = ({ rows, respondents }: { rows: { label: string; count: nu
       />
       <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: AXIS_INK }} axisLine={false} tickLine={false} width={32} />
       <RechartsTooltip cursor={{ fill: 'rgba(116,82,214,0.06)' }} content={<CountTooltip respondents={respondents} />} />
-      <Bar dataKey="count" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={24}>
+      <Bar dataKey="count" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false}>
         <LabelList dataKey="count" position="top" style={{ fill: '#52514e', fontSize: 12, fontWeight: 700 }} />
       </Bar>
     </BarChart>
