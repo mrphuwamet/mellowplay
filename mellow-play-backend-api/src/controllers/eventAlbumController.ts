@@ -182,6 +182,18 @@ export class EventAlbumController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * The album's Drive folders from a request body. The list is the current
+   * shape; a lone driveFolderId is what the CRM sent before albums could hold
+   * several, and still means "exactly this one". Neither key present means the
+   * caller has no opinion (setting a cover photo), which update() leaves alone.
+   */
+  private folderIdsFrom(body: any): string[] | undefined {
+    if (Array.isArray(body.driveFolderIds)) return body.driveFolderIds.map((id: any) => String(id));
+    if (body.driveFolderId !== undefined) return body.driveFolderId ? [String(body.driveFolderId)] : [];
+    return undefined;
+  }
+
   async create(c: C) {
     try {
       const body = await c.req.json();
@@ -193,7 +205,7 @@ export class EventAlbumController {
         courseId: body.courseId ? Number(body.courseId) : null,
         rounds: parseRounds(body.rounds) || [],
         description: body.description || null,
-        driveFolderId: body.driveFolderId || null,
+        driveFolderIds: this.folderIdsFrom(body) || [],
         visibility: body.visibility,
       });
       return c.json({ success: true, id });
@@ -212,7 +224,7 @@ export class EventAlbumController {
         courseId: body.courseId ? Number(body.courseId) : null,
         rounds: parseRounds(body.rounds),
         description: body.description || null,
-        driveFolderId: body.driveFolderId || null,
+        driveFolderIds: this.folderIdsFrom(body),
         coverPhotoUrl: body.coverPhotoUrl || null,
         visibility: body.visibility,
       });

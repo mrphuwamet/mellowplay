@@ -22,13 +22,18 @@ const API_BASE = `${API_URL}/api/v1/admin`;
  * อัลบั้มรูปกิจกรรม — bulk event photos, imported from a shared Google Drive
  * folder and published to families who booked the course.
  *
- * The entire import pipeline runs in THIS browser tab: list the Drive folder
- * (API key, public folder), download each image, downscale to a display copy
- * + thumbnail (the size-control requirement — R2 never stores camera-size
- * files), detect faces for the search index, upload, register metadata. The
- * Worker only stores results, so the tab must stay open during a sync; the
- * (album_id, drive_file_id) unique key makes re-running it resume where it
- * stopped.
+ * The entire import pipeline runs in THIS browser tab: list the album's Drive
+ * folders (API key, public folders — and the folders inside them), download
+ * each image, downscale to a display copy + thumbnail (the size-control
+ * requirement — R2 never stores camera-size files), detect faces for the
+ * search index, upload, register metadata. The Worker only stores results, so
+ * the tab must stay open during a sync; the (album_id, drive_file_id) unique
+ * key makes re-running it resume where it stopped.
+ *
+ * The stages overlap (see runImport): the next photos download and shrink
+ * while the current one has its faces read, and uploads go out while the next
+ * one is being read. Face detection is the one stage that runs alone — it is
+ * the GPU, and two at once only take turns.
  */
 
 /**
@@ -69,7 +74,11 @@ interface Album {
   rounds?: { slot_date: string; slot_start_time?: string | null }[];
   /** Set once a share link exists. The token IS the permission to view. */
   share_token?: string | null;
-  drive_folder_id?: string | null; cover_photo_url?: string | null;
+  /** First Drive folder, kept for older clients. Read drive_folders. */
+  drive_folder_id?: string | null;
+  /** Every Drive folder the sync reads, in order. */
+  drive_folders?: string[];
+  cover_photo_url?: string | null;
   /** The cover, or the first photo when no cover was chosen. Read-only. */
   preview_url?: string | null;
   is_published: number; news_feed_id?: number | null; course_name?: string;
@@ -91,6 +100,42 @@ const DISPLAY_QUALITY = 0.82;
 const THUMB_MAX = 400;
 const THUMB_QUALITY = 0.75;
 const FLUSH_EVERY = 15;
+/** Photos downloading and shrinking while the current one has its faces read. */
+const DOWNLOAD_AHEAD = 3;
+/** Finished photos uploading at once. Beyond this the pipeline waits. */
+const UPLOADS_IN_FLIGHT = 4;
+/** Folders one sync will walk, roots and subfolders together. A guard, not a quota. */
+const MAX_FOLDERS = 200;
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+const folderIdsOf = (a: Album): string[] =>
+  a.drive_folders && a.drive_folders.length > 0 ? a.drive_folders : (a.drive_folder_id ? [a.drive_folder_id] : []);
+
+const folderLink = (id: string) => `https://drive.google.com/drive/folders/${id}`;
+
+/**
+ * Runs `fn` over `items` with up to `ahead` in flight, yielding results in
+ * the original order. The consumer decides when to stop asking for more.
+ */
+async function* prefetch<T, R>(
+  items: T[], ahead: number, fn: (item: T) => Promise<R>, stopped: () => boolean,
+): AsyncGenerator<{ item: T; result?: R; error?: any }> {
+  const inFlight: Promise<{ item: T; result?: R; error?: any }>[] = [];
+  let next = 0;
+  const start = () => {
+    const item = items[next++];
+    inFlight.push(fn(item).then(result => ({ item, result }), error => ({ item, error })));
+  };
+  while (next < items.length && inFlight.length < ahead) start();
+  while (inFlight.length > 0) {
+    const out = await inFlight.shift()!;
+    if (!stopped() && next < items.length) start();
+    yield out;
+  }
+}
+
+/** One photo to import: where it came from, and how to get its bytes. */
+interface ImportItem { name: string; driveFileId: string | null; load: () => Promise<Blob> }
 
 const parseDriveFolderId = (input: string): string | null => {
   const trimmed = (input || '').trim();
@@ -117,9 +162,9 @@ const EventAlbumManagement: React.FC = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [editAlbum, setEditAlbum] = useState<Album | null>(null);
   const [form, setForm] = useState<{
-    name: string; courseId: number; rounds: string[]; description: string; driveLink: string;
+    name: string; courseId: number; rounds: string[]; description: string; driveLinks: string;
     visibility: 'public' | 'booked';
-  }>({ name: '', courseId: 0, rounds: [], description: '', driveLink: '', visibility: 'booked' });
+  }>({ name: '', courseId: 0, rounds: [], description: '', driveLinks: '', visibility: 'booked' });
   /**
    * The rounds of the course now chosen, for the round picker.
    *
@@ -179,6 +224,7 @@ const EventAlbumManagement: React.FC = () => {
   const [reindexing, setReindexing] = useState(false);
   const syncAbort = useRef(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -209,7 +255,7 @@ const EventAlbumManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditAlbum(null);
-    setForm({ name: '', courseId: 0, rounds: [], description: '', driveLink: '', visibility: 'booked' });
+    setForm({ name: '', courseId: 0, rounds: [], description: '', driveLinks: '', visibility: 'booked' });
     setEditOpen(true);
   };
   const openEdit = (a: Album) => {
@@ -218,7 +264,7 @@ const EventAlbumManagement: React.FC = () => {
       name: a.name, courseId: a.course_id || 0,
       rounds: (a.rounds || []).map(r => roundKey(r.slot_date, r.slot_start_time)),
       description: a.description || '',
-      driveLink: a.drive_folder_id ? `https://drive.google.com/drive/folders/${a.drive_folder_id}` : '',
+      driveLinks: folderIdsOf(a).map(folderLink).join('\n'),
       visibility: a.visibility === 'public' ? 'public' : 'booked',
     });
     setEditOpen(true);
@@ -226,10 +272,16 @@ const EventAlbumManagement: React.FC = () => {
 
   const saveAlbum = async () => {
     if (!form.name.trim()) return;
-    const driveFolderId = parseDriveFolderId(form.driveLink);
-    if (form.driveLink.trim() && !driveFolderId) {
-      setError('ลิงก์ Google Drive ไม่ถูกต้อง — ต้องเป็นลิงก์โฟลเดอร์ (…/drive/folders/…)');
-      return;
+    // One folder per line. Every line has to parse: a link that silently
+    // dropped out would be a folder of photos nobody notices is missing.
+    const driveFolderIds: string[] = [];
+    for (const line of form.driveLinks.split(/\r?\n/).map(l => l.trim()).filter(Boolean)) {
+      const id = parseDriveFolderId(line);
+      if (!id) {
+        setError(`ลิงก์ Google Drive ไม่ถูกต้อง: ${line} — ต้องเป็นลิงก์โฟลเดอร์ (…/drive/folders/…)`);
+        return;
+      }
+      if (!driveFolderIds.includes(id)) driveFolderIds.push(id);
     }
     setSaving(true);
     setError('');
@@ -237,7 +289,7 @@ const EventAlbumManagement: React.FC = () => {
       const payload = {
         name: form.name.trim(), courseId: form.courseId || null,
         rounds: form.rounds,
-        description: form.description || null, driveFolderId,
+        description: form.description || null, driveFolderIds,
         coverPhotoUrl: editAlbum?.cover_photo_url || null,
         visibility: form.visibility,
       };
@@ -287,32 +339,19 @@ const EventAlbumManagement: React.FC = () => {
 
   // ── The import pipeline ───────────────────────────────────────────────────
 
-  const processBitmapToPhoto = async (
-    bitmap: ImageBitmap, albumId: number, name: string,
-    driveFileId: string | null, withFaces: boolean,
-  ) => {
-    const display = await resizeToJpeg(bitmap, DISPLAY_MAX, DISPLAY_QUALITY);
-    const thumb = await resizeToJpeg(bitmap, THUMB_MAX, THUMB_QUALITY);
-    if (!display || !thumb) throw new Error('แปลงรูปไม่สำเร็จ');
-
-    let faces: DetectedFace[] = [];
-    if (withFaces) {
-      const displayBitmap = await createImageBitmap(display.blob);
-      try { faces = await describeFaces(displayBitmap); }
-      finally { displayBitmap.close(); }
+  /** What the browser shows when a request failed. The server explains itself
+   *  in JSON, but responseType 'blob' hands even the error body back as a Blob,
+   *  so it has to be read back out — or every failure reads "Request failed
+   *  with status code 429". */
+  const reasonOf = async (err: any): Promise<string> => {
+    let reason = err?.message || 'error';
+    const body = err?.response?.data;
+    if (body instanceof Blob) {
+      try { reason = JSON.parse(await body.text())?.message || reason; } catch { /* keep the axios wording */ }
+    } else if (body?.message) {
+      reason = body.message;
     }
-
-    const base = name.replace(/\.[^.]+$/, '') || 'photo';
-    const folder = `event-albums/${albumId}`;
-    const displayUp = await uploadRawFile(new File([display.blob], `${base}.jpg`, { type: 'image/jpeg' }), folder);
-    const thumbUp = await uploadRawFile(new File([thumb.blob], `${base}-thumb.jpg`, { type: 'image/jpeg' }), folder);
-    if (!displayUp || !thumbUp) throw new Error('อัปโหลดไม่สำเร็จ');
-
-    return {
-      imageUrl: displayUp.url, thumbUrl: thumbUp.url,
-      width: display.width, height: display.height, sizeBytes: display.blob.size,
-      driveFileId, driveFileName: driveFileId ? name : null, faces,
-    };
+    return reason;
   };
 
   const flushPending = async (albumId: number, pending: any[]) => {
@@ -321,22 +360,111 @@ const EventAlbumManagement: React.FC = () => {
     return { inserted: res.data.inserted ?? 0, skipped: res.data.skipped ?? 0 };
   };
 
-  const runSync = async (album: Album) => {
-    if (!album.drive_folder_id) { setError('อัลบั้มนี้ยังไม่ได้ใส่ลิงก์โฟลเดอร์ Google Drive (แก้ไขอัลบั้มก่อน)'); return; }
-    if (!driveApiKey) { setError('ยังไม่ได้ตั้งค่า Google Drive API key ในหน้าตั้งค่าระบบ (คีย์ google_drive_api_key)'); return; }
-    syncAbort.current = false;
-    setError('');
-    setSync({ phase: 'listing', total: 0, done: 0, skipped: 0, failed: [], facesFound: 0 });
+  /**
+   * Imports a list of photos as a pipeline.
+   *
+   * Three stages, overlapping. Downloading and shrinking runs DOWNLOAD_AHEAD
+   * photos ahead of the one whose faces are being read; the two uploads of a
+   * finished photo go out together and are not waited for before the next
+   * photo's faces start. Face detection itself is serial — it owns the GPU,
+   * and a second detector alongside only shares the same time. So a run costs
+   * about the slowest stage per photo instead of the sum of all of them.
+   *
+   * Progress counts a photo when its upload has landed, so "done" means safe.
+   * Stopping lets the photos already in flight finish and be registered; a
+   * later sync skips them by drive_file_id.
+   */
+  const runImport = async (albumId: number, items: ImportItem[], withFaces: boolean) => {
+    let pending: any[] = [];
+    let facesFound = 0;
+    const uploads = new Set<Promise<void>>();
+    const fail = (name: string, reason: string) =>
+      setSync(s => s ? { ...s, done: s.done + 1, failed: [...s.failed, { name, reason }] } : s);
 
-    try {
-      if (indexFaces) await loadFaceModels();
+    const prepare = async (it: ImportItem) => {
+      const blob = await it.load();
+      const bitmap = await createImageBitmap(blob);
+      try {
+        const display = await resizeToJpeg(bitmap, DISPLAY_MAX, DISPLAY_QUALITY);
+        const thumb = await resizeToJpeg(bitmap, THUMB_MAX, THUMB_QUALITY);
+        if (!display || !thumb) throw new Error('แปลงรูปไม่สำเร็จ');
+        return { display, thumb };
+      } finally { bitmap.close(); }
+    };
 
-      // 1) list the folder (paginated)
-      const files: { id: string; name: string; mimeType: string }[] = [];
+    for await (const step of prefetch(items, DOWNLOAD_AHEAD, prepare, () => syncAbort.current)) {
+      if (syncAbort.current) break;
+      const { item } = step;
+      if (step.error || !step.result) {
+        fail(item.name, await reasonOf(step.error));
+        // A throttle applies to the next file as much as this one, so pushing
+        // straight on just collects 120 identical failures. Backing off gives
+        // the run a chance to finish instead.
+        if (step.error?.response?.status === 429) await new Promise(r => setTimeout(r, 4000));
+        continue;
+      }
+      const { display, thumb } = step.result;
+      setSync(s => s ? { ...s, currentName: item.name } : s);
+
+      let faces: DetectedFace[] = [];
+      if (withFaces) {
+        try {
+          const displayBitmap = await createImageBitmap(display.blob);
+          try { faces = await describeFaces(displayBitmap); } finally { displayBitmap.close(); }
+        } catch (err: any) {
+          fail(item.name, err?.message || 'อ่านใบหน้าไม่สำเร็จ');
+          continue;
+        }
+      }
+      facesFound += faces.length;
+      const found = facesFound;
+
+      const upload = (async () => {
+        const base = item.name.replace(/\.[^.]+$/, '') || 'photo';
+        const folder = `event-albums/${albumId}`;
+        const [displayUp, thumbUp] = await Promise.all([
+          uploadRawFile(new File([display.blob], `${base}.jpg`, { type: 'image/jpeg' }), folder),
+          uploadRawFile(new File([thumb.blob], `${base}-thumb.jpg`, { type: 'image/jpeg' }), folder),
+        ]);
+        if (!displayUp || !thumbUp) throw new Error('อัปโหลดไม่สำเร็จ');
+        pending.push({
+          imageUrl: displayUp.url, thumbUrl: thumbUp.url,
+          width: display.width, height: display.height, sizeBytes: display.blob.size,
+          driveFileId: item.driveFileId, driveFileName: item.driveFileId ? item.name : null, faces,
+        });
+        setSync(s => s ? { ...s, done: s.done + 1, facesFound: Math.max(s.facesFound, found) } : s);
+      })().catch(async err => fail(item.name, await reasonOf(err)));
+      uploads.add(upload);
+      upload.finally(() => uploads.delete(upload));
+      if (uploads.size >= UPLOADS_IN_FLIGHT) await Promise.race(uploads);
+
+      if (pending.length >= FLUSH_EVERY) {
+        const batch = pending;
+        pending = [];
+        await flushPending(albumId, batch);
+      }
+    }
+    await Promise.all(uploads);
+    await flushPending(albumId, pending);
+  };
+
+  /**
+   * Every file under the album's folders. Subfolders are walked too — a
+   * camera dumps by date, a photographer by round — so pasting the top folder
+   * is enough. A folder is visited once however many times it is reachable.
+   */
+  const listDriveFiles = async (roots: string[]) => {
+    const files: { id: string; name: string; mimeType: string }[] = [];
+    const seen = new Set<string>();
+    const queue = [...roots];
+    while (queue.length > 0 && seen.size < MAX_FOLDERS) {
+      const folderId = queue.shift()!;
+      if (seen.has(folderId)) continue;
+      seen.add(folderId);
       let pageToken: string | undefined;
       do {
         const params = new URLSearchParams({
-          q: `'${album.drive_folder_id}' in parents and trashed=false`,
+          q: `'${folderId}' in parents and trashed=false`,
           fields: 'nextPageToken,files(id,name,mimeType)',
           pageSize: '1000',
           key: driveApiKey,
@@ -348,10 +476,29 @@ const EventAlbumManagement: React.FC = () => {
           throw new Error(detail?.error?.message || `Drive API ตอบกลับ ${res.status} — ตรวจสอบว่าโฟลเดอร์แชร์แบบ "ทุกคนที่มีลิงก์" และ API key ถูกต้อง`);
         }
         const data = await res.json() as any;
-        files.push(...(data.files || []));
+        for (const f of (data.files || []) as { id: string; name: string; mimeType: string }[]) {
+          if (f.mimeType === DRIVE_FOLDER_MIME) queue.push(f.id);
+          else files.push(f);
+        }
         pageToken = data.nextPageToken;
       } while (pageToken);
+    }
+    return files;
+  };
 
+  const runSync = async (album: Album) => {
+    const roots = folderIdsOf(album);
+    if (roots.length === 0) { setError('อัลบั้มนี้ยังไม่ได้ใส่ลิงก์โฟลเดอร์ Google Drive (แก้ไขอัลบั้มก่อน)'); return; }
+    if (!driveApiKey) { setError('ยังไม่ได้ตั้งค่า Google Drive API key ในหน้าตั้งค่าระบบ (คีย์ google_drive_api_key)'); return; }
+    syncAbort.current = false;
+    setError('');
+    setSync({ phase: 'listing', total: 0, done: 0, skipped: 0, failed: [], facesFound: 0 });
+
+    try {
+      if (indexFaces) await loadFaceModels();
+
+      // 1) list every folder (paginated), subfolders included
+      const files = await listDriveFiles(roots);
       const images = files.filter(f => f.mimeType?.startsWith('image/'));
       const skippedNonImage = files.length - images.length;
 
@@ -366,52 +513,15 @@ const EventAlbumManagement: React.FC = () => {
         failed: [], facesFound: 0,
       });
 
-      let pending: any[] = [];
-      let facesFound = 0;
-      for (const f of todo) {
-        if (syncAbort.current) break;
-        setSync(s => s ? { ...s, currentName: f.name } : s);
-        try {
-          // Through our own Worker, not googleapis.com. Google answers a run of
-          // direct downloads with a 403 abuse page that carries no CORS headers,
-          // which the browser can only report as "Failed to fetch" — a message
-          // naming the wrong problem, and one this status check never saw
-          // because the fetch rejected before returning. Same-origin means the
-          // real reason arrives intact.
-          const res = await axios.get(`${API_BASE}/event-albums/drive-file/${f.id}`, { responseType: 'blob' });
-          const blob = res.data as Blob;
-          const bitmap = await createImageBitmap(blob);
-          try {
-            const photo = await processBitmapToPhoto(bitmap, album.id, f.name, f.id, indexFaces);
-            facesFound += photo.faces.length;
-            pending.push(photo);
-          } finally { bitmap.close(); }
-
-          if (pending.length >= FLUSH_EVERY) {
-            await flushPending(album.id, pending);
-            pending = [];
-          }
-          setSync(s => s ? { ...s, done: s.done + 1, facesFound } : s);
-        } catch (err: any) {
-          // The server explains itself in JSON, but responseType 'blob' hands
-          // even the error body back as a Blob — so it has to be read back out
-          // before it can be shown, or every failure reads "Request failed with
-          // status code 429".
-          let reason = err?.message || 'error';
-          const body = err?.response?.data;
-          if (body instanceof Blob) {
-            try { reason = JSON.parse(await body.text())?.message || reason; } catch { /* keep the axios wording */ }
-          } else if (body?.message) {
-            reason = body.message;
-          }
-          setSync(s => s ? { ...s, done: s.done + 1, failed: [...s.failed, { name: f.name, reason }] } : s);
-          // A throttle applies to the next file as much as this one, so pushing
-          // straight on just collects 120 identical failures. Backing off gives
-          // the run a chance to finish instead.
-          if (err?.response?.status === 429) await new Promise(r => setTimeout(r, 4000));
-        }
-      }
-      await flushPending(album.id, pending);
+      // 2) import. Through our own Worker, not googleapis.com. Google answers a
+      // run of direct downloads with a 403 abuse page that carries no CORS
+      // headers, which the browser can only report as "Failed to fetch" — a
+      // message naming the wrong problem. Same-origin means the real reason
+      // arrives intact, and the key never reaches the browser.
+      await runImport(album.id, todo.map(f => ({
+        name: f.name, driveFileId: f.id,
+        load: async () => (await axios.get(`${API_BASE}/event-albums/drive-file/${f.id}`, { responseType: 'blob' })).data as Blob,
+      })), indexFaces);
 
       setSync(s => s ? { ...s, phase: 'done', currentName: undefined } : s);
       await loadPhotos(album.id);
@@ -421,31 +531,19 @@ const EventAlbumManagement: React.FC = () => {
     }
   };
 
+  /** Files picked by hand, or a whole folder from the disk. A folder picker
+   *  hands over everything in it, so anything that is not an image is dropped
+   *  here rather than failing one by one. */
   const manualUpload = async (fileList: FileList | null) => {
     if (!openAlbum || !fileList || fileList.length === 0) return;
+    const all = Array.from(fileList);
+    const images = all.filter(f => f.type.startsWith('image/'));
+    if (images.length === 0) { setError('ไม่พบไฟล์รูปในสิ่งที่เลือก'); return; }
     syncAbort.current = false;
-    setSync({ phase: 'importing', total: fileList.length, done: 0, skipped: 0, failed: [], facesFound: 0 });
+    setSync({ phase: 'importing', total: images.length, done: 0, skipped: all.length - images.length, failed: [], facesFound: 0 });
     try {
       if (indexFaces) await loadFaceModels();
-      let pending: any[] = [];
-      let facesFound = 0;
-      for (const file of Array.from(fileList)) {
-        if (syncAbort.current) break;
-        setSync(s => s ? { ...s, currentName: file.name } : s);
-        try {
-          const bitmap = await createImageBitmap(file);
-          try {
-            const photo = await processBitmapToPhoto(bitmap, openAlbum.id, file.name, null, indexFaces);
-            facesFound += photo.faces.length;
-            pending.push(photo);
-          } finally { bitmap.close(); }
-          if (pending.length >= FLUSH_EVERY) { await flushPending(openAlbum.id, pending); pending = []; }
-          setSync(s => s ? { ...s, done: s.done + 1, facesFound } : s);
-        } catch (err: any) {
-          setSync(s => s ? { ...s, done: s.done + 1, failed: [...s.failed, { name: file.name, reason: err?.message || 'error' }] } : s);
-        }
-      }
-      await flushPending(openAlbum.id, pending);
+      await runImport(openAlbum.id, images.map(file => ({ name: file.name, driveFileId: null, load: async () => file })), indexFaces);
       setSync(s => s ? { ...s, phase: 'done', currentName: undefined } : s);
       await loadPhotos(openAlbum.id);
       fetchAll();
@@ -500,12 +598,11 @@ const EventAlbumManagement: React.FC = () => {
     if (!openAlbum) return;
     try {
       await axios.put(`${API_BASE}/event-albums/${openAlbum.id}`, {
-        // No rounds key on purpose. The API treats "not mentioned" as "leave
-        // them alone" and an empty array as "none" — so saying nothing here is
-        // what stops picking a cover photo from wiping the album's rounds.
+        // No rounds or folders key on purpose. The API treats "not mentioned"
+        // as "leave them alone" and an empty array as "none" — so saying
+        // nothing here is what stops picking a cover photo from wiping them.
         name: openAlbum.name, courseId: openAlbum.course_id,
         description: openAlbum.description || null,
-        driveFolderId: openAlbum.drive_folder_id || null,
         // The display image, not the thumb. The cover is shown as a news card
         // the width of a phone at two or three device pixels each; the thumb is
         // 400px for a grid cell, and stretching it there is what made the
@@ -705,10 +802,14 @@ const EventAlbumManagement: React.FC = () => {
               <MenuItem value="booked">เฉพาะครอบครัวที่จองกิจกรรม</MenuItem>
               <MenuItem value="public">สาธารณะ (ไม่ต้องล็อกอิน)</MenuItem>
             </TextField>
-            <TextField label="ลิงก์โฟลเดอร์ Google Drive" fullWidth value={form.driveLink}
-              onChange={e => setForm({ ...form, driveLink: e.target.value })}
-              placeholder="https://drive.google.com/drive/folders/..."
-              helperText='โฟลเดอร์ต้องแชร์แบบ "ทุกคนที่มีลิงก์ (Viewer)"' />
+            {/* Several folders, one per line. One shoot rarely lands in one
+                folder — two photographers, or a folder per round — and the
+                sync walks subfolders too, so the top folder alone is enough. */}
+            <TextField label="ลิงก์โฟลเดอร์ Google Drive (บรรทัดละ 1 โฟลเดอร์)" fullWidth multiline minRows={2}
+              value={form.driveLinks}
+              onChange={e => setForm({ ...form, driveLinks: e.target.value })}
+              placeholder={'https://drive.google.com/drive/folders/...\nhttps://drive.google.com/drive/folders/...'}
+              helperText='ใส่ได้หลายโฟลเดอร์ · โฟลเดอร์ย่อยข้างในจะถูกซิงค์ด้วย · ทุกโฟลเดอร์ต้องแชร์แบบ "ทุกคนที่มีลิงก์ (Viewer)"' />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -726,12 +827,14 @@ const EventAlbumManagement: React.FC = () => {
             <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
               {openAlbum.name}
               <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }}>
-                {openAlbum.course_name || courseName(openAlbum.course_id)} · {photos.length} รูป
+                {openAlbum.course_name || (openAlbum.course_id ? courseName(openAlbum.course_id) : 'ไม่ผูกกับกิจกรรม')}
+                {' · '}{photos.length} รูป
+                {folderIdsOf(openAlbum).length > 1 ? ` · ${folderIdsOf(openAlbum).length} โฟลเดอร์ Drive` : ''}
               </Typography>
             </DialogTitle>
             <DialogContent>
               <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }} alignItems="center">
-                <Button variant="contained" startIcon={<SyncIcon />} disabled={syncing || reindexing || !openAlbum.drive_folder_id || !driveApiKey}
+                <Button variant="contained" startIcon={<SyncIcon />} disabled={syncing || reindexing || folderIdsOf(openAlbum).length === 0 || !driveApiKey}
                   onClick={() => runSync(openAlbum)} sx={{ borderRadius: 2, fontWeight: 700 }}>
                   ซิงค์จาก Google Drive
                 </Button>
@@ -740,6 +843,15 @@ const EventAlbumManagement: React.FC = () => {
                   อัปโหลดรูปเอง
                 </Button>
                 <input ref={uploadInputRef} type="file" hidden multiple accept="image/*"
+                  onChange={e => { manualUpload(e.target.files); e.target.value = ''; }} />
+                <Button variant="outlined" startIcon={<UploadIcon />} disabled={syncing || reindexing}
+                  onClick={() => folderInputRef.current?.click()} sx={{ borderRadius: 2, fontWeight: 700 }}>
+                  อัปโหลดทั้งโฟลเดอร์
+                </Button>
+                {/* webkitdirectory is what makes the picker take a folder. Not
+                    in React's typings, hence the spread; `accept` is ignored
+                    for folders, so manualUpload filters to images itself. */}
+                <input ref={folderInputRef} type="file" hidden multiple {...({ webkitdirectory: '' } as any)}
                   onChange={e => { manualUpload(e.target.files); e.target.value = ''; }} />
                 <Tooltip title="สร้างดัชนีใบหน้าใหม่สำหรับรูปที่ยังไม่มีดัชนี (ใช้เมื่ออัลบั้มถูกซิงค์ไว้ก่อนเปิดฟีเจอร์ค้นหาใบหน้า)">
                   <span>

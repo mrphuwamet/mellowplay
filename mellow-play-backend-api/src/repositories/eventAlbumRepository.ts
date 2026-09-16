@@ -39,6 +39,17 @@ function normaliseTime(value?: string | null): string | null {
 /** One round an album covers. A null time means the whole of that date. */
 export interface AlbumRound { slotDate: string; slotStartTime?: string | null }
 
+// A Drive folder id as it appears in a share link. Anything else is a paste
+// that went wrong, and is dropped rather than stored to fail at sync time.
+const cleanFolderIds = (ids: (string | null | undefined)[] | undefined): string[] => {
+  const out: string[] = [];
+  for (const raw of ids || []) {
+    const id = String(raw || '').trim();
+    if (/^[A-Za-z0-9_-]{10,}$/.test(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+};
+
 export class EventAlbumRepository {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -69,7 +80,7 @@ export class EventAlbumRepository {
       LEFT JOIN Courses c ON c.id = a.course_id
       ORDER BY a.created_at DESC
     `).all();
-    return this.withRounds(results as any[]);
+    return this.withRelations(results as any[]);
   }
 
   async getById(id: number): Promise<any | null> {
@@ -79,7 +90,7 @@ export class EventAlbumRepository {
       WHERE a.id = ?
     `).bind(id).first();
     if (!album) return null;
-    return (await this.withRounds([album as any]))[0];
+    return (await this.withRelations([album as any]))[0];
   }
 
   // visibility: 'public' opens the album to anyone with the link (no login),
@@ -89,16 +100,53 @@ export class EventAlbumRepository {
 
   async create(data: {
     name: string; courseId: number | null; rounds?: AlbumRound[];
-    description?: string | null; driveFolderId?: string | null; visibility?: string;
+    description?: string | null; driveFolderIds?: string[]; visibility?: string;
   }): Promise<number> {
+    const folders = cleanFolderIds(data.driveFolderIds);
     const res = await this.db.prepare(`
       INSERT INTO Event_Albums (name, course_id, description, drive_folder_id, visibility)
       VALUES (?, ?, ?, ?, ?)
-    `).bind(data.name, data.courseId ?? null, data.description || null, data.driveFolderId || null,
+    `).bind(data.name, data.courseId ?? null, data.description || null, folders[0] ?? null,
             EventAlbumRepository.visibilityOf(data.visibility)).run();
     const id = res.meta.last_row_id as number;
     await this.setRounds(id, data.rounds || []);
+    await this.setDriveFolders(id, folders);
     return id;
+  }
+
+  /**
+   * The Drive folders the sync reads, in order. Restated whole, like the
+   * rounds. drive_folder_id on the album is kept equal to the first one so an
+   * older CRM build keeps working against the same row.
+   */
+  async setDriveFolders(albumId: number, folderIds: string[]): Promise<void> {
+    const clean = cleanFolderIds(folderIds);
+    await this.db.batch([
+      this.db.prepare('DELETE FROM Event_Album_Drive_Folders WHERE album_id = ?').bind(albumId),
+      this.db.prepare('UPDATE Event_Albums SET drive_folder_id = ? WHERE id = ?').bind(clean[0] ?? null, albumId),
+      ...clean.map((id, i) => this.db.prepare(
+        'INSERT OR IGNORE INTO Event_Album_Drive_Folders (album_id, folder_id, position) VALUES (?, ?, ?)'
+      ).bind(albumId, id, i)),
+    ]);
+  }
+
+  async getDriveFoldersForAlbums(albumIds: number[]): Promise<Map<number, string[]>> {
+    const out = new Map<number, string[]>();
+    if (albumIds.length === 0) return out;
+    for (let i = 0; i < albumIds.length; i += 90) {
+      const chunk = albumIds.slice(i, i + 90);
+      const { results } = await this.db.prepare(`
+        SELECT album_id, folder_id
+          FROM Event_Album_Drive_Folders
+         WHERE album_id IN (${chunk.map(() => '?').join(',')})
+         ORDER BY position, folder_id
+      `).bind(...chunk).all<any>();
+      for (const r of results as any[]) {
+        if (!out.has(r.album_id)) out.set(r.album_id, []);
+        out.get(r.album_id)!.push(r.folder_id);
+      }
+    }
+    return out;
   }
 
   /**
@@ -167,7 +215,7 @@ export class EventAlbumRepository {
       WHERE a.share_token = ?
     `).bind(token).first();
     if (!album) return null;
-    return (await this.withRounds([album as any]))[0];
+    return (await this.withRelations([album as any]))[0];
   }
 
   /**
@@ -215,30 +263,38 @@ export class EventAlbumRepository {
     return out;
   }
 
-  /** Attaches a `rounds` array to each album row, in one extra query. */
-  private async withRounds(albums: any[]): Promise<any[]> {
-    const byAlbum = await this.getRoundsForAlbums(albums.map(a => Number(a.id)));
-    return albums.map(a => ({ ...a, rounds: byAlbum.get(Number(a.id)) || [] }));
+  /** Attaches `rounds` and `drive_folders` to each album row, one extra query each. */
+  private async withRelations(albums: any[]): Promise<any[]> {
+    const ids = albums.map(a => Number(a.id));
+    const [rounds, folders] = await Promise.all([this.getRoundsForAlbums(ids), this.getDriveFoldersForAlbums(ids)]);
+    return albums.map(a => ({
+      ...a,
+      rounds: rounds.get(Number(a.id)) || [],
+      // An album from before the child table existed has only the column.
+      drive_folders: folders.get(Number(a.id)) || (a.drive_folder_id ? [a.drive_folder_id] : []),
+    }));
   }
 
   async update(id: number, data: {
     name: string; courseId: number | null; rounds?: AlbumRound[];
-    description?: string | null; driveFolderId?: string | null; coverPhotoUrl?: string | null;
+    description?: string | null; driveFolderIds?: string[]; coverPhotoUrl?: string | null;
     visibility?: string;
   }): Promise<void> {
     await this.db.prepare(`
       UPDATE Event_Albums
          SET name = ?, course_id = ?,
-             description = ?, drive_folder_id = ?,
+             description = ?,
              cover_photo_url = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
     `).bind(data.name, data.courseId ?? null, data.description || null,
-            data.driveFolderId || null, data.coverPhotoUrl || null,
+            data.coverPhotoUrl || null,
             EventAlbumRepository.visibilityOf(data.visibility), id).run();
-    // Only when the caller actually said something about the rounds. Setting a
-    // cover photo reuses this method and has no opinion on them — treating
-    // "not mentioned" as "empty" is how picking a cover would wipe them.
+    // Only when the caller actually said something about the rounds or the
+    // folders. Setting a cover photo reuses this method and has no opinion on
+    // either — treating "not mentioned" as "empty" is how picking a cover
+    // would wipe them.
     if (data.rounds !== undefined) await this.setRounds(id, data.rounds);
+    if (data.driveFolderIds !== undefined) await this.setDriveFolders(id, data.driveFolderIds);
   }
 
   /**
@@ -272,8 +328,12 @@ export class EventAlbumRepository {
   }
 
   async remove(id: number): Promise<void> {
-    // Face rows cascade from photos, photos cascade from the album.
-    await this.db.prepare('DELETE FROM Event_Albums WHERE id = ?').bind(id).run();
+    // Face rows cascade from photos, photos cascade from the album. The folder
+    // list is deleted outright rather than trusted to the cascade.
+    await this.db.batch([
+      this.db.prepare('DELETE FROM Event_Album_Drive_Folders WHERE album_id = ?').bind(id),
+      this.db.prepare('DELETE FROM Event_Albums WHERE id = ?').bind(id),
+    ]);
   }
 
   /** Keyset pagination — an album can hold thousands of photos. */
@@ -386,7 +446,7 @@ export class EventAlbumRepository {
         AND ${EventAlbumRepository.ACCESS_CLAUSE}
       ORDER BY a.created_at DESC
     `).bind(userId).all();
-    return this.withRounds(results as any[]);
+    return this.withRelations(results as any[]);
   }
 
   async userCanView(userId: number | null, albumId: number): Promise<any | null> {
@@ -401,7 +461,7 @@ export class EventAlbumRepository {
         AND ${EventAlbumRepository.ACCESS_CLAUSE}
     `).bind(userId, albumId).first();
     if (!album) return null;
-    return (await this.withRounds([album as any]))[0];
+    return (await this.withRelations([album as any]))[0];
   }
 
   /**
