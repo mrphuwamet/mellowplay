@@ -11,9 +11,22 @@ import { scrollToTop } from '../utils/scrollToTop';
 import { useChildStore } from '../store/useChildStore';
 import { isChildRole } from '../utils/familyRoles';
 import HashtagText from '../components/HashtagText';
+import { useSeo, seoText, seoClamp } from '../utils/seo';
 import HashtagHtml from '../components/HashtagHtml';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * A stored DATETIME ("YYYY-MM-DD HH:MM:SS", UTC) as ISO 8601, or '' if it
+ * cannot be read. Only the machine-readable <time datetime> wants this; the
+ * date a reader sees still comes from formatCustomDate.
+ */
+const isoOrEmpty = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const date = new Date(raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+};
 
 const getVideoEmbed = (url: string): { type: 'youtube' | 'direct'; src: string } => {
   const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
@@ -125,6 +138,67 @@ const NewsDetail = () => {
     setCarouselIndex(Math.round(el.scrollLeft / el.clientWidth));
   };
 
+  // Per-article title, description and schema.org data.
+  //
+  // The same article is also rendered server-side for crawlers, in
+  // functions/news/[id].ts. This is the half that stub never covers: the tab
+  // title and bookmark a real reader gets, and the tags a search engine reads
+  // when it arrives with an ordinary browser user-agent and runs the
+  // JavaScript itself. Google indexes the DOM after rendering, so these win.
+  //
+  // Computed before the loading and not-found branches below because hooks
+  // cannot sit behind a return; an article still loading passes empty strings,
+  // and useSeo leaves the previous page's tags alone until there is something
+  // real to say.
+  const seoIsNews = item?.type !== 'media';
+  const seoTitle = item ? ((lang === 'en' && item.title_en ? item.title_en : item.title) || '') : '';
+  const seoBody = item ? ((lang === 'en' && item.content_en ? item.content_en : item.content) || '') : '';
+  const seoImages: string[] = item
+    ? (item.image_urls?.length ? item.image_urls : (item.image_url ? [item.image_url] : [])).map(resolveImageUrl)
+    : [];
+  const seoDescription = item
+    ? (seoClamp(seoText(seoBody)) ||
+       (seoIsNews
+         ? 'ข่าวสารและกิจกรรมจาก Mellow Play'
+         : 'เรื่องน่ารู้เกี่ยวกับพัฒนาการเด็ก จาก Mellow Play'))
+    : '';
+  const seoUrl = item ? `${window.location.origin}/news/${item.id}` : '';
+
+  useSeo({
+    title: seoTitle,
+    description: seoDescription,
+    image: seoImages[0],
+    canonical: seoUrl || undefined,
+    type: 'article',
+    jsonLd: item && seoTitle
+      ? {
+          '@context': 'https://schema.org',
+          // A dated announcement is a NewsArticle; the evergreen
+          // "เรื่องน่ารู้" explainers are not news and Google ranks the two
+          // by different rules.
+          '@type': seoIsNews ? 'NewsArticle' : 'Article',
+          mainEntityOfPage: { '@type': 'WebPage', '@id': seoUrl },
+          headline: seoTitle.slice(0, 110),
+          description: seoDescription,
+          image: seoImages,
+          articleSection: seoIsNews ? 'ข่าวสาร' : 'เรื่องน่ารู้',
+          inLanguage: lang === 'en' ? 'en' : 'th',
+          datePublished: item.created_at,
+          dateModified: item.updated_at || item.created_at,
+          author: { '@type': 'Organization', name: 'Mellow Play', url: window.location.origin },
+          publisher: {
+            '@type': 'Organization',
+            name: 'Mellow Play',
+            url: window.location.origin,
+            logo: {
+              '@type': 'ImageObject',
+              url: `${window.location.origin}/web-app-manifest-512x512.png`,
+            },
+          },
+        }
+      : null,
+  }, [item?.id, seoTitle, seoDescription, lang]);
+
   if (item === undefined) {
     return (
       <div className="mellow-page-article bg-[#fbfaf7] min-h-screen animate-pulse">
@@ -234,7 +308,14 @@ const NewsDetail = () => {
         <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest mb-2">
           {item.type === 'news' ? (lang === 'en' ? 'News' : 'ข่าวสาร') : (lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้')}
           {' · '}
-          {formatCustomDate(item.created_at, lang, 'full')}
+          {/* <time> rather than a bare string: the same date, but a form a
+              search engine can read as a date instead of guessing at Thai
+              month names. A row with an unreadable date renders the plain
+              text and no datetime, rather than throwing on toISOString and
+              taking the whole article down with it. */}
+          <time dateTime={isoOrEmpty(item.created_at) || undefined}>
+            {formatCustomDate(item.created_at, lang, 'full')}
+          </time>
         </p>
         <h1 className="text-2xl font-black text-slate-800 leading-tight mb-4">
           <HashtagText text={title} onTagClick={openTag} />

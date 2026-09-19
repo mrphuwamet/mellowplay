@@ -1,2 +1,40 @@
+# Mellow Play — https://mellowplay.co
+#
+# The public side of the site (home, explore, classes, ข่าวสาร/เรื่องน่ารู้) is
+# open to crawlers. Everything below Disallow is either a personal account
+# page with nothing to rank, or a URL whose path contains a secret: a check-in
+# QR, an unlisted album share link, an invite, a certificate code. Those are
+# handed to one person and must not end up in a search result.
+
 User-agent: *
 Allow: /
+
+# Links that carry a token — the address itself is the permission.
+Disallow: /checkin/
+Disallow: /i/
+Disallow: /invite/
+Disallow: /round/
+Disallow: /shared-albums/
+Disallow: /unsubscribe/
+Disallow: /verify/
+Disallow: /certificate/
+Disallow: /report/
+Disallow: /reset-password
+
+# Signed-in areas. Nothing here renders without an account, so a crawler only
+# ever reaches a login screen and reports a pile of near-identical pages.
+Disallow: /settings
+Disallow: /my-certificates
+Disallow: /my-coupons
+Disallow: /journey
+Disallow: /add-child
+Disallow: /booking
+Disallow: /booking-success
+Disallow: /package-purchase-success
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+
+# Built per request from the live news feed, so an article published in the
+# CRM is offered to Google without a redeploy. See functions/sitemap.xml.ts.
+Sitemap: https://mellowplay.co/sitemap.xml

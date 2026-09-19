@@ -24,13 +24,22 @@
 // before the SPA (or LIFF) ever got a chance to load.
 export const BOT_USER_AGENT = /facebookexternalhit|Facebot|LinkedInBot|Twitterbot|WhatsApp|Slackbot|Discordbot|TelegramBot|Pinterest|line-poker|vkShare|W3C_Validator|Googlebot|bingbot|SkypeUriPreview/i;
 
-const API_BASE = 'https://api.mellowplay.co/api/v1';
-const SITE_URL = 'https://mellowplay.co';
-const DEFAULT_IMAGE = `${SITE_URL}/web-app-manifest-512x512.png`;
+// Search engines, split out of the list above because they want the opposite
+// thing from a link-preview crawler. A preview crawler reads the og: tags and
+// stops, so a head-only stub that meta-refreshes a stray human onward suits it
+// fine. A search engine wants the article itself: text to index and a canonical
+// URL, and no refresh — a meta refresh reads as a redirect and can cost the
+// page its own listing. Whatever is served here has to carry the same words the
+// reader sees, or it stops being server-side rendering and becomes cloaking.
+export const SEARCH_BOT_USER_AGENT = /Googlebot|Google-InspectionTool|Storebot-Google|bingbot|DuckDuckBot|Applebot|YandexBot|Baiduspider/i;
+
+export const API_BASE = 'https://api.mellowplay.co/api/v1';
+export const SITE_URL = 'https://mellowplay.co';
+export const DEFAULT_IMAGE = `${SITE_URL}/web-app-manifest-512x512.png`;
 // The site-wide fallback image's real, verified dimensions (public/web-app-manifest-512x512.png).
 const DEFAULT_IMAGE_META = { width: 512, height: 512, type: 'image/png' };
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -39,11 +48,11 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function stripHtml(value: string): string {
+export function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-type ImageMeta = { width: number; height: number; type: string } | null;
+export type ImageMeta = { width: number; height: number; type: string } | null;
 
 // PNG: 8-byte signature, then the IHDR chunk always comes first —
 // 4-byte length + "IHDR" + 4-byte width + 4-byte height, big-endian.
@@ -86,7 +95,7 @@ function parseJpeg(buf: Uint8Array): ImageMeta {
 // og:image:width|height is never sent — only a real parsed value, or none
 // at all (Facebook/LINE/Twitter all handle a missing width/height fine;
 // they just can't optimize the crop ahead of time).
-async function probeImageMeta(url: string): Promise<ImageMeta> {
+export async function probeImageMeta(url: string): Promise<ImageMeta> {
   const MAX_BYTES = 65536;
   try {
     const res = await fetch(url);
@@ -170,4 +179,36 @@ ${imageMetaTags}
     // normal SPA rather than showing a crawler a broken response.
     return null;
   }
+}
+
+/**
+ * The absolute URL of an image the backend stored.
+ *
+ * Mirrors resolveImageUrl in src/utils/courseImage.ts, which the app uses on
+ * the very same field. A crawler has no origin to resolve a relative path
+ * against, so an og:image of "/files/x.jpg" fetches nothing and the shared
+ * link turns up with no picture at all.
+ */
+export function absoluteImageUrl(url?: string | null): string | null {
+  const raw = (url || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const clean = raw.startsWith('/api/v1') ? raw.slice('/api/v1'.length) : raw;
+  return `${API_BASE}${clean.startsWith('/') ? clean : `/${clean}`}`;
+}
+
+/**
+ * A SQLite DATETIME ("YYYY-MM-DD HH:MM:SS", stored UTC) as ISO 8601.
+ *
+ * schema.org dates and <time datetime> both want the offset spelled out. A
+ * bare "2026-09-19 08:30:00" is read as local time by some consumers and as
+ * invalid by others, and an invalid datePublished is dropped from the rich
+ * result without saying so.
+ */
+export function isoDate(value?: string | null): string | null {
+  const raw = (value || '').trim();
+  if (!raw) return null;
+  if (raw.includes('T')) return /(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : `${raw}Z`;
+  const iso = `${raw.replace(' ', 'T')}Z`;
+  return Number.isNaN(new Date(iso).getTime()) ? null : iso;
 }

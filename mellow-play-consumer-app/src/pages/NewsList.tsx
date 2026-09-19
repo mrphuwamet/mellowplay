@@ -5,6 +5,7 @@ import apiClient from '../utils/apiClient';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation } from '../LanguageContext';
 import { resolveImageUrl } from '../utils/courseImage';
+import { useSeo } from '../utils/seo';
 
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -28,6 +29,31 @@ const NewsList = () => {
   const title = type === 'media'
     ? (lang === 'en' ? 'Fun Facts' : 'เรื่องน่ารู้')
     : (lang === 'en' ? 'News' : 'ข่าวสาร');
+
+  // The listing is what a search engine follows to reach the articles, so it
+  // needs a name of its own rather than the app-wide "Mellow Play", and an
+  // ItemList naming the posts it links to. Listed in functions/sitemap.xml.ts
+  // too, which is how Google finds it in the first place.
+  useSeo({
+    title,
+    description: type === 'media'
+      ? 'เรื่องน่ารู้เกี่ยวกับพัฒนาการเด็ก การเลี้ยงลูก และกิจกรรมสร้างสรรค์ จาก Mellow Play'
+      : 'ข่าวสาร กิจกรรม และประกาศล่าสุดจาก Mellow Play',
+    type: 'website',
+    jsonLd: items.length
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'ItemList',
+          name: title,
+          itemListElement: items.slice(0, 30).map((item, i) => ({
+            '@type': 'ListItem',
+            position: i + 1,
+            url: `${window.location.origin}/news/${item.id}`,
+            name: item.title,
+          })),
+        }
+      : null,
+  }, [type, title, items]);
 
   return (
     <div className="mellow-page bg-[#fbfaf7] min-h-screen">
