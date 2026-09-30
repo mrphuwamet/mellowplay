@@ -1,4 +1,5 @@
 import { normaliseGender } from '../utils/gender';
+import { buildCourseCode, isCourseCode } from '../utils/courseCode';
 // The per-channel flags are DERIVED from the channel mode, never set on their
 // own. They used to be independent switches in the course form, which meant a
 // course could say "email only" in one place and "send both" in another — and
@@ -633,20 +634,75 @@ export class AdminRepository {
   }
 
   /**
-   * One course by id, for a visitor who arrived with its link.
+   * One course by its numeric id.
    *
-   * This is the only read that will serve a class no list will admit to
-   * having, which is what makes a private class private-but-reachable. A
-   * 'hidden' course is still refused: hidden means gone, and staff rely on
-   * that to take something down.
+   * Only a listed class answers to its id. A private class does not, and that
+   * is the point: the id is a counter, so /class/12 tells anyone that 11 and
+   * 13 exist, and a private class reachable that way is private only until
+   * someone counts. It is reached by its public_code instead — see
+   * getCourseByPublicCode and src/utils/courseCode.ts.
+   *
+   * Ids stay valid for every listed class, so links shared or bookmarked
+   * before codes existed keep working.
    */
   async getCourseByIdForPublic(id: number): Promise<any | null> {
     const row = await this.db.prepare(`
       ${AdminRepository.COURSE_SELECT}
-      WHERE c.id = ? AND COALESCE(c.visibility, 'public') <> 'hidden'
+      WHERE c.id = ? AND COALESCE(c.visibility, 'public') = 'public'
     `).bind(id).first();
     if (!row) return null;
     return (await this.enrichCourseSkillIcons([row as any]))[0];
+  }
+
+  /**
+   * One course by the code in its URL.
+   *
+   * This is the read that serves a class no list will admit to having, which
+   * is what makes a private class private-but-reachable. A 'hidden' course is
+   * refused even with the right code: hidden means gone, and staff rely on
+   * that to take something down.
+   */
+  async getCourseByPublicCode(code: string): Promise<any | null> {
+    if (!isCourseCode(code)) return null;
+    const row = await this.db.prepare(`
+      ${AdminRepository.COURSE_SELECT}
+      WHERE c.public_code = ? AND COALESCE(c.visibility, 'public') <> 'hidden'
+    `).bind(code).first();
+    if (!row) return null;
+    return (await this.enrichCourseSkillIcons([row as any]))[0];
+  }
+
+  /**
+   * Gives a course a code if it has none, and hands back whatever it has.
+   *
+   * Never reissues: a code already in circulation is a link someone was given,
+   * and replacing it breaks that link silently. The retry is for the unique
+   * index — a collision is vanishingly unlikely at ten characters, but "we
+   * assumed it could not happen" is how a class ends up with no link at all.
+   */
+  async ensureCoursePublicCode(id: number, name?: string | null, nameEn?: string | null): Promise<string | null> {
+    const existing = await this.db.prepare('SELECT public_code, name, name_en FROM Courses WHERE id = ?')
+      .bind(id).first<any>();
+    if (!existing) return null;
+    if (existing.public_code) return existing.public_code as string;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = buildCourseCode(name ?? existing.name, nameEn ?? existing.name_en);
+      try {
+        // Conditional so two requests racing on the same course settle on one
+        // code rather than the second overwriting the first.
+        const res = await this.db.prepare(
+          'UPDATE Courses SET public_code = ? WHERE id = ? AND public_code IS NULL'
+        ).bind(code, id).run();
+        if (res.meta.changes > 0) return code;
+        const now = await this.db.prepare('SELECT public_code FROM Courses WHERE id = ?')
+          .bind(id).first<any>();
+        if (now?.public_code) return now.public_code as string;
+      } catch {
+        // Unique index rejected it: another course holds that code. Try again.
+      }
+    }
+    return null;
   }
 
   /**
@@ -1035,7 +1091,11 @@ export class AdminRepository {
       channelFlagsFor(data.confirmationChannelMode).email, data.emailSuccessSubject ?? null, data.emailSuccessTemplate ?? null,
       data.confirmationChannelMode ?? 'off'
     ).run();
-    return result.meta.last_row_id;
+    const id = result.meta.last_row_id as number;
+    // Issued here so a class has a shareable link the moment it exists, rather
+    // than the first time someone asks for one.
+    await this.ensureCoursePublicCode(id, data.name, data.nameEn);
+    return id;
   }
 
   async updateCourse(id: number, data: {

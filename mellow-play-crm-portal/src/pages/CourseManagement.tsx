@@ -911,7 +911,14 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     setVisibilityBusyId(course.id);
     write(next);
     try {
-      await axios.patch(`${API_BASE}/courses/${course.id}/visibility`, { visibility: next });
+      const res = await axios.patch(`${API_BASE}/courses/${course.id}/visibility`, { visibility: next });
+      // A class created before codes existed gets one issued the moment it
+      // goes private, and the server hands it back. Stored so the copy-link
+      // button beside it gives out the code and not the row id.
+      const issued = res.data?.publicCode;
+      if (issued) {
+        setCourses(prev => prev.map(c => (c.id === course.id ? { ...c, public_code: issued } : c)));
+      }
     } catch {
       write(previous);
       setSaveError('เปลี่ยนสถานะการมองเห็นคลาสไม่สำเร็จ');

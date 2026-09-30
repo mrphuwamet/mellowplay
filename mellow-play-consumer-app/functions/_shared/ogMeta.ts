@@ -134,8 +134,10 @@ export async function renderCourseOgHtml(id: string, pageUrl: string): Promise<s
     // in no list, so the old find() returned nothing for one and a link shared
     // with an invited family previewed as a dead URL. This endpoint is the one
     // read that serves an unlisted class, and still refuses a hidden one.
-    if (!/^\d+$/.test(id)) return null;
-    const res = await fetch(`${API_BASE}/courses/${id}`);
+    // A row id or a public_code; the API resolves either. Bounded and
+    // character-checked here so a crafted path cannot be pasted into the URL.
+    if (!/^[A-Za-z0-9-]{1,80}$/.test(id)) return null;
+    const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     const data: any = await res.json();
     const course = data.success ? data.course : null;

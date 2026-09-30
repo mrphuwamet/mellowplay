@@ -2209,9 +2209,15 @@ export class AdminController {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
-      const id = parseInt(c.req.param('id'));
-      if (Number.isNaN(id)) return c.json({ success: false, message: 'invalid id' }, 400);
-      const course = await adminRepo.getCourseByIdForPublic(id);
+      const segment = String(c.req.param('id') ?? '');
+
+      // A bare number is a row id, which is what every link shared before
+      // codes existed looks like; anything else is a public_code. Only the
+      // code opens a private class — see getCourseByIdForPublic for why.
+      const course = /^\d+$/.test(segment)
+        ? await adminRepo.getCourseByIdForPublic(parseInt(segment))
+        : await adminRepo.getCourseByPublicCode(segment);
+
       if (!course) return c.json({ success: false, message: 'ไม่พบคลาสนี้' }, 404);
       return c.json({ success: true, course });
     } catch (error: any) {
@@ -2243,7 +2249,11 @@ export class AdminController {
       }
 
       await adminRepo.setCourseVisibility(id, visibility);
-      return c.json({ success: true, visibility });
+      // A class from before codes existed has none until something asks. The
+      // moment it becomes private is exactly when its link starts to matter,
+      // so it is issued here and returned for the CRM to show.
+      const publicCode = await adminRepo.ensureCoursePublicCode(id);
+      return c.json({ success: true, visibility, publicCode });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

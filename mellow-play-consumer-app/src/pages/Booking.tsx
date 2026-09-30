@@ -286,14 +286,19 @@ const Booking = () => {
           const fetchedCourses = coursesRes.data.courses;
           setCourses(fetchedCourses);
           if (preSelectedCourseId) {
-            let found = fetchedCourses.find((c: Course) => c.id === parseInt(preSelectedCourseId));
+            // Named courseId for the links already out there, but it carries a
+            // public_code for anything linked today.
+            const asId = /^\d+$/.test(preSelectedCourseId) ? parseInt(preSelectedCourseId) : null;
+            let found = fetchedCourses.find((c: any) => (
+              asId !== null ? c.id === asId : c.public_code === preSelectedCourseId
+            ));
             // A private class is in no list, so arriving here from its own
             // link finds nothing. Fetched on its own instead, and deliberately
             // NOT added to `courses`: it is the class being booked, not one
             // more entry in the browse step it is supposed to stay out of.
             if (!found) {
               const single = await apiClient
-                .get(`/courses/${parseInt(preSelectedCourseId)}`)
+                .get(`/courses/${encodeURIComponent(preSelectedCourseId)}`)
                 .catch(() => null);
               if (single?.data?.success) found = single.data.course as Course;
             }

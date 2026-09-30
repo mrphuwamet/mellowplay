@@ -62,7 +62,9 @@ const CourseToClassRedirect = () => {
       .then(res => {
         if (cancelled) return;
         const course = res.data?.success
-          ? (res.data.courses || []).find((c: any) => String(c.id) === String(id))
+          ? (res.data.courses || []).find((c: any) => (
+              String(c.id) === String(id) || c.public_code === String(id)
+            ))
           : null;
         setTarget(course ? getCourseDetailPath(course) : `/class/${id}`);
       })
