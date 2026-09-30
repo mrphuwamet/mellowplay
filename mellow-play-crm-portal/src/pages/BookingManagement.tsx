@@ -49,6 +49,7 @@ import CertificatePrintSheet, { PrintableCertificate } from '../components/Certi
 import BookingNoteBox from '../components/BookingNoteBox';
 import { parseFields, fieldText, CERT_VARIABLES, FORM_PREFIX } from '../utils/certificateLayout';
 import axios from 'axios';
+import ConsentAnswerField from '../components/ConsentAnswerField';
 import RecordMilestone from './RecordMilestone';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { AddBookingDialog, CourseDetailPanel } from '../components/AddBookingDialog';
@@ -895,7 +896,7 @@ const isAdultMember = (m: FamilyRosterMember): boolean => {
   return !CHILD_RELATIONS.has(relation);
 };
 
-const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onEditMember }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number>; onEditMember?: (m: FamilyRosterMember) => void }) => {
+const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onEditMember, recordJson, onChangeConsent }: { field: FormAnswerField; value: any; onChange: (v: any) => void; roster?: FamilyRosterMember[]; teamCounts?: Record<string, number>; onEditMember?: (m: FamilyRosterMember) => void; recordJson?: any; onChangeConsent?: (value: string, record: any) => void }) => {
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
   try {
@@ -903,6 +904,27 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onE
     if (field.type === 'team_select') teamOptions = field.optionsJson ? JSON.parse(field.optionsJson) : [];
   } catch { /* malformed options shouldn't block editing the rest of the fields */ }
 
+  if (field.type === 'consent') {
+    let docKey = '';
+    try { docKey = JSON.parse(field.config_json || '{}').consentDocKey || ''; } catch { /* no document, nothing to show */ }
+    if (!docKey) return null;
+    return (
+      <ConsentAnswerField
+        label={field.label}
+        docKey={docKey}
+        value={value}
+        recordJson={recordJson}
+        // Not grantable here. Ticking this weeks later, from a screen the
+        // family will never see, would be manufacturing a consent rather than
+        // recording one. Withdrawing stays possible — that is their right.
+        canGrant={false}
+        onChange={(text, record) => {
+          if (onChangeConsent) onChangeConsent(text, record);
+          else onChange(text);
+        }}
+      />
+    );
+  }
   if (field.type === 'phone') {
     return <TextField fullWidth size="small" type="tel" label={field.label}
       value={String(value ?? '').replace(/\D/g, '').slice(0, 10)}
@@ -4271,6 +4293,14 @@ const BookingManagement = () => {
                       roster={editFamilyRoster}
                       teamCounts={editTeamCounts[f.fieldKey]}
                       onEditMember={setEditingMember}
+                      recordJson={editFormAnswers[`${f.fieldKey}__consent`]}
+                      onChangeConsent={(text, record) => setEditFormAnswers(prev => ({
+                        ...prev,
+                        [f.fieldKey]: text,
+                        // Written together, so a withdrawn consent never
+                        // leaves its evidence row behind saying otherwise.
+                        [`${f.fieldKey}__consent`]: record ? JSON.stringify(record) : '',
+                      }))}
                     />
                   ))}
                 </Stack>

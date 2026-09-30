@@ -22,6 +22,7 @@ import {
   Notes as TextareaIcon,
   Numbers as NumberIcon,
   LocalPhone as PhoneIcon,
+  Gavel as ConsentFieldIcon,
   Event as DateIcon,
   ArrowDropDownCircle as SelectIcon,
   RadioButtonChecked as RadioIcon,
@@ -35,7 +36,17 @@ import {
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select' | 'image';
+type FieldType = 'heading' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'consent' | 'family_member_picker' | 'team_select' | 'image';
+
+/** A consent document this form can attach — see ConsentDocumentManagement. */
+interface ConsentDocOption {
+  id: number;
+  doc_key: string;
+  title: string;
+  summary: string;
+  version: number;
+  is_required_default: number;
+}
 
 interface TeamOption { label: string; capacity: number; }
 
@@ -49,6 +60,12 @@ interface FieldDraft {
   role?: 'adult' | 'child';   // family_member_picker
   duplicateCheckScope?: 'none' | 'course' | 'round' | 'calendar';
   imageUrl?: string;          // image
+  /**
+   * consent — which document is being agreed to, by its stable slug rather
+   * than its row id, so the reference survives a document being re-keyed and
+   * reads plainly in the stored config.
+   */
+  consentDocKey?: string;
   /** Pin this answer to the top of the check-in card, highlighted. */
   showAtCheckin?: boolean;
 }
@@ -66,6 +83,10 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   select: { label: 'ตัวเลือก (Dropdown)', icon: <SelectIcon fontSize="small" /> },
   radio: { label: 'ตัวเลือก (Radio)', icon: <RadioIcon fontSize="small" /> },
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
+  // Not a checkbox with legal wording typed into its label: this one is tied
+  // to a managed document, shows its full text on demand, and records which
+  // version of that text the family actually saw.
+  consent: { label: 'ยินยอม (PDPA)', icon: <ConsentFieldIcon fontSize="small" /> },
   family_member_picker: { label: 'เลือกสมาชิกในครอบครัว', icon: <FamilyPickerIcon fontSize="small" /> },
   team_select: { label: 'เลือกทีม (จำกัดจำนวนต่อทีม)', icon: <TeamSelectIcon fontSize="small" /> },
   image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
@@ -135,6 +156,14 @@ const RegistrationFormManagement = () => {
   const [editId, setEditId] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Only documents still in use. A retired one stays readable for the consents
+  // already given against it, but must not be attachable to anything new.
+  const [consentDocs, setConsentDocs] = useState<ConsentDocOption[]>([]);
+  useEffect(() => {
+    axios.get(`${API_BASE}/consent-documents/active`)
+      .then(res => setConsentDocs(res.data.documents || []))
+      .catch(() => setConsentDocs([]));
+  }, []);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -192,6 +221,7 @@ const RegistrationFormManagement = () => {
             teamOptions: (f.options_json && f.type === 'team_select') ? JSON.parse(f.options_json) : undefined,
             role: config.role,
             imageUrl: config.imageUrl,
+            consentDocKey: config.consentDocKey,
             showAtCheckin: !!config.showAtCheckin,
             duplicateCheckScope: f.duplicate_check_scope || 'none',
           };
@@ -223,6 +253,7 @@ const RegistrationFormManagement = () => {
           const cfg: Record<string, any> = {};
           if (f.role) cfg.role = f.role;
           if (f.type === 'image' && f.imageUrl) cfg.imageUrl = f.imageUrl;
+          if (f.type === 'consent' && f.consentDocKey) cfg.consentDocKey = f.consentDocKey;
           if (f.showAtCheckin) cfg.showAtCheckin = true;
           return Object.keys(cfg).length > 0 ? JSON.stringify(cfg) : undefined;
         })(),
@@ -424,6 +455,47 @@ const RegistrationFormManagement = () => {
                             </Button>
                           </Stack>
                         )}
+                        {field.type === 'consent' && (() => {
+                          const picked = consentDocs.find(d => d.doc_key === field.consentDocKey);
+                          return (
+                            <Box sx={{ width: '100%' }}>
+                              <FormControl size="small" fullWidth>
+                                <InputLabel>เอกสารที่ให้ยินยอม</InputLabel>
+                                <Select
+                                  value={consentDocs.some(d => d.doc_key === field.consentDocKey) ? field.consentDocKey : ''}
+                                  label="เอกสารที่ให้ยินยอม"
+                                  onChange={e => {
+                                    const doc = consentDocs.find(d => d.doc_key === e.target.value);
+                                    updateField(idx, {
+                                      consentDocKey: e.target.value as string,
+                                      // The document already says whether it is
+                                      // refusable; carrying that over means the
+                                      // rule lives in one place rather than
+                                      // being re-decided per form.
+                                      ...(doc ? { label: doc.title, required: doc.is_required_default !== 0 } : {}),
+                                    });
+                                  }}
+                                >
+                                  {consentDocs.length === 0 && <MenuItem value=""><em>ยังไม่มีเอกสาร — สร้างที่เมนู "เอกสารความยินยอม (PDPA)"</em></MenuItem>}
+                                  {consentDocs.map(d => (
+                                    <MenuItem key={d.doc_key} value={d.doc_key}>
+                                      {d.title} (ฉบับที่ {d.version})
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              {picked ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  ข้อความข้างช่องติ๊ก: "{picked.summary}" — ผู้กรอกเปิดอ่านฉบับเต็มได้ และระบบจะบันทึกว่ายินยอมกับฉบับที่ {picked.version}
+                                </Typography>
+                              ) : (
+                                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                                  ยังไม่ได้เลือกเอกสาร — ฟิลด์นี้จะไม่แสดงในฟอร์มจนกว่าจะเลือก
+                                </Typography>
+                              )}
+                            </Box>
+                          );
+                        })()}
                         {field.type === 'family_member_picker' && (
                           <FormControl size="small" sx={{ minWidth: 200 }}>
                             <InputLabel>ให้เลือกสมาชิกบทบาท</InputLabel>

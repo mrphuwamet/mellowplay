@@ -23,6 +23,9 @@ const STATIC_PATHS: { path: string; changefreq: string; priority: string }[] = [
   { path: '/news-feed/news', changefreq: 'daily', priority: '0.9' },
   { path: '/news-feed/media', changefreq: 'weekly', priority: '0.8' },
   { path: '/contact', changefreq: 'monthly', priority: '0.5' },
+  // The standing privacy notice. Public, stable, and the page a consent form
+  // links to — exactly what a search engine should be able to reach.
+  { path: '/pdpa', changefreq: 'monthly', priority: '0.4' },
 ];
 
 const urlEntry = (loc: string, lastmod: string | null, changefreq: string, priority: string) =>

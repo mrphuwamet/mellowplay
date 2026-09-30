@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
 import apiClient from '../utils/apiClient';
 import { digitsOnly, isCallablePhone } from '../utils/phone';
+import ConsentField from './ConsentField';
 
 interface RegFormField {
   id: number;
@@ -184,6 +185,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
     // Half a phone number is worse than none: it passes the form and fails
     // when someone actually needs to ring the parent.
     if (f.type === 'phone') return isCallablePhone(v);
+    // Consent is the one field where "filled" and "agreed" are the same thing.
+    if (f.type === 'consent') return v != null && String(v).trim() !== '';
     return v != null && String(v).trim() !== '';
   };
   const needsAnswer = (f: RegFormField) => f.type !== 'heading' && (isChildPickerField(f) || f.required) && !isFieldFilled(f);
@@ -278,6 +281,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             ? (lang === 'en' ? 'Please select at least 1 option' : 'กรุณาเลือกอย่างน้อย 1 ตัวเลือก')
             : (field.type === 'select' || field.type === 'radio' || field.type === 'team_select')
             ? (lang === 'en' ? 'Please make a selection' : 'กรุณาเลือกตัวเลือกนี้')
+            : field.type === 'consent'
+            ? (lang === 'en' ? 'Please tick to agree before continuing' : 'กรุณาติ๊กยอมรับก่อนดำเนินการต่อ')
             : field.type === 'phone'
             ? (lang === 'en' ? 'Please enter a valid phone number' : 'กรุณากรอกเบอร์โทรให้ครบ 9-10 หลัก')
             : (lang === 'en' ? 'This field is required' : 'กรุณากรอกข้อมูลนี้');
@@ -303,6 +308,32 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                 className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <input type="text" value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass} />
+              </div>
+            );
+          }
+          if (field.type === 'consent') {
+            let consentDocKey = '';
+            try { consentDocKey = JSON.parse(field.config_json || '{}').consentDocKey || ''; } catch { /* a malformed config hides the field rather than showing an empty tick box */ }
+            // No document means nothing to agree to. Rendering the box anyway
+            // would collect a consent to wording that was never on screen.
+            if (!consentDocKey) return null;
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
+                {labelEl}
+                <ConsentField
+                  docKey={consentDocKey}
+                  lang={lang}
+                  value={value}
+                  required={!!field.required}
+                  onChange={(text, record) => {
+                    onChange(field.field_key, text);
+                    // The evidence rides in a companion key, so every screen
+                    // and export that already renders answers keeps working on
+                    // the plain string above.
+                    onChange(`${field.field_key}__consent`, record ? JSON.stringify(record) : '');
+                  }}
+                />
               </div>
             );
           }

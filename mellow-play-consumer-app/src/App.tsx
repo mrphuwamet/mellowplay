@@ -24,6 +24,7 @@ import Unsubscribe from './pages/Unsubscribe';
 import UpcomingActivities from './pages/UpcomingActivities';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
+import PdpaPolicy from './pages/PdpaPolicy';
 import SettingsProfile from './pages/SettingsProfile';
 import CommunityGuidelines from './pages/CommunityGuidelines';
 import Booking from './pages/Booking';
@@ -159,6 +160,9 @@ const AppContent = () => {
         <Route path="/settings" element={<SettingsProfile />} />
         <Route path="/settings/profile" element={<SettingsProfile />} />
         <Route path="/settings/community-guidelines" element={<CommunityGuidelines />} />
+        {/* Public on purpose: a privacy notice behind a login is not a notice,
+            and a consent form has to be able to link a guest straight to it. */}
+        <Route path="/pdpa" element={<PdpaPolicy />} />
         <Route path="/booking" element={<Booking />} />
         <Route path="/booking-success" element={<BookingSuccess />} />
         <Route path="/my-coupons" element={<MyCoupons />} />

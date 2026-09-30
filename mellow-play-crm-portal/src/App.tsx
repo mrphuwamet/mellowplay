@@ -75,6 +75,7 @@ import {
   Link as TagAttributionMenuIcon,
   Assignment as RegistrationFormMenuIcon,
   Quiz as SurveyMenuIcon,
+  Gavel as ConsentMenuIcon,
   Lock as LockMenuIcon,
   Celebration as EventMenuIcon,
   MiscellaneousServices as CourseServiceMenuIcon,
@@ -98,6 +99,7 @@ import CrmUserManagement from './pages/CrmUserManagement';
 import CourseManagement from './pages/CourseManagement';
 import RegistrationFormManagement from './pages/RegistrationFormManagement';
 import SurveyManagement from './pages/SurveyManagement';
+import ConsentDocumentManagement from './pages/ConsentDocumentManagement';
 import MessageLogs from './pages/MessageLogs';
 import BroadcastManagement from './pages/BroadcastManagement';
 import SurveyResponses from './pages/SurveyResponses';
@@ -166,7 +168,7 @@ const drawerCollapsedWidth = 72;
 const GROUP_PATHS: Record<string, string[]> = {
   dashboard: ['/crm/dashboard/overview', '/crm/dashboard/bookings', '/crm/dashboard/sales', '/crm/dashboard/tag-attribution'],
   people: ['/crm/staff', '/crm/parents'],
-  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/booking-announcer', '/crm/tournaments', '/crm/certificates', '/crm/sms-notifications'],
+  classes: ['/crm/courses', '/crm/events', '/crm/course-services', '/crm/registration-forms', '/crm/consent-documents', '/crm/surveys', '/crm/calendars', '/crm/bookings', '/crm/booking-announcer', '/crm/tournaments', '/crm/certificates', '/crm/sms-notifications'],
   marketing: ['/crm/broadcasts', '/crm/packages', '/crm/coupons', '/crm/promotions', '/crm/sale-campaigns', '/crm/rewards', '/crm/redemptions', '/crm/stamp-images', '/crm/news-feed', '/crm/community-moderation', '/crm/ads'],
   shop: ['/crm/services', '/crm/products', '/crm/stock'],
   finance: ['/crm/my-schedule', '/crm/incentives', '/crm/attendance', '/crm/leave', '/crm/expense-advance', '/crm/payout', '/crm/campaign-bonus'],
@@ -496,6 +498,7 @@ const AppContent = () => {
       { text: 'จัดการบริการ (Service)', icon: <CourseServiceMenuIcon />, path: '/crm/course-services', feature: 'courses' },
       { text: 'จัดการแบบฟอร์มลงทะเบียน', icon: <RegistrationFormMenuIcon />, path: '/crm/registration-forms', feature: 'courses' },
       { text: 'แบบสอบถาม/แบบทดสอบ', icon: <SurveyMenuIcon />, path: '/crm/surveys', feature: 'courses' },
+      { text: 'เอกสารความยินยอม (PDPA)', icon: <ConsentMenuIcon />, path: '/crm/consent-documents', feature: 'courses' },
       { text: 'จัดการปฏิทิน', icon: <ScheduleIcon />, path: '/crm/calendars', feature: 'settings' },
       { text: 'รายการลงทะเบียนทั้งหมด', icon: <BookingIcon />, path: '/crm/bookings', feature: 'bookings' },
       { text: 'ประกาศการจองใหม่', icon: <AnnouncerMenuIcon />, path: '/crm/booking-announcer', feature: 'bookings' },
@@ -1140,6 +1143,7 @@ const AppContent = () => {
             <Route path="/crm/course-services" element={protect('courses', <CourseManagement courseType="service" />)} />
             <Route path="/crm/registration-forms" element={protect('courses', <RegistrationFormManagement />)} />
             <Route path="/crm/surveys" element={protect('courses', <SurveyManagement />)} />
+            <Route path="/crm/consent-documents" element={protect('courses', <ConsentDocumentManagement />)} />
             <Route path="/crm/message-logs" element={protect('settings', <MessageLogs />)} />
             <Route path="/crm/broadcasts" element={protect('settings', <BroadcastManagement />)} />
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />

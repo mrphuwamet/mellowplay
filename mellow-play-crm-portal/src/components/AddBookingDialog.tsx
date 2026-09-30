@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
+import ConsentAnswerField from './ConsentAnswerField';
 import { API_URL } from '../config';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
@@ -212,6 +213,26 @@ const RegistrationFormFields = ({
 
         if (field.type === 'text') {
           return wrap(<TextField fullWidth size="small" label={requiredLabel} value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} />);
+        }
+        if (field.type === 'consent') {
+          let docKey = '';
+          try { docKey = JSON.parse(field.config_json || '{}').consentDocKey || ''; } catch { /* no document, no tick box */ }
+          if (!docKey) return null;
+          return wrap(
+            <ConsentAnswerField
+              label={requiredLabel}
+              docKey={docKey}
+              value={value}
+              recordJson={answers[`${field.field_key}__consent`]}
+              // This screen IS the booking being taken, so a consent given on
+              // the phone is recorded here rather than invented later.
+              canGrant
+              onChange={(text, record) => {
+                onChange(field.field_key, text);
+                onChange(`${field.field_key}__consent`, record ? JSON.stringify(record) : '');
+              }}
+            />
+          );
         }
         if (field.type === 'phone') {
           // Digits only here too, so a number staff typed and a number a parent

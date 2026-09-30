@@ -11,6 +11,7 @@ import { AdminController } from './controllers/adminController';
 import { ShopController } from './controllers/shopController';
 import { HRController } from './controllers/hrController';
 import { CalendarController } from './controllers/calendarController';
+import { ConsentController } from './controllers/consentController';
 import { CourseMaterialController } from './controllers/courseMaterialController';
 import { ReportController } from './controllers/reportController';
 import { RegistrationFormController } from './controllers/registrationFormController';
@@ -55,6 +56,7 @@ const couponController = new CouponController();
 const shopController     = new ShopController();
 const hrController       = new HRController();
 const calendarController      = new CalendarController();
+const consentController       = new ConsentController();
 const queueController         = new QueueController();
 const orderController         = new OrderController();
 const courseMaterialController = new CourseMaterialController();
@@ -961,6 +963,23 @@ app.post('/api/v1/admin/payouts/generate', (c) => hrController.generatePayout(c)
 app.post('/api/v1/admin/payouts/generate-all', (c) => hrController.generatePayoutForAll(c));
 
 // ── Calendars ───────────────────────────────────────────────────────────────
+// ================= CONSENT DOCUMENTS (PDPA) =================
+// The public reads are public on purpose: a privacy notice nobody can open
+// without an account is not a notice, and a form asking for consent has to be
+// able to show the wording to a guest. Writes sit under /admin with the rest of
+// the CRM. See migration 0119.
+app.get   ('/api/v1/consent-documents',                       (c) => consentController.listPublic(c));
+app.get   ('/api/v1/consent-documents/key/:key',              (c) => consentController.getPublicByKey(c));
+app.get   ('/api/v1/consent-documents/:id/versions/:version',  (c) => consentController.getVersion(c));
+
+app.get   ('/api/v1/admin/consent-documents',                 (c) => consentController.list(c));
+app.get   ('/api/v1/admin/consent-documents/active',          (c) => consentController.listActive(c));
+app.post  ('/api/v1/admin/consent-documents',                 (c) => consentController.create(c));
+app.get   ('/api/v1/admin/consent-documents/:id/versions',     (c) => consentController.listVersions(c));
+app.put   ('/api/v1/admin/consent-documents/:id',             (c) => consentController.update(c));
+app.post  ('/api/v1/admin/consent-documents/:id/retire',      (c) => consentController.retire(c));
+app.post  ('/api/v1/admin/consent-documents/:id/restore',     (c) => consentController.restore(c));
+
 app.get   ('/api/v1/admin/calendars',              (c) => calendarController.getCalendars(c));
 app.post  ('/api/v1/admin/calendars',              (c) => calendarController.createCalendar(c));
 app.put   ('/api/v1/admin/calendars/:id',          (c) => calendarController.updateCalendar(c));
