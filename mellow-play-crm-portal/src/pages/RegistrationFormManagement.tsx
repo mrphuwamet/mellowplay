@@ -21,6 +21,7 @@ import {
   ShortText as TextFieldIcon,
   Notes as TextareaIcon,
   Numbers as NumberIcon,
+  LocalPhone as PhoneIcon,
   Event as DateIcon,
   ArrowDropDownCircle as SelectIcon,
   RadioButtonChecked as RadioIcon,
@@ -34,7 +35,7 @@ import {
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select' | 'image';
+type FieldType = 'heading' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'family_member_picker' | 'team_select' | 'image';
 
 interface TeamOption { label: string; capacity: number; }
 
@@ -56,6 +57,10 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
   text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
   textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
+  // Not a plain text field with a different name: it keeps to digits, offers
+  // the account holder's own number in one tap, and refuses a number that is
+  // too short to call back — which is the whole reason the field is asked for.
+  phone: { label: 'เบอร์โทรศัพท์', icon: <PhoneIcon fontSize="small" /> },
   number: { label: 'ตัวเลข', icon: <NumberIcon fontSize="small" /> },
   date: { label: 'วันที่', icon: <DateIcon fontSize="small" /> },
   select: { label: 'ตัวเลือก (Dropdown)', icon: <SelectIcon fontSize="small" /> },

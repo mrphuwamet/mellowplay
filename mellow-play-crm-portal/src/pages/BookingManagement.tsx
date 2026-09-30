@@ -903,6 +903,12 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onE
     if (field.type === 'team_select') teamOptions = field.optionsJson ? JSON.parse(field.optionsJson) : [];
   } catch { /* malformed options shouldn't block editing the rest of the fields */ }
 
+  if (field.type === 'phone') {
+    return <TextField fullWidth size="small" type="tel" label={field.label}
+      value={String(value ?? '').replace(/\D/g, '').slice(0, 10)}
+      onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
+      inputProps={{ inputMode: 'numeric', maxLength: 10 }} placeholder="08XXXXXXXX" />;
+  }
   if (field.type === 'textarea') {
     return <TextField fullWidth size="small" multiline minRows={2} label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
   }

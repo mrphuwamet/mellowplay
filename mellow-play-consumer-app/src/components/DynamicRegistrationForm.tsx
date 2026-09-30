@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import ChildAvatar from './ChildAvatar';
 import apiClient from '../utils/apiClient';
+import { digitsOnly, isCallablePhone } from '../utils/phone';
 
 interface RegFormField {
   id: number;
@@ -116,6 +117,24 @@ const DynamicRegistrationForm: React.FC<Props> = ({
   // "Next" stays clickable even with required fields still blank — instead
   // of graying it out with no explanation, a click on an incomplete page
   // jumps straight to whichever required field is still empty.
+  /**
+   * The signed-in account's own number, if it has one.
+   *
+   * Read from the stored session rather than fetched: it is already there from
+   * login, and a parent filling a form should not wait on a request to put in
+   * the number they registered with. A guest, or an account with no number on
+   * file, simply gets no button — the field is typed by hand as before.
+   */
+  const myPhone = useMemo(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('mellow_user') || 'null');
+      const phone = digitsOnly(raw?.phone);
+      return isCallablePhone(phone) ? phone : '';
+    } catch {
+      return '';
+    }
+  }, []);
+
   const [invalidFieldKey, setInvalidFieldKey] = useState<string | null>(null);
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
   useEffect(() => { setInvalidFieldKey(null); }, [pageIndex]);
@@ -162,6 +181,9 @@ const DynamicRegistrationForm: React.FC<Props> = ({
     if (isChildPickerField(f)) return (selectedChildIds || []).length > 0;
     const v = answers[f.field_key];
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
+    // Half a phone number is worse than none: it passes the form and fails
+    // when someone actually needs to ring the parent.
+    if (f.type === 'phone') return isCallablePhone(v);
     return v != null && String(v).trim() !== '';
   };
   const needsAnswer = (f: RegFormField) => f.type !== 'heading' && (isChildPickerField(f) || f.required) && !isFieldFilled(f);
@@ -256,6 +278,8 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             ? (lang === 'en' ? 'Please select at least 1 option' : 'กรุณาเลือกอย่างน้อย 1 ตัวเลือก')
             : (field.type === 'select' || field.type === 'radio' || field.type === 'team_select')
             ? (lang === 'en' ? 'Please make a selection' : 'กรุณาเลือกตัวเลือกนี้')
+            : field.type === 'phone'
+            ? (lang === 'en' ? 'Please enter a valid phone number' : 'กรุณากรอกเบอร์โทรให้ครบ 9-10 หลัก')
             : (lang === 'en' ? 'This field is required' : 'กรุณากรอกข้อมูลนี้');
 
           const labelEl = (
@@ -279,6 +303,42 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                 className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
                 <input type="text" value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass} />
+              </div>
+            );
+          }
+          if (field.type === 'phone') {
+            const current = digitsOnly(value);
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
+                {labelEl}
+                <input
+                  type="tel"
+                  // numeric keypad on a phone, which is every phone here
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={10}
+                  placeholder="08XXXXXXXX"
+                  value={current}
+                  // Filtered on the way in rather than validated on the way
+                  // out: a space or a dash pasted from a contact card would
+                  // otherwise be stored and break every lookup downstream.
+                  onChange={e => onChange(field.field_key, digitsOnly(e.target.value))}
+                  className={inputClass}
+                />
+                {/* Only for an account that has a number on file. A guest has
+                    nothing to fill from, and a button that fills in blank is a
+                    button that looks broken. Hidden once it would change
+                    nothing, so it never invites a pointless tap. */}
+                {!!myPhone && current !== myPhone && (
+                  <button
+                    type="button"
+                    onClick={() => onChange(field.field_key, myPhone)}
+                    className="mt-2 px-3 py-1.5 rounded-full bg-mellow-purple/10 text-mellow-purple text-[12px] font-bold active:scale-95 transition-transform"
+                  >
+                    {lang === 'en' ? `Use my number (${myPhone})` : `ใช้เบอร์ของฉัน (${myPhone})`}
+                  </button>
+                )}
               </div>
             );
           }

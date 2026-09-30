@@ -213,6 +213,14 @@ const RegistrationFormFields = ({
         if (field.type === 'text') {
           return wrap(<TextField fullWidth size="small" label={requiredLabel} value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} />);
         }
+        if (field.type === 'phone') {
+          // Digits only here too, so a number staff typed and a number a parent
+          // typed are the same string when anything looks one up later.
+          return wrap(<TextField fullWidth size="small" type="tel" label={requiredLabel}
+            value={String(value ?? '').replace(/\D/g, '').slice(0, 10)}
+            onChange={e => onChange(field.field_key, e.target.value.replace(/\D/g, '').slice(0, 10))}
+            inputProps={{ inputMode: 'numeric', maxLength: 10 }} placeholder="08XXXXXXXX" />);
+        }
         if (field.type === 'textarea') {
           return wrap(<TextField fullWidth size="small" multiline minRows={2} label={requiredLabel} value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} />);
         }
