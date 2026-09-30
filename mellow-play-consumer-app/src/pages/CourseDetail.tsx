@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Maximize2, X } from 'lucide-react';
 import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
-import { hasInviteSession } from '../utils/inviteSession';
+import { hasInviteSession, loadInviteSessionToken } from '../utils/inviteSession';
 import { thisCourseWord } from '../utils/courseWording';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
@@ -69,7 +69,18 @@ const CourseDetail = () => {
           }
           setCourse(found);
           if (found?.calendar_id) {
-            const slotsRes = await apiClient.get(`/admin/calendar-slots/upcoming?calendarId=${found.calendar_id}`);
+            // The same three params the booking flow sends. An invite is
+            // scoped to one round and holds seats back for it, and those seats
+            // only appear when the token is presented — asked without it, the
+            // page told an invited family "เต็มแล้ว" about the very round they
+            // were invited to. Harmless for everyone else: no token, no boost.
+            const slotsRes = await apiClient.get('/admin/calendar-slots/upcoming', {
+              params: {
+                calendarId: found.calendar_id,
+                courseId: found.id,
+                inviteSessionToken: loadInviteSessionToken(found.id) || undefined,
+              },
+            });
             if (slotsRes.data.success) setUpcomingSlots(slotsRes.data.upcoming || []);
           }
         } else {

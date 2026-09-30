@@ -5,9 +5,10 @@
  * PIN once, and this is what says so afterwards — scoped per course, so an
  * invite to one class never speaks for another.
  *
- * Three screens read it and they must agree: InviteAccess writes it, the class
- * detail page decides whether to let someone register past a closed sign-up
- * date, and the booking flow sends it to unlock the round's reserved seats.
+ * Three screens read it and they must agree: InviteAccess writes it, and both
+ * the class detail page and the booking flow send it to unlock the reserved
+ * seats on the invited round — the detail page also uses it to let someone
+ * register past a closed sign-up date.
  * It lived as a copy-pasted key builder in two of those before this file.
  */
 
