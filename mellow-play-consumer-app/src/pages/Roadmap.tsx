@@ -9,7 +9,7 @@ import BookingDetailModal from '../components/BookingDetailModal';
 import CourseCard from '../components/CourseCard';
 import ChildAvatar from '../components/ChildAvatar';
 import { getCourseView } from '../utils/courseImage';
-import { getCourseDetailPath } from '../utils/courseLinks';
+import { getCourseDetailPath, getCourseBookingPath } from '../utils/courseLinks';
 import { trackCourseView } from '../utils/analytics';
 import { BOOKING_STATUS_META } from '../utils/bookingStatus';
 import { stripHtml } from '../utils/stripHtml';
@@ -390,7 +390,7 @@ const Roadmap = () => {
                             if (isOneTimeDone) { navigate(getCourseDetailPath(course)); return; }
                             trackCourseView(course.id);
                             const bookingType = course.is_event ? 'event' : course.is_service ? 'service' : 'class';
-                            navigate(`/booking?courseId=${course.id}${bookingType !== 'class' ? `&type=${bookingType}` : ''}`);
+                            navigate(getCourseBookingPath(course, bookingType !== 'class' ? `&type=${bookingType}` : ''));
                           }}
                           className={`px-4 py-2 text-[13px] font-bold rounded-xl transition-all shadow-sm ${
                             isOneTimeDone

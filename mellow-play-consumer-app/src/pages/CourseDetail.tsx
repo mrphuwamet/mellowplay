@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getCourseBookingPath } from '../utils/courseLinks';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Maximize2, X } from 'lucide-react';
@@ -207,7 +208,7 @@ const CourseDetail = () => {
     if (isGuest) {
       setShowGuestModal(true);
     } else {
-      navigate(`/booking?courseId=${course.id}`);
+      navigate(getCourseBookingPath(course));
     }
   };
 
@@ -609,7 +610,7 @@ const CourseDetail = () => {
                   // The booking flow, not this page. Coming back to the
                   // description means pressing Register a second time to get
                   // where they were already going.
-                  navigate(`/register?redirect=${encodeURIComponent(`/booking?courseId=${course.id}`)}`);
+                  navigate(`/register?redirect=${encodeURIComponent(getCourseBookingPath(course))}`);
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
               >
@@ -618,7 +619,7 @@ const CourseDetail = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  navigate(`/login?redirect=${encodeURIComponent(`/booking?courseId=${course.id}`)}`);
+                  navigate(`/login?redirect=${encodeURIComponent(getCourseBookingPath(course))}`);
                 }}
                 className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
               >

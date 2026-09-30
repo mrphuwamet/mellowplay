@@ -7,7 +7,6 @@ import { useTranslation } from '../LanguageContext';
 import logo from '../assets/ui/logo.svg';
 import { saveInviteSession } from '../utils/inviteSession';
 import { getCourseDetailPath } from '../utils/courseLinks';
-import apiClient from '../utils/apiClient';
 
 const API_BASE = `${API_BASE_URL}/admin`;
 
@@ -51,20 +50,18 @@ const InviteAccess = () => {
         const courseId: number = res.data.courseId;
         saveInviteSession(courseId, res.data.sessionToken, res.data.expiresIn);
 
-        // Fetched rather than assembled from the id: an invited round is very
-        // often on a private class, and a private class answers to its code
-        // and not to /class/<id>. This is also what tells an event from a
-        // service, so the address reads as what it actually is.
-        let destination = `/booking?courseId=${courseId}`;
-        try {
-          const course = await apiClient.get(`/courses/${courseId}`);
-          if (course.data?.success) destination = getCourseDetailPath(course.data.course);
-        } catch {
-          // Hidden class, or the network went. Falling back to the booking
-          // form keeps the invitation usable, which matters more than landing
-          // on the nicer page.
-        }
-        navigate(destination, { replace: true });
+        // Built from what the verification already returned, not from a second
+        // request. An invited round is usually on a private class, and a
+        // private class answers to its code rather than to /class/<id> — an
+        // address assembled from the id would 404 on the very families the
+        // link was written for. The same reply says whether it is an event or
+        // a service, so the URL reads as what it actually is.
+        navigate(getCourseDetailPath({
+          id: courseId,
+          public_code: res.data.coursePublicCode,
+          is_event: res.data.courseIsEvent,
+          is_service: res.data.courseIsService,
+        }), { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.message || (lang === 'en' ? 'Something went wrong, please try again.' : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'));

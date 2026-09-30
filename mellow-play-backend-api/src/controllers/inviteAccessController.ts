@@ -59,7 +59,13 @@ export class InviteAccessController {
       if (!isInviteLinkUsable(link)) return c.json({ success: false, message: 'ลิงก์นี้ถูกยกเลิกหรือหมดอายุแล้ว' }, 403);
 
       const config = new ConfigService(c.env);
-      const course = await config.db.prepare('SELECT name FROM Courses WHERE id = ?').bind(link!.course_id).first() as any;
+      // public_code and the kind flags travel with the reply so the app can
+      // build the class URL without a second lookup. An invited round is
+      // usually on a private class, and a private class is addressed by its
+      // code — an id alone sends the invited family to a page that 404s.
+      const course = await config.db.prepare(
+        'SELECT name, public_code, is_event, is_service FROM Courses WHERE id = ?'
+      ).bind(link!.course_id).first() as any;
       return c.json({
         success: true,
         requiresPin: !isInviteLinkOpen(link),
@@ -90,13 +96,21 @@ export class InviteAccessController {
       }
 
       const config = new ConfigService(c.env);
-      const course = await config.db.prepare('SELECT name FROM Courses WHERE id = ?').bind(link!.course_id).first() as any;
+      // public_code and the kind flags travel with the reply so the app can
+      // build the class URL without a second lookup. An invited round is
+      // usually on a private class, and a private class is addressed by its
+      // code — an id alone sends the invited family to a page that 404s.
+      const course = await config.db.prepare(
+        'SELECT name, public_code, is_event, is_service FROM Courses WHERE id = ?'
+      ).bind(link!.course_id).first() as any;
       const sessionToken = await AuthService.generateTokenWithExpiry(
         { type: 'invite_access', linkId: link!.id }, config.jwtSecret, SESSION_SECONDS
       );
       return c.json({
         success: true, sessionToken, label: link!.label, expiresIn: SESSION_SECONDS,
         courseId: link!.course_id, courseName: course?.name || null,
+        coursePublicCode: course?.public_code || null,
+        courseIsEvent: !!course?.is_event, courseIsService: !!course?.is_service,
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

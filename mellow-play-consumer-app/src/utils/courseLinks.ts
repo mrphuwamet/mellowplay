@@ -21,3 +21,17 @@ export const getCourseDetailPath = (course: { id: number; public_code?: string |
   if (course.is_service) return `/services/${segment}`;
   return `/class/${segment}`;
 };
+
+
+/**
+ * The booking URL for a course.
+ *
+ * ?courseId= carries the same segment the detail URL does, and for the same
+ * reason: a private class does not answer to its row id, so a numeric one sent
+ * here resolves to nothing and the booking dead-ends on a class the visitor
+ * was just reading about. The booking page accepts either form.
+ */
+export const getCourseBookingPath = (
+  course: { id: number; public_code?: string | null },
+  extraQuery = "",
+): string => `/booking?courseId=${encodeURIComponent(courseSegment(course))}${extraQuery}`;

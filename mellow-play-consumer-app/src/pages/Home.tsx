@@ -13,7 +13,7 @@ import AddChildModal from '../components/AddChildModal';
 import AvatarPickerModal from '../components/AvatarPickerModal';
 import BookingDetailModal from '../components/BookingDetailModal';
 import ChildAvatar from '../components/ChildAvatar';
-import { getCourseDetailPath } from '../utils/courseLinks';
+import { getCourseDetailPath, getCourseBookingPath } from '../utils/courseLinks';
 import { formatCalendarSummary } from '../utils/calendarUtils';
 import BirthdayModal from '../components/BirthdayModal';
 import CommunityPostComposer from '../components/CommunityPostComposer';
@@ -465,7 +465,7 @@ const Home = () => {
       e.stopPropagation();
       if (isOneTimeBooked || !course) return;
       trackCourseView(course.id);
-      navigate(`/booking?courseId=${course.id}`);
+      navigate(getCourseBookingPath(course));
     };
 
     // Styled to read as a post FROM Mellow Play in the feed (same card

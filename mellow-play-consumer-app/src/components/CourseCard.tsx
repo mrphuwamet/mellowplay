@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, CheckCircle, Star, Ticket, PartyPopper, ConciergeBell } from 'lucide-react';
 import logo from '../assets/ui/logo.svg';
 import { getCourseView } from '../utils/courseImage';
-import { getCourseDetailPath } from '../utils/courseLinks';
+import { getCourseDetailPath, getCourseBookingPath } from '../utils/courseLinks';
 import { trackCourseView } from '../utils/analytics';
 import { formatCalendarSummary, isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import type { CourseBookingStatus } from '../hooks/useCourseBookingStatus';
@@ -155,7 +155,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, bookingStatus, lang = '
           onClick={(e) => {
             e.stopPropagation();
             if (isDisabled) navigate(getCourseDetailPath(course));
-            else { trackCourseView(course.id); navigate(`/booking?courseId=${course.id}`); }
+            else { trackCourseView(course.id); navigate(getCourseBookingPath(course)); }
           }}
           className={`w-full py-2 text-[13px] font-bold rounded-xl transition-all mt-auto ${
             isDisabled

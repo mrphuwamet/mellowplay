@@ -23,7 +23,7 @@ import { loadInviteSessionToken } from '../utils/inviteSession';
 import { thisCourseWord, attendeeWord } from '../utils/courseWording';
 import { isPlainText } from '../utils/richText';
 import { scrollToTop } from '../utils/scrollToTop';
-import { getCourseDetailPath } from '../utils/courseLinks';
+import { getCourseDetailPath, getCourseBookingPath } from '../utils/courseLinks';
 import ConfirmationChannelNotice from '../components/ConfirmationChannelNotice';
 import logo from '../assets/ui/logo.svg';
 import { type PosterImage } from '../components/PosterCarousel';
@@ -2003,7 +2003,7 @@ const Booking = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
+                  const redirectTo = selectedCourse ? getCourseBookingPath(selectedCourse) : '/booking';
                   navigate(`/register?redirect=${encodeURIComponent(redirectTo)}`);
                 }}
                 className="h-[48px] bg-mellow-ink text-white rounded-2xl font-bold text-[16px] shadow-lg shadow-black/10 active:scale-95 transition-transform"
@@ -2013,7 +2013,7 @@ const Booking = () => {
               <button
                 onClick={() => {
                   setShowGuestModal(false);
-                  const redirectTo = selectedCourse ? `/booking?courseId=${selectedCourse.id}` : '/booking';
+                  const redirectTo = selectedCourse ? getCourseBookingPath(selectedCourse) : '/booking';
                   navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`);
                 }}
                 className="h-[48px] bg-slate-100 text-slate-700 rounded-2xl font-bold text-[16px] active:scale-95 transition-transform"
