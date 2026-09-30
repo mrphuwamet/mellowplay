@@ -329,6 +329,31 @@ const RegistrationFormManagement = () => {
     setPages(next.length > 0 ? next : [[]]);
     setActivePage(Math.max(0, Math.min(activePage, next.length - 1)));
   };
+  /**
+   * Moves a page, and keeps whichever page was open still open.
+   *
+   * activePage is an index, so every page between the two ends shifts by one
+   * and the plain "if it was dragged, follow it" rule is not enough: drag page
+   * 1 to the end while sitting on page 2, and page 2 is now index 1. Each case
+   * below is one of those shifts, not defensive padding.
+   */
+  const reorderPage = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= pages.length || toIdx >= pages.length) return;
+    const next = [...pages];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setPages(next);
+    setActivePage(prev => {
+      if (prev === fromIdx) return toIdx;                       // the page being dragged
+      if (fromIdx < prev && prev <= toIdx) return prev - 1;      // it passed under this one, going down
+      if (toIdx <= prev && prev < fromIdx) return prev + 1;      // ...or going up
+      return prev;                                              // untouched by the move
+    });
+  };
+
+  const [pageDragFrom, setPageDragFrom] = useState<number | null>(null);
+  const [pageDragOver, setPageDragOver] = useState<number | null>(null);
+
   const addField = (type: FieldType) => {
     const next = pages.map((page, i) => i === activePage ? [...page, emptyField(type)] : page);
     setPages(next);
@@ -421,11 +446,50 @@ const RegistrationFormManagement = () => {
                 scrollButtons="auto"
                 sx={{ mb: 2, borderBottom: '1px solid #eee' }}
               >
-                {pages.map((_, i) => <Tab key={i} label={`หน้า ${i + 1}`} sx={{ fontWeight: 700, textTransform: 'none' }} />)}
+                {pages.map((_, i) => (
+                  <Tab
+                    key={i}
+                    label={`หน้า ${i + 1}`}
+                    // The tab itself is the handle. Unlike a field card there is
+                    // nothing inside it to select, so there is no text-selection
+                    // to break by making the whole thing draggable.
+                    draggable
+                    onDragStart={e => {
+                      setPageDragFrom(i);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', String(i)); // Firefox needs a payload
+                    }}
+                    onDragEnd={() => { setPageDragFrom(null); setPageDragOver(null); }}
+                    onDragOver={e => { if (pageDragFrom !== null) { e.preventDefault(); setPageDragOver(i); } }}
+                    onDragLeave={() => setPageDragOver(prev => (prev === i ? null : prev))}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (pageDragFrom !== null) reorderPage(pageDragFrom, i);
+                      setPageDragFrom(null);
+                      setPageDragOver(null);
+                    }}
+                    sx={{
+                      fontWeight: 700, textTransform: 'none', cursor: 'grab',
+                      '&:active': { cursor: 'grabbing' },
+                      opacity: pageDragFrom === i ? 0.4 : 1,
+                      // The side the page would land on — tabs run across, so
+                      // the marker is a left or right edge rather than top/bottom.
+                      borderLeft: pageDragOver === i && pageDragFrom !== null && pageDragFrom > i ? '3px solid' : undefined,
+                      borderRight: pageDragOver === i && pageDragFrom !== null && pageDragFrom < i ? '3px solid' : undefined,
+                      borderLeftColor: 'primary.main',
+                      borderRightColor: 'primary.main',
+                    }}
+                  />
+                ))}
               </Tabs>
 
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Button size="small" startIcon={<AddIcon />} onClick={addPage}>เพิ่มหน้า</Button>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <Button size="small" startIcon={<AddIcon />} onClick={addPage}>เพิ่มหน้า</Button>
+                  {pages.length > 1 && (
+                    <Typography variant="caption" color="text.secondary">ลากแท็บหน้าเพื่อสลับลำดับได้</Typography>
+                  )}
+                </Stack>
                 {pages.length > 1 && (
                   <Button size="small" color="error" onClick={() => removePage(activePage)}>ลบหน้านี้</Button>
                 )}
