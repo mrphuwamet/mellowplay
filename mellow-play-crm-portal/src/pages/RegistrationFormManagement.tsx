@@ -24,6 +24,7 @@ import {
   LocalPhone as PhoneIcon,
   Gavel as ConsentFieldIcon,
   Visibility as PreviewIcon,
+  DragIndicator as DragIcon,
   Event as DateIcon,
   ArrowDropDownCircle as SelectIcon,
   RadioButtonChecked as RadioIcon,
@@ -316,6 +317,28 @@ const RegistrationFormManagement = () => {
     const next = pages.map((page, i) => i === activePage ? page.filter((_, j) => j !== fieldIdx) : page);
     setPages(next);
   };
+  /**
+   * Moves a field to a position, for the drag.
+   *
+   * Separate from moveField's neighbour swap because a drag is not a series of
+   * swaps: dropping item 1 onto item 5 has to take the four in between along
+   * with it, and swapping repeatedly would scramble their order instead.
+   */
+  const reorderField = (fromIdx: number, toIdx: number) => {
+    const page = pages[activePage];
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= page.length || toIdx >= page.length) return;
+    const reordered = [...page];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setPages(pages.map((p, i) => (i === activePage ? reordered : p)));
+  };
+
+  // Which card is being dragged, and which one the pointer is over. Held here
+  // rather than read off the drag event because Firefox gives dragover no
+  // access to the payload, so the source index has to be remembered.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
   const moveField = (fieldIdx: number, dir: -1 | 1) => {
     const page = pages[activePage];
     const targetIdx = fieldIdx + dir;
@@ -389,8 +412,56 @@ const RegistrationFormManagement = () => {
                   </Typography>
                 )}
                 {currentPageFields.map((field, idx) => (
-                  <Paper key={field.fieldKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Paper
+                    key={field.fieldKey}
+                    variant="outlined"
+                    // The whole card is the drop target, so the pointer does
+                    // not have to find the handle again to let go.
+                    onDragOver={e => { if (dragFrom !== null) { e.preventDefault(); setDragOver(idx); } }}
+                    onDragLeave={() => setDragOver(prev => (prev === idx ? null : prev))}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (dragFrom !== null) reorderField(dragFrom, idx);
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    sx={{
+                      p: 2, borderRadius: 2,
+                      opacity: dragFrom === idx ? 0.4 : 1,
+                      // A line on the edge the card would land against, rather
+                      // than a highlight of the whole row: "between these two"
+                      // is the thing being chosen, and a filled box says
+                      // "onto this one" instead.
+                      borderTop: dragOver === idx && dragFrom !== null && dragFrom > idx ? '3px solid' : undefined,
+                      borderBottom: dragOver === idx && dragFrom !== null && dragFrom < idx ? '3px solid' : undefined,
+                      borderTopColor: 'primary.main',
+                      borderBottomColor: 'primary.main',
+                      transition: 'opacity .15s',
+                    }}
+                  >
                     <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                      {/* Only the handle is draggable, not the card. Making the
+                          card itself draggable means selecting text in any
+                          field inside it starts a drag instead. */}
+                      <Tooltip title="ลากเพื่อจัดลำดับ">
+                        <Box
+                          draggable
+                          onDragStart={e => {
+                            setDragFrom(idx);
+                            e.dataTransfer.effectAllowed = 'move';
+                            // Firefox refuses to start a drag without payload.
+                            e.dataTransfer.setData('text/plain', String(idx));
+                          }}
+                          onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                          sx={{
+                            mt: 1.25, color: 'text.disabled', cursor: 'grab',
+                            '&:active': { cursor: 'grabbing' },
+                            display: 'flex', touchAction: 'none',
+                          }}
+                        >
+                          <DragIcon fontSize="small" />
+                        </Box>
+                      </Tooltip>
                       <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center">

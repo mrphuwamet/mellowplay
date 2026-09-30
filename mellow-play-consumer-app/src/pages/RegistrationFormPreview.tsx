@@ -29,8 +29,13 @@ import DynamicRegistrationForm from '../components/DynamicRegistrationForm';
  * which is not a trade a preview is worth.
  */
 const SAMPLE_ROSTER = [
-  { id: -1, name: 'ตัวอย่าง น้องเอ', nickname: 'น้องเอ (ตัวอย่าง)', relation: 'ลูก' },
-  { id: -2, name: 'ตัวอย่าง น้องบี', nickname: 'น้องบี (ตัวอย่าง)', relation: 'ลูก' },
+  // relation is the stored value, not the Thai label. The child picker filters
+  // on 'child' exactly (see rosterFor in DynamicRegistrationForm), so 'ลูก'
+  // here matched nothing and the preview showed a picker with no one in it.
+  { id: -101, name: 'ตัวอย่าง น้องเอ', nickname: 'น้องเอ (ตัวอย่าง)', relation: 'child' },
+  { id: -102, name: 'ตัวอย่าง น้องบี', nickname: 'น้องบี (ตัวอย่าง)', relation: 'child' },
+  // An adult too, so a picker set to the 'adult' role is not empty either.
+  { id: -103, name: 'ตัวอย่าง คุณแม่', nickname: 'คุณแม่ (ตัวอย่าง)', relation: 'mother' },
 ];
 
 const RegistrationFormPreview: React.FC = () => {
@@ -42,6 +47,7 @@ const RegistrationFormPreview: React.FC = () => {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [selectedChildIds, setSelectedChildIds] = useState<number[]>([]);
   const [finished, setFinished] = useState(false);
+  const [addNotice, setAddNotice] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +88,19 @@ const RegistrationFormPreview: React.FC = () => {
       <main className="p-5 max-w-lg mx-auto">
         {banner}
 
+        {addNotice && (
+          <div className="flex items-start justify-between gap-2 bg-slate-100 border border-slate-200 rounded-2xl p-3 mb-4">
+            <p className="text-[12px] font-bold text-slate-600 leading-relaxed">
+              {lang === 'en'
+                ? 'In a real booking this opens the "add family member" screen. It is disabled in a preview.'
+                : 'ในการจองจริง ปุ่มนี้จะเปิดหน้าเพิ่มสมาชิกในครอบครัว — ในโหมดตัวอย่างจะไม่เปิดให้'}
+            </p>
+            <button onClick={() => setAddNotice(false)} className="text-[12px] font-black text-slate-500 shrink-0">
+              {lang === 'en' ? 'OK' : 'เข้าใจแล้ว'}
+            </button>
+          </div>
+        )}
+
         {form === undefined ? (
           <div className="space-y-3 animate-pulse">
             {[0, 1, 2].map(i => <div key={i} className="h-14 bg-white rounded-2xl border border-slate-100" />)}
@@ -117,6 +136,11 @@ const RegistrationFormPreview: React.FC = () => {
             selectedChildIds={selectedChildIds}
             onChildSelectionChange={setSelectedChildIds}
             mainAccount={{ name: 'ตัวอย่าง ผู้ปกครอง' }}
+            // Passed so the "เพิ่ม" cell appears in the picker grid exactly as
+            // it does for a parent — a preview missing a button is a preview
+            // of a different screen. It cannot actually add anyone here, and
+            // says so rather than doing nothing.
+            onAddFamilyMember={() => setAddNotice(true)}
             // Back on the first page would leave the wizard in a real booking;
             // here it leaves the preview, which is the same intent.
             onBack={() => navigate(-1)}
