@@ -89,10 +89,13 @@ const CourseDetail = () => {
   }, [id]);
 
   useEffect(() => {
-    if (!id) return;
-    trackCourseView(id, selectedChild?.id);
+    // Counted against the resolved row, not against the URL segment: the
+    // segment is a public_code for a private class, and analytics is read by
+    // course id everywhere else.
+    if (!course?.id) return;
+    trackCourseView(course.id, selectedChild?.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [course?.id]);
 
   if (loading) {
     return (

@@ -192,7 +192,22 @@ export class AnalyticsController {
   async recordCourseView(c: C) {
     try {
       const config = new ConfigService(c.env);
-      const courseId = parseInt(c.req.param('courseId'));
+
+      // The segment may be a public_code rather than a row id — a private
+      // class is only addressable by its code, and the class page counts the
+      // view with whatever the URL handed it. parseInt on a code gives NaN,
+      // which D1 refuses, and the failure surfaced as a 500 on the very page
+      // being counted.
+      const segment = String(c.req.param('courseId') ?? '');
+      const courseId = /^d+$/.test(segment)
+        ? parseInt(segment)
+        : (await config.db.prepare('SELECT id FROM Courses WHERE public_code = ?')
+            .bind(segment).first() as any)?.id;
+
+      // A view that cannot be attributed is dropped rather than raised.
+      // Counting is a side errand; it has no business failing a page load.
+      if (!courseId) return c.json({ success: true, counted: false });
+
       const { childId } = await c.req.json().catch(() => ({ childId: null }));
       await config.db.prepare(
         `INSERT INTO Course_Views (course_id, child_id) VALUES (?, ?)`
