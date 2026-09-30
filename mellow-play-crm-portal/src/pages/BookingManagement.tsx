@@ -904,6 +904,17 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onE
     if (field.type === 'team_select') teamOptions = field.optionsJson ? JSON.parse(field.optionsJson) : [];
   } catch { /* malformed options shouldn't block editing the rest of the fields */ }
 
+  if (field.type === 'paragraph') {
+    let html = '';
+    try { html = JSON.parse(field.config_json || '{}').labelHtml || ''; } catch { /* plain text below */ }
+    return (
+      <Box sx={{ bgcolor: 'grey.50', borderRadius: 2, p: 1.5, fontSize: 13, lineHeight: 1.8 }}>
+        {html.trim()
+          ? <Box dangerouslySetInnerHTML={{ __html: html }} />
+          : <Box sx={{ whiteSpace: 'pre-line' }}>{field.label}</Box>}
+      </Box>
+    );
+  }
   if (field.type === 'consent') {
     let docKey = '';
     try { docKey = JSON.parse(field.config_json || '{}').consentDocKey || ''; } catch { /* no document, nothing to show */ }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL, CONSUMER_APP_URL } from '../config';
+import RichTextEditor from '../components/RichTextEditor';
 import axios from 'axios';
 import {
   Typography, Box, CircularProgress, Grid, Button, Chip,
@@ -23,6 +24,7 @@ import {
   Numbers as NumberIcon,
   LocalPhone as PhoneIcon,
   Gavel as ConsentFieldIcon,
+  Notes as ParagraphIcon,
   Visibility as PreviewIcon,
   DragIndicator as DragIcon,
   Event as DateIcon,
@@ -38,7 +40,7 @@ import {
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'consent' | 'family_member_picker' | 'team_select' | 'image';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'consent' | 'family_member_picker' | 'team_select' | 'image';
 
 /** A consent document this form can attach — see ConsentDocumentManagement. */
 interface ConsentDocOption {
@@ -63,6 +65,13 @@ interface FieldDraft {
   duplicateCheckScope?: 'none' | 'course' | 'round' | 'calendar';
   imageUrl?: string;          // image
   /**
+   * paragraph — the formatted copy, as HTML. `label` keeps a plain-text copy
+   * of the same words so anything reading a field by its label (the check-in
+   * card, a CSV header, this list) still has something readable rather than
+   * markup.
+   */
+  labelHtml?: string;
+  /**
    * consent — which document is being agreed to, by its stable slug rather
    * than its row id, so the reference survives a document being re-keyed and
    * reads plainly in the stored config.
@@ -74,6 +83,10 @@ interface FieldDraft {
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
+  // Not a heading and not a question: a block of copy for the reader, laid
+  // out — bold, lists, links, line breaks. Headings were being used for this
+  // and came out as one long unbreakable line.
+  paragraph: { label: 'เนื้อหาให้อ่าน (จัดรูปแบบได้)', icon: <ParagraphIcon fontSize="small" /> },
   text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
   textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
   // Not a plain text field with a different name: it keeps to digits, offers
@@ -105,6 +118,17 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
  */
 const openFormPreview = (formId: number) => {
   window.open(`${CONSUMER_APP_URL}/preview/registration-form/${formId}`, '_blank', 'noopener,noreferrer');
+};
+
+/** Plain-text copy of formatted content, for the places that cannot show markup. */
+const stripHtml = (html: string): string => {
+  const el = document.createElement('div');
+  // Block ends become newlines first, so paragraphs and list items do not run
+  // together once the tags are gone.
+  el.innerHTML = (html || '')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n');
+  return (el.textContent || '').split(/\n+/).map(l => l.trim()).filter(Boolean).join('\n');
 };
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -237,6 +261,7 @@ const RegistrationFormManagement = () => {
             role: config.role,
             imageUrl: config.imageUrl,
             consentDocKey: config.consentDocKey,
+            labelHtml: config.labelHtml,
             showAtCheckin: !!config.showAtCheckin,
             duplicateCheckScope: f.duplicate_check_scope || 'none',
           };
@@ -269,6 +294,7 @@ const RegistrationFormManagement = () => {
           if (f.role) cfg.role = f.role;
           if (f.type === 'image' && f.imageUrl) cfg.imageUrl = f.imageUrl;
           if (f.type === 'consent' && f.consentDocKey) cfg.consentDocKey = f.consentDocKey;
+          if (f.type === 'paragraph' && f.labelHtml) cfg.labelHtml = f.labelHtml;
           if (f.showAtCheckin) cfg.showAtCheckin = true;
           return Object.keys(cfg).length > 0 ? JSON.stringify(cfg) : undefined;
         })(),
@@ -466,7 +492,7 @@ const RegistrationFormManagement = () => {
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
                           <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
-                          {field.type !== 'heading' && field.type !== 'image' && (
+                          {field.type !== 'heading' && field.type !== 'paragraph' && field.type !== 'image' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
                               label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
@@ -486,11 +512,29 @@ const RegistrationFormManagement = () => {
                             </Tooltip>
                           )}
                         </Stack>
-                        <TextField
-                          fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
-                          value={field.label}
-                          onChange={e => updateField(idx, { label: e.target.value })}
-                        />
+                        {field.type === 'paragraph' ? (
+                          <Box>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                              เนื้อหา (จัดรูปแบบได้ — ตัวหนา สี หัวข้อย่อย ลิงก์)
+                            </Typography>
+                            {/* label is kept in step with the text, stripped of
+                                markup: the check-in card and the CSV export read
+                                a field by its label and would otherwise show
+                                raw HTML. */}
+                            <RichTextEditor
+                              value={field.labelHtml ?? (field.label ? `<p>${field.label}</p>` : '')}
+                              onChange={html => updateField(idx, { labelHtml: html, label: stripHtml(html) })}
+                              uploadFolder="registration-forms"
+                              placeholder="พิมพ์เนื้อหาที่อยากให้ผู้กรอกอ่าน"
+                            />
+                          </Box>
+                        ) : (
+                          <TextField
+                            fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
+                            value={field.label}
+                            onChange={e => updateField(idx, { label: e.target.value })}
+                          />
+                        )}
                         {field.type === 'image' && (
                           <ImageUploadField url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
                         )}
@@ -594,7 +638,7 @@ const RegistrationFormManagement = () => {
                             </Select>
                           </FormControl>
                         )}
-                        {field.type !== 'heading' && field.type !== 'image' && (
+                        {field.type !== 'heading' && field.type !== 'paragraph' && field.type !== 'image' && (
                           <FormControl size="small" sx={{ minWidth: 280, display: 'block' }}>
                             <InputLabel>ป้องกันการลงทะเบียนซ้ำ</InputLabel>
                             <Select

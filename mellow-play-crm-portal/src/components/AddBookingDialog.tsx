@@ -196,6 +196,17 @@ const RegistrationFormFields = ({
       {fields.map(field => {
         if (customerType === 'guest' && field.type === 'family_member_picker') return null;
 
+        if (field.type === 'paragraph') {
+          let html = '';
+          try { html = JSON.parse(field.config_json || '{}').labelHtml || ''; } catch { /* plain text below */ }
+          return (
+            <Box key={field.field_key} sx={{ bgcolor: 'grey.50', borderRadius: 2, p: 1.5, fontSize: 13, lineHeight: 1.8 }}>
+              {html.trim()
+                ? <Box dangerouslySetInnerHTML={{ __html: html }} />
+                : <Box sx={{ whiteSpace: 'pre-line' }}>{field.label}</Box>}
+            </Box>
+          );
+        }
         if (field.type === 'heading') {
           return <Typography key={field.field_key} variant="subtitle2" sx={{ fontWeight: 800, pt: 1 }}>{field.label}</Typography>;
         }

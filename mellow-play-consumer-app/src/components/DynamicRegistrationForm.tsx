@@ -189,7 +189,11 @@ const DynamicRegistrationForm: React.FC<Props> = ({
     if (f.type === 'consent') return v != null && String(v).trim() !== '';
     return v != null && String(v).trim() !== '';
   };
-  const needsAnswer = (f: RegFormField) => f.type !== 'heading' && (isChildPickerField(f) || f.required) && !isFieldFilled(f);
+  // A paragraph is copy to read, exactly like a heading — there is nothing in
+  // it to answer, so it can never be what blocks the Next button.
+  const needsAnswer = (f: RegFormField) =>
+    f.type !== 'heading' && f.type !== 'paragraph'
+    && (isChildPickerField(f) || f.required) && !isFieldFilled(f);
 
   // Clears the error highlight as soon as whatever was missing gets filled
   // in — no need to wait for another "Next" click to confirm it's fixed.
@@ -250,6 +254,17 @@ const DynamicRegistrationForm: React.FC<Props> = ({
 
       <div className="space-y-4">
         {currentFields.map(field => {
+          if (field.type === 'paragraph') {
+            // Formatted copy if the builder wrote any, otherwise the plain
+            // text with its line breaks kept — a paragraph typed as plain text
+            // would otherwise collapse into one run.
+            let html = '';
+            try { html = JSON.parse(field.config_json || '{}').labelHtml || ''; } catch { /* fall through to plain text */ }
+            const box = 'text-sm font-medium text-slate-600 leading-relaxed bg-slate-50 rounded-2xl p-4';
+            return html.trim()
+              ? <div key={field.field_key} className={`prose-news ${box}`} dangerouslySetInnerHTML={{ __html: html }} />
+              : <p key={field.field_key} className={`${box} whitespace-pre-line`}>{field.label}</p>;
+          }
           if (field.type === 'heading') {
             return <h4 key={field.field_key} className="text-base font-black text-slate-700 pt-2">{field.label}</h4>;
           }
