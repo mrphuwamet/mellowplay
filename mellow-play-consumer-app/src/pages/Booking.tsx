@@ -19,6 +19,7 @@ import { getCourseView, type CourseImageViews } from '../utils/courseImage';
 import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
+import { loadInviteSessionToken } from '../utils/inviteSession';
 import { isPlainText } from '../utils/richText';
 import { scrollToTop } from '../utils/scrollToTop';
 import { getCourseDetailPath } from '../utils/courseLinks';
@@ -40,19 +41,7 @@ interface UpcomingDate { date: string; slots: TimeSlot[]; isFull: boolean; }
 // course since that's the granularity a link is scoped to. Read here so the
 // slot picker shows the round's real (boosted) availability instead of
 // "full", and so the actual booking submit can unlock the same capacity.
-const inviteSessionKey = (courseId: number) => `mellow_invite_session_${courseId}`;
-const loadInviteSessionToken = (courseId: number | undefined): string | null => {
-  if (!courseId) return null;
-  try {
-    const raw = localStorage.getItem(inviteSessionKey(courseId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed.sessionToken || parsed.expiresAt < Date.now()) return null;
-    return parsed.sessionToken;
-  } catch {
-    return null;
-  }
-};
+
 
 const calculateAge = (birthDateString: string, t: any) => {
   if (!birthDateString) return '';

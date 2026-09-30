@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin, Home, Ticket, Maximize2, X } from 'lucide-react';
 import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
+import { hasInviteSession } from '../utils/inviteSession';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { getCourseView } from '../utils/courseImage';
@@ -171,8 +172,23 @@ const CourseDetail = () => {
   const isOneTimeBooked = !!courseBookingStatus && !course.allow_repeat;
   const ended = isCourseEnded(course);
   const registrationClosed = isRegistrationClosed(course);
-  const isRegisterDisabled = isOneTimeBooked || ended || registrationClosed;
-  const registerLabel = isOneTimeBooked
+  /**
+   * An invitation outranks the public closing date, and only that.
+   *
+   * A reserved round is normally invited to AFTER sign-ups close — that is
+   * what it is for — so leaving the button disabled here would turn every such
+   * link into a dead end one screen before the booking that would have
+   * accepted it. The booking flow already lets a preselected course through
+   * the same date, so this only stops the two screens disagreeing.
+   *
+   * It does not override the rest: a class that has finished has finished, and
+   * someone who has already booked a one-time class has still booked it.
+   */
+  const invited = hasInviteSession(course.id);
+  const isRegisterDisabled = isOneTimeBooked || ended || (registrationClosed && !invited);
+  const registerLabel = (registrationClosed && invited && !isOneTimeBooked && !ended)
+    ? (lang === 'en' ? 'Register with invitation' : 'ลงทะเบียนด้วยลิงก์เชิญ')
+    : isOneTimeBooked
     ? (courseBookingStatus === 'upcoming'
         ? (lang === 'en' ? 'Registered' : 'ลงทะเบียนแล้ว')
         : (lang === 'en' ? 'Already Taken' : 'เคยเรียนแล้ว'))

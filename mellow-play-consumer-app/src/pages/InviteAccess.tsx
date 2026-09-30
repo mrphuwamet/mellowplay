@@ -5,6 +5,9 @@ import axios from 'axios';
 import { API_BASE_URL } from '../utils/apiClient';
 import { useTranslation } from '../LanguageContext';
 import logo from '../assets/ui/logo.svg';
+import { saveInviteSession } from '../utils/inviteSession';
+import { getCourseDetailPath } from '../utils/courseLinks';
+import apiClient from '../utils/apiClient';
 
 const API_BASE = `${API_BASE_URL}/admin`;
 
@@ -13,13 +16,17 @@ const API_BASE = `${API_BASE_URL}/admin`;
 // relevant here; the PIN itself is the only credential this call needs.
 const bareAxios = axios.create();
 
-const inviteSessionKey = (courseId: number) => `mellow_invite_session_${courseId}`;
-
 // Public page opened from a PIN-protected link a CRM admin generated for one
 // specific course+round (see CourseManagement's "ลิงก์เชิญพิเศษ" dialog).
-// On success, stores a session scoped to that course (read by Booking.tsx to
-// unlock the round's hidden invite_capacity) and drops straight into booking
-// it — the round otherwise shows as ordinarily full to everyone else.
+// On success it stores a session scoped to that course, which Booking.tsx
+// sends along to unlock the round's hidden invite_capacity — the round shows
+// as ordinarily full to everyone else.
+//
+// It lands on the class's own page, not the booking form. An invitation is an
+// offer, and an offer that opens on a half-filled form asks someone to commit
+// before they have read what to. The details page is where the dates, the
+// price and the description are; the register button there carries them on,
+// and the invite pass rides along in storage the whole way.
 const InviteAccess = () => {
   const { token = '' } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -41,14 +48,23 @@ const InviteAccess = () => {
         { pin: submittedPin },
       );
       if (res.data.success) {
-        localStorage.setItem(inviteSessionKey(res.data.courseId), JSON.stringify({
-          sessionToken: res.data.sessionToken,
-          expiresAt: Date.now() + res.data.expiresIn * 1000,
-        }));
-        // Straight to booking. Booking.tsx sends anyone without an account
-        // through the ordinary signup and brings them back here afterwards, so
-        // an invite needs no flow of its own for that.
-        navigate(`/booking?courseId=${res.data.courseId}`, { replace: true });
+        const courseId: number = res.data.courseId;
+        saveInviteSession(courseId, res.data.sessionToken, res.data.expiresIn);
+
+        // Fetched rather than assembled from the id: an invited round is very
+        // often on a private class, and a private class answers to its code
+        // and not to /class/<id>. This is also what tells an event from a
+        // service, so the address reads as what it actually is.
+        let destination = `/booking?courseId=${courseId}`;
+        try {
+          const course = await apiClient.get(`/courses/${courseId}`);
+          if (course.data?.success) destination = getCourseDetailPath(course.data.course);
+        } catch {
+          // Hidden class, or the network went. Falling back to the booking
+          // form keeps the invitation usable, which matters more than landing
+          // on the nicer page.
+        }
+        navigate(destination, { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.message || (lang === 'en' ? 'Something went wrong, please try again.' : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'));
