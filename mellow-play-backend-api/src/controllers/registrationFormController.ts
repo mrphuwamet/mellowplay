@@ -40,6 +40,27 @@ export class RegistrationFormController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * The same form, for the CRM's "ดูตัวอย่าง" button.
+   *
+   * Public, and deliberately so: the preview opens the consumer app, which
+   * holds no CRM session, and the alternative — reimplementing the form inside
+   * the CRM — is exactly the second implementation a preview exists to avoid.
+   *
+   * It exposes nothing new. getFormForCourse below already hands the identical
+   * structure to anyone booking a course that uses the form; this only removes
+   * the requirement to go through a course to see it.
+   */
+  async getFormPreview(c: C) {
+    try {
+      const id = parseInt(c.req.param("id"));
+      if (Number.isNaN(id)) return c.json({ success: false, message: "invalid id" }, 400);
+      const form = await this.repo(c).getFormWithFields(id);
+      if (!form) return c.json({ success: false, message: "ไม่พบแบบฟอร์มนี้" }, 404);
+      return c.json({ success: true, form });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   // Public: the consumer app calls this to render whatever form (if any)
   // is assigned to the course it's booking. `form: null` is a normal
   // response, not an error — most courses have no form assigned.

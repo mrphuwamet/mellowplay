@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '../config';
+import { API_URL, CONSUMER_APP_URL } from '../config';
 import axios from 'axios';
 import {
   Typography, Box, CircularProgress, Grid, Button, Chip,
@@ -23,6 +23,7 @@ import {
   Numbers as NumberIcon,
   LocalPhone as PhoneIcon,
   Gavel as ConsentFieldIcon,
+  Visibility as PreviewIcon,
   Event as DateIcon,
   ArrowDropDownCircle as SelectIcon,
   RadioButtonChecked as RadioIcon,
@@ -90,6 +91,19 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   family_member_picker: { label: 'เลือกสมาชิกในครอบครัว', icon: <FamilyPickerIcon fontSize="small" /> },
   team_select: { label: 'เลือกทีม (จำกัดจำนวนต่อทีม)', icon: <TeamSelectIcon fontSize="small" /> },
   image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
+};
+
+/**
+ * Opens the form in the consumer app, the way a parent sees it.
+ *
+ * A new tab into the real renderer rather than a preview drawn here: a preview
+ * built a second time inside the CRM is a second implementation of the form,
+ * and the bugs worth catching before a form goes out are exactly the ones a
+ * reimplementation would not reproduce. Same reasoning as the survey's
+ * "ทดลองทำ" button. Nothing the preview collects is saved.
+ */
+const openFormPreview = (formId: number) => {
+  window.open(`${CONSUMER_APP_URL}/preview/registration-form/${formId}`, '_blank', 'noopener,noreferrer');
 };
 
 const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -566,12 +580,30 @@ const RegistrationFormManagement = () => {
               </Stack>
             </Paper>
 
-            <Button
-              variant="contained" size="large" startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
-              disabled={saving} onClick={handleSave}
-            >
-              บันทึกฟอร์ม
-            </Button>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+              <Button
+                variant="contained" size="large" startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+                disabled={saving} onClick={handleSave}
+              >
+                บันทึกฟอร์ม
+              </Button>
+              {/* Shows what was last saved, not what is on screen — the
+                  preview loads the form from the server. Said in the tooltip
+                  rather than left to be discovered by previewing an edit and
+                  not finding it. */}
+              <Tooltip title={editId
+                ? "เปิดดูตัวอย่างฉบับที่บันทึกล่าสุด — กดบันทึกก่อนถ้าเพิ่งแก้"
+                : "บันทึกฟอร์มก่อนจึงจะดูตัวอย่างได้"}>
+                <span>
+                  <Button
+                    variant="outlined" size="large" startIcon={<PreviewIcon />}
+                    disabled={!editId || saving} onClick={() => editId && openFormPreview(editId)}
+                  >
+                    ดูตัวอย่าง
+                  </Button>
+                </span>
+              </Tooltip>
+            </Stack>
           </Grid>
         </Grid>
       </Box>
@@ -612,6 +644,9 @@ const RegistrationFormManagement = () => {
                 </TableCell>
                 <TableCell align="right">{form.course_count}</TableCell>
                 <TableCell align="right">
+                  <Tooltip title="ดูตัวอย่างแบบฟอร์ม (เปิดแท็บใหม่ ไม่บันทึกอะไร)">
+                    <IconButton size="small" onClick={() => openFormPreview(form.id)}><PreviewIcon fontSize="small" /></IconButton>
+                  </Tooltip>
                   <IconButton size="small" onClick={() => startEdit(form.id)}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="error" onClick={() => setItemToDelete({ id: form.id, name: form.name })}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>

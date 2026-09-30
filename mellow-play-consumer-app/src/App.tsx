@@ -25,6 +25,7 @@ import UpcomingActivities from './pages/UpcomingActivities';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
 import PdpaPolicy from './pages/PdpaPolicy';
+import RegistrationFormPreview from './pages/RegistrationFormPreview';
 import SettingsProfile from './pages/SettingsProfile';
 import CommunityGuidelines from './pages/CommunityGuidelines';
 import Booking from './pages/Booking';
@@ -163,6 +164,11 @@ const AppContent = () => {
         {/* Public on purpose: a privacy notice behind a login is not a notice,
             and a consent form has to be able to link a guest straight to it. */}
         <Route path="/pdpa" element={<PdpaPolicy />} />
+        {/* The CRM's "ดูตัวอย่าง" opens this. It renders the real form
+            component — a preview drawn inside the CRM would be a second
+            implementation, and the bugs worth catching are the ones a
+            reimplementation would not reproduce. Nothing here submits. */}
+        <Route path="/preview/registration-form/:id" element={<RegistrationFormPreview />} />
         <Route path="/booking" element={<Booking />} />
         <Route path="/booking-success" element={<BookingSuccess />} />
         <Route path="/my-coupons" element={<MyCoupons />} />

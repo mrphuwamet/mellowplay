@@ -1039,6 +1039,10 @@ app.get('/api/v1/admin/reports/tag-attribution', (c) => reportController.getTagA
 app.get('/api/v1/admin/reports/tag-attribution/people', (c) => reportController.getTagAttributionPeople(c));
 app.get('/api/v1/admin/reports/tag-clicks', (c) => reportController.getTagClicks(c));
 
+// Public preview — see RegistrationFormController.getFormPreview for why it
+// sits outside /admin.
+app.get('/api/v1/registration-forms/:id/preview', (c) => registrationFormController.getFormPreview(c));
+
 app.get('/api/v1/admin/registration-forms',      (c) => registrationFormController.listForms(c));
 app.post('/api/v1/admin/registration-forms',     (c) => registrationFormController.createForm(c));
 app.get('/api/v1/admin/registration-forms/:id',  (c) => registrationFormController.getForm(c));
