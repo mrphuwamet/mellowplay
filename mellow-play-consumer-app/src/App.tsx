@@ -25,6 +25,7 @@ import UpcomingActivities from './pages/UpcomingActivities';
 import NewsDetail from './pages/NewsDetail';
 import NewsList from './pages/NewsList';
 import PdpaPolicy from './pages/PdpaPolicy';
+import NotFound from './pages/NotFound';
 import RegistrationFormPreview from './pages/RegistrationFormPreview';
 import SettingsProfile from './pages/SettingsProfile';
 import CommunityGuidelines from './pages/CommunityGuidelines';
@@ -186,6 +187,12 @@ const AppContent = () => {
         <Route path="/checkin/:token" element={<CheckinQr />} />
         <Route path="/invite/:token" element={<InviteAccess />} />
         <Route path="/i/:token" element={<InviteAccess />} />
+        {/* Anything else. Without this the router matched nothing and rendered
+            nothing — a shell wrapped around an empty middle, which reads as
+            broken rather than as a wrong link. It is also what a tab open
+            across a deploy sees when it opens a route its build predates, so
+            the page leads with "reload" rather than "this page is gone". */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </AppShell>
   );
