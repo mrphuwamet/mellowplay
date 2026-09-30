@@ -31,19 +31,17 @@ export class CalendarController {
   async deleteCalendar(c: C) {
     try {
       const result = await this.repo(c).deleteCalendar(parseInt(c.req.param('id')));
-      if (result.blockedBy && result.blockedBy.length > 0) {
-        // 409, not 500: nothing failed. The calendar is in use, and the answer
-        // is for staff to act on rather than for anyone to debug — so it names
-        // the classes standing in the way.
-        const names = result.blockedBy.slice(0, 5).join(', ');
-        const more = result.blockedBy.length > 5 ? ` และอีก ${result.blockedBy.length - 5} คลาส` : '';
+      if (!result.ok) {
+        // 409, not 500: nothing failed. There are families holding places on
+        // this calendar, and the answer is for staff to act on rather than for
+        // anyone to debug.
         return c.json({
           success: false,
-          message: `ลบไม่ได้ เพราะยังมีคลาสใช้ปฏิทินนี้อยู่: ${names}${more} — ย้ายคลาสไปปฏิทินอื่นหรือลบคลาสก่อน`,
-          blockedBy: result.blockedBy,
+          message: `ลบไม่ได้ เพราะมีการจองอยู่บนปฏิทินนี้ ${result.bookings} รายการ — ปฏิทินที่ยังไม่มีใครจองเท่านั้นที่ลบได้`,
+          bookings: result.bookings,
         }, 409);
       }
-      return c.json({ success: true });
+      return c.json({ success: true, detached: result.detached ?? [] });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 

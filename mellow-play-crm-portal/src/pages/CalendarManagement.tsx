@@ -1,16 +1,17 @@
 import { API_URL } from '../config';
 import TimeField24 from '../components/TimeField24';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControl, Grid, IconButton,
   InputLabel, MenuItem, Paper, Select, Tab, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TableSortLabel, Tabs, TextField, Typography,
-  Checkbox, FormControlLabel, Stack,
+  Checkbox, FormControlLabel, Stack, InputAdornment, Tooltip,
 } from '@mui/material';
 import {
   CalendarMonth as CalendarIcon, Add as AddIcon, Edit as EditIcon,
   Delete as DeleteIcon, Schedule as SlotIcon,
+  Search as SearchIcon, PushPin as PinnedIcon, PushPinOutlined as PinIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -19,8 +20,27 @@ const API_BASE = `${API_URL}/api/v1/admin`;
 const DAY_NAMES = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 const COLORS = ['#7c3aed','#0284c7','#059669','#d97706','#dc2626','#db2777','#0d9488'];
 
-interface Calendar { id: number; name: string; description: string; color: string; type: string; is_active: number; }
+interface Calendar { id: number; name: string; description: string; color: string; type: string; is_active: number; created_at?: string; }
 interface SlotRule { id: number; calendar_id: number; day_of_week: number | null; specific_date: string | null; start_time: string; end_time: string; max_capacity: number; invite_capacity: number; valid_from: string; valid_until: string | null; is_active: number; label: string | null; }
+
+/**
+ * Pinned calendars, kept in the browser rather than the database.
+ *
+ * Which calendar matters is a "what are we working on this week" question, not
+ * a property of the calendar — the shop pins ถ่ายทำคิดสนุก while it is being
+ * set up and unpins it after. This machine is the shop's own, so a browser-held
+ * list is shared by whoever is on shift, which is the behaviour wanted here.
+ */
+const PINNED_KEY = 'mellow_crm_pinned_calendars';
+
+const readPinned = (): number[] => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((n: any) => typeof n === 'number') : [];
+  } catch {
+    return []; // private window, cleared storage — pinning is a convenience, not state to recover
+  }
+};
 
 // Slot-rule columns that can be sorted from the header.
 const RULE_COLUMNS: { key: string; label: string; align?: 'center' }[] = [
@@ -100,6 +120,42 @@ const CalendarManagement: React.FC = () => {
   }, [rules, ruleSort]);
 
   const show = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3000); };
+
+  const [calSearch, setCalSearch] = useState('');
+  const [pinnedIds, setPinnedIds] = useState<number[]>(readPinned);
+
+  const togglePin = (id: number) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(p => p !== id) : [id, ...prev];
+      try { localStorage.setItem(PINNED_KEY, JSON.stringify(next)); } catch { /* nothing to recover */ }
+      return next;
+    });
+  };
+
+  /**
+   * Pinned first, then newest.
+   *
+   * The server hands these back oldest-first, which buries a calendar created
+   * a minute ago under every calendar ever made — and creating one is usually
+   * the reason for being on this screen. Ordered by id rather than created_at
+   * because id is monotonic and present on every row, including the ones from
+   * before created_at was recorded.
+   */
+  const visibleCalendars = useMemo(() => {
+    const q = calSearch.trim().toLowerCase();
+    return calendars
+      .filter(c => !q || c.name.toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        const pa = pinnedIds.indexOf(a.id);
+        const pb = pinnedIds.indexOf(b.id);
+        if (pa !== pb) {
+          if (pa === -1) return 1;
+          if (pb === -1) return -1;
+          return pa - pb; // most recently pinned sits highest
+        }
+        return b.id - a.id;
+      });
+  }, [calendars, calSearch, pinnedIds]);
   // Errors stay until dismissed. A delete that is refused because a class is
   // still on the calendar needs reading and acting on, not three seconds.
   const [errorMsg, setErrorMsg] = useState('');
@@ -178,7 +234,7 @@ const CalendarManagement: React.FC = () => {
   const deleteCal = (id: number) => {
     setConfirmDialog({
       open: true,
-      title: 'คุณต้องการลบปฏิทินนี้ใช่หรือไม่?',
+      title: 'ลบปฏิทินนี้? รอบทั้งหมด วันหยุด และป้ายกำกับวันของปฏิทินนี้จะถูกลบไปด้วย (ปฏิทินที่มีการจองแล้วจะลบไม่ได้)',
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, open: false }));
         // Previously unguarded: the request threw, everything after it was
@@ -186,10 +242,16 @@ const CalendarManagement: React.FC = () => {
         // The delete had never worked, and nothing on screen said so.
         try {
           setErrorMsg('');
-          await axios.delete(`${API_BASE}/calendars/${id}`);
+          const res = await axios.delete(`${API_BASE}/calendars/${id}`);
           if (selectedCalendar?.id === id) setSelectedCalendar(null);
           await fetchCalendars();
-          show('ลบปฏิทินสำเร็จ');
+          // A class that was on this calendar now has none, and cannot take a
+          // booking until it is given one. Said plainly rather than left for
+          // someone to discover from the booking screen.
+          const detached: string[] = res.data?.detached ?? [];
+          show(detached.length
+            ? `ลบปฏิทินสำเร็จ — คลาสที่เคยใช้ปฏิทินนี้ยังไม่มีปฏิทิน: ${detached.join(', ')}`
+            : 'ลบปฏิทินสำเร็จ');
         } catch (e: any) {
           setErrorMsg(e?.response?.data?.message || 'ลบปฏิทินไม่สำเร็จ');
         }
@@ -351,33 +413,80 @@ const CalendarManagement: React.FC = () => {
         {/* Left: Calendar list */}
         <Grid item xs={12} md={4}>
           <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-            <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Typography fontWeight={700}>ปฏิทินทั้งหมด</Typography>
-            </Box>
-            {calendars.map((cal) => (
-              <Box
-                key={cal.id}
-                onClick={() => { setSelectedCalendar(cal); setTab(1); }}
-                sx={{
-                  p: 2, cursor: 'pointer', borderBottom: '1px solid', borderColor: 'divider',
-                  bgcolor: selectedCalendar?.id === cal.id ? 'primary.50' : 'transparent',
-                  '&:hover': { bgcolor: 'grey.50' },
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: cal.color, flexShrink: 0 }} />
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>{cal.name}</Typography>
-                  </Box>
-                </Box>
-                <Box>
-                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditCal(cal); }}><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); deleteCal(cal.id); }}><DeleteIcon fontSize="small" /></IconButton>
-                </Box>
+            <Box sx={{ px: 1.5, pt: 1.5, pb: 1, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 1 }}>
+                <Typography fontWeight={700} variant="body2">ปฏิทินทั้งหมด</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {calSearch.trim() ? `${visibleCalendars.length} / ${calendars.length}` : calendars.length}
+                </Typography>
               </Box>
-            ))}
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="ค้นหาปฏิทิน"
+                value={calSearch}
+                onChange={e => setCalSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start"><SearchIcon fontSize="small" color="disabled" /></InputAdornment>
+                  ),
+                  sx: { bgcolor: 'background.paper', borderRadius: 2 },
+                }}
+              />
+            </Box>
+            {/* Capped and scrolled rather than growing without limit: the slot
+                rules beside it are the work, and a list tall enough to push
+                them off the screen is a list in the way. */}
+            <Box sx={{ maxHeight: { xs: 'none', md: 'calc(100vh - 300px)' }, overflowY: 'auto' }}>
+              {visibleCalendars.map((cal) => {
+                const pinned = pinnedIds.includes(cal.id);
+                return (
+                  <Box
+                    key={cal.id}
+                    onClick={() => { setSelectedCalendar(cal); setTab(1); }}
+                    sx={{
+                      px: 1.5, py: 0.75, cursor: 'pointer', borderBottom: '1px solid', borderColor: 'divider',
+                      bgcolor: selectedCalendar?.id === cal.id ? 'primary.50' : 'transparent',
+                      '&:hover': { bgcolor: 'grey.50' },
+                      // The row actions only appear on the row being pointed at,
+                      // so a list of twelve is twelve names and not thirty-six
+                      // buttons. The pin stays visible while it is set, since a
+                      // pin nobody can see is not telling anyone anything.
+                      '&:hover .cal-actions': { opacity: 1 },
+                      display: 'flex', alignItems: 'center', gap: 1, minHeight: 40,
+                    }}
+                  >
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: cal.color, flexShrink: 0 }} />
+                    <Typography
+                      variant="body2"
+                      fontWeight={selectedCalendar?.id === cal.id ? 800 : 600}
+                      sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={cal.name}
+                    >
+                      {cal.name}
+                    </Typography>
+                    <Box
+                      className="cal-actions"
+                      sx={{ display: 'flex', flexShrink: 0, opacity: pinned ? 1 : 0, transition: 'opacity .15s' }}
+                    >
+                      <Tooltip title={pinned ? 'เลิกปักหมุด' : 'ปักหมุดไว้บนสุด'}>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); togglePin(cal.id); }} color={pinned ? 'primary' : 'default'}>
+                          {pinned ? <PinnedIcon fontSize="small" /> : <PinIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditCal(cal); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); deleteCal(cal.id); }}><DeleteIcon fontSize="small" /></IconButton>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
             {calendars.length === 0 && <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>ยังไม่มีปฏิทิน</Box>}
+            {calendars.length > 0 && visibleCalendars.length === 0 && (
+              <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+                <Typography variant="body2">ไม่พบปฏิทินที่ตรงกับ "{calSearch.trim()}"</Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
 
