@@ -20,6 +20,7 @@ import { stripHtml } from '../utils/stripHtml';
 import { getAttributedTag } from '../utils/tagAttribution';
 import { isCourseEnded, isRegistrationClosed } from '../utils/calendarUtils';
 import { loadInviteSessionToken } from '../utils/inviteSession';
+import { thisCourseWord, attendeeWord } from '../utils/courseWording';
 import { isPlainText } from '../utils/richText';
 import { scrollToTop } from '../utils/scrollToTop';
 import { getCourseDetailPath } from '../utils/courseLinks';
@@ -292,11 +293,17 @@ const Booking = () => {
               if (single?.data?.success) found = single.data.course as Course;
             }
             if (found) {
+              // A guest gets the course's own page instead: dates, price and
+              // description first, and the sign-up question only when they
+              // press register there. Redirected here rather than on mount
+              // because only now is it known what the course is, and a private
+              // class is addressed by its code.
+              if (isGuest) {
+                navigate(getCourseDetailPath(found), { replace: true });
+                return;
+              }
               setSelectedCourse(found);
-              // A guest stays on step 0 (course browsing) with the gate
-              // modal already shown by the mount-time effect above — only a
-              // real session actually advances to the child step.
-              if (!isGuest) setCurrentStepIndex(1);
+              setCurrentStepIndex(1);
             }
           }
         }
@@ -381,14 +388,11 @@ const Booking = () => {
   const pageRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => { scrollToTop(pageRef.current); }, [currentStepIndex]);
 
-  useEffect(() => {
-    if (preSelectedCourseId && isGuest) {
-      setShowGuestModal(true);
-    }
-    // Only needs to run once on mount for the deep-link case — course
-    // selection elsewhere is gated directly at the click handler instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Nothing on mount any more. A guest arriving on a deep link is sent to the
+  // course's own page once it loads (see the fetch below) rather than being
+  // asked to sign up over a browse grid they never asked for — the question is
+  // fair, but not before they have been shown what it is about. Course
+  // selection elsewhere is still gated at the click handler.
 
   // Loaded when the page opens rather than when a course is picked: the check
   // has to be ready at the moment someone taps ลงทะเบียน, and the other
@@ -899,7 +903,7 @@ const Booking = () => {
                   })
               ) : (
                 <div>
-                  <span className="text-slate-400 text-xs font-bold block mb-0.5">{t.booking?.childInClass || 'เด็กผู้เข้าคลาส'}</span>
+                  <span className="text-slate-400 text-xs font-bold block mb-0.5">{attendeeWord(selectedCourse, lang)}</span>
                   <span className="text-slate-700 font-black text-sm">{successBooking.childName}</span>
                 </div>
               )}
@@ -999,7 +1003,7 @@ const Booking = () => {
                       <User size={14} />
                     </div>
                     <div className="flex-1">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{lang === 'en' ? 'Class Attendees' : 'เด็กผู้เข้าคลาส'}</p>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{attendeeWord(selectedCourse, lang)}</p>
                       <div className="flex flex-wrap gap-2">
                         {selectedChildren.map(c => (
                           <div key={c.id} className="flex flex-col items-center gap-1">
@@ -1792,7 +1796,9 @@ const Booking = () => {
                   return achievementSkills.length > 0 && (
                     <div>
                       <h3 className="text-[14px] font-black text-slate-800 mb-2">
-                        {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
+                        {lang === 'en'
+                          ? `Skills You'll Gain from ${thisCourseWord(selectedCourse, lang)}:`
+                          : `ทักษะที่จะได้รับจาก${thisCourseWord(selectedCourse, lang)}:`}
                       </h3>
                       <div className="flex flex-wrap gap-2">
                         {achievementSkills.map((skill, i) => (
@@ -1990,8 +1996,8 @@ const Booking = () => {
             </h3>
             <p className="text-[15px] text-slate-500 font-medium mb-6">
               {lang === 'en'
-                ? `Just one more step to book ${selectedCourse ? `"${selectedCourse.name}"` : 'this class'} — pick whichever applies to you.`
-                : `อีกนิดเดียวก็จะจอง${selectedCourse ? `"${selectedCourse.name}"` : 'คลาสนี้'}ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
+                ? `Just one more step to register for ${selectedCourse ? `"${selectedCourse.name}"` : thisCourseWord(selectedCourse, lang)} — pick whichever applies to you.`
+                : `อีกนิดเดียวก็จะลงทะเบียน${selectedCourse ? `"${selectedCourse.name}"` : thisCourseWord(selectedCourse, lang)}ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
             </p>
             <div className="flex flex-col gap-3">
               <button
@@ -2036,7 +2042,7 @@ const Booking = () => {
             <p className="text-sm text-slate-500 font-bold text-center mb-6 leading-relaxed">
               {lang === 'en'
                 ? `This class is intended for ages ${selectedCourse?.age_min ?? '-'}-${selectedCourse?.age_max ?? '-'}. The selected child's age is outside that range — you can still continue if you'd like.`
-                : `คลาสนี้กำหนดช่วงอายุไว้ที่ ${selectedCourse?.age_min ?? '-'}-${selectedCourse?.age_max ?? '-'} ปี เด็กที่เลือกมีอายุไม่ตรงตามเกณฑ์ — ยืนยันเพื่อดำเนินการต่อได้ตามปกติ`}
+                : `${thisCourseWord(selectedCourse, lang)}กำหนดช่วงอายุไว้ที่ ${selectedCourse?.age_min ?? '-'}-${selectedCourse?.age_max ?? '-'} ปี เด็กที่เลือกมีอายุไม่ตรงตามเกณฑ์ — ยืนยันเพื่อดำเนินการต่อได้ตามปกติ`}
             </p>
             <div className="flex gap-3">
               <button

@@ -5,6 +5,7 @@ import { ChevronLeft, Calendar as CalendarIcon, Clock, Users, ArrowRight, MapPin
 import { SkillIcon } from '../utils/skillIcons';
 import apiClient from '../utils/apiClient';
 import { hasInviteSession } from '../utils/inviteSession';
+import { thisCourseWord } from '../utils/courseWording';
 import logo from '../assets/ui/logo.svg';
 import { useTranslation, LanguageToggle } from '../LanguageContext';
 import { getCourseView } from '../utils/courseImage';
@@ -477,7 +478,9 @@ const CourseDetail = () => {
         {achievementSkills.length > 0 && (
           <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 lg:col-start-1 lg:row-start-4 lg:mt-4">
             <h3 className="text-[17px] font-black text-slate-800 mb-3">
-              {lang === 'en' ? "Skills You'll Gain from This Class:" : 'ทักษะที่จะได้รับจากคลาสนี้:'}
+              {lang === 'en'
+                ? `Skills You'll Gain from ${thisCourseWord(course, lang)}:`
+                : `ทักษะที่จะได้รับจาก${thisCourseWord(course, lang)}:`}
             </h3>
             <div className="flex flex-wrap gap-2">
               {achievementSkills.map((skill, i) => (
@@ -596,8 +599,8 @@ const CourseDetail = () => {
             </h3>
             <p className="text-[15px] text-slate-500 font-medium mb-6">
               {lang === 'en'
-                ? `Just one more step to book "${lang === 'en' && course.name_en ? course.name_en : course.name}" — pick whichever applies to you.`
-                : `อีกนิดเดียวก็จะจอง "${course.name}" ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
+                ? `Just one more step to register for "${lang === 'en' && course.name_en ? course.name_en : course.name}" — pick whichever applies to you.`
+                : `อีกนิดเดียวก็จะลงทะเบียน "${course.name}" ได้แล้ว เลือกข้อที่ตรงกับคุณได้เลย`}
             </p>
             <div className="flex flex-col gap-3">
               <button
