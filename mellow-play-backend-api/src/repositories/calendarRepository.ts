@@ -39,8 +39,55 @@ export class CalendarRepository {
       UPDATE Calendars SET name=?, description=?, color=?, type=?, is_active=? WHERE id=?
     `).bind(d.name, d.description ?? null, d.color ?? '#7c3aed', d.type ?? 'class', d.isActive ? 1 : 0, id).run();
   }
-  async deleteCalendar(id: number): Promise<void> {
-    await this.db.prepare('DELETE FROM Calendars WHERE id=?').bind(id).run();
+  /**
+   * Deletes a calendar and everything that belongs to it.
+   *
+   * The plain DELETE this used to be could never succeed on a calendar anyone
+   * had set up: Calendar_Slot_Rules and Calendar_Holidays both carry a foreign
+   * key to Calendars with no ON DELETE, so the statement was refused the
+   * moment a calendar had a single round on it. Every calendar on the platform
+   * has rounds, so "ลบปฏิทิน" had never once worked.
+   *
+   * What a calendar owns goes with it — its rounds, its holidays, its day
+   * labels, and the invite links issued against those rounds, which address a
+   * round that will not exist and are dead either way.
+   *
+   * What owns the calendar stops it. A course points AT a calendar to get its
+   * booking slots, so deleting one out from under a live course would leave
+   * that course unbookable with nothing on screen to explain why. Those are
+   * named back to the caller instead, for staff to detach or delete first.
+   *
+   * Bookings are untouched. Bookings.calendar_id is a plain column and the
+   * round is denormalised onto slot_date/slot_start_time, so history survives
+   * the calendar it was taken on.
+   */
+  // One shape rather than a discriminated union: this project compiles with
+  // strict off, so narrowing on a boolean literal does not happen and the
+  // caller would be left casting.
+  async deleteCalendar(id: number): Promise<{ ok: boolean; blockedBy?: string[] }> {
+    const { results: courses } = await this.db.prepare(
+      'SELECT name FROM Courses WHERE calendar_id = ? ORDER BY name'
+    ).bind(id).all<{ name: string }>();
+
+    if ((courses as any[]).length > 0) {
+      return { ok: false, blockedBy: (courses as any[]).map(c => c.name) };
+    }
+
+    // One batch, so a failure part-way cannot leave rounds pointing at a
+    // calendar that is already gone.
+    await this.db.batch([
+      this.db.prepare(`
+        DELETE FROM Invite_Access_Links
+        WHERE calendar_slot_rule_id IN (SELECT id FROM Calendar_Slot_Rules WHERE calendar_id = ?)
+      `).bind(id),
+      this.db.prepare('DELETE FROM Calendar_Slot_Rules WHERE calendar_id = ?').bind(id),
+      this.db.prepare('DELETE FROM Calendar_Holidays WHERE calendar_id = ?').bind(id),
+      // Already ON DELETE CASCADE (migration 0081), stated anyway so the set of
+      // things a calendar owns is readable in one place.
+      this.db.prepare('DELETE FROM Calendar_Day_Labels WHERE calendar_id = ?').bind(id),
+      this.db.prepare('DELETE FROM Calendars WHERE id = ?').bind(id),
+    ]);
+    return { ok: true };
   }
 
   // ── Slot Rules ─────────────────────────────────────────────────────────────

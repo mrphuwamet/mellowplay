@@ -100,6 +100,9 @@ const CalendarManagement: React.FC = () => {
   }, [rules, ruleSort]);
 
   const show = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3000); };
+  // Errors stay until dismissed. A delete that is refused because a class is
+  // still on the calendar needs reading and acting on, not three seconds.
+  const [errorMsg, setErrorMsg] = useState('');
 
   const fetchCalendars = async () => {
     const res = await axios.get(`${API_BASE}/calendars`);
@@ -178,10 +181,18 @@ const CalendarManagement: React.FC = () => {
       title: 'คุณต้องการลบปฏิทินนี้ใช่หรือไม่?',
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, open: false }));
-        await axios.delete(`${API_BASE}/calendars/${id}`);
-        if (selectedCalendar?.id === id) setSelectedCalendar(null);
-        await fetchCalendars();
-        show('ลบปฏิทินสำเร็จ');
+        // Previously unguarded: the request threw, everything after it was
+        // skipped, and the dialog closed on a calendar that was still there.
+        // The delete had never worked, and nothing on screen said so.
+        try {
+          setErrorMsg('');
+          await axios.delete(`${API_BASE}/calendars/${id}`);
+          if (selectedCalendar?.id === id) setSelectedCalendar(null);
+          await fetchCalendars();
+          show('ลบปฏิทินสำเร็จ');
+        } catch (e: any) {
+          setErrorMsg(e?.response?.data?.message || 'ลบปฏิทินไม่สำเร็จ');
+        }
       }
     });
   };
@@ -334,6 +345,7 @@ const CalendarManagement: React.FC = () => {
       </Box>
 
       {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
+      {errorMsg && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMsg('')}>{errorMsg}</Alert>}
 
       <Grid container spacing={3}>
         {/* Left: Calendar list */}
