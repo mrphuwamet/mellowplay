@@ -14,7 +14,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, ListItemButton, ListItemIcon, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, TableSortLabel,
-  ToggleButton, ToggleButtonGroup, Switch, FormControlLabel,
+  ToggleButton, ToggleButtonGroup, Switch, FormControlLabel, Menu,
   Tab, Tabs, Rating, Avatar,
 } from '@mui/material';
 import {
@@ -41,6 +41,7 @@ import {
   Sms as SmsIcon,
   Visibility as VisibleIcon,
   VisibilityOff as HiddenIcon,
+  Link as UnlistedIcon,
   People as SalesIcon,
   School as TeacherIcon,
   AutoStories as SkillsLibIcon,
@@ -62,6 +63,53 @@ import RoundStampButton from '../components/stamps/RoundStampDialog';
 
 // Converts rich HTML content into paragraph-separated plain text before
 // sending to the translate API, which only understands plain text.
+/**
+ * How far a class reaches. Mirrors CourseVisibility in the backend's
+ * adminRepository — see migration 0117.
+ */
+type CourseVisibilityValue = 'public' | 'unlisted' | 'hidden';
+
+/**
+ * One description per state, so the icon, the tooltip and the menu can never
+ * tell three different stories about the same class.
+ *
+ * "ไม่แสดง แต่เข้าถึงได้" is the whole point of the middle one: the class is in
+ * no list, no search and no feed, and opens normally for anyone given its
+ * link. It is unlisted rather than secret — the link is a plain /class/:id, so
+ * a guessed id opens it too. A class nobody may see is ซ่อน.
+ */
+const COURSE_VISIBILITY: Record<CourseVisibilityValue, {
+  label: string;
+  menuHint: string;
+  tooltip: string;
+  color: 'success' | 'warning' | 'default';
+}> = {
+  public: {
+    label: 'แสดงในแอป',
+    menuHint: 'อยู่ในรายการคลาส ค้นหาเจอ ใครก็เปิดได้',
+    tooltip: 'แสดงในแอปตามปกติ',
+    color: 'success',
+  },
+  unlisted: {
+    label: 'คลาสส่วนตัว',
+    menuHint: 'ไม่อยู่ในรายการและค้นหาไม่เจอ แต่เปิดได้ด้วยลิงก์ — กดปุ่มคัดลอกลิงก์เพื่อส่งให้ผู้ที่ได้รับเชิญ',
+    tooltip: 'คลาสส่วนตัว — ไม่แสดงในแอป แต่เข้าถึงได้ด้วยลิงก์',
+    color: 'warning',
+  },
+  hidden: {
+    label: 'ซ่อน',
+    menuHint: 'ไม่แสดงที่ไหนเลย และเปิดด้วยลิงก์ก็ไม่ได้ ข้อมูลและการจองเดิมยังอยู่ครบ',
+    tooltip: 'ซ่อนอยู่ — เปิดด้วยลิงก์ไม่ได้',
+    color: 'default',
+  },
+};
+
+const COURSE_VISIBILITY_ICON: Record<CourseVisibilityValue, React.ReactNode> = {
+  public: <VisibleIcon fontSize="small" />,
+  unlisted: <UnlistedIcon fontSize="small" />,
+  hidden: <HiddenIcon fontSize="small" />,
+};
+
 const stripHtmlForTranslate = (html: string) => {
   const withBreaks = html.replace(/<\/(p|div|h[1-6]|li)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n');
   const div = document.createElement('div');
@@ -343,6 +391,7 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
   // they just clicked into.
   const [editTab, setEditTab] = useState(0);
   const [visibilityBusyId, setVisibilityBusyId] = useState<number | null>(null);
+  const [visibilityMenu, setVisibilityMenu] = useState<{ anchor: HTMLElement; course: any } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -833,21 +882,39 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
     }));
   };
 
-  // COALESCE equivalent for the client: courses created before migration 0074
-  // have is_visible undefined and are visible.
-  const isCourseVisible = (course: any) => course.is_visible !== 0;
+  /**
+   * Which of the three states a course is in.
+   *
+   * Falls back to the older is_visible flag for a row that predates migration
+   * 0117, and to "shown" for one that predates 0074 and has neither — the same
+   * COALESCE the server does, so the icon never disagrees with the app.
+   */
+  const courseVisibility = (course: any): CourseVisibilityValue => {
+    if (course.visibility === 'unlisted' || course.visibility === 'hidden' || course.visibility === 'public') {
+      return course.visibility;
+    }
+    return course.is_visible === 0 ? 'hidden' : 'public';
+  };
 
-  // Optimistic, because the whole point is a one-click toggle — waiting for a
-  // round-trip before the icon changes makes it feel broken. Reverted on failure.
-  const toggleCourseVisibility = async (course: any) => {
-    const next = !isCourseVisible(course);
+  // Optimistic, because the point is a one-click change — waiting for a
+  // round-trip before the icon moves makes it feel broken. Reverted on failure.
+  const applyCourseVisibility = async (course: any, next: CourseVisibilityValue) => {
+    const previous = courseVisibility(course);
+    setVisibilityMenu(null);
+    if (previous === next) return;
+    const write = (value: CourseVisibilityValue) =>
+      setCourses(prev => prev.map(c => (
+        // is_visible is written alongside, exactly as the server does, so a
+        // screen still reading the old flag agrees with this one.
+        c.id === course.id ? { ...c, visibility: value, is_visible: value === 'public' ? 1 : 0 } : c
+      )));
     setVisibilityBusyId(course.id);
-    setCourses(prev => prev.map(c => (c.id === course.id ? { ...c, is_visible: next ? 1 : 0 } : c)));
+    write(next);
     try {
-      await axios.patch(`${API_BASE}/courses/${course.id}/visibility`, { isVisible: next });
+      await axios.patch(`${API_BASE}/courses/${course.id}/visibility`, { visibility: next });
     } catch {
-      setCourses(prev => prev.map(c => (c.id === course.id ? { ...c, is_visible: next ? 0 : 1 } : c)));
-      setSaveError('เปลี่ยนสถานะการแสดงคลาสไม่สำเร็จ');
+      write(previous);
+      setSaveError('เปลี่ยนสถานะการมองเห็นคลาสไม่สำเร็จ');
     } finally {
       setVisibilityBusyId(null);
     }
@@ -2945,7 +3012,11 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                 <TableRow
                   key={course.id}
                   hover
-                  sx={!isCourseVisible(course) ? { opacity: 0.55, '& td:first-of-type': { textDecoration: 'line-through' } } : undefined}
+                  // Only ซ่อน reads as struck off. A private class is running
+                  // and taking bookings; dimming it would say the opposite.
+                  sx={courseVisibility(course) === 'hidden'
+                    ? { opacity: 0.55, '& td:first-of-type': { textDecoration: 'line-through' } }
+                    : undefined}
                 >
                   <TableCell className="sticky-actions" align="center" sx={{ width: ACTIONS_COLUMN_WIDTH, whiteSpace: 'nowrap' }}>
                     <Tooltip title={copiedLinkId === course.id ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์'}>
@@ -2954,15 +3025,19 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
                     <Tooltip title="ดูความจุคงเหลือ (ที่นั่ง/ทีม)">
                       <IconButton size="small" onClick={() => openCapacityDialog(course)}><CapacityIcon fontSize="small" /></IconButton>
                     </Tooltip>
-                    <Tooltip title={isCourseVisible(course) ? 'กำลังแสดงในแอป — กดเพื่อซ่อน' : 'ซ่อนอยู่ — กดเพื่อแสดงในแอป'}>
-                      <IconButton
-                        size="small"
-                        onClick={() => toggleCourseVisibility(course)}
-                        disabled={visibilityBusyId === course.id}
-                        color={isCourseVisible(course) ? 'success' : 'default'}
-                      >
-                        {isCourseVisible(course) ? <VisibleIcon fontSize="small" /> : <HiddenIcon fontSize="small" />}
-                      </IconButton>
+                    <Tooltip title={COURSE_VISIBILITY[courseVisibility(course)].tooltip}>
+                      {/* A span because a disabled button fires no events and
+                          Tooltip needs one to know it is hovered. */}
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={e => setVisibilityMenu({ anchor: e.currentTarget, course })}
+                          disabled={visibilityBusyId === course.id}
+                          color={COURSE_VISIBILITY[courseVisibility(course)].color}
+                        >
+                          {COURSE_VISIBILITY_ICON[courseVisibility(course)]}
+                        </IconButton>
+                      </span>
                     </Tooltip>
                     <IconButton size="small" onClick={() => handleEditOpen(course)} color="primary"><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" onClick={() => { setItemToDelete({ id: course.id, name: course.name }); setDeleteType('course'); setDeleteDialogOpen(true); }} color="error"><DeleteIcon fontSize="small" /></IconButton>
@@ -3055,7 +3130,37 @@ const CourseManagement = ({ courseType = 'class' }: { courseType?: 'class' | 'ev
             )}
           </TableBody>
         </Table>
-        <TablePagination component="div" count={filteredCourses.length} rowsPerPage={rowsPerPage} page={page} onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => setRowsPerPage(parseInt(e.target.value, 10))} />
+        {/* One menu for the whole table rather than one per row: three states
+          need naming, and an icon that cycles through them silently makes
+          "คลาสส่วนตัว" indistinguishable from a mis-click on the way to ซ่อน. */}
+      <Menu
+        anchorEl={visibilityMenu?.anchor ?? null}
+        open={!!visibilityMenu}
+        onClose={() => setVisibilityMenu(null)}
+      >
+        {(['public', 'unlisted', 'hidden'] as CourseVisibilityValue[]).map(value => {
+          const meta = COURSE_VISIBILITY[value];
+          const current = visibilityMenu ? courseVisibility(visibilityMenu.course) === value : false;
+          return (
+            <MenuItem
+              key={value}
+              selected={current}
+              onClick={() => visibilityMenu && applyCourseVisibility(visibilityMenu.course, value)}
+              sx={{ alignItems: 'flex-start', gap: 1.5, py: 1.25, maxWidth: 360, whiteSpace: 'normal' }}
+            >
+              <ListItemIcon sx={{ minWidth: 0, mt: 0.25 }}>{COURSE_VISIBILITY_ICON[value]}</ListItemIcon>
+              <ListItemText
+                primary={meta.label}
+                secondary={meta.menuHint}
+                primaryTypographyProps={{ fontWeight: 800 }}
+                secondaryTypographyProps={{ fontSize: 12, lineHeight: 1.5 }}
+              />
+            </MenuItem>
+          );
+        })}
+      </Menu>
+
+      <TablePagination component="div" count={filteredCourses.length} rowsPerPage={rowsPerPage} page={page} onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => setRowsPerPage(parseInt(e.target.value, 10))} />
       </TableContainer>
       </>}
 

@@ -66,7 +66,10 @@ export class BookingCapacityRepository {
       FROM Courses c
       JOIN Calendars cal ON cal.id = c.calendar_id
       WHERE c.calendar_id IS NOT NULL
-        AND COALESCE(c.is_visible, 1) = 1
+        -- Not is_visible: this is a staff screen, and a private class takes
+        -- real bookings against real seats. Only a hidden class — one taken
+        -- down on purpose — is left out.
+        AND COALESCE(c.visibility, 'public') <> 'hidden'
       ORDER BY c.name
     `).all<any>();
 

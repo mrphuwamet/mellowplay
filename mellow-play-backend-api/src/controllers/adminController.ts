@@ -1,6 +1,6 @@
 import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
-import { AdminRepository } from '../repositories/adminRepository';
+import { AdminRepository, type CourseVisibility } from '../repositories/adminRepository';
 import { HDProfileRepository } from '../repositories/hdProfileRepository';
 import { UserRepository } from '../repositories/userRepository';
 import { ConfigService } from '../services/configService';
@@ -2192,18 +2192,58 @@ export class AdminController {
   // PATCH /api/v1/admin/courses/:id/visibility — the show/hide toggle in the
   // course list. Deliberately NOT added to ADMIN_PUBLIC_ROUTES: reading the
   // course list is public, changing what customers can see is not.
+  /**
+   * One class by id, for a visitor who followed its link.
+   *
+   * The consumer app otherwise finds a class by searching the full list, which
+   * is why hiding a class used to make it unreachable as a side effect. This
+   * route is the way in for a private ('unlisted') class: it is in no list, and
+   * this is the only read that will hand it over. A 'hidden' class still 404s.
+   *
+   * Public on purpose — the id in the URL is all the permission there is, the
+   * same bargain the album share links make. Anyone who can guess a number can
+   * open a private class, so it is unlisted, not secret; a class that must not
+   * be seen at all is 'hidden'.
+   */
+  async getCourseById(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
+    try {
+      const config = new ConfigService(c.env);
+      const adminRepo = new AdminRepository(config.db);
+      const id = parseInt(c.req.param('id'));
+      if (Number.isNaN(id)) return c.json({ success: false, message: 'invalid id' }, 400);
+      const course = await adminRepo.getCourseByIdForPublic(id);
+      if (!course) return c.json({ success: false, message: 'ไม่พบคลาสนี้' }, 404);
+      return c.json({ success: true, course });
+    } catch (error: any) {
+      return c.json({ success: false, message: error.message }, 500);
+    }
+  }
+
   async updateCourseVisibility(c: Context<{ Bindings: Bindings; Variables: Variables }>) {
     try {
       const config = new ConfigService(c.env);
       const adminRepo = new AdminRepository(config.db);
       const id = parseInt(c.req.param('id'));
       if (Number.isNaN(id)) return c.json({ success: false, message: 'invalid id' }, 400);
-      const { isVisible } = await c.req.json();
-      if (typeof isVisible !== 'boolean') {
-        return c.json({ success: false, message: 'isVisible must be a boolean' }, 400);
+      const body = await c.req.json();
+
+      // Three states now (see migration 0117). A CRM build from before this
+      // change sends only the old isVisible boolean, which still means exactly
+      // what it meant: shown, or taken down altogether.
+      let visibility: CourseVisibility;
+      if (typeof body.visibility === 'string') {
+        if (!['public', 'unlisted', 'hidden'].includes(body.visibility)) {
+          return c.json({ success: false, message: 'visibility must be public, unlisted or hidden' }, 400);
+        }
+        visibility = body.visibility as CourseVisibility;
+      } else if (typeof body.isVisible === 'boolean') {
+        visibility = body.isVisible ? 'public' : 'hidden';
+      } else {
+        return c.json({ success: false, message: 'visibility is required' }, 400);
       }
-      await adminRepo.setCourseVisibility(id, isVisible);
-      return c.json({ success: true });
+
+      await adminRepo.setCourseVisibility(id, visibility);
+      return c.json({ success: true, visibility });
     } catch (error: any) {
       return c.json({ success: false, message: error.message }, 500);
     }

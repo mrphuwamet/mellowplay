@@ -130,9 +130,15 @@ export async function probeImageMeta(url: string): Promise<ImageMeta> {
 // backend call fails, so the caller can fall through to the normal SPA.
 export async function renderCourseOgHtml(id: string, pageUrl: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE}/admin/courses`);
+    // By id, not by searching the full list. A private class is deliberately
+    // in no list, so the old find() returned nothing for one and a link shared
+    // with an invited family previewed as a dead URL. This endpoint is the one
+    // read that serves an unlisted class, and still refuses a hidden one.
+    if (!/^\d+$/.test(id)) return null;
+    const res = await fetch(`${API_BASE}/courses/${id}`);
+    if (!res.ok) return null;
     const data: any = await res.json();
-    const course = data.success ? data.courses.find((c: any) => String(c.id) === id) : null;
+    const course = data.success ? data.course : null;
 
     if (!course) return null;
 
@@ -143,6 +149,13 @@ export async function renderCourseOgHtml(id: string, pageUrl: string): Promise<s
     const image = escapeHtml(imageUrl);
     const imageMeta = course.thumbnail_url ? await probeImageMeta(imageUrl) : DEFAULT_IMAGE_META;
     const escapedPageUrl = escapeHtml(pageUrl);
+
+    // A private class gets its preview — that is what the shared link is for —
+    // but must never turn up in a search result, or "unlisted" would last only
+    // until Googlebot followed the link someone posted.
+    const robotsTag = course.visibility === 'unlisted'
+      ? '<meta name="robots" content="noindex, nofollow" />'
+      : '';
 
     const imageMetaTags = imageMeta
       ? `<meta property="og:image:width" content="${imageMeta.width}" />
@@ -157,6 +170,7 @@ export async function renderCourseOgHtml(id: string, pageUrl: string): Promise<s
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${name} | Mellow Play</title>
 <meta name="description" content="${description}" />
+${robotsTag}
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Mellow Play" />
 <meta property="og:title" content="${name}" />

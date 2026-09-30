@@ -21,6 +21,21 @@ const blankToNull = (v?: string | null): string | null => {
   return trimmed === '' ? null : trimmed;
 };
 
+/**
+ * How far a class reaches.
+ *
+ *   public    listed in the app, opens for anyone
+ *   unlisted  in no list, opens for anyone holding the link ("Private Class")
+ *   hidden    in no list, opens for nobody
+ *
+ * See migration 0117 for why is_visible survives alongside this.
+ */
+export type CourseVisibility = 'public' | 'unlisted' | 'hidden';
+
+/** Anything unrecognised reads as 'public', the value the column defaults to. */
+export const asCourseVisibility = (value: any): CourseVisibility =>
+  value === 'unlisted' || value === 'hidden' ? value : 'public';
+
 export class AdminRepository {
   private db: D1Database;
 
@@ -577,8 +592,10 @@ export class AdminRepository {
   // Defaults to visible-only because this feeds the public course endpoint the
   // consumer app calls — a hidden course should not reach a customer's browser
   // at all. COALESCE covers rows written before migration 0074 added the column.
-  async getAllCourses(includeHidden = false): Promise<any[]> {
-    const { results } = await this.db.prepare(`
+  // One shape for a course, used by the list and by the single-course lookup
+  // alike. Split out so a class fetched by id can never come back missing a
+  // field the list has — the consumer app renders the same page from both.
+  private static readonly COURSE_SELECT = `
       SELECT c.*, cat.name as category_name,
         (
           SELECT json_group_array(json_object('day_of_week', day_of_week, 'specific_date', specific_date))
@@ -596,11 +613,40 @@ export class AdminRepository {
           WHERE course_id = c.id
         ) as image_focals_json
       FROM Courses c
-      JOIN Course_Categories cat ON c.category_id = cat.id
+      JOIN Course_Categories cat ON c.category_id = cat.id`;
+
+  /**
+   * Every course that belongs in a list.
+   *
+   * is_visible is the listing flag and both non-public states clear it, so a
+   * private ('unlisted') class is left out here exactly like a hidden one.
+   * Reaching a private class is the single-course path's job — see
+   * getCourseByIdForPublic.
+   */
+  async getAllCourses(includeHidden = false): Promise<any[]> {
+    const { results } = await this.db.prepare(`
+      ${AdminRepository.COURSE_SELECT}
       ${includeHidden ? '' : 'WHERE COALESCE(c.is_visible, 1) = 1'}
       ORDER BY cat.name ASC, c.name ASC
     `).all();
     return this.enrichCourseSkillIcons(results as any[]);
+  }
+
+  /**
+   * One course by id, for a visitor who arrived with its link.
+   *
+   * This is the only read that will serve a class no list will admit to
+   * having, which is what makes a private class private-but-reachable. A
+   * 'hidden' course is still refused: hidden means gone, and staff rely on
+   * that to take something down.
+   */
+  async getCourseByIdForPublic(id: number): Promise<any | null> {
+    const row = await this.db.prepare(`
+      ${AdminRepository.COURSE_SELECT}
+      WHERE c.id = ? AND COALESCE(c.visibility, 'public') <> 'hidden'
+    `).bind(id).first();
+    if (!row) return null;
+    return (await this.enrichCourseSkillIcons([row as any]))[0];
   }
 
   /**
@@ -705,9 +751,16 @@ export class AdminRepository {
     ).bind(passwordHash, id).run();
   }
 
-  async setCourseVisibility(id: number, isVisible: boolean): Promise<void> {
-    await this.db.prepare('UPDATE Courses SET is_visible = ? WHERE id = ?')
-      .bind(isVisible ? 1 : 0, id).run();
+  /**
+   * Sets a course's visibility, keeping is_visible as its derived listing flag.
+   *
+   * Only 'public' is listed. Writing both columns in one statement is what lets
+   * every listing query keep filtering on is_visible alone and still do the
+   * right thing for a class that is private rather than hidden.
+   */
+  async setCourseVisibility(id: number, visibility: CourseVisibility): Promise<void> {
+    await this.db.prepare('UPDATE Courses SET visibility = ?, is_visible = ? WHERE id = ?')
+      .bind(visibility, visibility === 'public' ? 1 : 0, id).run();
   }
 
   // A course only ever stores its skills as {th, en} labels — the actual

@@ -44,9 +44,19 @@ const CourseDetail = () => {
       setLoading(true);
       setFetchError('');
       try {
+        const courseId = parseInt(id || '0');
         const res = await apiClient.get('/admin/courses');
         if (res.data.success) {
-          const found = res.data.courses.find((c: any) => c.id === parseInt(id || '0'));
+          let found = res.data.courses.find((c: any) => c.id === courseId);
+          // Missing from the list does not mean missing. A private class is
+          // deliberately in no list, and this endpoint is the only read that
+          // will serve one — it is what the shared link is for. A class that
+          // was hidden rather than made private still 404s here, which is the
+          // difference staff are choosing between.
+          if (!found && courseId) {
+            const single = await apiClient.get(`/courses/${courseId}`).catch(() => null);
+            if (single?.data?.success) found = single.data.course;
+          }
           setCourse(found);
           if (found?.calendar_id) {
             const slotsRes = await apiClient.get(`/admin/calendar-slots/upcoming?calendarId=${found.calendar_id}`);

@@ -823,6 +823,12 @@ app.post('/api/v1/courses/:id/like',     (c) => courseEngagementController.toggl
 app.get ('/api/v1/courses/:id/comments', (c) => courseEngagementController.getComments(c));
 app.post('/api/v1/courses/:id/comments', (c) => courseEngagementController.addComment(c));
 
+// One class by id, for someone who arrived with its link rather than through a
+// list. Registered after the fixed /courses/* paths above so "engagement" is
+// never read as an id. This is what makes a private class reachable — see
+// AdminController.getCourseById and migration 0117.
+app.get('/api/v1/courses/:id', (c) => adminController.getCourseById(c));
+
 app.get('/api/v1/admin/coupon-types', (c) => couponController.getCouponTypes(c));
 app.post('/api/v1/admin/coupon-types', (c) => couponController.createCouponType(c));
 app.put('/api/v1/admin/coupon-types/:id', (c) => couponController.updateCouponType(c));
