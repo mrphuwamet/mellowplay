@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Delete } from 'lucide-react';
 
 interface PinPadProps {
@@ -8,6 +8,23 @@ interface PinPadProps {
 }
 
 const PinPad: React.FC<PinPadProps> = ({ value, onChange, length = 6 }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // The dot row is the real field on a desktop, and it is invisible. Someone
+  // who simply starts typing — which is what every other site lets them do —
+  // saw nothing happen at all, and read that as "the login is broken"; the
+  // only ways in were clicking an invisible strip or mousing over six round
+  // buttons. Focusing it on mount makes typing work the way the screen looks
+  // like it already should.
+  //
+  // Only from md: up. Below that the field is deliberately pointer-events-none
+  // so tapping the dots does not pop the native keyboard over the tap keypad,
+  // and focusing it would pop that keyboard anyway.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia?.('(min-width: 768px)').matches) return;
+    inputRef.current?.focus();
+  }, []);
+
   const handleDigit = (digit: string) => {
     if (value.length >= length) return;
     onChange(value + digit);
@@ -26,6 +43,7 @@ const PinPad: React.FC<PinPadProps> = ({ value, onChange, length = 6 }) => {
           mobile doesn't also pop the native keyboard over the tap-keypad. */}
       <div className="relative flex justify-center gap-3 mb-10">
         <input
+          ref={inputRef}
           type="tel"
           inputMode="numeric"
           autoComplete="one-time-code"

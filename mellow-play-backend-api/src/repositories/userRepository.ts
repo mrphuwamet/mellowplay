@@ -65,9 +65,38 @@ export class UserRepository {
     // Refusing at login would be a second rule to keep in step; not finding
     // the row is the same answer everywhere, including Google sign-in and the
     // "is this phone taken" check.
-    return await this.db.prepare('SELECT * FROM Users WHERE phone = ? AND deleted_at IS NULL')
+    const exact = await this.db.prepare('SELECT * FROM Users WHERE phone = ? AND deleted_at IS NULL')
       .bind(phone)
       .first();
+    if (exact) return exact;
+
+    // Nothing matched character for character, so compare the digits instead.
+    // Some rows hold the separators the person typed when they signed up
+    // ("099-779-9920" is a real one), and a pasted or autofilled number
+    // arrives spaced. Neither can ever equal the other exactly, so a real
+    // account answered "not found" and its owner was locked out of their own
+    // registrations with no way to tell why. A Thai number written +66 and
+    // the same number written 0 are also the same number.
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+
+    const forms = new Set([digits]);
+    if (digits.startsWith('66')) forms.add('0' + digits.slice(2));
+    if (digits.startsWith('0')) forms.add('66' + digits.slice(1));
+    const list = [...forms];
+
+    const { results } = await this.db.prepare(
+      `SELECT * FROM Users
+       WHERE deleted_at IS NULL
+         AND phone IS NOT NULL
+         AND replace(replace(replace(replace(replace(phone, '-', ''), ' ', ''), '(', ''), ')', ''), '+', '')
+             IN (${list.map(() => '?').join(', ')})`
+    ).bind(...list).all();
+
+    // Only when it is unambiguous. Two rows reaching the same digits is a
+    // data problem, and guessing between them would hand someone another
+    // person's account — the one outcome worse than a failed login.
+    return results.length === 1 ? results[0] : null;
   }
 
   async findById(id: number): Promise<any> {

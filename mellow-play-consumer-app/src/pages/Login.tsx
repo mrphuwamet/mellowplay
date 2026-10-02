@@ -113,7 +113,13 @@ const Login = () => {
 
     try {
       localStorage.removeItem('mellow_guest');
-      const response = await apiClient.post('/auth/login', { login, password: pin });
+      // Digits only. A pasted or autofilled number arrives with spaces,
+      // dashes or brackets, and the account lookup compares exactly — the
+      // owner of a perfectly good account would be told it does not exist.
+      const response = await apiClient.post('/auth/login', {
+        login: login.replace(/[^\d+]/g, ''),
+        password: pin,
+      });
 
       if (response.data.success) {
         await finishAuth(response.data.token, response.data.user);
