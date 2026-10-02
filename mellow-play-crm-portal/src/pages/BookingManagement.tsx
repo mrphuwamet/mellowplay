@@ -1,7 +1,7 @@
 import { API_URL } from '../config';
 import { copyText } from '../utils/clipboard';
 import { formatBirthDate } from '../utils/dateFormat';
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStickyState, clearStickyState } from '../utils/stickyState';
 import {
@@ -3341,7 +3341,14 @@ const BookingManagement = () => {
   // window, finds nothing, and drops the parameter is the "กดแล้วไม่เกิดอะไร"
   // that was reported. ListView opens the detail once the row is in the list.
   const [pageSearchParams] = useSearchParams();
-  const deepLinkId = Number(pageSearchParams.get('bookingId') || 0) || 0;
+  // Latched once, not read live. ListView clears the parameter the instant it
+  // opens the booking, and reading it live turned that into a refetch: loading
+  // swaps the whole list for a spinner, ListView unmounts, and the dialog it
+  // had just opened — ListView's own state — goes with it. The booking flashed
+  // up for about a frame and vanished, which is the "กดแล้วไม่เกิดอะไร" that
+  // was reported. The tab keeps the id, so the row stays fetched and nothing
+  // re-renders out from under the dialog.
+  const [deepLinkId] = useState(() => Number(pageSearchParams.get('bookingId') || 0) || 0);
 
   // ── fetch ────────────────────────────────────────────────────────────────
   const fetchBookings = useCallback(async () => {
@@ -3767,14 +3774,30 @@ const BookingManagement = () => {
 
   // ── filter ───────────────────────────────────────────────────────────────
   const filteredBookings = useMemo(() => {
+    // The deep-linked booking is exempt. A link points at one row, usually from
+    // another course and another month, and its status is whatever it is — a
+    // filter left on from earlier work would otherwise drop it before the list
+    // ever sees it, and the link would quietly do nothing.
+    const keep = (b: Booking) => b.id === deepLinkId;
     if (statusFilter === 'all') return bookings;
     // 'confirmed' is a legacy alias for 'confirmed_paid' — match both so old rows aren't hidden.
-    if (statusFilter === 'confirmed_paid') return bookings.filter(b => b.status === 'confirmed_paid' || b.status === 'confirmed');
+    if (statusFilter === 'confirmed_paid') return bookings.filter(b => keep(b) || b.status === 'confirmed_paid' || b.status === 'confirmed');
     // Real unpaid bookings are created with status='pending_payment' (see
     // Booking.tsx), not 'pending' — match both under the same filter tab.
-    if (statusFilter === 'pending') return bookings.filter(b => b.status === 'pending' || b.status === 'pending_payment');
-    return bookings.filter(b => b.status === statusFilter);
-  }, [bookings, statusFilter]);
+    if (statusFilter === 'pending') return bookings.filter(b => keep(b) || b.status === 'pending' || b.status === 'pending_payment');
+    return bookings.filter(b => keep(b) || b.status === statusFilter);
+  }, [bookings, statusFilter, deepLinkId]);
+
+  // A link that cannot be honoured says so. Silence here is indistinguishable
+  // from a dead button, and that is exactly how it was reported.
+  const deepLinkReported = useRef(false);
+  const [deepLinkError, setDeepLinkError] = useState('');
+  useEffect(() => {
+    if (!deepLinkId || loading || deepLinkReported.current) return;
+    if (bookings.some(b => b.id === deepLinkId)) return;
+    deepLinkReported.current = true;
+    setDeepLinkError(`เปิดรายการ #${deepLinkId} ไม่ได้ — ไม่พบรายการนี้ (อาจถูกยกเลิก ลบไปแล้ว หรืออยู่คนละสาขา)`);
+  }, [deepLinkId, loading, bookings]);
 
   // ── navigation ───────────────────────────────────────────────────────────
   const navigate = (dir: number) => {
@@ -3836,6 +3859,12 @@ const BookingManagement = () => {
       {fetchError && (
         <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2.5 }} onClose={() => setFetchError('')}>
           {fetchError}
+        </Alert>
+      )}
+
+      {deepLinkError && (
+        <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2.5 }} onClose={() => setDeepLinkError('')}>
+          {deepLinkError}
         </Alert>
       )}
 
