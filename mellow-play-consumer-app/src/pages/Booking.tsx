@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { formatScheduleDate } from '../utils/dateFormat';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, ChevronLeft, Calendar, Clock, MapPin, Sparkles, CheckCircle, Ticket, BookOpen, AlertCircle, AlertTriangle, CreditCard, Tag, User, Users, X, Smartphone, Wallet, QrCode, Search, ArrowRight, ClipboardList } from 'lucide-react';
@@ -1837,7 +1838,7 @@ const Booking = () => {
                     modalUpcomingSlots.length > 0 ? (
                       <div className="space-y-3">
                         {(modalShowAllSlots ? modalUpcomingSlots : modalUpcomingSlots.slice(0, 10)).map((day, i) => {
-                          const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+                          const displayDate = formatScheduleDate(day.date, lang);
                           return (
                             <div key={i} className="py-2.5 border-b border-slate-100 last:border-0 last:pb-0">
                               <div className="flex items-center gap-2 flex-wrap mb-2">

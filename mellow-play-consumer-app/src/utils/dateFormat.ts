@@ -43,3 +43,29 @@ export const formatTime24 = (value: string | number | Date, lang: 'th' | 'en' = 
     hour12: false,
   });
 };
+
+/**
+ * A date heading on a schedule, with the year in both eras when Thai.
+ *
+ * th-TH prints 2569 and nothing else. A parent reading a round off this
+ * screen is usually holding something written in 2026 — a message, a ticket,
+ * their own phone's calendar — and has to do the arithmetic to be sure it is
+ * the same day. Both years are shown, and the Gregorian one is labelled, so
+ * there is nothing to work out and nothing to mistake for a typo.
+ *
+ * English is left as it was: it already prints the year its reader counts in,
+ * and a Buddhist year added there would be noise rather than help.
+ */
+export const formatScheduleDate = (
+  dateInput: string | Date,
+  lang: 'th' | 'en' = 'th',
+  options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' },
+): string => {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return '';
+  if (lang === 'en') return d.toLocaleDateString('en-US', options);
+
+  // Appended rather than spliced: the Buddhist year is whatever th-TH chose
+  // to print, so there is no format to keep in step and nothing to re-parse.
+  return `${d.toLocaleDateString('th-TH', options)} (ค.ศ. ${d.getFullYear()})`;
+};

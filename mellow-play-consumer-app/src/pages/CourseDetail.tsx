@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatScheduleDate } from '../utils/dateFormat';
 import { getCourseBookingPath } from '../utils/courseLinks';
 import ScheduleLabel from '../components/ScheduleLabel';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -521,7 +522,7 @@ const CourseDetail = () => {
              upcomingSlots.length > 0 ? (
                <div className="space-y-4">
                  {(showAllSlots ? upcomingSlots : upcomingSlots.slice(0, 10)).map((day, i) => {
-                   const displayDate = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'th-TH', lang === 'en' ? enDateOptions : thDateOptions);
+                   const displayDate = formatScheduleDate(day.date, lang, lang === 'en' ? enDateOptions : thDateOptions);
                    return (
                      <div key={i} className="py-3 border-b border-slate-100 last:border-0 last:pb-0">
                        {/* The day's own label sits beside the date, which is
