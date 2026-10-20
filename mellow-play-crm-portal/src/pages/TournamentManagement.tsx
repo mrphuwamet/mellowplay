@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { useActionFeedback } from '../utils/actionFeedback';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -245,6 +246,9 @@ const TournamentManagement: React.FC = () => {
   const [resultEntry, setResultEntry] = useState<Entry | null>(null);
   const [resultForm, setResultForm] = useState<{ rank: number | ''; note: string; award: boolean }>({ rank: '', note: '', award: true });
   const [notice, setNotice] = useState<string>('');
+  // notice carries outcomes worth reading ("skipped 3 names"); this carries
+  // failures, which need a different colour and must not time out.
+  const { showError, feedback } = useActionFeedback();
 
   // Printing. The template decides what the document is; the format decides
   // what happens to it next — print it, edit it, or sort it.
@@ -321,16 +325,23 @@ const TournamentManagement: React.FC = () => {
         team_field_key: teamFields[0]?.field_key ?? null,
       });
       await load(Number(courseId), data.id, false);
+    } catch (err) {
+      showError(err, 'สร้างสายการแข่งขันไม่สำเร็จ');
     } finally { setSaving(false); }
   };
 
   const renameTournament = async () => {
     const target = renameTarget || tournament;
     if (!courseId || !target) return;
-    await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
-      id: target.id, name: renameValue.trim() || target.name,
-      description: target.description, team_field_key: target.team_field_key,
-    });
+    try {
+      await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
+        id: target.id, name: renameValue.trim() || target.name,
+        description: target.description, team_field_key: target.team_field_key,
+      });
+    } catch (err) {
+      showError(err, 'เปลี่ยนชื่อสายการแข่งขันไม่สำเร็จ');
+      return;
+    }
     setRenameOpen(false);
     load(Number(courseId), target.id);
   };
@@ -353,9 +364,14 @@ const TournamentManagement: React.FC = () => {
 
   const setTeamField = async (fieldKey: string) => {
     if (!courseId) return;
-    await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
-      id: tournament?.id, name: tournament?.name, description: tournament?.description, team_field_key: fieldKey || null,
-    });
+    try {
+      await axios.put(`${API_BASE}/courses/${courseId}/tournament`, {
+        id: tournament?.id, name: tournament?.name, description: tournament?.description, team_field_key: fieldKey || null,
+      });
+    } catch (err) {
+      showError(err, 'เปลี่ยนฟิลด์ทีมไม่สำเร็จ');
+      return;
+    }
     load(Number(courseId), tournament?.id);
   };
 
@@ -430,14 +446,19 @@ const TournamentManagement: React.FC = () => {
   const addPickedToHeat = async () => {
     if (!targetHeat || picked.size === 0 || !tournament) return;
     const chosen = available.filter(o => picked.has(o.refKey));
-    const { data } = await axios.post(`${API_BASE}/tournament-heats/${targetHeat}/entries`, {
-      tournament_id: tournament.id,
-      entries: chosen.map(o => ({
-        entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
-      })),
-    });
-    if (data.skipped?.length) setNotice(`ข้ามไป ${data.skipped.length} รายการ (มีชื่ออยู่ใน Heat นี้แล้ว): ${data.skipped.join(', ')}`);
-    else setNotice('');
+    try {
+      const { data } = await axios.post(`${API_BASE}/tournament-heats/${targetHeat}/entries`, {
+        tournament_id: tournament.id,
+        entries: chosen.map(o => ({
+          entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
+        })),
+      });
+      if (data.skipped?.length) setNotice(`ข้ามไป ${data.skipped.length} รายการ (มีชื่ออยู่ใน Heat นี้แล้ว): ${data.skipped.join(', ')}`);
+      else setNotice('');
+    } catch (err) {
+      showError(err, 'เพิ่มรายชื่อลง Heat ไม่สำเร็จ');
+      return;
+    }
     load(Number(courseId));
   };
 
@@ -454,10 +475,19 @@ const TournamentManagement: React.FC = () => {
       (buckets[heat.id] ||= []).push(o);
     });
     for (const [heatId, list] of Object.entries(buckets)) {
-      await axios.post(`${API_BASE}/tournament-heats/${heatId}/entries`, {
-        tournament_id: tournament.id,
-        entries: list.map(o => ({ entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel })),
-      });
+      try {
+        await axios.post(`${API_BASE}/tournament-heats/${heatId}/entries`, {
+          tournament_id: tournament.id,
+          entries: list.map(o => ({ entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel })),
+        });
+      } catch (err) {
+        // Earlier heats in this loop were written. Stopping here and saying so
+        // beats carrying on into a half-filled draw nobody was told about.
+        const heat = heats.find(h => String(h.id) === heatId);
+        showError(err, `กระจายรายชื่อลง ${heat?.name ?? 'Heat'} ไม่สำเร็จ — รายการก่อนหน้าถูกบันทึกไปแล้ว`);
+        load(Number(courseId));
+        return;
+      }
     }
     setNotice('');
     load(Number(courseId));
@@ -488,11 +518,16 @@ const TournamentManagement: React.FC = () => {
       // afterwards, so a heat created by hand had no way to send anyone on.
       advance_count: heatForm.advance_count ? Number(heatForm.advance_count) : null,
     };
-    if (heatDialog.editing) await axios.put(`${API_BASE}/tournament-heats/${heatDialog.editing.id}`, payload);
-    else {
-      const owner = heatDialog.tournamentId ?? tournament.id;
-      const existing = brackets.find(b => b.tournament.id === owner)?.heats.length ?? 0;
-      await axios.post(`${API_BASE}/tournaments/${owner}/heats`, { ...payload, sort_order: existing });
+    try {
+      if (heatDialog.editing) await axios.put(`${API_BASE}/tournament-heats/${heatDialog.editing.id}`, payload);
+      else {
+        const owner = heatDialog.tournamentId ?? tournament.id;
+        const existing = brackets.find(b => b.tournament.id === owner)?.heats.length ?? 0;
+        await axios.post(`${API_BASE}/tournaments/${owner}/heats`, { ...payload, sort_order: existing });
+      }
+    } catch (err) {
+      showError(err, 'บันทึก Heat ไม่สำเร็จ');
+      return;
     }
     setHeatDialog({ open: false, editing: null, tournamentId: null });
     load(Number(courseId));
@@ -548,12 +583,27 @@ const TournamentManagement: React.FC = () => {
   /** Pulled out of an existing box, or dropped on empty canvas. */
   const createHeatAt = async (pos: { x: number; y: number }, fromHeatId: number | null, tournamentId: number) => {
     const existing = brackets.find(b => b.tournament.id === tournamentId)?.heats.length ?? 0;
-    const { data } = await axios.post(`${API_BASE}/tournaments/${tournamentId}/heats`, {
-      name: `Heat ${existing + 1}`, sort_order: existing, pos_x: pos.x, pos_y: pos.y,
-    });
+    let data;
+    try {
+      ({ data } = await axios.post(`${API_BASE}/tournaments/${tournamentId}/heats`, {
+        name: `Heat ${existing + 1}`, sort_order: existing, pos_x: pos.x, pos_y: pos.y,
+      }));
+    } catch (err) {
+      // The box was drawn on the canvas optimistically; the reload below puts
+      // the canvas back to what the server actually holds.
+      showError(err, 'สร้าง Heat ใหม่ไม่สำเร็จ');
+      load(Number(courseId));
+      return;
+    }
     const newId = data?.heatId ?? data?.id;
     if (newId) {
-      await axios.put(`${API_BASE}/tournaments/${tournamentId}/layout`, { positions: [{ id: newId, x: pos.x, y: pos.y }] });
+      try {
+        await axios.put(`${API_BASE}/tournaments/${tournamentId}/layout`, { positions: [{ id: newId, x: pos.x, y: pos.y }] });
+      } catch (err) {
+        // The heat itself was created; only its position did not stick, so it
+        // will reappear wherever the server defaulted it.
+        showError(err, 'สร้าง Heat แล้ว แต่บันทึกตำแหน่งไม่สำเร็จ');
+      }
       if (fromHeatId) await axios.post(`${API_BASE}/tournaments/${tournamentId}/links`, { from_heat_id: fromHeatId, to_heat_id: newId }).catch(() => {});
     }
     load(Number(courseId));
@@ -588,17 +638,32 @@ const TournamentManagement: React.FC = () => {
       ...b,
       entries: b.entries.map(e => (e.id === entry.id ? { ...e, heat_id: heatId } : e)),
     })));
-    await axios.put(`${API_BASE}/tournament-entries/${entry.id}/move`, { heat_id: heatId });
+    try {
+      await axios.put(`${API_BASE}/tournament-entries/${entry.id}/move`, { heat_id: heatId });
+    } catch (err) {
+      // The card already jumped. Without this it stayed in its new heat on
+      // screen and went back to the old one on the next reload, with nothing
+      // said in between.
+      showError(err, `ย้าย ${entry.label} ไม่สำเร็จ`);
+    }
     load(Number(courseId));
   };
 
   const saveResult = async () => {
     if (!resultEntry) return;
-    const { data } = await axios.put(`${API_BASE}/tournament-entries/${resultEntry.id}/result`, {
-      rank: resultForm.rank === '' ? null : Number(resultForm.rank),
-      note: resultForm.note || null,
-      award: resultForm.award,
-    });
+    let data;
+    try {
+      ({ data } = await axios.put(`${API_BASE}/tournament-entries/${resultEntry.id}/result`, {
+        rank: resultForm.rank === '' ? null : Number(resultForm.rank),
+        note: resultForm.note || null,
+        award: resultForm.award,
+      }));
+    } catch (err) {
+      // The dialog stays open with the typed rank still in it, so the result
+      // can be saved again rather than retyped from memory.
+      showError(err, `บันทึกผลของ ${resultEntry.label} ไม่สำเร็จ`);
+      return;
+    }
     setResultEntry(null);
     if (data.awarded > 0) setNotice(`มอบเหรียญให้ ${data.awarded} คนแล้ว`);
     load(Number(courseId));
@@ -725,12 +790,18 @@ const TournamentManagement: React.FC = () => {
     const chosen = pickerRows.filter(o => pickerPicked.has(o.refKey));
     // The heat carries its own bracket — with several on screen, "the selected
     // tournament" is not what the person clicked.
-    const { data } = await axios.post(`${API_BASE}/tournament-heats/${pickerHeat.heat.id}/entries`, {
-      tournament_id: pickerHeat.tournamentId,
-      entries: chosen.map(o => ({
-        entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
-      })),
-    });
+    let data;
+    try {
+      ({ data } = await axios.post(`${API_BASE}/tournament-heats/${pickerHeat.heat.id}/entries`, {
+        tournament_id: pickerHeat.tournamentId,
+        entries: chosen.map(o => ({
+          entry_type: o.entryType, ref_key: o.refKey, label: o.label, sub_label: o.subLabel,
+        })),
+      }));
+    } catch (err) {
+      showError(err, 'เพิ่มรายชื่อลง Heat ไม่สำเร็จ');
+      return;
+    }
     setNotice(data.skipped?.length ? `ข้ามไป ${data.skipped.length} รายการ (มีชื่ออยู่ใน Heat นั้นแล้ว)` : '');
     setPickerHeat(null);
     load(Number(courseId));
@@ -979,6 +1050,7 @@ const TournamentManagement: React.FC = () => {
       {!loading && tournament && (
         <>
           {notice && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
+          {feedback}
 
           <Grid container spacing={2}>
             {/* Left: who is still unplaced, in whichever shape is being drawn.
@@ -1531,6 +1603,7 @@ const TournamentManagement: React.FC = () => {
               if (!confirmAction) return;
               setConfirmBusy(true);
               try { await confirmAction.run(); setConfirmAction(null); }
+              catch (err) { showError(err, 'ทำรายการไม่สำเร็จ'); }
               finally { setConfirmBusy(false); }
             }}
           >

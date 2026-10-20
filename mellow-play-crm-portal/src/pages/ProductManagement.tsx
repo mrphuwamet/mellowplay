@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { useActionFeedback } from '../utils/actionFeedback';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -59,7 +60,6 @@ const ProductManagement: React.FC = () => {
   const [loading, setLoading]       = useState(true);
   const [filterCat, setFilterCat]   = useState('');
   const [filterSearch, setFilterSearch] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
 
   const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId]     = useState<number | null>(null);
@@ -71,7 +71,7 @@ const ProductManagement: React.FC = () => {
   const [catForm, setCatForm]             = useState({ name: '', color: '#7c3aed' });
   const [catDeleteId, setCatDeleteId]     = useState<number | null>(null);
 
-  const showSuccess = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 4000); };
+  const { showSuccess, showError, feedback } = useActionFeedback();
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const fetchProducts = async () => {
@@ -91,7 +91,7 @@ const ProductManagement: React.FC = () => {
       }));
       setProducts(mapped);
     } catch (err) {
-      console.error('Failed to fetch products', err);
+      showError(err, 'โหลดรายการสินค้าไม่สำเร็จ');
     }
   };
 
@@ -100,7 +100,7 @@ const ProductManagement: React.FC = () => {
       const res = await axios.get(`${API_BASE}/product-categories`);
       setCategories(res.data.categories || res.data.productCategories || []);
     } catch (err) {
-      console.error('Failed to fetch product categories', err);
+      showError(err, 'โหลดหมวดหมู่สินค้าไม่สำเร็จ');
     }
   };
 
@@ -151,7 +151,7 @@ const ProductManagement: React.FC = () => {
       setFormOpen(false);
       await fetchProducts();
     } catch (err) {
-      console.error('Failed to save product', err);
+      showError(err, 'บันทึกสินค้าไม่สำเร็จ');
     }
   };
 
@@ -162,7 +162,7 @@ const ProductManagement: React.FC = () => {
       showSuccess('ลบสินค้าเรียบร้อย');
       await fetchProducts();
     } catch (err) {
-      console.error('Failed to delete product', err);
+      showError(err, 'ลบสินค้าไม่สำเร็จ');
     }
   };
 
@@ -183,7 +183,7 @@ const ProductManagement: React.FC = () => {
       });
       await fetchProducts();
     } catch (err) {
-      console.error('Failed to toggle product active', err);
+      showError(err, 'เปลี่ยนสถานะสินค้าไม่สำเร็จ');
     }
   };
 
@@ -201,7 +201,7 @@ const ProductManagement: React.FC = () => {
       setCatDialogOpen(false);
       await fetchCategories();
     } catch (err) {
-      console.error('Failed to save product category', err);
+      showError(err, 'บันทึกหมวดหมู่สินค้าไม่สำเร็จ');
     }
   };
 
@@ -211,7 +211,7 @@ const ProductManagement: React.FC = () => {
       setCatDeleteId(null);
       await fetchCategories();
     } catch (err) {
-      console.error('Failed to delete product category', err);
+      showError(err, 'ลบหมวดหมู่สินค้าไม่สำเร็จ');
     }
   };
 
@@ -241,7 +241,7 @@ const ProductManagement: React.FC = () => {
         </Box>
       </Box>
 
-      {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
+      {feedback}
 
       {/* Filters */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>

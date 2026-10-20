@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { useActionFeedback } from '../utils/actionFeedback';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -55,7 +56,6 @@ const ServiceManagement: React.FC = () => {
   const [filterCat, setFilterCat]   = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [tab, setTab]               = useState(0);
-  const [successMsg, setSuccessMsg] = useState('');
 
   // Service dialog
   const [formOpen, setFormOpen]   = useState(false);
@@ -69,7 +69,7 @@ const ServiceManagement: React.FC = () => {
   const [catForm, setCatForm]               = useState({ name: '', color: '#7c3aed' });
   const [catDeleteId, setCatDeleteId]       = useState<number | null>(null);
 
-  const showSuccess = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 4000); };
+  const { showSuccess, showError, feedback } = useActionFeedback();
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const fetchServices = async () => {
@@ -88,7 +88,7 @@ const ServiceManagement: React.FC = () => {
       }));
       setServices(mapped);
     } catch (err) {
-      console.error('Failed to fetch services', err);
+      showError(err, 'โหลดรายการบริการไม่สำเร็จ');
     }
   };
 
@@ -97,7 +97,7 @@ const ServiceManagement: React.FC = () => {
       const res = await axios.get(`${API_BASE}/service-categories`);
       setCategories(res.data.categories || res.data.serviceCategories || []);
     } catch (err) {
-      console.error('Failed to fetch service categories', err);
+      showError(err, 'โหลดหมวดหมู่บริการไม่สำเร็จ');
     }
   };
 
@@ -144,7 +144,7 @@ const ServiceManagement: React.FC = () => {
       setFormOpen(false);
       await fetchServices();
     } catch (err) {
-      console.error('Failed to save service', err);
+      showError(err, 'บันทึกบริการไม่สำเร็จ');
     }
   };
 
@@ -155,7 +155,7 @@ const ServiceManagement: React.FC = () => {
       showSuccess('ลบบริการเรียบร้อย');
       await fetchServices();
     } catch (err) {
-      console.error('Failed to delete service', err);
+      showError(err, 'ลบบริการไม่สำเร็จ');
     }
   };
 
@@ -175,7 +175,7 @@ const ServiceManagement: React.FC = () => {
       });
       await fetchServices();
     } catch (err) {
-      console.error('Failed to toggle service active', err);
+      showError(err, 'เปลี่ยนสถานะบริการไม่สำเร็จ');
     }
   };
 
@@ -194,7 +194,7 @@ const ServiceManagement: React.FC = () => {
       setCatDialogOpen(false);
       await fetchCategories();
     } catch (err) {
-      console.error('Failed to save category', err);
+      showError(err, 'บันทึกหมวดหมู่บริการไม่สำเร็จ');
     }
   };
 
@@ -204,7 +204,7 @@ const ServiceManagement: React.FC = () => {
       setCatDeleteId(null);
       await fetchCategories();
     } catch (err) {
-      console.error('Failed to delete category', err);
+      showError(err, 'ลบหมวดหมู่บริการไม่สำเร็จ');
     }
   };
 
@@ -235,7 +235,7 @@ const ServiceManagement: React.FC = () => {
         </Box>
       </Box>
 
-      {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
+      {feedback}
 
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>

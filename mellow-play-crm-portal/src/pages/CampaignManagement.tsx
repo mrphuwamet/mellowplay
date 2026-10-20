@@ -1,4 +1,5 @@
 import { API_URL } from '../config';
+import { useActionFeedback } from '../utils/actionFeedback';
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -191,7 +192,6 @@ const CampaignManagement: React.FC = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusTab, setStatusTab] = useState<'all' | CampaignStatus>('all');
-  const [successMsg, setSuccessMsg] = useState('');
 
   // Diligence rules state
   const [diligenceRules, setDiligenceRules]       = useState<DiligenceRule[]>([]);
@@ -207,7 +207,7 @@ const CampaignManagement: React.FC = () => {
   const [detailId, setDetailId]       = useState<number | null>(null);
   const [deleteId, setDeleteId]       = useState<number | null>(null);
 
-  const showSuccess = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 4000); };
+  const { showSuccess, showError, feedback } = useActionFeedback();
 
   // ── API fetch ──────────────────────────────────────────────────────────────
   const fetchCampaigns = async () => {
@@ -228,7 +228,9 @@ const CampaignManagement: React.FC = () => {
       }));
       setCampaigns(data);
     } catch (err) {
-      console.error('fetchCampaigns error:', err);
+      // Without this the table just renders empty, which reads as "there are
+      // no campaigns" rather than "we could not ask".
+      showError(err, 'โหลดรายการแคมเปญไม่สำเร็จ');
     }
   };
 
@@ -246,6 +248,7 @@ const CampaignManagement: React.FC = () => {
       }));
       setDiligenceRules(data);
     } catch (err) {
+      showError(err, 'โหลดกฎโบนัสขยันไม่สำเร็จ');
       console.error('fetchDiligenceRules error:', err);
     }
   };
@@ -299,10 +302,13 @@ const CampaignManagement: React.FC = () => {
         showSuccess('สร้างแคมเปญใหม่เรียบร้อย');
       }
       await fetchCampaigns();
+      // Closed only once the write has actually landed. This used to sit
+      // after the catch, so a refused save closed the form exactly like a
+      // successful one and the campaign was simply gone.
+      setFormOpen(false);
     } catch (err) {
-      console.error('handleSave error:', err);
+      showError(err, 'บันทึกแคมเปญไม่สำเร็จ');
     }
-    setFormOpen(false);
   };
   const handleDelete = async (id: number) => {
     try {
@@ -311,7 +317,7 @@ const CampaignManagement: React.FC = () => {
       setDeleteId(null);
       showSuccess('ลบแคมเปญเรียบร้อย');
     } catch (err) {
-      console.error('handleDelete error:', err);
+      showError(err, 'ลบแคมเปญไม่สำเร็จ');
     }
   };
   const toggleStatus = (id: number) => {
@@ -371,10 +377,11 @@ const CampaignManagement: React.FC = () => {
         showSuccess('สร้างกฎโบนัสขยันใหม่เรียบร้อย');
       }
       await fetchDiligenceRules();
+      // See handleSave: closing outside the try threw the rule away silently.
+      setDiligenceFormOpen(false);
     } catch (err) {
-      console.error('saveDiligence error:', err);
+      showError(err, 'บันทึกกฎโบนัสขยันไม่สำเร็จ');
     }
-    setDiligenceFormOpen(false);
   };
   const deleteDiligence = async (id: number) => {
     try {
@@ -383,7 +390,7 @@ const CampaignManagement: React.FC = () => {
       setDiligenceDeleteId(null);
       showSuccess('ลบกฎโบนัสขยันเรียบร้อย');
     } catch (err) {
-      console.error('deleteDiligence error:', err);
+      showError(err, 'ลบกฎโบนัสขยันไม่สำเร็จ');
     }
   };
   const toggleDiligenceActive = async (id: number) => {
@@ -400,7 +407,9 @@ const CampaignManagement: React.FC = () => {
       });
       await fetchDiligenceRules();
     } catch (err) {
-      console.error('toggleDiligenceActive error:', err);
+      // The switch snaps back when the list reloads, so the only thing
+      // missing was telling them why.
+      showError(err, 'เปลี่ยนสถานะกฎโบนัสขยันไม่สำเร็จ');
     }
   };
 
@@ -552,7 +561,7 @@ const CampaignManagement: React.FC = () => {
         )}
       </Box>
 
-      {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
+      {feedback}
 
       {/* Main tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
