@@ -30,6 +30,7 @@ import { QueueController } from './controllers/queueController';
 import { OrderController } from './controllers/orderController';
 import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
+import { PricingController } from './controllers/pricingController';
 import { RewardsController } from './controllers/rewardsController';
 import { CertificateController } from './controllers/certificateController';
 import { TournamentController } from './controllers/tournamentController';
@@ -71,6 +72,7 @@ const checkinAccessController = new CheckinAccessController();
 const inviteAccessController = new InviteAccessController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
+const pricingController        = new PricingController();
 const rewardsController        = new RewardsController();
 const tournamentController     = new TournamentController();
 const certificateController    = new CertificateController();
@@ -446,6 +448,8 @@ app.get('/api/v1/profiles/bookings/pending', (c) => profileController.getPending
 app.get('/api/v1/profiles/bookings/upcoming', (c) => profileController.getUpcomingBookings(c));
 app.get('/api/v1/profiles/bookings/history', (c) => profileController.getHistoryBookings(c));
 app.get('/api/v1/profiles/bookings/:id/form-answers', (c) => profileController.getBookingFormAnswers(c));
+// What a booking would cost, from the same function that charges it.
+app.post('/api/v1/profiles/booking-quote', (c) => pricingController.quoteForParent(c));
 app.post('/api/v1/profiles/bookings/:id/cancel', (c) => profileController.cancelMyBooking(c));
 app.get('/api/v1/journey/progress/:childId', (c) => journeyController.getChildProgress(c));
 app.get('/api/v1/journey/progress-by-booking/:bookingId', (c) => journeyController.getProgressByBooking(c));
@@ -604,6 +608,7 @@ app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemS
 
 app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
 app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));
+app.post('/api/v1/admin/booking-quote', (c) => pricingController.quoteForStaff(c));
 app.delete('/api/v1/admin/bookings/:id', (c) => adminController.deleteBooking(c));
 app.put   ('/api/v1/admin/bookings/:id/staff-note', (c) => adminController.setBookingStaffNote(c));
 app.get('/api/v1/admin/crm-users', (c) => adminController.getCrmUsers(c));

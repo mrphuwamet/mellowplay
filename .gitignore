@@ -45,3 +45,5 @@ yarn-error.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+# graphify knowledge graph output (generated, ~9 MB)
+graphify-out/

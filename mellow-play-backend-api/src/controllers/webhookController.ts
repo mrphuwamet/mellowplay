@@ -210,18 +210,23 @@ export class WebhookController {
             const tx = await config.db.prepare('SELECT id FROM Transactions WHERE booking_id = ?').bind(bid).first();
             if (!tx) {
               const bookingRow = await config.db.prepare(
-                `SELECT b.branch_id, b.child_id, b.course_id, b.price, ch.parent_id as user_id
+                `SELECT b.branch_id, b.child_id, b.course_id, b.price, b.extras_price, ch.parent_id as user_id
                  FROM Bookings b LEFT JOIN Children ch ON b.child_id = ch.id
                  WHERE b.id = ?`
-              ).bind(bid).first<{ branch_id: number; child_id: number; course_id: number; price: number | null; user_id: number | null }>();
+              ).bind(bid).first<{ branch_id: number; child_id: number; course_id: number; price: number | null; extras_price: number | null; user_id: number | null }>();
               // Each booking stores its own actual price (adminController.
               // createBooking — can differ per child now, e.g. Premium vs
               // Regular siblings in the same request), so use that directly
               // rather than splitting the group's Beam total evenly. Older
               // bookings created before this column existed fall back to an
               // even split of the Beam total, in satang.
+              // extras_price is whatever the registration answers added — a
+              // shirt, a meal. It is kept out of Bookings.price so a seat
+              // price stays readable on the roster, but it did reach the
+              // bank, so it has to reach Transactions too or the revenue
+              // dashboard under-reports by exactly that much.
               const amountThbPerBooking = bookingRow?.price != null
-                ? bookingRow.price
+                ? bookingRow.price + (bookingRow.extras_price ?? 0)
                 : (totalAmount / bookingsToUpdate.length) / 100;
               await config.db.prepare(`
                 INSERT INTO Transactions (branch_id, user_id, child_id, type, amount, payment_method, course_id, booking_id)

@@ -9,6 +9,7 @@ import { SmsRepository } from '../repositories/smsRepository';
 import { SystemLogger } from '../utils/logger';
 import { CourseMaterialRepository } from '../repositories/courseMaterialRepository';
 import { SettingsRepository } from '../repositories/settingsRepository';
+import { quoteBooking } from '../services/pricingService';
 import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
 import { isValidPin, PIN_ERROR } from '../utils/pin';
 import { EmailService } from '../services/emailService';
@@ -1342,95 +1343,34 @@ export class AdminController {
         }
       }
 
-      // Calculate price and discount. Premium children (childPremiumMap,
-      // batched above from Children.membership_type) use Courses.premium_price
-      // when the course has one actually configured; everyone else (regular
-      // children and guests) pays original_price — a mixed-status group (e.g.
-      // one Premium and one Regular sibling in the same request) is priced
-      // per child, not as one lump price times headcount.
-      // premium_price's DB default is 0 (never NULL — see 0001_init.sql), so
-      // every course that's never had a real premium price set would
-      // otherwise silently price Premium children at 0 instead of falling
-      // back to original_price. Require a positive value to count as "set".
-      const courseRow = await db.prepare('SELECT id, name, original_price, premium_price FROM Courses WHERE id = ?').bind(parseInt(courseId)).first() as any;
-      const basePriceFor = (childId: number): number =>
-        (childId > 0 && childPremiumMap.get(childId) && courseRow?.premium_price > 0)
-          ? courseRow.premium_price
-          : (courseRow?.original_price ?? 0);
+      // The amount is worked out by pricingService and nowhere else. It used
+      // to be computed inline here while the consumer app computed its own
+      // preview separately — one price times the headcount, with no idea
+      // Premium members exist. The two agreed only because nothing had ever
+      // made them differ; a per-seat ladder makes them differ on the first
+      // booking. GET /courses/:id/quote calls this same function, so the
+      // figure on the button is the figure Beam is handed.
+      const quote = await quoteBooking(db, {
+        courseId: parseInt(courseId),
+        childIds: parsedChildIds,
+        ageGroup: ageGroup || null,
+        formId: formId ? parseInt(formId) : null,
+        formAnswers: formAnswers ?? null,
+        promoCode: promoCode ?? null,
+      });
 
-      // Compute active campaign discount (matching getCourses logic). The
-      // winning campaign is picked the same way as before (evaluated against
-      // original_price, so the choice among multiple active campaigns doesn't
-      // change), but its rule (percent or flat) is then re-applied to each
-      // child's own base price below — a percent-off campaign should still
-      // take the same percentage off a Premium child's lower base price.
-      const { results: activeCampaigns } = await db.prepare(
-        "SELECT * FROM Sale_Campaigns WHERE is_active = 1"
-      ).all();
+      // Lines come back in the order the children were sent, so they match by
+      // position. Not by id: two guests in one booking are both childId 0, and
+      // keying on that would put them on the same seat and charge the cheaper
+      // one twice.
+      const priceAtIndex = (index: number): number => quote.participants[index]?.subtotal ?? 0;
 
-      const now = new Date();
-      let campaignDiscountAmt = 0;
-      let campaignDiscountPct = 0;
-      let bestCampaignDiscountForOriginal = 0;
+      // Everything the answers added — a shirt, a meal. Charged to the family
+      // once, so it rides on the first booking of the group (see migration
+      // 0121) and stays out of the per-seat price every roster screen shows.
+      const extrasTotal = quote.extras.reduce((sum, e) => sum + e.amount, 0);
 
-      for (const camp of (activeCampaigns as any[])) {
-        if (camp.valid_from && new Date(camp.valid_from) > now) continue;
-        if (camp.valid_until && new Date(camp.valid_until) < now) continue;
-
-        let itemDiscountAmt = camp.discount_amount || 0;
-        let itemDiscountPct = camp.discount_percent || 0;
-
-        try {
-          const applicableIds = JSON.parse(camp.applicable_course_ids || '[]');
-          const specificItem = applicableIds.find((i: any) => i.id === courseRow.id);
-          if (specificItem) {
-             itemDiscountAmt = specificItem.discount_amount ?? itemDiscountAmt;
-             itemDiscountPct = specificItem.discount_percent ?? itemDiscountPct;
-          }
-        } catch(e) {}
-
-        const discountForOriginal = itemDiscountPct > 0
-          ? ((courseRow?.original_price ?? 0) * itemDiscountPct) / 100
-          : itemDiscountAmt;
-
-        if (discountForOriginal > bestCampaignDiscountForOriginal) {
-          bestCampaignDiscountForOriginal = discountForOriginal;
-          campaignDiscountPct = itemDiscountPct > 0 ? itemDiscountPct : 0;
-          campaignDiscountAmt = itemDiscountPct > 0 ? 0 : itemDiscountAmt;
-        }
-      }
-
-      const priceAfterCampaignFor = (basePrice: number): number =>
-        Math.max(0, basePrice - (campaignDiscountPct > 0 ? (basePrice * campaignDiscountPct) / 100 : campaignDiscountAmt));
-
-      // Apply promo discount if provided — same "compute the rule once,
-      // apply per child" approach as the campaign discount above.
-      let promoDiscountPct = 0;
-      let promoDiscountAmt = 0;
-      if (promoCode) {
-        const promo = await db.prepare(`
-          SELECT discount_amount, discount_percent FROM Promotions
-          WHERE code = ? AND is_active = 1
-          AND (valid_until IS NULL OR valid_until > datetime('now'))
-          AND (max_uses = 0 OR current_uses < max_uses)
-        `).bind(promoCode).first() as any;
-        if (promo) {
-          if (promo.discount_percent > 0) {
-            promoDiscountPct = promo.discount_percent;
-          } else {
-            promoDiscountAmt = promo.discount_amount;
-          }
-        }
-      }
-
-      const finalPriceFor = (childId: number): number => {
-        const priceAfterCampaign = priceAfterCampaignFor(basePriceFor(childId));
-        const promoDiscount = promoDiscountPct > 0 ? Math.floor(priceAfterCampaign * promoDiscountPct / 100) : promoDiscountAmt;
-        return Math.max(0, priceAfterCampaign - promoDiscount);
-      };
-
-      const childPrices = parsedChildIds.map((id: number) => finalPriceFor(id));
-      const totalPrice = childPrices.reduce((sum: number, p: number) => sum + p, 0);
+      const totalPrice = quote.total;
       const settingsRepo = new SettingsRepository(config.db);
       const paymentEnabled = await settingsRepo.getSetting('payment_enabled') !== '0';
 
@@ -1474,7 +1414,7 @@ export class AdminController {
 
       const bookingIds = [];
       const qrTokens: Record<number, string> = {};
-      for (const parsedChildId of parsedChildIds) {
+      for (const [childIndex, parsedChildId] of parsedChildIds.entries()) {
         const { id, qrToken } = await adminRepo.createBooking({
           childId: parsedChildId,
           courseId: parseInt(courseId),
@@ -1488,11 +1428,16 @@ export class AdminController {
           paymentStatus: targetPaymentStatus,
           paymentMethod: paymentMethod ?? undefined,
           notes: notes ?? undefined,
-          price: finalPriceFor(parsedChildId),
+          price: priceAtIndex(childIndex),
           sponsorTag: sponsorTag || undefined,
         });
         bookingIds.push(id);
         qrTokens[id] = qrToken;
+      }
+
+      if (extrasTotal > 0 && bookingIds.length > 0) {
+        await db.prepare('UPDATE Bookings SET extras_price = ? WHERE id = ?')
+          .bind(extrasTotal, bookingIds[0]).run();
       }
 
       // One Form_Submissions row per checkout (not per child) — a checkout
@@ -1625,7 +1570,7 @@ export class AdminController {
           }
           const methodLabel = paymentMethod === 'coupon' ? 'คูปอง (Coupon)' : (isFree ? 'ฟรี (Free)' : (paymentMethod || 'อื่นๆ'));
           await sendNotification(config.db, 'การจองสำเร็จ (ชำระเงินแล้ว)', {
-            'คลาส': courseRow?.name ?? `#${courseId}`,
+            'คลาส': quote.course.name || `#${courseId}`,
             'เด็ก': childNames,
             'วันเวลา': scheduledAt,
             'ยอดชำระ': `${totalPrice.toLocaleString('th-TH')} บาท`,

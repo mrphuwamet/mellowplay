@@ -1,0 +1,19 @@
+-- What a booking was charged on top of its seat: a shirt bought with the
+-- registration, a lunch add-on, anything a priced form option produced.
+--
+-- Kept out of Bookings.price on purpose. price is what that one participant's
+-- place costs, and the check-in roster and the per-seat ladder both read it —
+-- folding a 250-baht shirt into it would make the second child's seat look
+-- like 600 on every screen that shows a seat price.
+--
+-- But it cannot simply live nowhere either: the Beam webhook writes one
+-- Transactions row per booking using Bookings.price, and Transactions is what
+-- the revenue dashboard sums. Money that reaches the bank and never reaches
+-- that table is money the business cannot see. The webhook adds this column
+-- to the amount it records.
+--
+-- Answers are shared across a booking group today, so the extras land on the
+-- first booking of the group. When the registration form starts asking its
+-- questions per participant, each person's extras move onto their own row and
+-- nothing here changes shape.
+ALTER TABLE Bookings ADD COLUMN extras_price REAL DEFAULT 0;
