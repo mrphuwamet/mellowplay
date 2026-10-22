@@ -1,4 +1,4 @@
-export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset' | 'welcome' | 'broadcast' | 'certificate';
+export type EmailLogType = 'booking_success' | 'reminder' | 'otp' | 'password_reset' | 'welcome' | 'broadcast' | 'certificate' | 'survey_receipt';
 
 export interface EmailLogEntry {
   bookingId?: number | null;
@@ -16,6 +16,8 @@ export interface EmailLogEntry {
   providerDetail?: string | null;
   sentBy?: number | null;
   broadcastId?: number | null;
+  /** Which paid survey registration a 'survey_receipt' belongs to. */
+  surveySubmissionId?: number | null;
 }
 
 // Counterpart to SmsRepository's logging half. Separate table because Sms_Logs
@@ -32,8 +34,8 @@ export class EmailLogRepository {
     await this.db.prepare(`
       INSERT INTO Email_Logs
         (booking_id, course_id, type, email, subject, body_html, status,
-         provider_message_id, provider_detail, sent_by, broadcast_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         provider_message_id, provider_detail, sent_by, broadcast_id, survey_submission_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       entry.bookingId ?? null,
       entry.courseId ?? null,
@@ -46,6 +48,7 @@ export class EmailLogRepository {
       entry.providerDetail ?? null,
       entry.sentBy ?? null,
       entry.broadcastId ?? null,
+      entry.surveySubmissionId ?? null,
     ).run();
   }
 

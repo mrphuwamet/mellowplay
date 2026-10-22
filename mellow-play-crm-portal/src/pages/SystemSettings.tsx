@@ -51,6 +51,59 @@ const WELCOME_SAMPLE: Record<string, string> = {
   phone: '081-234-5678',
 };
 
+// The receipt a paid form sends. Two mails, not one: 'received' goes out the
+// moment a slip is attached and says only that it arrived, 'verified' goes
+// out when a person has actually checked it. Sending the second wording for
+// the first event would tell someone their money is settled before anyone
+// looked, which is the sentence they would quote back later.
+type ReceiptKind = 'received' | 'verified';
+const RECEIPT_KINDS: { key: ReceiptKind; label: string; hint: string }[] = [
+  { key: 'received', label: 'เมื่อได้รับสลิป', hint: 'ส่งทันทีที่ผู้สมัครแนบสลิป — ยังไม่มีใครตรวจ' },
+  { key: 'verified', label: 'เมื่อยืนยันการชำระเงิน', hint: 'ส่งเมื่อเจ้าหน้าที่กดยืนยันในหน้ารายการชำระเงิน' },
+];
+const RECEIPT_VARIABLES: { key: string; label: string }[] = [
+  { key: 'form', label: 'ชื่อแบบฟอร์ม' },
+  { key: 'name', label: 'ชื่อผู้สมัคร' },
+  { key: 'id', label: 'เลขที่รายการ' },
+  { key: 'amount', label: 'ยอดรวม' },
+  { key: 'breakdown', label: 'ตารางรายการ' },
+];
+const RECEIPT_SAMPLE: Record<string, string> = {
+  form: 'ลงทะเบียนร่วมงาน Halloween Party for Kids',
+  name: 'คุณสมชาย ศรีสุข',
+  id: '123',
+  amount: '850',
+  breakdown: '<table style="width:100%;border-collapse:collapse;margin:12px 0">'
+    + '<tr><td style="padding:4px 0">น้องเอ · บัตรรวมกิจกรรม</td><td style="padding:4px 0;text-align:right">500 บาท</td></tr>'
+    + '<tr><td style="padding:4px 0">น้องบี · บัตรรวมกิจกรรม</td><td style="padding:4px 0;text-align:right">350 บาท</td></tr>'
+    + '<tr><td colspan="2" style="border-top:1px solid #e2e8f0;padding-top:8px"></td></tr>'
+    + '<tr><td style="padding:4px 0;font-weight:700">รวม</td><td style="padding:4px 0;text-align:right;font-weight:700">850 บาท</td></tr>'
+    + '</table>',
+};
+
+// Mirrors RECEIPT_DEFAULTS on the server. Shown when no setting has been
+// saved, so the editor opens on the wording that is actually going out rather
+// than on an empty box.
+const RECEIPT_FALLBACK: Record<ReceiptKind, { subject: string; template: string }> = {
+  received: {
+    subject: 'ได้รับใบสมัครและสลิปแล้ว · {{form}}',
+    template: '<p>เราได้รับใบสมัครและสลิปโอนเงินของคุณแล้ว</p>\n'
+      + '<p style="color:#64748b">ทีมงานจะตรวจสอบและติดต่อกลับหากมีข้อสงสัย หากข้อมูลครบถ้วนถือว่าการสมัครเสร็จสมบูรณ์</p>\n'
+      + '<p><b>{{form}}</b></p>\n'
+      + '<p>ชื่อผู้สมัคร: {{name}}<br/>เลขที่รายการ: #{{id}}</p>\n'
+      + '{{breakdown}}\n'
+      + '<p>เก็บอีเมลฉบับนี้ไว้เป็นหลักฐานได้เลยค่ะ</p>',
+  },
+  verified: {
+    subject: 'ยืนยันการชำระเงิน · {{form}}',
+    template: '<p>ยืนยันการชำระเงินเรียบร้อยแล้ว</p>\n'
+      + '<p><b>{{form}}</b></p>\n'
+      + '<p>ชื่อผู้สมัคร: {{name}}<br/>เลขที่รายการ: #{{id}}</p>\n'
+      + '{{breakdown}}\n'
+      + '<p>เก็บอีเมลฉบับนี้ไว้เป็นหลักฐานได้เลยค่ะ</p>',
+  },
+};
+
 interface Branch {
   id: string;
   name: string;
@@ -130,6 +183,17 @@ const SystemSettings = () => {
   const welcomeBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const welcomeEditorRef = useRef<any>(null);
 
+  // The paid-survey receipt. One draft per kind, both loaded up front so
+  // switching tabs does not lose unsaved edits to the other one.
+  const [receiptKind, setReceiptKind] = useState<ReceiptKind>('received');
+  const [receipts, setReceipts] = useState<Record<ReceiptKind, { subject: string; template: string }>>(RECEIPT_FALLBACK);
+  const [savingReceipt, setSavingReceipt] = useState(false);
+  const [receiptBodyTab, setReceiptBodyTab] = useState<'wysiwyg' | 'html'>('wysiwyg');
+  const [receiptFocus, setReceiptFocus] = useState<'subject' | 'body'>('body');
+  const receiptSubjectRef = useRef<HTMLInputElement | null>(null);
+  const receiptBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const receiptEditorRef = useRef<any>(null);
+
   // The frame around every outgoing email (plain vs custom). Edited as a draft
   // and saved on a button — the preview beside it renders the draft, so the
   // effect is visible before anything reaches a real inbox.
@@ -193,6 +257,16 @@ const SystemSettings = () => {
         setSystemSettings(settingsMap);
         setWelcomeSubject(settingsMap['welcome_email_subject'] || '');
         setWelcomeBody(settingsMap['welcome_email_template'] || '');
+        setReceipts({
+          received: {
+            subject: settingsMap['survey_receipt_subject_received'] || RECEIPT_FALLBACK.received.subject,
+            template: settingsMap['survey_receipt_template_received'] || RECEIPT_FALLBACK.received.template,
+          },
+          verified: {
+            subject: settingsMap['survey_receipt_subject_verified'] || RECEIPT_FALLBACK.verified.subject,
+            template: settingsMap['survey_receipt_template_verified'] || RECEIPT_FALLBACK.verified.template,
+          },
+        });
         setEmailTheme(themeFromSettings(settingsMap));
       }
       if (isSuperAdmin) {
@@ -300,6 +374,61 @@ const SystemSettings = () => {
       setSavingWelcome(false);
     }
   };
+
+  const patchReceipt = (patch: Partial<{ subject: string; template: string }>) =>
+    setReceipts(prev => ({ ...prev, [receiptKind]: { ...prev[receiptKind], ...patch } }));
+
+  // Only the kind on screen is written. Saving both would overwrite the other
+  // draft with whatever was last loaded, which is how an edit disappears.
+  const saveReceiptEmail = async () => {
+    setSavingReceipt(true);
+    try {
+      const draft = receipts[receiptKind];
+      await axios.put(`${API_BASE}/system/settings`, { key: `survey_receipt_subject_${receiptKind}`, value: draft.subject });
+      await axios.put(`${API_BASE}/system/settings`, { key: `survey_receipt_template_${receiptKind}`, value: draft.template });
+      setSystemSettings(prev => ({
+        ...prev,
+        [`survey_receipt_subject_${receiptKind}`]: draft.subject,
+        [`survey_receipt_template_${receiptKind}`]: draft.template,
+      }));
+    } catch (e: any) {
+      alert('บันทึกไม่สำเร็จ: ' + e.message);
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
+
+  const insertReceiptVariable = (key: string) => {
+    const token = `{{${key}}}`;
+    const draft = receipts[receiptKind];
+
+    if (receiptFocus === 'subject') {
+      const el = receiptSubjectRef.current;
+      const at = el?.selectionStart ?? draft.subject.length;
+      patchReceipt({ subject: draft.subject.slice(0, at) + token + draft.subject.slice(at) });
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(at + token.length, at + token.length);
+      });
+      return;
+    }
+    if (receiptBodyTab === 'html') {
+      const el = receiptBodyRef.current;
+      const at = el?.selectionStart ?? draft.template.length;
+      patchReceipt({ template: draft.template.slice(0, at) + token + draft.template.slice(at) });
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(at + token.length, at + token.length);
+      });
+      return;
+    }
+    const editor = receiptEditorRef.current;
+    if (editor) editor.chain().focus().insertContent(token).run();
+    else patchReceipt({ template: draft.template + token });
+  };
+
+  const renderReceiptPreview = (template: string) =>
+    template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => RECEIPT_SAMPLE[key] ?? match);
 
   // Inserts at the cursor of whichever field was last focused, falling back to
   // appending — a chip that silently does nothing is worse than one that puts
@@ -532,6 +661,109 @@ const SystemSettings = () => {
               <Box>
                 <Button variant="contained" onClick={saveWelcomeEmail} disabled={savingWelcome}>
                   {savingWelcome ? 'กำลังบันทึก...' : 'บันทึกอีเมลต้อนรับ'}
+                </Button>
+              </Box>
+            </Stack>
+          </Paper>
+
+          {/* The receipt a paid survey sends. Lives beside the welcome
+              mail rather than on the form, because both mails are the same
+              two mails whichever form charged: changing the wording per form
+              would mean maintaining one copy per event. */}
+          <Paper sx={{ p: 3, borderRadius: 4, mb: 4 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <SettingsIcon color="primary" /> อีเมลยืนยันของแบบฟอร์มที่เก็บเงิน
+            </Typography>
+
+            <ToggleButtonGroup
+              exclusive size="small" color="primary" value={receiptKind} sx={{ mb: 2 }}
+              onChange={(_, v) => v && setReceiptKind(v)}
+            >
+              {RECEIPT_KINDS.map(k => (
+                <ToggleButton key={k.key} value={k.key} sx={{ px: 2.5, fontWeight: 700 }}>{k.label}</ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+
+            <Stack spacing={2}>
+              <Alert severity="info">
+                {RECEIPT_KINDS.find(k => k.key === receiptKind)?.hint} ·
+                ส่งไปยังคำตอบในช่องชนิด "อีเมล" ของแบบฟอร์มนั้น ถ้าแบบฟอร์มไม่มีช่องชนิดอีเมล จะไม่มีใครได้รับอีเมล ·
+                เนื้อหานี้จะถูกวางในกรอบตาม "รูปแบบอีเมล" ด้านล่าง
+              </Alert>
+
+              <TextField
+                fullWidth label="หัวเรื่อง"
+                value={receipts[receiptKind].subject}
+                onChange={(e) => patchReceipt({ subject: e.target.value })}
+                inputRef={receiptSubjectRef}
+                onFocus={() => setReceiptFocus('subject')}
+              />
+
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexWrap: 'wrap', gap: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>เนื้อหาอีเมล</Typography>
+                  <ToggleButtonGroup
+                    exclusive size="small" value={receiptBodyTab}
+                    onChange={(_, v) => v && setReceiptBodyTab(v)}
+                  >
+                    <ToggleButton value="wysiwyg" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>แก้แบบเห็นภาพ</ToggleButton>
+                    <ToggleButton value="html" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>HTML</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+
+                {receiptBodyTab === 'wysiwyg' ? (
+                  <Box onFocus={() => setReceiptFocus('body')}>
+                    <RichTextEditor
+                      key={receiptKind}
+                      value={receipts[receiptKind].template}
+                      onChange={html => patchReceipt({ template: html })}
+                      uploadFolder="survey-receipt"
+                      placeholder="เช่น เราได้รับใบสมัครของ {{name}} แล้ว"
+                      onEditorReady={editor => { receiptEditorRef.current = editor; }}
+                    />
+                  </Box>
+                ) : (
+                  <TextField
+                    fullWidth multiline minRows={8}
+                    value={receipts[receiptKind].template}
+                    onChange={(e) => patchReceipt({ template: e.target.value })}
+                    inputRef={receiptBodyRef}
+                    onFocus={() => setReceiptFocus('body')}
+                    InputProps={{ sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 } }}
+                  />
+                )}
+
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.25, mb: 0.5 }}>
+                  กดเพื่อแทรกตัวแปร (ใส่ได้ทั้งหัวเรื่องและเนื้อหา — คลิกช่องที่ต้องการก่อน) ·
+                  "ตารางรายการ" คือตารางราคาที่ระบบสร้างให้ ไม่ต้องพิมพ์เอง
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {RECEIPT_VARIABLES.map(v => (
+                    <Chip
+                      key={v.key} size="small" label={v.label} onClick={() => insertReceiptVariable(v.key)}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1 }}>
+                  ตัวอย่างที่ผู้สมัครจะได้รับ (ใช้ตัวเลขสมมติ)
+                </Typography>
+                <Box
+                  component="iframe" title="receipt-preview"
+                  srcDoc={wrapEmailHtml(renderReceiptPreview(receipts[receiptKind].template), emailTheme)}
+                  sx={{ width: '100%', height: 360, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#fff' }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  หัวเรื่อง: {renderReceiptPreview(receipts[receiptKind].subject) || '(ยังไม่ได้ตั้ง)'}
+                </Typography>
+              </Box>
+
+              <Box>
+                <Button variant="contained" onClick={saveReceiptEmail} disabled={savingReceipt}>
+                  {savingReceipt ? 'กำลังบันทึก...' : `บันทึกอีเมล "${RECEIPT_KINDS.find(k => k.key === receiptKind)?.label}"`}
                 </Button>
               </Box>
             </Stack>
