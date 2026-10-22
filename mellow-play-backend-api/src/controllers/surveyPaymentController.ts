@@ -1,10 +1,8 @@
 import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
-import { SettingsRepository } from '../repositories/settingsRepository';
-import { EmailService } from '../services/emailService';
-import { wrapEmailHtml, loadEmailTheme } from '../services/emailTemplateService';
 import { SystemLogger } from '../utils/logger';
+import { sendSurveyReceipt } from '../services/surveyReceiptService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -99,7 +97,7 @@ export class SurveyPaymentController {
         VALUES (1, NULL, NULL, 'survey_payment', ?, 'transfer')
       `).bind(Number(submission.amount) || 0).run();
 
-      const emailed = await this.sendReceipt(c, config, submission);
+      const emailed = (await sendSurveyReceipt(config, id, 'verified')).sent;
       await logger.info('survey-payment', `#${id} verified by ${by} (${submission.amount} THB), receipt=${emailed}`);
 
       return c.json({ success: true, emailed });
@@ -140,56 +138,4 @@ export class SurveyPaymentController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
-  /**
-   * The confirmation the respondent gets. Sent from the same binding, sender
-   * and theme as every other email this system sends, so a receipt from a
-   * survey looks like a receipt from a class.
-   *
-   * A failed send never fails the verification: the money is confirmed either
-   * way, and a payment that silently un-confirms itself because an inbox was
-   * full would be far worse than a missing email.
-   */
-  private async sendReceipt(c: C, config: ConfigService, submission: any): Promise<boolean> {
-    try {
-      const answers = await config.db.prepare(
-        'SELECT answers_json FROM Survey_Submissions WHERE id = ?'
-      ).bind(submission.id).first() as any;
-
-      // The respondent's address, wherever the form happened to ask for it.
-      let to = '';
-      try {
-        const parsed = JSON.parse(answers?.answers_json || '{}');
-        for (const value of Object.values(parsed)) {
-          if (typeof value === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim())) {
-            to = value.trim();
-            break;
-          }
-        }
-      } catch { /* an unreadable answer set simply has no address in it */ }
-      if (!to) return false;
-
-      const settingsRepo = new SettingsRepository(config.db);
-      const fromAddress = await settingsRepo.getOverridable('email_from_address', 'contact@mellowplay.co');
-      const fromName = await settingsRepo.getOverridable('email_from_name', 'Mellow Play');
-      const replyTo = await settingsRepo.getOverridable('email_reply_to', '');
-      const email = new EmailService(config.emailBinding, fromAddress, fromName, replyTo);
-      if (!email.isConfigured) return false;
-
-      const amount = Number(submission.amount || 0).toLocaleString('th-TH');
-      const html = wrapEmailHtml(
-        `<p>เราได้รับการชำระเงินของคุณเรียบร้อยแล้ว</p>
-         <p><b>${submission.form_name}</b></p>
-         <p>ชื่อผู้สมัคร: ${submission.respondent_name || '-'}<br/>
-            ยอดชำระ: ${amount} บาท<br/>
-            เลขที่รายการ: #${submission.id}</p>
-         <p>เก็บอีเมลฉบับนี้ไว้เป็นหลักฐานการชำระเงินได้เลยค่ะ</p>`,
-        await loadEmailTheme(settingsRepo),
-      );
-
-      const result = await email.sendMessage(to, `ยืนยันการชำระเงิน · ${submission.form_name}`, html);
-      return !!result?.ok;
-    } catch {
-      return false;
-    }
-  }
 }

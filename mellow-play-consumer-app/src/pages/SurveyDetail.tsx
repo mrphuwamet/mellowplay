@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Loader2, CheckCircle2, FileQuestion } from 'lucide-react';
 import { useTranslation } from '../LanguageContext';
 import apiClient from '../utils/apiClient';
+import SurveyPaymentStep, { SurveyPaymentInfo } from '../components/SurveyPaymentStep';
 import SurveyFillForm from '../components/SurveyFillForm';
 
 const SurveyDetail = () => {
@@ -32,6 +33,29 @@ const SurveyDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; resultTextHtml?: string; imageUrl?: string } | null } | null>(null);
+  const [payment, setPayment] = useState<{ submissionId: number; info: SurveyPaymentInfo } | null>(null);
+
+  // The running total while the form is being filled, asked of the server
+  // rather than worked out here. This screen never computes an amount: the
+  // figure it shows has to be the figure that gets charged, and the only way
+  // to guarantee that is for one function to produce both.
+  const [quote, setQuote] = useState<{ lines: { label: string; amount: number }[]; total: number } | null>(null);
+  const collectsPayment = !!form?.collects_payment;
+  const answersKey = JSON.stringify(answers);
+
+  useEffect(() => {
+    if (!idOrSlug || !collectsPayment) { setQuote(null); return; }
+    let cancelled = false;
+    // Debounced: a price that flickers on every keystroke is harder to read
+    // than one that settles, and every change is a request.
+    const timer = setTimeout(() => {
+      apiClient.post(`/surveys/${idOrSlug}/quote`, { answers })
+        .then(res => { if (!cancelled && res.data?.success) setQuote(res.data.quote); })
+        .catch(() => { if (!cancelled) setQuote(null); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idOrSlug, collectsPayment, answersKey]);
 
   useEffect(() => {
     if (!idOrSlug) return;
@@ -54,6 +78,10 @@ const SurveyDetail = () => {
       });
       if (res.data.success) {
         setResult({ totalScore: res.data.totalScore, maxScore: res.data.maxScore, band: res.data.result });
+        // A form that charges hands back what is owed and a token to attach
+        // the slip with. Absent on every ordinary survey, which then behaves
+        // exactly as it always has.
+        if (res.data.payment) setPayment({ submissionId: res.data.submissionId, info: res.data.payment });
       } else {
         setError(res.data.message || (lang === 'en' ? 'Failed to submit.' : 'ส่งคำตอบไม่สำเร็จ'));
       }
@@ -108,7 +136,9 @@ const SurveyDetail = () => {
 
         {form && (
           <div className="mellow-card bg-white">
-            {result ? (
+            {payment ? (
+              <SurveyPaymentStep submissionId={payment.submissionId} payment={payment.info} lang={lang} />
+            ) : result ? (
               <div className="text-center py-6">
                 <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3" />
                 <p className="font-black text-slate-800 mb-1">
@@ -135,6 +165,29 @@ const SurveyDetail = () => {
               <>
                 <h2 className="text-[17px] font-black text-slate-800 mb-1">{form.name}</h2>
                 {form.description && <p className="text-xs text-slate-400 font-bold mb-4">{form.description}</p>}
+
+                {/* Shown while they answer, not sprung on them at the end.
+                    Choices that cost money are the ones people most want to
+                    reconsider, and reconsidering after the bill appears means
+                    going back through the whole form. */}
+                {collectsPayment && quote && (
+                  <div className="rounded-2xl bg-mellow-purple/5 border border-mellow-purple/10 p-4 mb-4">
+                    {quote.lines.map((line, i) => (
+                      <div key={i} className="flex justify-between gap-3 text-xs font-bold text-slate-500 py-0.5">
+                        <span className="min-w-0 break-words">{line.label}</span>
+                        <span className="shrink-0">{line.amount.toLocaleString('th-TH')} ฿</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between items-center pt-2 mt-1 border-t border-mellow-purple/10">
+                      <span className="text-sm font-black text-slate-700">
+                        {lang === 'en' ? 'Total' : 'ยอดรวม'}
+                      </span>
+                      <span className="text-lg font-black text-mellow-purple">
+                        {quote.total.toLocaleString('th-TH')} ฿
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <SurveyFillForm
                   form={form}
                   answers={answers}

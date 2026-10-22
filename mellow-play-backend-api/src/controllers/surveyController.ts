@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
 import { quoteSurvey } from '../services/surveyPricing';
+import { sendSurveyReceipt, receiptRecipient } from '../services/surveyReceiptService';
 import { AuthService } from '../services/authService';
 import { UserRepository } from '../repositories/userRepository';
 import { SurveyRepository } from '../repositories/surveyRepository';
@@ -251,7 +252,7 @@ export class SurveyController {
       if (!file) return c.json({ success: false, message: 'กรุณาแนบสลิป' }, 400);
 
       const submission = await config.db.prepare(
-        'SELECT id, amount, payment_status, payment_token FROM Survey_Submissions WHERE id = ?'
+        'SELECT id, form_id, amount, answers_json, payment_status, payment_token FROM Survey_Submissions WHERE id = ?'
       ).bind(id).first() as any;
       if (!submission) return c.json({ success: false, message: 'ไม่พบรายการนี้' }, 404);
 
@@ -290,7 +291,26 @@ export class SurveyController {
         WHERE id = ?
       `).bind(slipUrl, id).run();
 
-      return c.json({ success: true, slipUrl, amount: submission.amount });
+      // Sent now rather than after a review, because there may not be a
+      // review: this form is meant to run without anyone standing behind it.
+      // The wording says the slip was received, not that the payment is
+      // confirmed — nobody has looked yet, and telling someone their money is
+      // settled when it is not is the sentence they would quote back later.
+      //
+      // Handed to waitUntil rather than awaited. The slip is already in R2
+      // and the row is already updated, so the person has nothing left to
+      // wait for; making them watch a spinner while an email is handed off
+      // was slow enough to be visible.
+      const quote = await quoteSurvey(config.db, {
+        formId: submission.form_id,
+        answers: safeJson(submission.answers_json) ?? null,
+      });
+      const willEmail = !!(await receiptRecipient(config, id));
+      const send = sendSurveyReceipt(config, id, 'received', quote.lines);
+      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(send);
+      else await send;
+
+      return c.json({ success: true, slipUrl, amount: submission.amount, emailed: willEmail });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
