@@ -36,6 +36,8 @@ import {
   ListAlt as ResponsesIcon,
   ReceiptLong as PaymentsIcon,
   Image as ImageFieldIcon,
+  Groups as ParticipantListIcon,
+  HelpOutline as UnknownFieldIcon,
   CloudUpload as UploadIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
@@ -46,7 +48,7 @@ import RichTextEditor from '../components/RichTextEditor';
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
-type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image' | 'participant_list';
 
 interface ScoredOption {
   label: string;
@@ -249,6 +251,26 @@ interface ScoreRange {
   imageUrl?: string;
 }
 
+/**
+ * A field type this screen has never heard of still has to render.
+ *
+ * FIELD_TYPE_META is read by key with no guard, so a type added to the
+ * backend before this builder learns about it crashed the whole editor with
+ * "Cannot read properties of undefined (reading 'icon')" — which is what
+ * participant_list did the moment a form containing one was opened. A form
+ * builder that cannot open a form because one field is unfamiliar is the
+ * wrong failure: show the type's name and let everything else be edited.
+ */
+const metaFor = (type: string): { label: string; icon: React.ReactNode } =>
+  (FIELD_TYPE_META as Record<string, { label: string; icon: React.ReactNode }>)[type]
+  ?? { label: type, icon: <UnknownFieldIcon fontSize="small" /> };
+
+/** What the "add field" buttons and the type dropdown offer. */
+const ADDABLE_FIELD_TYPES: FieldType[] = [
+  'heading', 'paragraph', 'text', 'textarea', 'number', 'date',
+  'select', 'radio', 'checkbox', 'identity', 'image',
+];
+
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
   // A passage to READ, not a question: a comprehension text, a scenario, an
@@ -264,6 +286,11 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
   identity: { label: 'ผู้ตอบแบบสอบถาม (ใครเป็นคนตอบ)', icon: <IdentityIcon fontSize="small" /> },
   image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
+  // Rendered here so a form that has one can be opened and edited. Left out
+  // of ADDABLE_FIELD_TYPES below until this screen can edit its options and
+  // their prices — offering a button that creates a field nobody can
+  // configure is worse than not offering it.
+  participant_list: { label: 'รายชื่อผู้เข้าร่วม (คิดเงินรายคน)', icon: <ParticipantListIcon fontSize="small" /> },
 };
 
 // Reused by both the field editor's own image field and the score-range
@@ -560,7 +587,9 @@ const SurveyManagement = () => {
     const field = pages[activePage]?.[fieldIdx];
     if (!field || field.type === nextType) return;
     const patch: Partial<FieldDraft> = { type: nextType };
-    if (field.label === FIELD_TYPE_META[field.type].label) patch.label = FIELD_TYPE_META[nextType].label;
+    // metaFor on the current type too: changing a field AWAY from a type this
+    // screen does not know is exactly when it would otherwise throw.
+    if (field.label === metaFor(field.type).label) patch.label = metaFor(nextType).label;
     if (isChoiceType(nextType) && (!field.options || field.options.length === 0)) {
       patch.options = [{ label: 'ตัวเลือก 1', points: 0 }];
     }
@@ -729,7 +758,7 @@ const SurveyManagement = () => {
                 {currentPageFields.map((field, idx) => (
                   <Paper key={field.fieldKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                     <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                      <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
+                      <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{metaFor(field.type).icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
                           <FormControl size="small" sx={{ minWidth: 220 }}>
@@ -739,11 +768,14 @@ const SurveyManagement = () => {
                               value={field.type}
                               onChange={e => changeFieldType(idx, e.target.value as FieldType)}
                             >
-                              {(Object.keys(FIELD_TYPE_META) as FieldType[]).map(t => (
+                              {(ADDABLE_FIELD_TYPES.includes(field.type)
+                                ? ADDABLE_FIELD_TYPES
+                                : [field.type, ...ADDABLE_FIELD_TYPES]
+                              ).map(t => (
                                 <MenuItem key={t} value={t}>
                                   <Stack direction="row" spacing={1} alignItems="center">
-                                    {FIELD_TYPE_META[t].icon}
-                                    <span>{FIELD_TYPE_META[t].label}</span>
+                                    {metaFor(t).icon}
+                                    <span>{metaFor(t).label}</span>
                                   </Stack>
                                 </MenuItem>
                               ))}
@@ -1023,16 +1055,16 @@ const SurveyManagement = () => {
                 เพิ่มฟิลด์ในหน้านี้
               </Typography>
               <Stack direction="row" flexWrap="wrap" gap={1}>
-                {(Object.keys(FIELD_TYPE_META) as FieldType[]).map(type => (
+                {ADDABLE_FIELD_TYPES.map(type => (
                   <Button
                     key={type}
                     size="small"
                     variant="outlined"
-                    startIcon={FIELD_TYPE_META[type].icon}
+                    startIcon={metaFor(type).icon}
                     onClick={() => addField(type)}
                     sx={{ textTransform: 'none', fontWeight: 700 }}
                   >
-                    {FIELD_TYPE_META[type].label}
+                    {metaFor(type).label}
                   </Button>
                 ))}
               </Stack>
