@@ -98,6 +98,11 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
   const min = Math.max(0, Number(config.min) || 0);
   const max = Number(config.max) || 0;
   const itemLabel = config.itemLabel || (lang === 'en' ? 'participant' : 'ผู้เข้าร่วม');
+  // What the name box is called. namePlaceholder is read as a fallback
+  // because that is where forms built before the box had a heading put the
+  // wording, and it is already the right words.
+  const nameLabel = config.nameLabel || config.namePlaceholder || (lang === 'en' ? 'Full name' : 'ชื่อ-นามสกุล');
+  const ordinal = (i: number) => (lang === 'en' ? `#${i + 1}` : `คนที่ ${i + 1}`);
   const extras = personFieldsOf(config);
   const people = value.length > 0 ? value : (min > 0 ? [{ name: '', choice: '' }] : []);
 
@@ -115,10 +120,11 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
         const first = index === 0;
         return (
           <div key={index} className="rounded-2xl border border-slate-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-black text-mellow-purple uppercase tracking-wide">
-                {itemLabel} {lang === 'en' ? `#${index + 1}` : `คนที่ ${index + 1}`}
-              </span>
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <label htmlFor={`person-name-${index}`} className="text-xs font-black text-slate-400">
+                {nameLabel} {ordinal(index)}
+                <span className="text-mellow-red"> *</span>
+              </label>
               {/* Removing is only offered where it would leave a valid list,
                   so nobody is handed a button that refuses to work. */}
               {people.length > min && people.length > 1 && (
@@ -126,7 +132,7 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
                   type="button"
                   onClick={() => remove(index)}
                   aria-label={lang === 'en' ? 'Remove' : 'เอาออก'}
-                  className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform"
+                  className="w-7 h-7 shrink-0 -mt-1 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform"
                 >
                   <X size={14} className="text-slate-500" />
                 </button>
@@ -134,10 +140,10 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
             </div>
 
             <input
+              id={`person-name-${index}`}
               type="text"
               value={person.name}
               onChange={(e) => patch(index, { name: e.target.value })}
-              placeholder={config.namePlaceholder || (lang === 'en' ? 'Full name' : 'ชื่อ-นามสกุล')}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all mb-3"
             />
 
@@ -145,20 +151,22 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
               <div className="space-y-3 mb-3">
                 {extras.map((pf) => {
                   const v = (person.extra || {})[pf.key] ?? '';
+                  const id = `person-${index}-${pf.key}`;
                   const box = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all';
                   return (
                     <div key={pf.key}>
-                      <p className="text-xs font-black text-slate-400 mb-1.5">
+                      <label htmlFor={id} className="text-xs font-black text-slate-400 mb-1.5 block">
                         {pf.label}
                         {pf.required && <span className="text-mellow-red"> *</span>}
-                      </p>
+                      </label>
                       {pf.type === 'select' ? (
-                        <select value={v} onChange={(e) => patchExtra(index, pf.key, e.target.value)} className={box}>
+                        <select id={id} value={v} onChange={(e) => patchExtra(index, pf.key, e.target.value)} className={box}>
                           <option value="">{lang === 'en' ? 'Select...' : 'เลือก...'}</option>
                           {(pf.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
                       ) : (
                         <input
+                          id={id}
                           type={pf.type === 'date' ? 'date' : pf.type === 'number' ? 'number' : pf.type === 'tel' ? 'tel' : 'text'}
                           inputMode={pf.type === 'tel' ? 'tel' : pf.type === 'number' ? 'numeric' : undefined}
                           value={v}

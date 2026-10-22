@@ -28,6 +28,7 @@ export interface PersonField {
 export interface ParticipantConfig {
   itemLabel?: string;
   addLabel?: string;
+  nameLabel?: string;
   namePlaceholder?: string;
   choiceLabel?: string;
   min?: number;
@@ -101,6 +102,13 @@ const ParticipantPricingEditor: React.FC<Props> = ({ config, onChange }) => {
           size="small" label="เรียกผู้เข้าร่วมว่า" value={config.itemLabel ?? ''}
           onChange={e => patch({ itemLabel: e.target.value })}
           placeholder="เด็ก" sx={{ maxWidth: 180 }}
+        />
+        <TextField
+          size="small" label="หัวข้อช่องชื่อ" value={config.nameLabel ?? ''}
+          onChange={e => patch({ nameLabel: e.target.value })}
+          placeholder={config.namePlaceholder || 'ชื่อ-นามสกุล'}
+          helperText="ต่อท้ายด้วย คนที่ 1, 2, … เอง"
+          sx={{ maxWidth: 220 }}
         />
         <TextField
           size="small" type="number" label="อย่างน้อย" value={config.min ?? ''}
