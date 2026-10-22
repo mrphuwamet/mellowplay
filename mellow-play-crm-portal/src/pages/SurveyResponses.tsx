@@ -16,6 +16,19 @@ import { groupRespondents } from '../utils/respondentIdentity';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
+/** A stored file path points at the API's own origin, never this app's. */
+const fileUrl = (path: string | null | undefined): string =>
+  !path ? '' : path.startsWith('/api/v1/files/') ? `${API_URL}${path}` : path;
+
+// The same four words the payments screen uses. A row that reads
+// "แนบสลิปแล้ว" on one screen must not read "submitted" on the other.
+const PAYMENT_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  awaiting_payment: { label: 'ยังไม่แนบสลิป', color: '#92400e', bg: '#fef3c7' },
+  submitted: { label: 'แนบสลิปแล้ว', color: '#1e40af', bg: '#dbeafe' },
+  verified: { label: 'ยืนยันแล้ว', color: '#166534', bg: '#dcfce7' },
+  rejected: { label: 'ตีกลับ', color: '#991b1b', bg: '#fee2e2' },
+};
+
 const formatDateTime = (raw: string | undefined): string => {
   if (!raw) return '-';
   const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
@@ -68,6 +81,10 @@ const SurveyResponses = () => {
   // whichever set is selected.
   const [scope, setScope] = useState<'real' | 'test'>('real');
   const [counts, setCounts] = useState<{ real: number; test: number }>({ real: 0, test: 0 });
+  // Opened from a thumbnail in the table, the same way the payments screen
+  // does it — a picture of a slip is the button for seeing it bigger.
+  const [viewingSlip, setViewingSlip] = useState<any | null>(null);
+  const collectsPayment = !!form?.collects_payment;
   const [clearingTests, setClearingTests] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -146,9 +163,25 @@ const SurveyResponses = () => {
 
   const buildCsv = (): CsvPayload => {
     const questionFields = (form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph');
+    // Only on a form that charges. Four empty columns on an ordinary survey
+    // would be four questions about why they are there.
+    const paymentHeaders = collectsPayment
+      ? ['ยอดรวมชำระ (บาท)', 'สถานะการชำระ', 'วันที่แนบสลิป', 'ลิงก์สลิป']
+      : [];
+    const paymentCells = (s: any) => collectsPayment
+      ? [
+          s.amount != null ? Number(s.amount) : '',
+          PAYMENT_STATUS[s.payment_status]?.label || s.payment_status || '',
+          formatDateTime(s.slip_uploaded_at),
+          // The full address, not the stored path: a spreadsheet is opened
+          // away from this app and a relative path resolves to nothing there.
+          s.slip_url ? fileUrl(s.slip_url) : '',
+        ]
+      : [];
     return {
       fileName: `${form?.name || 'survey'}-responses`,
       headers: ['วันที่ตอบ', 'ผู้ตอบ', 'เบอร์โทร', 'รอบ', ...(form?.has_answer_key ? ['คะแนน'] : []),
+        ...paymentHeaders,
         ...questionFields.flatMap((f: any) => hasOtherBox(f) ? [f.label, `${f.label} (ระบุเพิ่ม)`] : [f.label])],
       rows: dashboardSubmissions.map((d, i) => {
         const s = submissions[i];
@@ -158,6 +191,7 @@ const SurveyResponses = () => {
           s.respondent_phone || '',
           s.attempt_label || `ครั้งที่ ${s.attempt_no ?? 1}`,
           ...(form?.has_answer_key ? [s.total_score != null ? `${s.total_score}/${s.max_score}` : ''] : []),
+          ...paymentCells(s),
           ...questionFields.flatMap((f: any) => {
             const v = d.answers[f.field_key];
             const cell = f.type === 'participant_list'
@@ -224,7 +258,7 @@ const SurveyResponses = () => {
         <Tab label="สรุปผล" sx={{ fontWeight: 700 }} />
         <Tab label={`รายคำตอบ (${submissions.length})`} sx={{ fontWeight: 700 }} />
         {/* Only a graded form has scores to take a difference of. */}
-        {form?.has_answer_key && <Tab label="เทียบก่อน–หลัง" sx={{ fontWeight: 700 }} />}
+        {!!form?.has_answer_key && <Tab label="เทียบก่อน–หลัง" sx={{ fontWeight: 700 }} />}
       </Tabs>
 
       {/* The PDF captures whatever this wrapper is currently showing, so the
@@ -246,13 +280,16 @@ const SurveyResponses = () => {
               <TableCell sx={{ fontWeight: 700 }}>วันที่ตอบ</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>ผู้ตอบ</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>เบอร์โทร</TableCell>
-              {form?.has_answer_key && <TableCell sx={{ fontWeight: 700 }}>คะแนน</TableCell>}
+              {!!form?.has_answer_key && <TableCell sx={{ fontWeight: 700 }}>คะแนน</TableCell>}
+              {collectsPayment && <TableCell sx={{ fontWeight: 700 }} align="right">ยอดรวม</TableCell>}
+              {collectsPayment && <TableCell sx={{ fontWeight: 700 }}>สลิป</TableCell>}
+              {collectsPayment && <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>}
               <TableCell sx={{ fontWeight: 700 }} align="right">จัดการ</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {submissions.length === 0 && (
-              <TableRow><TableCell colSpan={5} align="center">
+              <TableRow><TableCell colSpan={collectsPayment ? 8 : 5} align="center">
                 <Typography variant="body2" color="text.disabled" sx={{ py: 4 }}>ยังไม่มีคนตอบ</Typography>
               </TableCell></TableRow>
             )}
@@ -261,9 +298,46 @@ const SurveyResponses = () => {
                 <TableCell>{formatDateTime(s.created_at)}</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>{respondentLabel(s)}</TableCell>
                 <TableCell>{s.respondent_phone || '-'}</TableCell>
-                {form?.has_answer_key && (
+                {!!form?.has_answer_key && (
                   <TableCell>
                     <Chip label={s.total_score != null ? `${s.total_score} / ${s.max_score}` : '-'} size="small" color="primary" variant="outlined" />
+                  </TableCell>
+                )}
+                {collectsPayment && (
+                  <TableCell align="right" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    {s.amount != null ? Number(s.amount).toLocaleString('th-TH') : '-'}
+                  </TableCell>
+                )}
+                {collectsPayment && (
+                  <TableCell>
+                    {s.slip_url ? (
+                      // The thumbnail is the button, same as the payments
+                      // screen: a separate icon beside a picture of the thing
+                      // is one click too many when reading a list of them.
+                      <Box
+                        component="img"
+                        src={fileUrl(s.slip_url)}
+                        alt={`สลิปของ ${respondentLabel(s)}`}
+                        onClick={() => setViewingSlip(s)}
+                        sx={{
+                          width: 46, height: 46, objectFit: 'cover', borderRadius: 1.5,
+                          border: '1px solid #e2e8f0', cursor: 'pointer', display: 'block',
+                          '&:hover': { borderColor: '#94a3b8' },
+                        }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">ยังไม่แนบ</Typography>
+                    )}
+                  </TableCell>
+                )}
+                {collectsPayment && (
+                  <TableCell>
+                    {(() => {
+                      const st = PAYMENT_STATUS[s.payment_status];
+                      return st
+                        ? <Chip label={st.label} size="small" sx={{ height: 22, fontSize: 12, fontWeight: 700, bgcolor: st.bg, color: st.color }} />
+                        : <Typography variant="caption" color="text.disabled">-</Typography>;
+                    })()}
                   </TableCell>
                 )}
                 <TableCell align="right">
@@ -276,10 +350,31 @@ const SurveyResponses = () => {
       </TableContainer>
       )}
 
-      {tab === 2 && form?.has_answer_key && (
+      {tab === 2 && !!form?.has_answer_key && (
         <AttemptComparison submissions={comparisonSubmissions} />
       )}
       </Box>
+
+      <Dialog open={!!viewingSlip} onClose={() => setViewingSlip(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>สลิปของ {viewingSlip ? respondentLabel(viewingSlip) : ''}</DialogTitle>
+        <DialogContent dividers>
+          {viewingSlip?.slip_url && (
+            <Box
+              component="img" src={fileUrl(viewingSlip.slip_url)} alt="สลิปโอนเงิน"
+              sx={{ width: '100%', borderRadius: 2, display: 'block' }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            size="small" href={viewingSlip ? fileUrl(viewingSlip.slip_url) : ''}
+            target="_blank" rel="noopener noreferrer"
+          >
+            เปิดในแท็บใหม่
+          </Button>
+          <Button onClick={() => setViewingSlip(null)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!viewing} onClose={() => setViewing(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>คำตอบของ {viewing ? respondentLabel(viewing) : ''}</DialogTitle>
@@ -289,8 +384,35 @@ const SurveyResponses = () => {
             try { answers = JSON.parse(viewing.answers_json || '{}'); } catch { /* malformed answers shouldn't block the rest of the dialog */ }
             return (
               <Stack spacing={2}>
-                {form?.has_answer_key && (
+                {!!form?.has_answer_key && (
                   <Chip label={`คะแนนรวม: ${viewing.total_score} / ${viewing.max_score}`} color="primary" sx={{ fontWeight: 700, alignSelf: 'flex-start' }} />
+                )}
+                {collectsPayment && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>การชำระเงิน</Typography>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                        {viewing.amount != null ? `${Number(viewing.amount).toLocaleString('th-TH')} บาท` : '-'}
+                      </Typography>
+                      {PAYMENT_STATUS[viewing.payment_status] && (
+                        <Chip
+                          label={PAYMENT_STATUS[viewing.payment_status].label} size="small"
+                          sx={{
+                            height: 22, fontSize: 12, fontWeight: 700,
+                            bgcolor: PAYMENT_STATUS[viewing.payment_status].bg,
+                            color: PAYMENT_STATUS[viewing.payment_status].color,
+                          }}
+                        />
+                      )}
+                    </Stack>
+                    {viewing.slip_url && (
+                      <Box
+                        component="img" src={fileUrl(viewing.slip_url)} alt="สลิปโอนเงิน"
+                        onClick={() => setViewingSlip(viewing)}
+                        sx={{ mt: 1, maxWidth: 200, borderRadius: 1.5, border: '1px solid #e2e8f0', cursor: 'pointer', display: 'block' }}
+                      />
+                    )}
+                  </Box>
                 )}
                 {(form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph' && f.type !== 'identity').map((f: any) => {
                   const v = answers[f.field_key];
