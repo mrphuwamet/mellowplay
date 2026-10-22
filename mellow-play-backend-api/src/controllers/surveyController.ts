@@ -370,6 +370,13 @@ export class SurveyController {
       // "ทดลองทำ" would otherwise file a real payment request and sit in the
       // review queue alongside people who actually registered. The quote
       // endpoint still shows them the price, which is what they came to check.
+      // A disabled control is a courtesy to whoever is filling the form, not
+      // a rule. The rule is enforced here, where the amount owed is decided,
+      // because a request can be sent without ever rendering the form.
+      if (quote.collectsPayment && quote.problems.length > 0 && isTest !== true) {
+        return c.json({ success: false, message: quote.problems[0], problems: quote.problems }, 400);
+      }
+
       const owesMoney = quote.collectsPayment && quote.total > 0 && isTest !== true;
       // Handed back to this respondent so they, and only they, can attach a
       // slip to this submission afterwards.

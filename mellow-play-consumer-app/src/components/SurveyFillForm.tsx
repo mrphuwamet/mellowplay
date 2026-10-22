@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ParticipantListField, { ParticipantAnswer } from './ParticipantListField';
 import { scrollToTop } from '../utils/scrollToTop';
 import { RespondentIdentity, identityIsComplete } from '../utils/respondentName';
 
@@ -144,6 +145,13 @@ const SurveyFillForm: React.FC<Props> = ({
       return identityIsComplete(identity, { phoneRequired: identityPhoneRequired(f) });
     }
     const v = answers[f.field_key];
+    // Every row has to be complete, not just present: a half-filled person is
+    // the thing this check exists to catch. The server checks the same rules
+    // again, including which option the first person may take.
+    if (f.type === 'participant_list') {
+      return Array.isArray(v) && v.length > 0
+        && v.every((person: any) => person && String(person.name || '').trim() !== '' && String(person.choice || '') !== '');
+    }
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0 && otherBoxSatisfied(f);
     return v != null && String(v).trim() !== '' && otherBoxSatisfied(f);
   };
@@ -315,6 +323,22 @@ const SurveyFillForm: React.FC<Props> = ({
                     )}
                   </div>
                 )}
+              </div>
+            );
+          }
+          if (field.type === 'participant_list') {
+            let config: any = {};
+            try { config = field.config_json ? JSON.parse(field.config_json) : {}; } catch { config = {}; }
+            const current: ParticipantAnswer[] = Array.isArray(answers[field.field_key]) ? answers[field.field_key] : [];
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
+                {labelEl}
+                <ParticipantListField
+                  config={config}
+                  value={current}
+                  onChange={(next) => onChange(field.field_key, next)}
+                  lang={lang}
+                />
               </div>
             );
           }

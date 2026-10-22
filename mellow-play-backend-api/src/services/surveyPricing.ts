@@ -1,4 +1,4 @@
-import { priceAnswers, PRICEABLE_FIELD_COLUMNS, AnswerCharge } from './answerPricing';
+import { priceAnswers, validateAnswers, PRICEABLE_FIELD_COLUMNS, AnswerCharge } from './answerPricing';
 
 /**
  * What a survey submission costs.
@@ -25,6 +25,13 @@ export interface SurveyQuote {
   lines: SurveyChargeLine[];
   total: number;
   currency: 'THB';
+  /**
+   * What is wrong with the answers as they stand, in words the respondent
+   * can act on. Empty when there is nothing to fix. The quote still prices
+   * what it can, so somebody halfway through a form still sees a running
+   * total rather than an error where the number should be.
+   */
+  problems: string[];
 }
 
 export interface SurveyQuoteInput {
@@ -53,6 +60,7 @@ export async function quoteSurvey(db: any, input: SurveyQuoteInput): Promise<Sur
       lines: [],
       total: 0,
       currency: 'THB',
+      problems: [],
     };
   }
 
@@ -81,5 +89,6 @@ export async function quoteSurvey(db: any, input: SurveyQuoteInput): Promise<Sur
     lines,
     total: Math.max(0, lines.reduce((sum, l) => sum + l.amount, 0)),
     currency: 'THB',
+    problems: validateAnswers(fields as any[], input.answers),
   };
 }

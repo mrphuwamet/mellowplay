@@ -95,6 +95,57 @@ export interface PriceAnswersOptions {
   participants?: number;
 }
 
+export interface ParticipantOption {
+  key: string;
+  label: string;
+  /** What the first participant pays for it. */
+  price?: number;
+  /** What everyone after the first pays, when it differs. */
+  priceFrom2?: number;
+  /** Cannot be chosen by the first participant — see validateAnswers. */
+  disabledOnFirst?: boolean;
+  /**
+   * What the option is made of, shown so a price has a visible origin.
+   * Never added up: these are a description of the one price above them, and
+   * summing them would charge twice for the same thing.
+   */
+  detail?: { label: string; price?: number }[];
+}
+
+/** One row of a participant_list answer: who, and what they chose. */
+export interface ParticipantAnswer {
+  name?: string;
+  choice?: string;
+}
+
+export function participantOptionsOf(configJson: string | null | undefined): ParticipantOption[] {
+  const config = configOf(configJson);
+  return Array.isArray(config.options)
+    ? config.options.filter((o: any) => o && o.key && o.label)
+    : [];
+}
+
+export function participantsOf(answer: any): ParticipantAnswer[] {
+  if (!Array.isArray(answer)) return [];
+  return answer
+    .filter((p: any) => p && typeof p === 'object')
+    .map((p: any) => ({ name: typeof p.name === 'string' ? p.name : '', choice: typeof p.choice === 'string' ? p.choice : '' }));
+}
+
+/**
+ * What a participant in a given position pays for an option.
+ *
+ * Position matters because a family rate is a property of the booking, not of
+ * the person: the first child's pass costs what it costs, and the second
+ * child's costs less for being second.
+ */
+export function participantPrice(option: ParticipantOption, index: number): number {
+  const first = Number(option.price) || 0;
+  if (index === 0) return first;
+  const later = option.priceFrom2;
+  return later === undefined || later === null ? first : Number(later) || 0;
+}
+
 export function priceAnswers(
   fields: PriceableField[],
   answers: Record<string, any> | null | undefined,
@@ -108,6 +159,29 @@ export function priceAnswers(
     const config = configOf(field.config_json);
     const perPerson = config.charge_per === 'person';
     const multiplier = perPerson ? participants : 1;
+
+    // ── a list of people, each choosing, priced by their position ──
+    if (field.type === 'participant_list') {
+      const opts = participantOptionsOf(field.config_json);
+      participantsOf(answers[field.field_key]).forEach((person, index) => {
+        const option = opts.find((o) => o.key === person.choice);
+        if (!option) return;
+        const amount = participantPrice(option, index);
+        if (amount <= 0) return;   // attending without buying anything
+        const who = (person.name || '').trim() || `คนที่ ${index + 1}`;
+        charges.push({
+          fieldKey: field.field_key,
+          // Named per person so the bill can be checked line by line, which
+          // is the whole reason a family rate needs showing rather than
+          // summing.
+          label: `${who} · ${option.label}`,
+          amount,
+          quantity: 1,
+          perPerson: true,
+        });
+      });
+      continue;
+    }
 
     // ── a number field that sells something: quantity x unit price ──
     const unitPrice = Number(config.unit_price);
@@ -146,3 +220,56 @@ export function priceAnswers(
 
 /** The SELECT both form systems use — their field tables share these columns. */
 export const PRICEABLE_FIELD_COLUMNS = 'field_key, label, type, options_json, config_json';
+
+/**
+ * Rules a priced answer has to obey, checked on the server.
+ *
+ * The form disables what cannot be chosen, but a disabled control is a
+ * courtesy to the person filling it in, not a rule. The rule is here, where
+ * the amount owed is decided.
+ *
+ * Returns the problems in words the respondent can act on, or an empty array.
+ */
+export function validateAnswers(
+  fields: PriceableField[],
+  answers: Record<string, any> | null | undefined,
+): string[] {
+  if (!answers) return [];
+  const problems: string[] = [];
+
+  for (const field of fields) {
+    if (field.type !== 'participant_list') continue;
+    const config = configOf(field.config_json);
+    const opts = participantOptionsOf(field.config_json);
+    const people = participantsOf(answers[field.field_key]);
+
+    const min = Number(config.min) || 0;
+    if (min > 0 && people.length < min) {
+      problems.push(`กรุณาเพิ่ม${config.itemLabel || 'ผู้เข้าร่วม'}อย่างน้อย ${min} คน`);
+      continue;
+    }
+    const max = Number(config.max) || 0;
+    if (max > 0 && people.length > max) {
+      problems.push(`${config.itemLabel || 'ผู้เข้าร่วม'}ได้สูงสุด ${max} คน`);
+      continue;
+    }
+
+    people.forEach((person, index) => {
+      const who = (person.name || '').trim();
+      if (!who) problems.push(`กรุณากรอกชื่อ${config.itemLabel || 'ผู้เข้าร่วม'}คนที่ ${index + 1}`);
+      const option = opts.find((o) => o.key === person.choice);
+      if (!option) {
+        problems.push(`กรุณาเลือกรูปแบบการเข้าร่วมของ${who ? ` ${who}` : `คนที่ ${index + 1}`}`);
+        return;
+      }
+      if (index === 0 && option.disabledOnFirst) {
+        problems.push(
+          config.firstMustChooseNote
+          || `${who || 'คนแรก'} เป็นคนแรกของครอบครัว จึงเลือก "${option.label}" ไม่ได้`,
+        );
+      }
+    });
+  }
+
+  return problems;
+}
