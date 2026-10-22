@@ -34,6 +34,7 @@ import {
   Badge as IdentityIcon,
   Link as LinkIcon,
   ListAlt as ResponsesIcon,
+  ReceiptLong as PaymentsIcon,
   Image as ImageFieldIcon,
   CloudUpload as UploadIcon,
   Close as CloseIcon,
@@ -1189,6 +1190,12 @@ const SurveyManagement = () => {
                   <IconButton size="small" onClick={() => copyLink(form)} title="คัดลอกลิงก์"><LinkIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="warning" onClick={() => openTestRun(form)} title="ทดลองทำแบบทดสอบ (ผลเก็บแยก ไม่นับรวม)"><TestRunIcon fontSize="small" /></IconButton>
                   <IconButton size="small" onClick={() => navigate(`/crm/surveys/${form.id}/responses`)} title="ดูคำตอบ"><ResponsesIcon fontSize="small" /></IconButton>
+                  {/* Only on the forms that charge: an icon that opens an
+                      empty payments table on an ordinary survey is a question
+                      staff would have to answer for themselves every time. */}
+                  {!!(form as any).collects_payment && (
+                    <IconButton size="small" onClick={() => navigate(`/crm/surveys/${form.id}/payments`)} title="รายชื่อและสลิป"><PaymentsIcon fontSize="small" /></IconButton>
+                  )}
                   <IconButton size="small" onClick={() => startEdit(form.id)}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="error" onClick={() => setItemToDelete({ id: form.id, name: form.name })}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>

@@ -103,6 +103,7 @@ import ConsentDocumentManagement from './pages/ConsentDocumentManagement';
 import MessageLogs from './pages/MessageLogs';
 import BroadcastManagement from './pages/BroadcastManagement';
 import SurveyResponses from './pages/SurveyResponses';
+import SurveyPayments from './pages/SurveyPayments';
 import SmsNotifications from './pages/SmsNotifications';
 import IncentiveTracking from './pages/IncentiveTracking';
 import MySchedule from './pages/MySchedule';
@@ -1147,6 +1148,7 @@ const AppContent = () => {
             <Route path="/crm/message-logs" element={protect('settings', <MessageLogs />)} />
             <Route path="/crm/broadcasts" element={protect('settings', <BroadcastManagement />)} />
             <Route path="/crm/surveys/:id/responses" element={protect('courses', <SurveyResponses />)} />
+            <Route path="/crm/surveys/:id/payments" element={protect('courses', <SurveyPayments />)} />
             <Route path="/crm/booking-announcer" element={protect('bookings', <BookingAnnouncer />)} />
             <Route path="/crm/tournaments"       element={protect('bookings', <TournamentManagement />)} />
             <Route path="/crm/certificates"     element={protect('bookings', <CertificateDesigner />)} />
