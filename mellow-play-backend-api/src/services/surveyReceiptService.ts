@@ -18,18 +18,54 @@ import { wrapEmailHtml, loadEmailTheme } from './emailTemplateService';
  */
 export type ReceiptKind = 'received' | 'verified';
 
-/** The respondent's address, wherever the form happened to ask for it. */
-function findEmail(answersJson: string | null | undefined, fallback?: string | null): string {
-  if (fallback && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fallback.trim())) return fallback.trim();
+const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/**
+ * Which answer the receipt is sent to.
+ *
+ * Asked of the form, in the order its fields are laid out, and never of the
+ * answers object on its own. The answers object is keyed in the order the
+ * person happened to type, so scanning it meant that someone who wrote their
+ * address into a free-text note before reaching the email box would have the
+ * note win — the same form, the same answers, a different recipient depending
+ * on the order of typing.
+ *
+ * A field marked `receiptEmail` in its config decides it outright. Without
+ * one, the first field on the form whose answer looks like an address is
+ * used, which is what every form built before the flag existed relies on.
+ */
+async function findEmail(db: any, formId: number, answersJson: string | null | undefined): Promise<string> {
+  let answers: Record<string, any> = {};
   try {
     const parsed = JSON.parse(answersJson || '{}');
-    for (const value of Object.values(parsed)) {
-      if (typeof value === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim())) {
-        return value.trim();
-      }
-    }
+    if (parsed && typeof parsed === 'object') answers = parsed;
   } catch {
-    // An unreadable answer set simply has no address in it.
+    return '';
+  }
+
+  const { results: fields } = await db.prepare(
+    'SELECT field_key, config_json FROM Survey_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
+  ).bind(formId).all();
+
+  const valueAt = (key: string): string => {
+    const v = answers[key];
+    return typeof v === 'string' && EMAIL_SHAPE.test(v.trim()) ? v.trim() : '';
+  };
+
+  for (const field of (fields as any[])) {
+    let marked = false;
+    try { marked = !!JSON.parse(field.config_json || '{}').receiptEmail; } catch { marked = false; }
+    if (!marked) continue;
+    const chosen = valueAt(field.field_key);
+    // A field explicitly nominated and then left blank means no receipt,
+    // rather than quietly falling through to whatever else looks like an
+    // address. Somebody chose that field on purpose.
+    return chosen;
+  }
+
+  for (const field of (fields as any[])) {
+    const chosen = valueAt(field.field_key);
+    if (chosen) return chosen;
   }
   return '';
 }
@@ -73,9 +109,10 @@ function body(kind: ReceiptKind, row: any, lines: { label: string; amount: numbe
 export async function receiptRecipient(config: ConfigService, submissionId: number): Promise<string> {
   try {
     const row = await config.db.prepare(
-      'SELECT answers_json FROM Survey_Submissions WHERE id = ?'
+      'SELECT form_id, answers_json FROM Survey_Submissions WHERE id = ?'
     ).bind(submissionId).first() as any;
-    return findEmail(row?.answers_json);
+    if (!row) return '';
+    return findEmail(config.db, row.form_id, row.answers_json);
   } catch {
     return '';
   }
@@ -94,13 +131,13 @@ export async function sendSurveyReceipt(
 ): Promise<{ sent: boolean; detail?: string }> {
   try {
     const row = await config.db.prepare(`
-      SELECT s.id, s.amount, s.respondent_name, s.answers_json, f.name AS form_name
+      SELECT s.id, s.form_id, s.amount, s.respondent_name, s.answers_json, f.name AS form_name
       FROM Survey_Submissions s JOIN Survey_Forms f ON f.id = s.form_id
       WHERE s.id = ?
     `).bind(submissionId).first() as any;
     if (!row) return { sent: false, detail: 'submission not found' };
 
-    const to = findEmail(row.answers_json);
+    const to = await findEmail(config.db, row.form_id, row.answers_json);
     if (!to) return { sent: false, detail: 'no email address in the answers' };
 
     const settingsRepo = new SettingsRepository(config.db);
