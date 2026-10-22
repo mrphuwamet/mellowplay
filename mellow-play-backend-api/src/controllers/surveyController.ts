@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { Bindings, Variables } from '../types/env';
 import { ConfigService } from '../services/configService';
+import { quoteSurvey } from '../services/surveyPricing';
 import { AuthService } from '../services/authService';
 import { UserRepository } from '../repositories/userRepository';
 import { SurveyRepository } from '../repositories/surveyRepository';
@@ -31,6 +32,12 @@ const normalizeFormKind = (raw: unknown): string => {
   const mapped = LEGACY_FORM_KINDS[kind] ?? kind;
   return FORM_KINDS.includes(mapped) ? mapped : 'survey';
 };
+
+/** The transfer details as configured, or nothing if they are unreadable. */
+function safeJson(value: string | null | undefined): any {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
 
 export class SurveyController {
   private repo(c: C) { return new SurveyRepository(new ConfigService(c.env).db); }
@@ -195,6 +202,98 @@ export class SurveyController {
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
+  /**
+   * What these answers would cost, before anybody commits to them.
+   *
+   * Public, like the form itself: the person filling it in has no account.
+   * It reads nothing back about other people and writes nothing, so the only
+   * thing it exposes is the form's own price list, which the form shows
+   * anyway.
+   */
+  async quote(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const form = await this.repo(c).getPublicForm(c.req.param('idOrSlug'));
+      if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
+
+      const body = await c.req.json().catch(() => ({}));
+      const quote = await quoteSurvey(config.db, {
+        formId: form.id,
+        answers: body.answers ?? null,
+        participants: Number(body.participants) || 1,
+      });
+      return c.json({ success: true, quote });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
+  /**
+   * Attaching the transfer slip to a submission that owes money.
+   *
+   * Public, because the person who filled the form has no account — but held
+   * to the token handed back at submit, so a slip can only be attached to the
+   * submission it belongs to. A bare id would let anyone paste a picture onto
+   * a stranger's registration, which is not a thing a counter should have to
+   * untangle on the morning of an event.
+   *
+   * Nothing is marked paid here. A slip is a claim, not a confirmation: this
+   * moves the submission into the queue a human (or, later, a verification
+   * API) looks at.
+   */
+  async uploadSlip(c: C) {
+    try {
+      const config = new ConfigService(c.env);
+      const id = parseInt(c.req.param('id'));
+      if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, message: 'ไม่พบรายการนี้' }, 404);
+
+      const body = await c.req.formData();
+      const token = String(body.get('token') ?? '');
+      const file = body.get('slip') as unknown as File | null;
+      if (!file) return c.json({ success: false, message: 'กรุณาแนบสลิป' }, 400);
+
+      const submission = await config.db.prepare(
+        'SELECT id, amount, payment_status, payment_token FROM Survey_Submissions WHERE id = ?'
+      ).bind(id).first() as any;
+      if (!submission) return c.json({ success: false, message: 'ไม่พบรายการนี้' }, 404);
+
+      // Compared in full and only against this row's own token. There is no
+      // other way in: not the submission id, not the respondent's name.
+      if (!submission.payment_token || token !== submission.payment_token) {
+        return c.json({ success: false, message: 'ลิงก์แนบสลิปไม่ถูกต้องหรือหมดอายุ' }, 403);
+      }
+      if (submission.payment_status === 'verified') {
+        return c.json({ success: false, message: 'รายการนี้ยืนยันการชำระเงินแล้ว' }, 409);
+      }
+
+      // Images only, and small enough that a phone photo is fine while a
+      // video or a PDF scan of something else is not.
+      const type = String(file.type || '');
+      if (!type.startsWith('image/')) {
+        return c.json({ success: false, message: 'กรุณาแนบเป็นรูปภาพ (JPG หรือ PNG)' }, 400);
+      }
+      const buffer = await file.arrayBuffer();
+      if (buffer.byteLength > 8 * 1024 * 1024) {
+        return c.json({ success: false, message: 'ไฟล์ใหญ่เกินไป กรุณาแนบรูปที่เล็กกว่า 8MB' }, 400);
+      }
+
+      const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const key = `slips/survey-${id}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      await c.env.BUCKET.put(key, buffer, { httpMetadata: { contentType: type } });
+      const slipUrl = `/api/v1/files/${key}`;
+
+      // Re-uploading replaces the picture and puts the row back in the queue,
+      // which is what someone does after being told their first slip was
+      // unreadable. The note from that rejection is cleared with it.
+      await config.db.prepare(`
+        UPDATE Survey_Submissions
+        SET slip_url = ?, slip_uploaded_at = datetime('now'), payment_status = 'submitted',
+            payment_method = 'transfer', payment_note = NULL
+        WHERE id = ?
+      `).bind(slipUrl, id).run();
+
+      return c.json({ success: true, slipUrl, amount: submission.amount });
+    } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
+  }
+
   async submit(c: C) {
     try {
       const config = new ConfigService(c.env);
@@ -202,7 +301,7 @@ export class SurveyController {
       const form = await this.repo(c).getPublicForm(idOrSlug);
       if (!form) return c.json({ success: false, message: 'ไม่พบแบบฟอร์มนี้' }, 404);
 
-      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId, isTest, roundToken } = await c.req.json();
+      const { answers, respondentName, respondentPhone, attemptLabel, sessionId, sessionRunId, isTest, roundToken, participants } = await c.req.json();
       if (!answers || typeof answers !== 'object') return c.json({ success: false, message: 'answers is required' }, 400);
 
       const userId = await this.getOptionalUserId(c, config);
@@ -239,8 +338,28 @@ export class SurveyController {
         : null;
       const bookingId = link && userId ? await bookingForRound(config.db, link, userId) : null;
 
+      // Recomputed here from the answers being filed, never taken from the
+      // request. A total that arrives from a browser is a total somebody can
+      // edit, and this one decides what is owed.
+      const quote = await quoteSurvey(config.db, {
+        formId: form.id,
+        answers,
+        participants: Number(participants) || 1,
+      });
+      // A trial run never owes. Staff walking their own paid form with
+      // "ทดลองทำ" would otherwise file a real payment request and sit in the
+      // review queue alongside people who actually registered. The quote
+      // endpoint still shows them the price, which is what they came to check.
+      const owesMoney = quote.collectsPayment && quote.total > 0 && isTest !== true;
+      // Handed back to this respondent so they, and only they, can attach a
+      // slip to this submission afterwards.
+      const paymentToken = owesMoney ? crypto.randomUUID() : null;
+
       const result = await this.repo(c).createSubmission({
         formId: form.id,
+        amount: owesMoney ? quote.total : null,
+        paymentStatus: owesMoney ? 'awaiting_payment' : null,
+        paymentToken,
         userId,
         courseId: link?.course_id ?? null,
         slotDate: link?.slot_date ?? null,
@@ -263,10 +382,22 @@ export class SurveyController {
 
       return c.json({
         success: true,
+        submissionId: result.id,
         totalScore: result.totalScore,
         maxScore: result.maxScore,
         attemptNo: result.attemptNo,
         result: result.result,
+        // Everything the next screen needs to ask for the transfer. Absent
+        // entirely on a form that does not charge, so an ordinary survey's
+        // reply is exactly the shape it has always been.
+        ...(owesMoney ? {
+          payment: {
+            amount: quote.total,
+            lines: quote.lines,
+            token: paymentToken,
+            account: safeJson(form.payment_account_json),
+          },
+        } : {}),
       });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

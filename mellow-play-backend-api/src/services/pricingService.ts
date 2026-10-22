@@ -13,6 +13,8 @@
  * is always produced here, server-side, from the course and the answers.
  */
 
+import { priceAnswers, PRICEABLE_FIELD_COLUMNS } from './answerPricing';
+
 export type PriceAdjustmentKind = 'seat-tier' | 'membership' | 'campaign' | 'promo';
 
 export interface PriceAdjustment {
@@ -59,34 +61,6 @@ export interface QuoteInput {
   formAnswers?: Record<string, any> | null;
   formId?: number | null;
   promoCode?: string | null;
-}
-
-interface PricedOption {
-  label: string;
-  price: number;
-}
-
-/** An option is priced when it is an object carrying a positive `price`. */
-function pricedOptionsOf(optionsJson: string | null | undefined): PricedOption[] {
-  if (!optionsJson) return [];
-  try {
-    const parsed = JSON.parse(optionsJson);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((o: any) => o && typeof o === 'object' && Number(o.price) > 0 && o.label)
-      .map((o: any) => ({ label: String(o.label), price: Number(o.price) }));
-  } catch {
-    // A field whose options are unreadable charges nothing rather than
-    // guessing a number onto somebody's bill.
-    return [];
-  }
-}
-
-/** Which option labels an answer selected — a checkbox gives several. */
-function selectedLabels(answer: any): string[] {
-  if (Array.isArray(answer)) return answer.map(String);
-  if (answer === null || answer === undefined || answer === '') return [];
-  return [String(answer)];
 }
 
 /**
@@ -282,30 +256,23 @@ export async function quoteBooking(db: any, input: QuoteInput): Promise<Quote> {
   // shirt alongside the activity is a normal radio field, not a new concept.
   // Discounts deliberately do not reach here: a class promo should not take
   // 20% off a shirt.
-  const extras: ExtraLine[] = [];
+  let extras: ExtraLine[] = [];
   if (input.formId && input.formAnswers) {
     const { results: fields } = await db.prepare(
-      `SELECT field_key, label, type, options_json FROM Registration_Form_Fields WHERE form_id = ?`
+      `SELECT ${PRICEABLE_FIELD_COLUMNS} FROM Registration_Form_Fields WHERE form_id = ?`
     ).bind(Number(input.formId)).all();
 
-    for (const field of (fields as any[])) {
-      const priced = pricedOptionsOf(field.options_json);
-      if (priced.length === 0) continue;
-      for (const label of selectedLabels(input.formAnswers[field.field_key])) {
-        const match = priced.find((o) => o.label === label);
-        if (match) {
-          extras.push({
-            fieldKey: field.field_key,
-            label: `${field.label}: ${match.label}`,
-            amount: match.price,
-            // Answers are shared across the booking today. When they become
-            // per participant this carries the owner instead of null, and
-            // nothing else here has to change.
-            childId: null,
-          });
-        }
-      }
-    }
+    extras = priceAnswers(fields as any[], input.formAnswers, { participants: childIds.length })
+      // Answers are shared across the booking today, so a charge belongs to
+      // the order rather than to one child. When the form starts asking its
+      // questions per participant this carries the owner instead of null and
+      // nothing else here changes.
+      .map((charge) => ({
+        fieldKey: charge.fieldKey,
+        label: charge.quantity > 1 ? `${charge.label} x${charge.quantity}` : charge.label,
+        amount: charge.amount,
+        childId: null,
+      }));
   }
 
   const total =

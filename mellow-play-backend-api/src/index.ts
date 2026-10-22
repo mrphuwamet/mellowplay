@@ -31,6 +31,7 @@ import { OrderController } from './controllers/orderController';
 import { CouponController } from './controllers/couponController';
 import { WebhookController } from './controllers/webhookController';
 import { PricingController } from './controllers/pricingController';
+import { SurveyPaymentController } from './controllers/surveyPaymentController';
 import { RewardsController } from './controllers/rewardsController';
 import { CertificateController } from './controllers/certificateController';
 import { TournamentController } from './controllers/tournamentController';
@@ -73,6 +74,7 @@ const inviteAccessController = new InviteAccessController();
 const redemptionController     = new RedemptionController();
 const webhookController        = new WebhookController();
 const pricingController        = new PricingController();
+const surveyPaymentController  = new SurveyPaymentController();
 const rewardsController        = new RewardsController();
 const tournamentController     = new TournamentController();
 const certificateController    = new CertificateController();
@@ -609,6 +611,9 @@ app.put   ('/api/v1/admin/system/settings', (c) => adminController.updateSystemS
 app.get   ('/api/v1/admin/bookings',     (c) => adminController.getBookings(c));
 app.post  ('/api/v1/admin/bookings',     (c) => adminController.createBooking(c));
 app.post('/api/v1/admin/booking-quote', (c) => pricingController.quoteForStaff(c));
+app.get   ('/api/v1/admin/survey-payments',            (c) => surveyPaymentController.list(c));
+app.post  ('/api/v1/admin/survey-payments/:id/verify', (c) => surveyPaymentController.verify(c));
+app.post  ('/api/v1/admin/survey-payments/:id/reject', (c) => surveyPaymentController.reject(c));
 app.delete('/api/v1/admin/bookings/:id', (c) => adminController.deleteBooking(c));
 app.put   ('/api/v1/admin/bookings/:id/staff-note', (c) => adminController.setBookingStaffNote(c));
 app.get('/api/v1/admin/crm-users', (c) => adminController.getCrmUsers(c));
@@ -795,6 +800,8 @@ app.post('/api/v1/contact/messages', (c) => contactController.submitMessage(c));
 // guest straight to /login via the consumer app's global 401 interceptor).
 app.get('/api/v1/surveys/:idOrSlug',        (c) => surveyController.getPublicForm(c));
 app.post('/api/v1/surveys/:idOrSlug/submit', (c) => surveyController.submit(c));
+app.post('/api/v1/surveys/:idOrSlug/quote',  (c) => surveyController.quote(c));
+app.post('/api/v1/survey-submissions/:id/slip', (c) => surveyController.uploadSlip(c));
 // Sessions — several forms behind one link, answered as one questionnaire.
 app.get('/api/v1/round-links/:token',                   (c) => sessionController.getRoundLink(c));
 app.get('/api/v1/survey-sessions/:idOrSlug',            (c) => sessionController.getPublic(c));
