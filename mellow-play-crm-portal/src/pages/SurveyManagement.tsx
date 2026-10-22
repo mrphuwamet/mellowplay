@@ -44,6 +44,7 @@ import {
 
 import SessionManagement from './SessionManagement';
 import RichTextEditor from '../components/RichTextEditor';
+import ParticipantPricingEditor from '../components/ParticipantPricingEditor';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
@@ -180,6 +181,11 @@ const OptionColorPicker = ({ value, onChange }: { value?: string; onChange: (col
 };
 
 interface FieldDraft {
+  /**
+   * config_json exactly as it was loaded. Anything in it that this screen has
+   * no editor for is written back untouched on save — see carriedConfig.
+   */
+  rawConfig?: Record<string, any>;
   fieldKey: string;
   type: FieldType;
   label: string;
@@ -360,6 +366,20 @@ const newFieldKey = () => (crypto as any).randomUUID ? crypto.randomUUID() : `f_
 
 const isChoiceType = (type: FieldType) => type === 'select' || type === 'radio' || type === 'checkbox';
 
+/** The config keys this screen owns and therefore rebuilds on every save. */
+const BUILDER_CONFIG_KEYS = [
+  'scored', 'imageUrl', 'phoneRequired', 'display', 'scaleLowLabel', 'scaleHighLabel', 'labelHtml',
+];
+
+/** Whatever else was in config_json, kept exactly as it was found. */
+const carriedConfig = (field: FieldDraft): Record<string, any> => {
+  const out: Record<string, any> = {};
+  for (const [key, value] of Object.entries(field.rawConfig || {})) {
+    if (!BUILDER_CONFIG_KEYS.includes(key)) out[key] = value;
+  }
+  return out;
+};
+
 const emptyField = (type: FieldType): FieldDraft => ({
   fieldKey: newFieldKey(),
   type,
@@ -456,6 +476,11 @@ const SurveyManagement = () => {
           let config: any = {};
           try { config = f.config_json ? JSON.parse(f.config_json) : {}; } catch { /* malformed config shouldn't block loading the rest of the field */ }
           grouped[pIdx][f.field_index] = {
+            // Kept whole so that saving does not throw away settings this
+            // screen has no editor for — participant_list's options and their
+            // prices live here, and rebuilding config_json from scratch
+            // without them wiped a form's entire price list on save.
+            rawConfig: config,
             fieldKey: f.field_key,
             type: f.type,
             label: f.label,
@@ -495,9 +520,14 @@ const SurveyManagement = () => {
         // switching back restores them, but they must not be saved onto a
         // type that has no use for them.
         optionsJson: isChoiceType(f.type) && f.options ? JSON.stringify(f.options) : undefined,
-        // config_json is rebuilt from scratch on every save, so anything that
-        // lives in it has to be written here or it is silently dropped.
+        // config_json is rebuilt on every save so a setting stops applying
+        // once its type changes — an image URL must not survive a switch to
+        // "short text". Only the keys listed in BUILDER_CONFIG_KEYS are
+        // rebuilt that way; everything else is carried across untouched,
+        // because a key this screen cannot edit is a key it has no business
+        // deleting.
         configJson: JSON.stringify({
+          ...carriedConfig(f),
           ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
           ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
           ...(f.type === 'identity' ? { phoneRequired: !!f.phoneRequired } : {}),
@@ -792,6 +822,14 @@ const SurveyManagement = () => {
                               control={<Switch size="small" checked={!!field.scored} onChange={e => updateField(idx, { scored: e.target.checked })} />}
                               label={<Typography variant="caption">ให้คะแนน</Typography>}
                             />
+                          )}
+                          {field.type === 'participant_list' && (
+                            <Box sx={{ width: '100%' }}>
+                              <ParticipantPricingEditor
+                                config={field.rawConfig || {}}
+                                onChange={(next) => updateField(idx, { rawConfig: { ...(field.rawConfig || {}), ...next } })}
+                              />
+                            </Box>
                           )}
                           {field.type === 'identity' && (
                             <FormControlLabel
