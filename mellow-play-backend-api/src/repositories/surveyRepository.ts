@@ -221,6 +221,10 @@ export class SurveyRepository {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
     shuffleMode?: string; shuffleOptions?: boolean; shufflePinnedPages?: boolean[];
+    // Money settings. Undefined means "leave as it is" on update, which is
+    // what an older client that knows nothing about them must do — silently
+    // switching a paid form back to free would be the worst kind of quiet.
+    collectsPayment?: boolean; basePrice?: number | null; paymentAccountJson?: string | null;
     fields: SurveyFieldInput[];
   }): Promise<number> {
     // has_answer_key is derived, not a separate manual toggle — a form is
@@ -228,14 +232,17 @@ export class SurveyRepository {
     // regardless of whether the others do.
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const result = await this.db.prepare(`
-      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_mode, shuffle_options, shuffle_pinned_pages)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Survey_Forms (name, description, form_kind, has_answer_key, is_active, slug, score_ranges_json, shuffle_mode, shuffle_options, shuffle_pinned_pages, collects_payment, base_price, payment_account_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       data.name, data.description ?? null, data.formKind,
       hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
       hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
       data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0,
       data.shufflePinnedPages?.some(Boolean) ? JSON.stringify(data.shufflePinnedPages) : null,
+      data.collectsPayment ? 1 : 0,
+      Number(data.basePrice) || 0,
+      data.paymentAccountJson ?? null,
     ).run();
     const formId = result.meta.last_row_id;
 
@@ -257,19 +264,32 @@ export class SurveyRepository {
     name: string; description?: string; formKind: string;
     isActive?: boolean; slug?: string | null; scoreRangesJson?: string | null;
     shuffleMode?: string; shuffleOptions?: boolean; shufflePinnedPages?: boolean[];
+    // Money settings. Undefined means "leave as it is" on update, which is
+    // what an older client that knows nothing about them must do — silently
+    // switching a paid form back to free would be the worst kind of quiet.
+    collectsPayment?: boolean; basePrice?: number | null; paymentAccountJson?: string | null;
     fields: SurveyFieldInput[];
   }): Promise<void> {
     const hasAnswerKey = data.fields.some(f => isFieldScored(f.configJson));
     const statements = [
       this.db.prepare(`
-        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_mode = ?, shuffle_options = ?, shuffle_pinned_pages = ?
+        UPDATE Survey_Forms SET name = ?, description = ?, form_kind = ?, has_answer_key = ?, is_active = ?, slug = ?, score_ranges_json = ?, shuffle_mode = ?, shuffle_options = ?, shuffle_pinned_pages = ?,
+          collects_payment = COALESCE(?, collects_payment),
+          base_price = COALESCE(?, base_price),
+          payment_account_json = COALESCE(?, payment_account_json)
         WHERE id = ?
       `).bind(
         data.name, data.description ?? null, data.formKind,
         hasAnswerKey ? 1 : 0, data.isActive === false ? 0 : 1, data.slug ?? null,
         hasAnswerKey ? (data.scoreRangesJson ?? null) : null,
         data.shuffleMode ?? 'none', data.shuffleOptions ? 1 : 0,
-        data.shufflePinnedPages?.some(Boolean) ? JSON.stringify(data.shufflePinnedPages) : null, id,
+        data.shufflePinnedPages?.some(Boolean) ? JSON.stringify(data.shufflePinnedPages) : null,
+        // COALESCE above: a null here keeps whatever the column already holds,
+        // so a client that does not send these cannot blank them.
+        data.collectsPayment === undefined ? null : (data.collectsPayment ? 1 : 0),
+        data.basePrice === undefined || data.basePrice === null ? null : Number(data.basePrice) || 0,
+        data.paymentAccountJson === undefined ? null : data.paymentAccountJson,
+        id,
       ),
       this.db.prepare('DELETE FROM Survey_Form_Fields WHERE form_id = ?').bind(id),
       ...data.fields.map(f =>

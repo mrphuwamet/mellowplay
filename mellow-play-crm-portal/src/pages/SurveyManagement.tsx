@@ -10,6 +10,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tabs, Tab, Snackbar, Menu, Popover, Tooltip,
+  InputAdornment,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -411,6 +412,11 @@ const SurveyManagement = () => {
   const [formKind, setFormKind] = useState('survey');
   const [slug, setSlug] = useState('');
   const [isActive, setIsActive] = useState(true);
+  // Money settings live on the form rather than on a field: a registration
+  // fee and the account it is paid into belong to the whole thing.
+  const [collectsPayment, setCollectsPayment] = useState(false);
+  const [basePrice, setBasePrice] = useState<string>('');
+  const [paymentAccount, setPaymentAccount] = useState<Record<string, string>>({});
   const [topTab, setTopTab] = useState(0);
   const [sessionEditing, setSessionEditing] = useState(false);
   const [shuffleMode, setShuffleMode] = useState('none');
@@ -437,6 +443,7 @@ const SurveyManagement = () => {
 
   const resetFormState = () => {
     setName(''); setDescription(''); setFormKind('survey'); setSlug(''); setIsActive(true);
+    setCollectsPayment(false); setBasePrice(''); setPaymentAccount({});
     setShuffleMode('none'); setShuffleOptions(false);
     setPages([[]]); setPinnedPages([]); setActivePage(0); setScoreRanges([]); setSaveError(null);
   };
@@ -461,6 +468,12 @@ const SurveyManagement = () => {
         setFormKind(normalizeFormKind(form.form_kind));
         setSlug(form.slug || '');
         setIsActive(!!form.is_active);
+        setCollectsPayment(!!form.collects_payment);
+        setBasePrice(form.base_price ? String(form.base_price) : '');
+        try {
+          const acc = form.payment_account_json ? JSON.parse(form.payment_account_json) : {};
+          setPaymentAccount(acc && typeof acc === 'object' ? acc : {});
+        } catch { setPaymentAccount({}); }
         setShuffleMode(form.shuffle_mode || (form.shuffle_questions ? 'within_section' : 'none'));
         setShuffleOptions(!!form.shuffle_options);
         try {
@@ -541,6 +554,13 @@ const SurveyManagement = () => {
       })));
       const payload = {
         name, description, formKind, slug: slug.trim() || undefined, isActive,
+        collectsPayment,
+        basePrice: Number(basePrice) || 0,
+        // null rather than {} when nothing is filled in, so the payment screen
+        // shows no account block at all instead of an empty frame.
+        paymentAccount: Object.values(paymentAccount).some(v => String(v || '').trim())
+          ? paymentAccount
+          : null,
         shuffleMode, shuffleOptions,
         shufflePinnedPages: pages.map((_, i) => !!pinnedPages[i]),
         scoreRanges, fields,
@@ -719,6 +739,61 @@ const SurveyManagement = () => {
                   />
                 </Grid>
               </Grid>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, mt: 2 }}>
+                <FormControlLabel
+                  control={<Switch checked={collectsPayment} onChange={e => setCollectsPayment(e.target.checked)} />}
+                  label={<Typography sx={{ fontWeight: 800 }}>เก็บเงินจากแบบฟอร์มนี้</Typography>}
+                />
+                {collectsPayment && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <TextField
+                      size="small" type="number" label="ค่าสมัครพื้นฐาน" value={basePrice}
+                      onChange={e => setBasePrice(e.target.value)}
+                      InputProps={{ endAdornment: <InputAdornment position="end">฿</InputAdornment> }}
+                      helperText="เก็บทุกใบสมัคร ก่อนบวกสิ่งที่เลือกในฟอร์ม · ใส่ 0 ถ้าเงินมาจากตัวเลือกล้วน ๆ"
+                      sx={{ maxWidth: 300 }}
+                    />
+
+                    <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mt: 2.5, mb: 1 }}>
+                      บัญชีรับโอน — แสดงให้ผู้สมัครเห็นหลังกดส่ง
+                    </Typography>
+                    <Grid container spacing={1.5}>
+                      {([
+                        ['bankName', 'ธนาคาร', 'เช่น กสิกรไทย'],
+                        ['accountName', 'ชื่อบัญชี', 'ชื่อตามหน้าสมุดบัญชี'],
+                        ['accountNo', 'เลขบัญชี', 'xxx-x-xxxxx-x'],
+                        ['promptPay', 'พร้อมเพย์ (ไม่บังคับ)', 'เบอร์โทรหรือเลขประจำตัว'],
+                      ] as [string, string, string][]).map(([key, label, placeholder]) => (
+                        <Grid item xs={12} sm={6} key={key}>
+                          <TextField
+                            size="small" fullWidth label={label} placeholder={placeholder}
+                            value={paymentAccount[key] ?? ''}
+                            onChange={e => setPaymentAccount(prev => ({ ...prev, [key]: e.target.value }))}
+                          />
+                        </Grid>
+                      ))}
+                      <Grid item xs={12}>
+                        <TextField
+                          size="small" fullWidth label="ข้อความเพิ่มเติม (ไม่บังคับ)"
+                          placeholder="เช่น โอนแล้วแนบสลิปได้ที่หน้านี้เลย"
+                          value={paymentAccount.note ?? ''}
+                          onChange={e => setPaymentAccount(prev => ({ ...prev, note: e.target.value }))}
+                        />
+                      </Grid>
+                    </Grid>
+
+                    {/* The account number is the one thing on this screen that
+                        a mistake in cannot be undone by editing later: the
+                        money is already gone to somewhere else. */}
+                    {!String(paymentAccount.accountNo || '').trim() && !String(paymentAccount.promptPay || '').trim() && (
+                      <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
+                        ยังไม่ได้ใส่เลขบัญชีหรือพร้อมเพย์ — ผู้สมัครจะเห็นยอดที่ต้องโอนแต่ไม่รู้ว่าโอนไปที่ไหน
+                      </Alert>
+                    )}
+                  </Box>
+                )}
+              </Paper>
+
               <Stack direction="row" useFlexGap flexWrap="wrap" gap={3} alignItems="center" sx={{ mt: 2 }}>
                 <FormControlLabel
                   control={<Switch checked={isActive} onChange={e => setIsActive(e.target.checked)} />}

@@ -105,6 +105,13 @@ export class SurveyController {
         // Only meaningful for the 'pages' mode; stored either way so toggling
         // the mode off and back on does not lose which pages were pinned.
         shufflePinnedPages: Array.isArray(body.shufflePinnedPages) ? body.shufflePinnedPages.map(Boolean) : undefined,
+        // Left undefined when the caller says nothing, so an older client
+        // cannot turn a paid form back into a free one by omission.
+        collectsPayment: body.collectsPayment === undefined ? undefined : !!body.collectsPayment,
+        basePrice: body.basePrice === undefined ? undefined : Number(body.basePrice) || 0,
+        paymentAccountJson: body.paymentAccount === undefined
+          ? undefined
+          : (body.paymentAccount ? JSON.stringify(body.paymentAccount) : null),
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true, id });
@@ -133,6 +140,13 @@ export class SurveyController {
         // Only meaningful for the 'pages' mode; stored either way so toggling
         // the mode off and back on does not lose which pages were pinned.
         shufflePinnedPages: Array.isArray(body.shufflePinnedPages) ? body.shufflePinnedPages.map(Boolean) : undefined,
+        // Left undefined when the caller says nothing, so an older client
+        // cannot turn a paid form back into a free one by omission.
+        collectsPayment: body.collectsPayment === undefined ? undefined : !!body.collectsPayment,
+        basePrice: body.basePrice === undefined ? undefined : Number(body.basePrice) || 0,
+        paymentAccountJson: body.paymentAccount === undefined
+          ? undefined
+          : (body.paymentAccount ? JSON.stringify(body.paymentAccount) : null),
         fields: this.normalizeFields(body.fields),
       });
       return c.json({ success: true });
