@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import ParticipantListField, { ParticipantAnswer } from './ParticipantListField';
+import ParticipantListField, { ParticipantAnswer, personFieldsOf } from './ParticipantListField';
 import { scrollToTop } from '../utils/scrollToTop';
 import { RespondentIdentity, identityIsComplete } from '../utils/respondentName';
 
@@ -43,6 +43,14 @@ interface Props {
   progressOffset?: number;
   progressTotal?: number;
   isFinalStep?: boolean;
+  /**
+   * A payment step follows this form, so its last button leads to the bill
+   * rather than ending. Only the screen that owns the flow knows this: a
+   * form that charges is still answered for free during a staff trial run,
+   * and there is no payment step after one. Defaults to false, so no caller
+   * gets payment wording it did not ask for.
+   */
+  leadsToPayment?: boolean;
 }
 
 // Fill-it-out renderer for a standalone Survey/Pre-Test/Post-Test form —
@@ -92,7 +100,7 @@ const fitsScaleRow = (opts: { label: string }[]): boolean =>
 const SurveyFillForm: React.FC<Props> = ({
   form, answers, onChange, identity, onIdentityChange, accountName, accountPhone,
   isLoggedIn, onSubmit, submitting, lang,
-  progressOffset = 0, progressTotal, isFinalStep = true,
+  progressOffset = 0, progressTotal, isFinalStep = true, leadsToPayment = false,
 }) => {
   // Group by page, keeping the order the server sent. It used to slot fields
   // in by field_index, which silently undid the per-respondent shuffle a form
@@ -113,10 +121,6 @@ const SurveyFillForm: React.FC<Props> = ({
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const currentFields = pages[pageIndex] || [];
   const isLastPage = pageIndex === pages.length - 1;
-  // A form that charges does not end on its last page — the total, the
-  // account to transfer to and the slip upload are all still ahead. So the
-  // button there is not "send my answers"; it is the way to the bill.
-  const collectsPayment = !!(form as any)?.collects_payment;
   const totalPages = progressTotal ?? pages.length;
   const shownPage = progressOffset + pageIndex + 1;
 
@@ -156,8 +160,14 @@ const SurveyFillForm: React.FC<Props> = ({
     // the thing this check exists to catch. The server checks the same rules
     // again, including which option the first person may take.
     if (f.type === 'participant_list') {
+      let cfg: any = {};
+      try { cfg = f.config_json ? JSON.parse(f.config_json) : {}; } catch { cfg = {}; }
+      const required = personFieldsOf(cfg).filter(pf => pf.required);
       return Array.isArray(v) && v.length > 0
-        && v.every((person: any) => person && String(person.name || '').trim() !== '' && String(person.choice || '') !== '');
+        && v.every((person: any) => person
+          && String(person.name || '').trim() !== ''
+          && String(person.choice || '') !== ''
+          && required.every(pf => String((person.extra || {})[pf.key] ?? '').trim() !== ''));
     }
     if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0 && otherBoxSatisfied(f);
     return v != null && String(v).trim() !== '' && otherBoxSatisfied(f);
@@ -552,7 +562,7 @@ const SurveyFillForm: React.FC<Props> = ({
             ? (lang === 'en' ? 'Submitting...' : 'กำลังส่ง...')
             : !(isLastPage && isFinalStep)
               ? (lang === 'en' ? 'Next' : 'ขั้นตอนถัดไป')
-              : collectsPayment
+              : leadsToPayment
                 ? (lang === 'en' ? 'Review the total' : 'สรุปยอดชำระ')
                 : (lang === 'en' ? 'Submit' : 'ส่งคำตอบ')}
         </button>

@@ -17,6 +17,26 @@ export interface ParticipantOption {
   detail?: { label: string; price?: number }[];
 }
 
+/**
+ * Something else to ask about each person — a nickname, a birthday, a shirt
+ * size. Configured per form rather than built in, because what a Halloween
+ * party needs to know about a child is not what a tournament needs to know
+ * about a player.
+ *
+ * Never priced. A question that changes the bill is an option with a price
+ * on it, which is a different thing in a different place, so that the set of
+ * ways to charge money stays small enough to check.
+ */
+export interface PersonField {
+  key: string;
+  label: string;
+  type?: 'text' | 'date' | 'number' | 'tel' | 'select';
+  required?: boolean;
+  placeholder?: string;
+  /** Only read when type is 'select'. */
+  options?: string[];
+}
+
 export interface ParticipantListConfig {
   itemLabel?: string;
   addLabel?: string;
@@ -26,12 +46,23 @@ export interface ParticipantListConfig {
   min?: number;
   max?: number;
   options?: ParticipantOption[];
+  personFields?: PersonField[];
 }
 
 export interface ParticipantAnswer {
   name: string;
   choice: string;
+  /**
+   * The answers to personFields, kept in their own object rather than spread
+   * across the row. A form is free to ask for a field called "name" or
+   * "choice" without shadowing the two this component owns.
+   */
+  extra?: Record<string, any>;
 }
+
+/** Only fields with both a key and a label are real questions. */
+export const personFieldsOf = (config: ParticipantListConfig): PersonField[] =>
+  (config.personFields || []).filter((pf) => pf && pf.key && pf.label);
 
 interface Props {
   config: ParticipantListConfig;
@@ -67,11 +98,14 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
   const min = Math.max(0, Number(config.min) || 0);
   const max = Number(config.max) || 0;
   const itemLabel = config.itemLabel || (lang === 'en' ? 'participant' : 'ผู้เข้าร่วม');
+  const extras = personFieldsOf(config);
   const people = value.length > 0 ? value : (min > 0 ? [{ name: '', choice: '' }] : []);
 
   const patch = (index: number, change: Partial<ParticipantAnswer>) => {
     onChange(people.map((p, i) => (i === index ? { ...p, ...change } : p)));
   };
+  const patchExtra = (index: number, key: string, v: any) =>
+    patch(index, { extra: { ...(people[index].extra || {}), [key]: v } });
   const add = () => onChange([...people, { name: '', choice: '' }]);
   const remove = (index: number) => onChange(people.filter((_, i) => i !== index));
 
@@ -106,6 +140,38 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
               placeholder={config.namePlaceholder || (lang === 'en' ? 'Full name' : 'ชื่อ-นามสกุล')}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all mb-3"
             />
+
+            {extras.length > 0 && (
+              <div className="space-y-3 mb-3">
+                {extras.map((pf) => {
+                  const v = (person.extra || {})[pf.key] ?? '';
+                  const box = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all';
+                  return (
+                    <div key={pf.key}>
+                      <p className="text-xs font-black text-slate-400 mb-1.5">
+                        {pf.label}
+                        {pf.required && <span className="text-mellow-red"> *</span>}
+                      </p>
+                      {pf.type === 'select' ? (
+                        <select value={v} onChange={(e) => patchExtra(index, pf.key, e.target.value)} className={box}>
+                          <option value="">{lang === 'en' ? 'Select...' : 'เลือก...'}</option>
+                          {(pf.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          type={pf.type === 'date' ? 'date' : pf.type === 'number' ? 'number' : pf.type === 'tel' ? 'tel' : 'text'}
+                          inputMode={pf.type === 'tel' ? 'tel' : pf.type === 'number' ? 'numeric' : undefined}
+                          value={v}
+                          onChange={(e) => patchExtra(index, pf.key, e.target.value)}
+                          placeholder={pf.placeholder || ''}
+                          className={box}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {config.choiceLabel && (
               <p className="text-xs font-black text-slate-400 mb-2">{config.choiceLabel}</p>

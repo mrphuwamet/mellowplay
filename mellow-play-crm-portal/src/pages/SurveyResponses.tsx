@@ -24,6 +24,36 @@ const formatDateTime = (raw: string | undefined): string => {
   return `${d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
 };
 
+/**
+ * A participant_list answer, in words.
+ *
+ * It is an array of objects, so the generic "join the array" path rendered it
+ * as [object Object] — the one field on a paid form whose answer nobody could
+ * read. Each person becomes one line: their name, the option they chose by
+ * its label rather than its key, and whatever else the form asked about them.
+ */
+const participantLines = (value: any, field: any): string[] => {
+  if (!Array.isArray(value)) return [];
+  let config: any = {};
+  try { config = field?.config_json ? JSON.parse(field.config_json) : {}; } catch { config = {}; }
+  const options: any[] = Array.isArray(config.options) ? config.options : [];
+  const asked: any[] = Array.isArray(config.personFields) ? config.personFields.filter((pf: any) => pf && pf.key && pf.label) : [];
+
+  return value.map((person: any, i: number) => {
+    const who = String(person?.name || '').trim() || `คนที่ ${i + 1}`;
+    const chosen = options.find((o: any) => o && o.key === person?.choice);
+    const parts = [who];
+    if (chosen?.label) parts.push(String(chosen.label));
+    else if (person?.choice) parts.push(String(person.choice));
+    for (const pf of asked) {
+      const v = (person?.extra || {})[pf.key];
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      parts.push(`${pf.label}: ${v}`);
+    }
+    return parts.join(' · ');
+  });
+};
+
 const SurveyResponses = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -130,7 +160,9 @@ const SurveyResponses = () => {
           ...(form?.has_answer_key ? [s.total_score != null ? `${s.total_score}/${s.max_score}` : ''] : []),
           ...questionFields.flatMap((f: any) => {
             const v = d.answers[f.field_key];
-            const cell = Array.isArray(v) ? v.join('; ') : (v ?? '');
+            const cell = f.type === 'participant_list'
+              ? participantLines(v, f).join(' | ')
+              : Array.isArray(v) ? v.join('; ') : (v ?? '');
             return hasOtherBox(f) ? [cell, d.answers[`${f.field_key}__other`] ?? ''] : [cell];
           }),
         ];
@@ -262,6 +294,17 @@ const SurveyResponses = () => {
                 )}
                 {(form?.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph' && f.type !== 'identity').map((f: any) => {
                   const v = answers[f.field_key];
+                  if (f.type === 'participant_list') {
+                    const lines = participantLines(v, f);
+                    return (
+                      <Box key={f.field_key}>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>{f.label}</Typography>
+                        {lines.length === 0
+                          ? <Typography variant="body2">-</Typography>
+                          : lines.map((line, i) => <Typography key={i} variant="body2">{line}</Typography>)}
+                      </Box>
+                    );
+                  }
                   const display = Array.isArray(v) ? (v.length ? v.join(', ') : '-') : (v ?? '-');
                   return (
                     <Box key={f.field_key}>

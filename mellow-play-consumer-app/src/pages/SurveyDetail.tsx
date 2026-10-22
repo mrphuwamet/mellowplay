@@ -36,6 +36,10 @@ const SurveyDetail = () => {
   const [payment, setPayment] = useState<{ submissionId: number; info: SurveyPaymentInfo } | null>(null);
 
   const collectsPayment = !!form?.collects_payment;
+  // A trial run owes nothing — the server refuses to charge one — so no
+  // payment step follows it. Promising a total that never arrives is what
+  // made the trial link end on a button marked "สรุปยอดชำระ".
+  const willCollect = collectsPayment && !isTest;
 
   useEffect(() => {
     if (!idOrSlug) return;
@@ -151,7 +155,7 @@ const SurveyDetail = () => {
                     beside it here, so nothing is picked blind — what is not
                     shown is the running total, which is a thing to check once
                     at the end rather than watch move while typing. */}
-                {collectsPayment && (
+                {willCollect && (
                   <div className="rounded-2xl bg-mellow-purple/5 border border-mellow-purple/10 px-4 py-3 mb-4">
                     <p className="text-xs font-bold text-slate-500 leading-relaxed">
                       {lang === 'en'
@@ -171,6 +175,7 @@ const SurveyDetail = () => {
                   isLoggedIn={canPrefill}
                   onSubmit={handleSubmit}
                   submitting={submitting}
+                  leadsToPayment={willCollect}
                   lang={lang}
                 />
                 {error && <p className="text-xs font-bold text-red-500 mt-3">{error}</p>}

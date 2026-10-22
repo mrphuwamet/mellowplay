@@ -112,10 +112,33 @@ export interface ParticipantOption {
   detail?: { label: string; price?: number }[];
 }
 
-/** One row of a participant_list answer: who, and what they chose. */
+/**
+ * Something the form asks about each person beyond their name — a nickname,
+ * a birthday, a shirt size. These never carry a price: a question that
+ * changes the bill is an option with a price on it, which keeps the set of
+ * ways to charge money small enough to audit.
+ */
+export interface PersonField {
+  key: string;
+  label: string;
+  type?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+/** One row of a participant_list answer: who, what they chose, and whatever
+ *  else the form asked about them. */
 export interface ParticipantAnswer {
   name?: string;
   choice?: string;
+  extra?: Record<string, any>;
+}
+
+export function personFieldsOf(configJson: string | null | undefined): PersonField[] {
+  const config = configOf(configJson);
+  return Array.isArray(config.personFields)
+    ? config.personFields.filter((pf: any) => pf && pf.key && pf.label)
+    : [];
 }
 
 export function participantOptionsOf(configJson: string | null | undefined): ParticipantOption[] {
@@ -129,7 +152,11 @@ export function participantsOf(answer: any): ParticipantAnswer[] {
   if (!Array.isArray(answer)) return [];
   return answer
     .filter((p: any) => p && typeof p === 'object')
-    .map((p: any) => ({ name: typeof p.name === 'string' ? p.name : '', choice: typeof p.choice === 'string' ? p.choice : '' }));
+    .map((p: any) => ({
+      name: typeof p.name === 'string' ? p.name : '',
+      choice: typeof p.choice === 'string' ? p.choice : '',
+      extra: p.extra && typeof p.extra === 'object' && !Array.isArray(p.extra) ? p.extra : {},
+    }));
 }
 
 /**
@@ -241,6 +268,7 @@ export function validateAnswers(
     if (field.type !== 'participant_list') continue;
     const config = configOf(field.config_json);
     const opts = participantOptionsOf(field.config_json);
+    const asked = personFieldsOf(field.config_json);
     const people = participantsOf(answers[field.field_key]);
 
     const min = Number(config.min) || 0;
@@ -257,6 +285,16 @@ export function validateAnswers(
     people.forEach((person, index) => {
       const who = (person.name || '').trim();
       if (!who) problems.push(`กรุณากรอกชื่อ${config.itemLabel || 'ผู้เข้าร่วม'}คนที่ ${index + 1}`);
+      // Named the way the respondent would name them, so a problem points at
+      // a person on the screen rather than at a row number.
+      const whom = who || `คนที่ ${index + 1}`;
+      for (const pf of asked) {
+        if (!pf.required) continue;
+        if (String((person.extra || {})[pf.key] ?? '').trim() === '') {
+          problems.push(`กรุณากรอก"${pf.label}"ของ ${whom}`);
+        }
+      }
+
       const option = opts.find((o) => o.key === person.choice);
       if (!option) {
         problems.push(`กรุณาเลือกรูปแบบการเข้าร่วมของ${who ? ` ${who}` : `คนที่ ${index + 1}`}`);

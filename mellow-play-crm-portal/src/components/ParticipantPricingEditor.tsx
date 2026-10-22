@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Box, Paper, Stack, Typography, TextField, Switch, FormControlLabel,
-  IconButton, Button, Divider, Alert, InputAdornment,
+  IconButton, Button, Divider, Alert, InputAdornment, MenuItem,
 } from '@mui/material';
 import { Add as AddIcon, Close as CloseIcon } from '@mui/icons-material';
 
@@ -15,6 +15,16 @@ export interface ParticipantOption {
   disabledOnFirstNote?: string;
   detail?: ParticipantDetail[];
 }
+/** A question asked about each person, on top of their name. */
+export interface PersonField {
+  key: string;
+  label: string;
+  type?: 'text' | 'date' | 'number' | 'tel' | 'select';
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
 export interface ParticipantConfig {
   itemLabel?: string;
   addLabel?: string;
@@ -24,7 +34,16 @@ export interface ParticipantConfig {
   max?: number;
   firstMustChooseNote?: string;
   options?: ParticipantOption[];
+  personFields?: PersonField[];
 }
+
+const PERSON_FIELD_TYPES: { value: NonNullable<PersonField['type']>; label: string }[] = [
+  { value: 'text', label: 'ข้อความ' },
+  { value: 'date', label: 'วันที่' },
+  { value: 'number', label: 'ตัวเลข' },
+  { value: 'tel', label: 'เบอร์โทร' },
+  { value: 'select', label: 'ตัวเลือก' },
+];
 
 interface Props {
   config: ParticipantConfig;
@@ -64,12 +83,19 @@ const ParticipantPricingEditor: React.FC<Props> = ({ config, onChange }) => {
   const removeDetail = (oi: number, di: number) =>
     patchOption(oi, { detail: (options[oi].detail || []).filter((_, j) => j !== di) });
 
+  // ── the questions asked about each person ──
+  const personFields = config.personFields || [];
+  const patchPerson = (i: number, next: Partial<PersonField>) =>
+    patch({ personFields: personFields.map((pf, j) => (j === i ? { ...pf, ...next } : pf)) });
+  // The key is generated and never edited: it is what already-collected
+  // answers are filed under, so letting it be retyped would orphan them.
+  const addPerson = () => patch({
+    personFields: [...personFields, { key: `pf_${Date.now().toString(36)}`, label: '', type: 'text' }],
+  });
+  const removePerson = (i: number) => patch({ personFields: personFields.filter((_, j) => j !== i) });
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 1 }}>
-        ตัวเลือกและราคา
-      </Typography>
-
       <Stack direction="row" spacing={1.5} sx={{ mb: 2 }}>
         <TextField
           size="small" label="เรียกผู้เข้าร่วมว่า" value={config.itemLabel ?? ''}
@@ -85,6 +111,77 @@ const ParticipantPricingEditor: React.FC<Props> = ({ config, onChange }) => {
           onChange={e => patch({ max: num(e.target.value) })} sx={{ maxWidth: 110 }}
         />
       </Stack>
+
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, mb: 2 }}>
+        <Typography variant="caption" sx={{ fontWeight: 800, display: 'block' }}>
+          ข้อมูลที่ถามแต่ละคน
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+          ช่องชื่อมีอยู่แล้วทุกคน ตรงนี้คือสิ่งที่อยากถามเพิ่ม เช่น ชื่อเล่น หรือวันเกิด —
+          ถามแยกรายคน ไม่มีผลกับราคา
+        </Typography>
+
+        <Stack spacing={1.5}>
+          {personFields.map((pf, i) => (
+            <Box key={pf.key || i}>
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <TextField
+                  size="small" fullWidth label="คำถาม" value={pf.label}
+                  onChange={e => patchPerson(i, { label: e.target.value })}
+                  placeholder="เช่น ชื่อเล่น"
+                />
+                <TextField
+                  size="small" select label="ชนิด" value={pf.type || 'text'}
+                  onChange={e => patchPerson(i, { type: e.target.value as PersonField['type'] })}
+                  sx={{ minWidth: 130 }}
+                >
+                  {PERSON_FIELD_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                </TextField>
+                <IconButton size="small" onClick={() => removePerson(i)} title="ลบคำถามนี้">
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+
+              {pf.type === 'select' && (
+                <TextField
+                  size="small" fullWidth sx={{ mt: 1 }}
+                  label="ตัวเลือก (คั่นด้วยจุลภาค)"
+                  value={(pf.options || []).join(', ')}
+                  onChange={e => patchPerson(i, {
+                    options: e.target.value.split(',').map(v => v.trim()).filter(Boolean),
+                  })}
+                  placeholder="S, M, L"
+                />
+              )}
+
+              <FormControlLabel
+                sx={{ mt: 0.5 }}
+                control={
+                  <Switch
+                    size="small" checked={!!pf.required}
+                    onChange={e => patchPerson(i, { required: e.target.checked })}
+                  />
+                }
+                label={<Typography variant="caption">จำเป็นต้องกรอก</Typography>}
+              />
+            </Box>
+          ))}
+        </Stack>
+
+        <Button size="small" startIcon={<AddIcon />} onClick={addPerson} sx={{ mt: 1, fontWeight: 700 }}>
+          เพิ่มคำถามรายคน
+        </Button>
+
+        {personFields.some(pf => !String(pf.label || '').trim()) && (
+          <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2 }}>
+            คำถามที่ยังไม่ได้ตั้งชื่อจะไม่ถูกแสดงในฟอร์ม
+          </Alert>
+        )}
+      </Paper>
+
+      <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 1 }}>
+        ตัวเลือกและราคา
+      </Typography>
 
       <Stack spacing={1.5}>
         {options.map((option, i) => (
