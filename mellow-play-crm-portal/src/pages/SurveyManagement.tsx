@@ -38,6 +38,7 @@ import {
   ReceiptLong as PaymentsIcon,
   Image as ImageFieldIcon,
   Groups as ParticipantListIcon,
+  AlternateEmail as EmailFieldIcon,
   HelpOutline as UnknownFieldIcon,
   CloudUpload as UploadIcon,
   Close as CloseIcon,
@@ -50,7 +51,7 @@ import ParticipantPricingEditor from '../components/ParticipantPricingEditor';
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
-type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image' | 'participant_list';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'email' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image' | 'participant_list';
 
 interface ScoredOption {
   label: string;
@@ -191,8 +192,6 @@ interface FieldDraft {
   type: FieldType;
   label: string;
   required: boolean;
-  /** This field's answer is where the payment receipt is sent. */
-  receiptEmail?: boolean;
   options?: ScoredOption[]; // select/radio/checkbox
   scored?: boolean;         // select/radio/checkbox — per-field toggle for whether points count at all
   imageUrl?: string;        // image
@@ -276,7 +275,7 @@ const metaFor = (type: string): { label: string; icon: React.ReactNode } =>
 
 /** What the "add field" buttons and the type dropdown offer. */
 const ADDABLE_FIELD_TYPES: FieldType[] = [
-  'heading', 'paragraph', 'text', 'textarea', 'number', 'date',
+  'heading', 'paragraph', 'text', 'textarea', 'email', 'number', 'date',
   'select', 'radio', 'checkbox', 'identity', 'image',
 ];
 
@@ -288,6 +287,7 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   paragraph: { label: 'เนื้อหาให้อ่าน (หลายบรรทัด)', icon: <ParagraphIcon fontSize="small" /> },
   text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
   textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
+  email: { label: 'อีเมล', icon: <EmailFieldIcon fontSize="small" /> },
   number: { label: 'ตัวเลข', icon: <NumberIcon fontSize="small" /> },
   date: { label: 'วันที่', icon: <DateIcon fontSize="small" /> },
   select: { label: 'ตัวเลือก (Dropdown)', icon: <SelectIcon fontSize="small" /> },
@@ -372,6 +372,8 @@ const isChoiceType = (type: FieldType) => type === 'select' || type === 'radio' 
 /** The config keys this screen owns and therefore rebuilds on every save. */
 const BUILDER_CONFIG_KEYS = [
   'scored', 'imageUrl', 'phoneRequired', 'display', 'scaleLowLabel', 'scaleHighLabel', 'labelHtml',
+  // Written by an earlier build that had no email field type. Listed so a
+  // save strips it rather than carrying a setting nothing reads any more.
   'receiptEmail',
 ];
 
@@ -507,7 +509,6 @@ const SurveyManagement = () => {
             imageUrl: config.imageUrl,
             labelHtml: config.labelHtml,
             phoneRequired: !!config.phoneRequired,
-            receiptEmail: !!config.receiptEmail,
             display: config.display === 'scale' ? 'scale' : undefined,
             scaleLowLabel: config.scaleLowLabel,
             scaleHighLabel: config.scaleHighLabel,
@@ -549,7 +550,6 @@ const SurveyManagement = () => {
           ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
           ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
           ...(f.type === 'identity' ? { phoneRequired: !!f.phoneRequired } : {}),
-          ...(f.type === 'text' && f.receiptEmail ? { receiptEmail: true } : {}),
           ...(f.type === 'radio' && f.display === 'scale' ? {
             display: 'scale',
             scaleLowLabel: f.scaleLowLabel?.trim() || undefined,
@@ -852,10 +852,10 @@ const SurveyManagement = () => {
                     {/* The account number is the one thing on this screen that
                         a mistake in cannot be undone by editing later: the
                         money is already gone to somewhere else. */}
-                    {!pages.some(page => page.some(f => f.type === 'text' && f.receiptEmail)) && (
-                      <Alert severity="info" sx={{ mt: 2, borderRadius: 2 }}>
-                        ยังไม่ได้เลือกว่าช่องไหนคืออีเมลสำหรับส่งใบยืนยัน — ระบบจะใช้ช่องแรกในฟอร์มที่คำตอบมีหน้าตาเป็นอีเมล
-                        เปิดสวิตช์ "ใช้ช่องนี้ส่งอีเมลยืนยัน" ที่ช่องอีเมลเพื่อให้แน่นอน
+                    {!pages.some(page => page.some(f => f.type === 'email')) && (
+                      <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
+                        ฟอร์มนี้ยังไม่มีช่องชนิด "อีเมล" — ผู้สมัครจะไม่ได้รับอีเมลยืนยันหลังแนบสลิป
+                        เพิ่มช่องชนิดอีเมลลงในฟอร์มเพื่อให้ระบบรู้ว่าจะส่งไปที่ไหน
                       </Alert>
                     )}
                     {!String(paymentAccount.accountNo || '').trim() && !String(paymentAccount.promptPay || '').trim() && !String(paymentAccount.qrImageUrl || '').trim() && (
@@ -969,30 +969,6 @@ const SurveyManagement = () => {
                             <FormControlLabel
                               control={<Switch size="small" checked={!!field.scored} onChange={e => updateField(idx, { scored: e.target.checked })} />}
                               label={<Typography variant="caption">ให้คะแนน</Typography>}
-                            />
-                          )}
-                          {/* Only worth offering on a form that charges: it
-                              decides where the payment receipt is sent. */}
-                          {collectsPayment && field.type === 'text' && (
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  size="small" checked={!!field.receiptEmail}
-                                  onChange={e => {
-                                    // One field owns it. Turning it on here
-                                    // takes it off whichever had it, so the
-                                    // answer to "where does it go" is never
-                                    // two places.
-                                    const on = e.target.checked;
-                                    setPages(prev => prev.map(page => page.map(f => ({
-                                      ...f,
-                                      receiptEmail: on ? false : f.receiptEmail,
-                                    }))));
-                                    updateField(idx, { receiptEmail: on });
-                                  }}
-                                />
-                              }
-                              label={<Typography variant="caption">ใช้ช่องนี้ส่งอีเมลยืนยัน</Typography>}
                             />
                           )}
                           {field.type === 'participant_list' && (

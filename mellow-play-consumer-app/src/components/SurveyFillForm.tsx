@@ -145,6 +145,9 @@ const SurveyFillForm: React.FC<Props> = ({
       return identityIsComplete(identity, { phoneRequired: identityPhoneRequired(f) });
     }
     const v = answers[f.field_key];
+    // A required email box holds an address or it holds nothing: letting
+    // "somchai" through means a receipt that silently never arrives.
+    if (f.type === 'email') return typeof v === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
     // Every row has to be complete, not just present: a half-filled person is
     // the thing this check exists to catch. The server checks the same rules
     // again, including which option the first person may take.
@@ -338,6 +341,20 @@ const SurveyFillForm: React.FC<Props> = ({
                   value={current}
                   onChange={(next) => onChange(field.field_key, next)}
                   lang={lang}
+                />
+              </div>
+            );
+          }
+          if (field.type === 'email') {
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
+                {labelEl}
+                {/* type="email" so a phone offers the @ keyboard and the
+                    browser objects before the form is submitted. */}
+                <input
+                  type="email" inputMode="email" autoComplete="email" autoCapitalize="off" spellCheck={false}
+                  value={value || ''} onChange={e => onChange(field.field_key, e.target.value)}
+                  className={inputClass}
                 />
               </div>
             );

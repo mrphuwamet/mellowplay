@@ -96,9 +96,9 @@ const FIELDS = [
   ['parent_name', 0, 3, 'text', 'ชื่อ-นามสกุลผู้ปกครอง', 1, null, null],
   ['house_no', 0, 4, 'text', 'บ้านเลขที่ / ที่อยู่', 1, null, null],
   ['phone', 0, 5, 'text', 'เบอร์โทรศัพท์', 1, null, null],
-  // The receipt is sent to whatever address the answers contain, so this one
-  // is required or nobody gets a confirmation.
-  ['email', 0, 6, 'text', 'อีเมล (สำหรับรับอีเมลยืนยัน)', 1, null, null],
+  // Typed as an email field, which is what tells the system where to send the
+  // confirmation. Required, or nobody gets one.
+  ['email', 0, 6, 'email', 'อีเมล', 1, null, null],
 
   ['kids_head', 0, 7, 'heading', 'เด็กที่จะเข้าร่วม', 0, null, null],
   ['kids', 0, 8, 'participant_list', 'เพิ่มเด็กที่จะเข้าร่วม', 1, null, JSON.stringify(KIDS_CONFIG)],

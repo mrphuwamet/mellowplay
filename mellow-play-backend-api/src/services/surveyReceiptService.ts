@@ -30,9 +30,14 @@ const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
  * note win — the same form, the same answers, a different recipient depending
  * on the order of typing.
  *
- * A field marked `receiptEmail` in its config decides it outright. Without
- * one, the first field on the form whose answer looks like an address is
- * used, which is what every form built before the flag existed relies on.
+ * A form with an email field answers the question by itself: the first such
+ * field holding an address is the recipient, and if every one of them is
+ * blank there is no recipient — rather than quietly falling through to an
+ * address someone typed into a notes box.
+ *
+ * The two fallbacks below it are for forms built before the field type
+ * existed: a `receiptEmail` flag left on a text field, then the first answer
+ * anywhere on the form that looks like an address.
  */
 async function findEmail(db: any, formId: number, answersJson: string | null | undefined): Promise<string> {
   let answers: Record<string, any> = {};
@@ -44,7 +49,7 @@ async function findEmail(db: any, formId: number, answersJson: string | null | u
   }
 
   const { results: fields } = await db.prepare(
-    'SELECT field_key, config_json FROM Survey_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
+    'SELECT field_key, type, config_json FROM Survey_Form_Fields WHERE form_id = ? ORDER BY page_index ASC, field_index ASC'
   ).bind(formId).all();
 
   const valueAt = (key: string): string => {
@@ -52,15 +57,22 @@ async function findEmail(db: any, formId: number, answersJson: string | null | u
     return typeof v === 'string' && EMAIL_SHAPE.test(v.trim()) ? v.trim() : '';
   };
 
+  const emailFields = (fields as any[]).filter((f) => f.type === 'email');
+  if (emailFields.length) {
+    for (const field of emailFields) {
+      const chosen = valueAt(field.field_key);
+      if (chosen) return chosen;
+    }
+    // The form asked for an address and got none. Nothing else on it was
+    // offered as somewhere to write one, so there is nowhere to send.
+    return '';
+  }
+
   for (const field of (fields as any[])) {
     let marked = false;
     try { marked = !!JSON.parse(field.config_json || '{}').receiptEmail; } catch { marked = false; }
     if (!marked) continue;
-    const chosen = valueAt(field.field_key);
-    // A field explicitly nominated and then left blank means no receipt,
-    // rather than quietly falling through to whatever else looks like an
-    // address. Somebody chose that field on purpose.
-    return chosen;
+    return valueAt(field.field_key);
   }
 
   for (const field of (fields as any[])) {
