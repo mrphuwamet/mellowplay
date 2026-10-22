@@ -113,6 +113,10 @@ const SurveyFillForm: React.FC<Props> = ({
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const currentFields = pages[pageIndex] || [];
   const isLastPage = pageIndex === pages.length - 1;
+  // A form that charges does not end on its last page — the total, the
+  // account to transfer to and the slip upload are all still ahead. So the
+  // button there is not "send my answers"; it is the way to the bill.
+  const collectsPayment = !!(form as any)?.collects_payment;
   const totalPages = progressTotal ?? pages.length;
   const shownPage = progressOffset + pageIndex + 1;
 
@@ -546,9 +550,11 @@ const SurveyFillForm: React.FC<Props> = ({
           className="flex-[2] py-4 bg-mellow-purple text-white rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all disabled:opacity-50">
           {submitting
             ? (lang === 'en' ? 'Submitting...' : 'กำลังส่ง...')
-            : (isLastPage && isFinalStep)
-              ? (lang === 'en' ? 'Submit' : 'ส่งคำตอบ')
-              : (lang === 'en' ? 'Next' : 'ขั้นตอนถัดไป')}
+            : !(isLastPage && isFinalStep)
+              ? (lang === 'en' ? 'Next' : 'ขั้นตอนถัดไป')
+              : collectsPayment
+                ? (lang === 'en' ? 'Review the total' : 'สรุปยอดชำระ')
+                : (lang === 'en' ? 'Submit' : 'ส่งคำตอบ')}
         </button>
       </div>
     </div>
