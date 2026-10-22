@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { CheckCircle2, Copy, Check, Loader2, Upload, Receipt } from 'lucide-react';
-import apiClient from '../utils/apiClient';
+import apiClient, { API_HOST } from '../utils/apiClient';
 
 export interface SurveyPaymentInfo {
   amount: number;
@@ -11,9 +11,15 @@ export interface SurveyPaymentInfo {
     accountName?: string;
     accountNo?: string;
     promptPay?: string;
+    /** A PromptPay QR saved out of a banking app and uploaded by staff. */
+    qrImageUrl?: string;
     note?: string;
   } | null;
 }
+
+/** A stored file path points at the API's own origin, not this app's. */
+const fileUrl = (path: string): string =>
+  path.startsWith('/api/v1/files/') ? `${API_HOST}${path}` : path;
 
 interface Props {
   submissionId: number;
@@ -148,7 +154,31 @@ const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => 
         </div>
       </div>
 
-      {payment.account && (
+      {/* The QR leads, because scanning it is the whole of the task: no
+          number to copy across, no amount to retype. The typed details stay
+          underneath for anyone whose banking app will not scan from the same
+          screen it is displayed on. */}
+      {payment.account?.qrImageUrl && (
+        <div className="rounded-2xl border border-slate-100 p-4 mb-4 text-center">
+          <p className="text-xs font-black text-slate-400 mb-3">
+            {lang === 'en' ? 'Scan to pay' : 'สแกนเพื่อจ่าย'}
+          </p>
+          <img
+            src={fileUrl(payment.account.qrImageUrl)}
+            alt={lang === 'en' ? 'PromptPay QR code' : 'QR พร้อมเพย์สำหรับชำระเงิน'}
+            className="w-full max-w-[260px] mx-auto rounded-xl bg-white"
+          />
+          <p className="text-[11px] font-bold text-slate-400 mt-3 leading-relaxed">
+            {lang === 'en'
+              ? `Enter ${baht(payment.amount)} ฿ yourself — the code does not carry the amount.`
+              : `กรุณากรอกยอด ${baht(payment.amount)} บาทเอง เพราะ QR นี้ไม่ได้ระบุจำนวนเงินไว้`}
+          </p>
+        </div>
+      )}
+
+      {/* Only when there is something typed to show: a form that uses a QR
+          alone would otherwise render an empty bordered box. */}
+      {payment.account && [payment.account.bankName, payment.account.accountName, payment.account.accountNo, payment.account.promptPay, payment.account.note].some(v => String(v || '').trim()) && (
         <div className="rounded-2xl border border-slate-100 p-4 mb-4">
           {payment.account.bankName && <CopyRow label={lang === 'en' ? 'Bank' : 'ธนาคาร'} value={payment.account.bankName} />}
           {payment.account.accountName && <CopyRow label={lang === 'en' ? 'Account name' : 'ชื่อบัญชี'} value={payment.account.accountName} />}

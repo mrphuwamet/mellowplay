@@ -417,6 +417,7 @@ const SurveyManagement = () => {
   const [collectsPayment, setCollectsPayment] = useState(false);
   const [basePrice, setBasePrice] = useState<string>('');
   const [paymentAccount, setPaymentAccount] = useState<Record<string, string>>({});
+  const [qrUploading, setQrUploading] = useState(false);
   const [topTab, setTopTab] = useState(0);
   const [sessionEditing, setSessionEditing] = useState(false);
   const [shuffleMode, setShuffleMode] = useState('none');
@@ -755,6 +756,67 @@ const SurveyManagement = () => {
                     />
 
                     <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mt: 2.5, mb: 1 }}>
+                      QR พร้อมเพย์ (ไม่บังคับ) — สแกนจ่ายได้เลย ไม่ต้องพิมพ์เลขบัญชี
+                    </Typography>
+                    <Stack direction="row" spacing={2} alignItems="flex-start" sx={{ mb: 1 }}>
+                      {paymentAccount.qrImageUrl ? (
+                        <Box
+                          component="img"
+                          src={paymentAccount.qrImageUrl.startsWith('/api/v1/files/')
+                            ? `${API_URL}${paymentAccount.qrImageUrl}`
+                            : paymentAccount.qrImageUrl}
+                          alt="QR พร้อมเพย์ที่อัปโหลดไว้"
+                          sx={{ width: 120, height: 120, objectFit: 'contain', border: '1px solid #e2e8f0', borderRadius: 2, bgcolor: '#fff' }}
+                        />
+                      ) : (
+                        <Box sx={{
+                          width: 120, height: 120, border: '2px dashed #cbd5e1', borderRadius: 2,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: 'text.disabled', fontSize: 12, fontWeight: 700, textAlign: 'center', px: 1,
+                        }}>
+                          ยังไม่มี QR
+                        </Box>
+                      )}
+                      <Stack spacing={1}>
+                        <Button component="label" size="small" variant="outlined" disabled={qrUploading} sx={{ fontWeight: 700 }}>
+                          {qrUploading ? 'กำลังอัปโหลด…' : (paymentAccount.qrImageUrl ? 'เปลี่ยนรูป QR' : 'อัปโหลดรูป QR')}
+                          <input
+                            hidden type="file" accept="image/*"
+                            onChange={async e => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!file) return;
+                              setQrUploading(true);
+                              try {
+                                const url = await uploadImage(file);
+                                setPaymentAccount(prev => ({ ...prev, qrImageUrl: url }));
+                              } catch (err: any) {
+                                // Same banner the save failures use, so an
+                                // upload that fails is not the one thing on
+                                // this screen that fails in silence.
+                                setSaveError(err?.response?.data?.message || 'อัปโหลดรูป QR ไม่สำเร็จ');
+                              } finally {
+                                setQrUploading(false);
+                              }
+                            }}
+                          />
+                        </Button>
+                        {paymentAccount.qrImageUrl && (
+                          <Button
+                            size="small" color="error"
+                            onClick={() => setPaymentAccount(prev => { const next = { ...prev }; delete next.qrImageUrl; return next; })}
+                            sx={{ fontWeight: 700 }}
+                          >
+                            เอารูปออก
+                          </Button>
+                        )}
+                        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 260, display: 'block' }}>
+                          บันทึกรูป QR จากแอปธนาคารแล้วอัปโหลดที่นี่ · ควรใส่เลขบัญชีด้านล่างไว้ด้วย เผื่อคนที่สแกนไม่ได้
+                        </Typography>
+                      </Stack>
+                    </Stack>
+
+                    <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mt: 2.5, mb: 1 }}>
                       บัญชีรับโอน — แสดงให้ผู้สมัครเห็นหลังกดส่ง
                     </Typography>
                     <Grid container spacing={1.5}>
@@ -785,7 +847,7 @@ const SurveyManagement = () => {
                     {/* The account number is the one thing on this screen that
                         a mistake in cannot be undone by editing later: the
                         money is already gone to somewhere else. */}
-                    {!String(paymentAccount.accountNo || '').trim() && !String(paymentAccount.promptPay || '').trim() && (
+                    {!String(paymentAccount.accountNo || '').trim() && !String(paymentAccount.promptPay || '').trim() && !String(paymentAccount.qrImageUrl || '').trim() && (
                       <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
                         ยังไม่ได้ใส่เลขบัญชีหรือพร้อมเพย์ — ผู้สมัครจะเห็นยอดที่ต้องโอนแต่ไม่รู้ว่าโอนไปที่ไหน
                       </Alert>
