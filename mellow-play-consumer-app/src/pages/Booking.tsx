@@ -126,6 +126,7 @@ const Booking = () => {
   const [paymentMethod, setPaymentMethod] = useState<'coupon'|'promptpay'|'credit_card'|'wallet'|null>(null);
   const [promoCode, setPromoCode] = useState('');
   const [promoDiscount, setPromoDiscount] = useState(0);
+  const [appliedPromoCode, setAppliedPromoCode] = useState('');
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
   const [promoErrorModal, setPromoErrorModal] = useState('');
   const [notes, setNotes] = useState('');
@@ -658,13 +659,57 @@ const Booking = () => {
 
   const coursePrice = selectedCourse?.original_price || 0;
   const campaignDiscount = (selectedCourse as any)?.active_campaign_discount_amount || 0;
+  // Only used to validate a promo code against one child's price. It is not
+  // what anybody is charged.
   const priceAfterCampaign = Math.max(0, coursePrice - campaignDiscount);
-  // promoDiscount is a per-child amount (validated against a single child's
-  // priceAfterCampaign below), so it must scale with headcount just like the
-  // campaign discount does — otherwise a 100% code only ever wipes out the
-  // equivalent of one child's price no matter how many are selected.
-  const totalPrice = Math.max(0, (priceAfterCampaign - promoDiscount) * selectedChildren.length);
-  const isFreeBooking = totalPrice === 0;
+
+  // What this booking costs is asked of the server and never worked out here.
+  // This screen used to multiply one price by the headcount, which cannot
+  // know about Premium members and cannot know about a per-seat ladder — the
+  // button would read 1,000 while Beam charged 850. The endpoint below runs
+  // the very function that produces Beam's netAmount, so the two cannot drift.
+  const [quote, setQuote] = useState<any | null>(null);
+  const [quoteFailed, setQuoteFailed] = useState(false);
+  const [isQuoting, setIsQuoting] = useState(false);
+  const quoteKey = [
+    selectedCourse?.id ?? '',
+    selectedChildren.map(c => c.id).join(','),
+    ageGroup,
+    appliedPromoCode,
+    registrationForm ? JSON.stringify(formAnswers) : '',
+  ].join('|');
+
+  useEffect(() => {
+    if (!selectedCourse || selectedChildren.length === 0) {
+      setQuote(null); setQuoteFailed(false); return;
+    }
+    let cancelled = false;
+    setIsQuoting(true);
+    setQuoteFailed(false);
+    apiClient.post('/profiles/booking-quote', {
+      courseId: selectedCourse.id,
+      childIds: selectedChildren.map(c => c.id),
+      ageGroup,
+      formId: registrationForm?.id ?? null,
+      formAnswers: registrationForm ? formAnswers : null,
+      promoCode: appliedPromoCode || null,
+    })
+      .then(res => {
+        if (cancelled) return;
+        if (res.data?.success) setQuote(res.data.quote);
+        else setQuoteFailed(true);
+      })
+      .catch(() => { if (!cancelled) setQuoteFailed(true); })
+      .finally(() => { if (!cancelled) setIsQuoting(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteKey]);
+
+  // No guessed number ever reaches the pay button. Until the quote arrives
+  // there is nothing to pay, which is the safe direction to fail: showing an
+  // invented total and charging a different one is the bug this replaces.
+  const totalPrice: number | null = quote ? quote.total : null;
+  const isFreeBooking = quote?.total === 0;
 
   const handleBookingSubmit = async () => {
     if (selectedChildren.length === 0 || !selectedCourse) {
@@ -723,7 +768,7 @@ const Booking = () => {
         paymentStatus: isFreeBooking ? 'paid' : (paymentMethod === 'coupon' ? 'prepaid' : 'pending_payment'),
         paymentMethod: isFreeBooking ? 'free' : paymentMethod,
         couponTypeId: paymentMethod === 'coupon' ? selectedCoupon : null,
-        promoCode: promoCode || null,
+        promoCode: appliedPromoCode || null,
         status: isFreeBooking ? 'confirmed' : (paymentMethod === 'coupon' ? 'confirmed' : 'pending_payment'),
         notes,
         sponsorTag: getAttributedTag(),
@@ -802,15 +847,18 @@ const Booking = () => {
       const response = await apiClient.get(`/promotions/validate?code=${promoCode}&price=${price}`);
       if (response.data.success) {
         setPromoDiscount(response.data.discountAmount);
+        setAppliedPromoCode(promoCode.trim());
       } else {
         setPromoErrorModal(response.data.message || 'ไม่พบโค้ด หรือ โค้ดหมดอายุ');
         setPromoCode('');
         setPromoDiscount(0);
+        setAppliedPromoCode('');
       }
     } catch (err: any) {
       setPromoErrorModal(err.response?.data?.message || 'ไม่พบโค้ด หรือ โค้ดหมดอายุ');
       setPromoCode('');
       setPromoDiscount(0);
+      setAppliedPromoCode('');
     } finally {
       setIsApplyingPromo(false);
     }
@@ -1061,27 +1109,49 @@ const Booking = () => {
                            </div>
                          );
                        })}
-                     <div className="flex justify-between text-sm font-bold text-slate-600">
-                       <span>{lang === 'en' ? 'Price' : 'ราคา'}</span>
-                       <span>{selectedCourse?.original_price ? `${selectedCourse.original_price.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}</span>
-                     </div>
-                     <div className="flex justify-between text-sm font-bold text-slate-600">
-                       <span>{lang === 'en' ? 'Number of Children' : 'จำนวนเด็ก'}</span>
-                       <span>{selectedChildren.length} {lang === 'en' ? 'Person' : 'คน'}</span>
-                     </div>
-                     {selectedCourse?.active_campaign_discount_amount > 0 && (
-                       <div className="flex justify-between text-sm font-bold text-slate-600">
-                         <span>{selectedCourse.active_campaign_label || (lang === 'en' ? 'Special Discount' : 'ส่วนลดแคมเปญ')}</span>
-                         <span className="text-mellow-red">- {(selectedCourse.active_campaign_discount_amount * selectedChildren.length).toLocaleString()} ฿</span>
+                     {quote?.participants?.map((line: any, i: number) => {
+                       const who = selectedChildren[i];
+                       // Falling back to a seat number would print the seat
+                       // twice once the badge beside it says the same thing.
+                       const named = who?.nickname || who?.name;
+                       const name = named || (lang === 'en' ? `Person ${line.seat}` : `ผู้เข้าร่วมคนที่ ${line.seat}`);
+                       return (
+                         <div key={i}>
+                           <div className="flex justify-between text-sm font-bold text-slate-600 gap-3">
+                             <span className="min-w-0 break-words">
+                               {name}
+                               {named && quote.participants.length > 1 && (
+                                 <span className="text-slate-400 font-bold ml-1.5">
+                                   {lang === 'en' ? `#${line.seat}` : `คนที่ ${line.seat}`}
+                                 </span>
+                               )}
+                             </span>
+                             <span className="shrink-0">{line.base.toLocaleString()} ฿</span>
+                           </div>
+                           {line.adjustments.filter((a: any) => a.amount !== 0).map((a: any, j: number) => (
+                             <div key={j} className="flex justify-between text-[12px] font-bold text-slate-400 pl-3 gap-3">
+                               <span className="min-w-0 break-words">{a.label}</span>
+                               <span className={`shrink-0 ${a.amount < 0 ? 'text-mellow-green' : ''}`}>
+                                 {a.amount < 0 ? '- ' : ''}{Math.abs(a.amount).toLocaleString()} ฿
+                               </span>
+                             </div>
+                           ))}
+                         </div>
+                       );
+                     })}
+                     {quote?.extras?.map((extra: any, i: number) => (
+                       <div key={`x${i}`} className="flex justify-between text-sm font-bold text-slate-600 gap-3">
+                         <span className="min-w-0 break-words">{extra.label}</span>
+                         <span className="shrink-0">{extra.amount.toLocaleString()} ฿</span>
                        </div>
-                     )}
+                     ))}
                      <div className="flex justify-between text-sm font-bold text-slate-600 items-center">
                        <span>{lang === 'en' ? 'Discount Code' : 'โค้ดส่วนลด'}</span>
                        <div className="flex gap-2 w-1/2">
                          <input
                            type="text"
                            value={promoCode}
-                           onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                           onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setAppliedPromoCode(''); setPromoDiscount(0); }}
                            placeholder={lang === 'en' ? 'Enter Code' : 'กรอกโค้ดที่นี่'}
                            className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold uppercase w-full"
                          />
@@ -1094,15 +1164,30 @@ const Booking = () => {
                          </button>
                        </div>
                      </div>
-                     <div className="flex justify-between text-sm font-bold text-slate-600">
-                       <span>{lang === 'en' ? 'Promo Discount' : 'ส่วนลดโค้ด'}</span>
-                       <span className="text-mellow-green">{promoDiscount > 0 ? `- ${(promoDiscount * selectedChildren.length).toLocaleString()} ฿` : '- 0 ฿'}</span>
-                     </div>
                      <div className="h-px bg-slate-100 my-2" />
                      <div className="flex justify-between items-center text-base font-black text-slate-700">
                        <span>{lang === 'en' ? 'Total' : 'ยอดที่ต้องชำระ'}</span>
-                       <span className="text-2xl font-black text-mellow-purple">{totalPrice > 0 ? `${totalPrice.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}</span>
+                       {quoteFailed ? (
+                         <span className="text-sm font-black text-mellow-red text-right">
+                           {lang === 'en' ? 'Could not calculate' : 'คำนวณยอดไม่สำเร็จ'}
+                         </span>
+                       ) : totalPrice === null ? (
+                         <span className="text-sm font-bold text-slate-400">
+                           {lang === 'en' ? 'Calculating…' : 'กำลังคำนวณ…'}
+                         </span>
+                       ) : (
+                         <span className="text-2xl font-black text-mellow-purple">
+                           {totalPrice > 0 ? `${totalPrice.toLocaleString()} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}
+                         </span>
+                       )}
                      </div>
+                     {quoteFailed && (
+                       <p className="text-[12px] font-bold text-mellow-red text-right mt-1">
+                         {lang === 'en'
+                           ? 'Please try again — no booking has been made.'
+                           : 'กรุณาลองใหม่อีกครั้ง ยังไม่มีการจองเกิดขึ้น'}
+                       </p>
+                     )}
                    </div>
                  </>
                )}
@@ -1908,17 +1993,25 @@ const Booking = () => {
       {/* Fixed Bottom Action */}
       {!successBooking && currentStep === 'payment' && (
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 w-full max-w-sm md:max-w-md lg:max-w-lg px-5 animate-in slide-in-from-bottom-4 duration-300 z-40">
-          <button disabled={isSubmitting} onClick={handleBookingSubmit} className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[16px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all">
+          <button
+            disabled={isSubmitting || (paymentMethod !== 'coupon' && totalPrice === null)}
+            onClick={handleBookingSubmit}
+            className="w-full h-[60px] bg-mellow-purple text-white rounded-2xl text-[16px] font-black uppercase tracking-widest shadow-xl shadow-mellow-purple/30 flex items-center justify-center gap-2 disabled:opacity-70 active:scale-[0.98] transition-all"
+          >
              {isSubmitting ? (
                <>
                  <Loader2 size={20} className="animate-spin" />
                  {lang === 'en' ? 'Confirming…' : 'กำลังยืนยัน…'}
                </>
-             ) : isFreeBooking
-               ? confirmActionLabel
-               : (paymentMethod === 'coupon'
-                 ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
-                 : (lang === 'en' ? `Pay ${totalPrice.toLocaleString()} ฿` : `ชำระ ${totalPrice.toLocaleString()} บาท`))}
+             ) : paymentMethod === 'coupon'
+               ? (t.booking?.confirmStamp || 'ยืนยันการจองด้วยคูปอง')
+               : quoteFailed
+                 ? (lang === 'en' ? 'Could not calculate the total' : 'คำนวณยอดไม่สำเร็จ')
+                 : totalPrice === null
+                   ? (lang === 'en' ? 'Calculating…' : 'กำลังคำนวณยอด…')
+                   : isFreeBooking
+                     ? confirmActionLabel
+                     : (lang === 'en' ? `Pay ${totalPrice.toLocaleString()} ฿` : `ชำระ ${totalPrice.toLocaleString()} บาท`)}
           </button>
         </div>
       )}
