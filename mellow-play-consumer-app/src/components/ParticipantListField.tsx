@@ -7,6 +7,16 @@ export interface ParticipantOption {
   price?: number;
   /** What everyone after the first pays, when it differs from the first. */
   priceFrom2?: number;
+  /**
+   * A price to show struck through beside the real one. Display only — the
+   * server charges from `price`/`priceFrom2` and never reads this, so a
+   * number typed here can flatter an offer but cannot bill for it.
+   */
+  compareAtPrice?: number;
+  /** A short pill beside the label: ยอดนิยม, แนะนำ, ใหม่. */
+  badge?: string;
+  /** A key of BADGE_STYLES; anything else falls back to the first. */
+  badgeStyle?: string;
   /** Not available to the first person — the server enforces this too. */
   disabledOnFirst?: boolean;
   disabledOnFirstNote?: string;
@@ -85,6 +95,20 @@ export const priceAt = (option: ParticipantOption, index: number): number => {
 };
 
 const baht = (n: number) => n.toLocaleString('th-TH');
+
+/**
+ * What a pill can look like. A fixed set rather than a free colour field:
+ * these sit next to a price, and a badge nobody can read against its own
+ * background is worse than no badge at all.
+ */
+export const BADGE_STYLES: Record<string, string> = {
+  hot: 'bg-mellow-red text-white',
+  recommend: 'bg-mellow-purple text-white',
+  new: 'bg-mellow-green text-white',
+  save: 'bg-amber-400 text-amber-950',
+  plain: 'bg-slate-200 text-slate-700',
+};
+const badgeClass = (style?: string) => BADGE_STYLES[style || 'hot'] || BADGE_STYLES.hot;
 
 /**
  * A list of people, added one at a time, each choosing how they take part.
@@ -190,9 +214,15 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
                 const blocked = first && !!option.disabledOnFirst;
                 const amount = priceAt(option, index);
                 const selected = person.choice === option.key;
+                // Two different things that both read as "you are saving".
+                // The second-person rate is a fact about this list; the
+                // struck-through price is a claim the organiser typed. Both
+                // are shown against the one price actually charged.
                 const saving = index > 0 && option.priceFrom2 !== undefined && Number(option.price) > amount
                   ? Number(option.price) - amount
                   : 0;
+                const was = Number(option.compareAtPrice) || 0;
+                const off = was > amount ? was - amount : 0;
 
                 return (
                   <div key={option.key}>
@@ -215,12 +245,35 @@ const ParticipantListField: React.FC<Props> = ({ config, value, onChange, lang }
                           }`}>
                             {selected && <Check size={12} className="text-white" strokeWidth={3} />}
                           </span>
-                          <span className="text-sm font-bold text-slate-700 min-w-0 break-words">{option.label}</span>
+                          <span className="text-sm font-bold text-slate-700 min-w-0 break-words">
+                            {option.label}
+                            {option.badge && (
+                              <span className={`inline-block align-middle ml-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide ${badgeClass(option.badgeStyle)}`}>
+                                {option.badge}
+                              </span>
+                            )}
+                          </span>
                         </div>
-                        <span className="text-sm font-black text-slate-800 shrink-0">
-                          {amount > 0 ? `${baht(amount)} ฿` : (lang === 'en' ? 'Free' : 'ฟรี')}
+                        {/* The number is why someone is reading this row, so
+                            it is the biggest thing in it. */}
+                        <span className="shrink-0 text-right leading-none">
+                          {off > 0 && (
+                            <span className="block text-[11px] font-bold text-slate-400 line-through mb-0.5">
+                              {baht(was)} ฿
+                            </span>
+                          )}
+                          <span className="text-xl font-black text-slate-900">
+                            {amount > 0 ? baht(amount) : (lang === 'en' ? 'Free' : 'ฟรี')}
+                          </span>
+                          {amount > 0 && <span className="text-sm font-black text-slate-500 ml-0.5">฿</span>}
                         </span>
                       </div>
+
+                      {off > 0 && (
+                        <p className="text-[11px] font-black text-mellow-red pl-7 mt-1">
+                          {lang === 'en' ? `Save ${baht(off)} ฿` : `ประหยัด ${baht(off)} ฿`}
+                        </p>
+                      )}
 
                       {saving > 0 && (
                         <p className="text-[11px] font-bold text-mellow-green pl-7 mt-1">

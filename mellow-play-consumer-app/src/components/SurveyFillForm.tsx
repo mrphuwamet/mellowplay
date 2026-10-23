@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ParticipantListField, { ParticipantAnswer, personFieldsOf } from './ParticipantListField';
 import { scrollToTop } from '../utils/scrollToTop';
-import { RespondentIdentity, identityIsComplete } from '../utils/respondentName';
+import { RespondentIdentity, identityIsComplete, fullNameOf } from '../utils/respondentName';
 
 interface SurveyField {
   id: number;
@@ -269,7 +269,11 @@ const SurveyFillForm: React.FC<Props> = ({
 
           const options: { label: string; color?: string; allowText?: boolean }[] = field.options_json ? JSON.parse(field.options_json) : [];
           const value = answers[field.field_key];
-          const isInvalid = field.field_key === invalidFieldKey;
+          // Derived, not remembered. Marking a field on submit and clearing
+          // the mark only on the NEXT submit left the ring and the message
+          // sitting there after the person had already fixed it — the form
+          // still shouting about a name that was now filled in.
+          const isInvalid = field.field_key === invalidFieldKey && needsAnswer(field);
           const wrapClass = isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : '';
           // Bigger and darker than the answers below it. Widening the
           // options to one per line left them larger than the question they
@@ -330,12 +334,17 @@ const SurveyFillForm: React.FC<Props> = ({
                       className={inputClass} />
                     {/* The red ring alone doesn't say WHICH box is the problem —
                         a first name with no last name looks filled-in to the
-                        person who typed it. */}
+                        person who typed it. And it has to name the box that is
+                        actually empty: pointing at the name while the phone is
+                        what's missing sends people to re-read a field that was
+                        already right. */}
                     {isInvalid && (
                       <p className="text-xs font-bold text-mellow-red">
-                        {lang === 'en'
-                          ? 'Please fill in both first and last name'
-                          : 'กรุณากรอกทั้งชื่อและนามสกุลให้ครบทั้งสองช่อง'}
+                        {!fullNameOf(identity)
+                          ? (lang === 'en'
+                            ? 'Please fill in both first and last name'
+                            : 'กรุณากรอกทั้งชื่อและนามสกุลให้ครบทั้งสองช่อง')
+                          : (lang === 'en' ? 'Please fill in a phone number' : 'กรุณากรอกเบอร์โทร')}
                       </p>
                     )}
                   </div>

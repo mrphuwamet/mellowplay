@@ -11,6 +11,10 @@ export interface ParticipantOption {
   label: string;
   price?: number;
   priceFrom2?: number;
+  /** Shown struck through. Display only — never charged. */
+  compareAtPrice?: number;
+  badge?: string;
+  badgeStyle?: string;
   disabledOnFirst?: boolean;
   disabledOnFirstNote?: string;
   detail?: ParticipantDetail[];
@@ -37,6 +41,24 @@ export interface ParticipantConfig {
   options?: ParticipantOption[];
   personFields?: PersonField[];
 }
+
+// Mirrors BADGE_STYLES in the consumer's ParticipantListField. A closed set
+// rather than a colour picker, so a badge can never be typed into something
+// unreadable against its own background.
+const BADGE_STYLES: { value: string; label: string }[] = [
+  { value: 'hot', label: 'แดง (ฮอต)' },
+  { value: 'recommend', label: 'ม่วง (แนะนำ)' },
+  { value: 'new', label: 'เขียว (ใหม่)' },
+  { value: 'save', label: 'เหลือง (คุ้ม)' },
+  { value: 'plain', label: 'เทา' },
+];
+const BADGE_PREVIEW: Record<string, { bgcolor: string; color: string }> = {
+  hot: { bgcolor: '#ef4f55', color: '#fff' },
+  recommend: { bgcolor: '#7452d6', color: '#fff' },
+  new: { bgcolor: '#21a45b', color: '#fff' },
+  save: { bgcolor: '#fbbf24', color: '#451a03' },
+  plain: { bgcolor: '#e2e8f0', color: '#334155' },
+};
 
 const PERSON_FIELD_TYPES: { value: NonNullable<PersonField['type']>; label: string }[] = [
   { value: 'text', label: 'ข้อความ' },
@@ -220,6 +242,49 @@ const ParticipantPricingEditor: React.FC<Props> = ({ config, onChange }) => {
                 sx={{ maxWidth: 220 }}
               />
             </Stack>
+
+            <Stack direction="row" spacing={1.5} sx={{ mt: 1.5 }} alignItems="flex-start">
+              <TextField
+                size="small" type="number" label="ราคาเต็ม (ขีดฆ่า)" value={option.compareAtPrice ?? ''}
+                onChange={e => patchOption(i, { compareAtPrice: num(e.target.value) })}
+                placeholder="ไม่แสดง"
+                InputProps={{ endAdornment: <InputAdornment position="end">฿</InputAdornment> }}
+                helperText="แสดงอย่างเดียว ไม่ถูกเรียกเก็บ"
+                sx={{ maxWidth: 200 }}
+              />
+              <TextField
+                size="small" label="ป้ายกำกับ" value={option.badge ?? ''}
+                onChange={e => patchOption(i, { badge: e.target.value })}
+                placeholder="เช่น ยอดนิยม"
+                sx={{ maxWidth: 170 }}
+              />
+              <TextField
+                size="small" select label="สีป้าย" value={option.badgeStyle || 'hot'}
+                onChange={e => patchOption(i, { badgeStyle: e.target.value })}
+                disabled={!String(option.badge || '').trim()}
+                sx={{ minWidth: 140 }}
+              >
+                {BADGE_STYLES.map(b => <MenuItem key={b.value} value={b.value}>{b.label}</MenuItem>)}
+              </TextField>
+            </Stack>
+            {/* Typed here, seen here. A badge is a claim on a price and the
+                person writing it should see how loud it reads. */}
+            {!!String(option.badge || '').trim() && (
+              <Box sx={{ mt: 1 }}>
+                <Box component="span" sx={{
+                  px: .75, py: .25, borderRadius: 1, fontSize: 10, fontWeight: 900,
+                  letterSpacing: .5, textTransform: 'uppercase',
+                  ...(BADGE_PREVIEW[option.badgeStyle || 'hot'] || BADGE_PREVIEW.hot),
+                }}>
+                  {option.badge}
+                </Box>
+              </Box>
+            )}
+            {Number(option.compareAtPrice) > 0 && Number(option.compareAtPrice) <= (Number(option.price) || 0) && (
+              <Alert severity="warning" sx={{ mt: 1, borderRadius: 2 }}>
+                ราคาเต็มต้องมากกว่าราคาจริง ไม่งั้นจะไม่แสดงอะไรเลย
+              </Alert>
+            )}
 
             <FormControlLabel
               sx={{ mt: 0.5 }}
