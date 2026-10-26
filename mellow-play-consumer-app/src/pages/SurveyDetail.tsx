@@ -34,6 +34,7 @@ const SurveyDetail = () => {
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ totalScore: number | null; maxScore: number | null; band: { resultText: string; resultTextHtml?: string; imageUrl?: string } | null } | null>(null);
   const [payment, setPayment] = useState<{ submissionId: number; info: SurveyPaymentInfo } | null>(null);
+  const [resumedPayment, setResumedPayment] = useState(false);
 
   const collectsPayment = !!form?.collects_payment;
   // A trial run owes nothing — the server refuses to charge one — so no
@@ -47,6 +48,28 @@ const SurveyDetail = () => {
       .then(res => setForm(res.data.success ? res.data.form : null))
       .catch(() => setForm(null));
   }, [idOrSlug]);
+
+  // The slip-upload token lived in React state alone, so a refresh — or
+  // leaving to open a banking app on a browser that reloads the tab — lost
+  // the only key to that submission. The person stayed registered and could
+  // never attach anything, while the page told them to come back and do
+  // exactly that. It is kept per form, and dropped the moment the slip lands.
+  const resumeKey = idOrSlug ? `mellow_survey_pay_${idOrSlug}` : '';
+  const forgetPayment = () => { try { localStorage.removeItem(resumeKey); } catch { /* private mode */ } };
+
+  useEffect(() => {
+    if (!resumeKey || isTest || payment) return;
+    try {
+      const saved = localStorage.getItem(resumeKey);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (!parsed?.submissionId || !parsed?.info?.token) return;
+      setPayment({ submissionId: parsed.submissionId, info: parsed.info });
+      setResumedPayment(true);
+    } catch {
+      forgetPayment();
+    }
+  }, [resumeKey, isTest]);
 
   const handleSubmit = async () => {
     if (submitting || !idOrSlug) return;
@@ -65,7 +88,11 @@ const SurveyDetail = () => {
         // A form that charges hands back what is owed and a token to attach
         // the slip with. Absent on every ordinary survey, which then behaves
         // exactly as it always has.
-        if (res.data.payment) setPayment({ submissionId: res.data.submissionId, info: res.data.payment });
+        if (res.data.payment) {
+          const owed = { submissionId: res.data.submissionId, info: res.data.payment };
+          setPayment(owed);
+          try { localStorage.setItem(resumeKey, JSON.stringify(owed)); } catch { /* private mode: the tab still works */ }
+        }
       } else {
         setError(res.data.message || (lang === 'en' ? 'Failed to submit.' : 'ส่งคำตอบไม่สำเร็จ'));
       }
@@ -121,7 +148,14 @@ const SurveyDetail = () => {
         {form && (
           <div className="mellow-card bg-white">
             {payment ? (
-              <SurveyPaymentStep submissionId={payment.submissionId} payment={payment.info} lang={lang} />
+              <SurveyPaymentStep
+                submissionId={payment.submissionId}
+                payment={payment.info}
+                lang={lang}
+                resumed={resumedPayment}
+                onAttached={forgetPayment}
+                onTokenDead={() => { forgetPayment(); setPayment(null); setResumedPayment(false); }}
+              />
             ) : result ? (
               <div className="text-center py-6">
                 <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3" />

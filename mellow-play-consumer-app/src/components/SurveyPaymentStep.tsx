@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { CheckCircle2, Copy, Check, Loader2, Upload, Receipt } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Copy, Check, Loader2, Upload, Receipt, AlertTriangle } from 'lucide-react';
 import apiClient, { API_HOST } from '../utils/apiClient';
 
 export interface SurveyPaymentInfo {
@@ -25,6 +25,15 @@ interface Props {
   submissionId: number;
   payment: SurveyPaymentInfo;
   lang: 'th' | 'en';
+  /** The slip is in. The page that owns the flow can stop holding the token. */
+  onAttached?: () => void;
+  /**
+   * The token no longer opens this submission — already verified, or the row
+   * is gone. Nothing more can be attached to it, so the saved one is useless.
+   */
+  onTokenDead?: () => void;
+  /** This page was reopened to finish a registration made earlier. */
+  resumed?: boolean;
 }
 
 const baht = (n: number) => n.toLocaleString('th-TH');
@@ -67,13 +76,23 @@ const CopyRow: React.FC<{ label: string; value: string }> = ({ label, value }) =
   );
 };
 
-const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => {
+const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang, onAttached, onTokenDead, resumed }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState<{ emailed: boolean } | null>(null);
+
+  // Leaving here without a slip is the one way to end up registered and
+  // unpaid with nobody knowing why. The browser's own wording is generic,
+  // but the prompt is the point: it makes closing the tab deliberate.
+  useEffect(() => {
+    if (done) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [done]);
 
   const pick = (f: File | null) => {
     setError('');
@@ -82,7 +101,14 @@ const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => 
   };
 
   const upload = async () => {
-    if (!file || uploading) return;
+    if (uploading) return;
+    // Said out loud rather than left as a dead button. A control that does
+    // nothing when pressed reads as a broken page, not as a rule.
+    if (!file) {
+      setError(lang === 'en' ? 'Attach your transfer slip first.' : 'กรุณาแนบสลิปโอนเงินก่อนกดส่ง');
+      fileRef.current?.click();
+      return;
+    }
     setUploading(true);
     setError('');
     try {
@@ -95,9 +121,16 @@ const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => 
       const res = await apiClient.post(`/survey-submissions/${submissionId}/slip`, body, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      if (res.data?.success) setDone({ emailed: !!res.data.emailed });
-      else setError(res.data?.message || (lang === 'en' ? 'Upload failed.' : 'แนบสลิปไม่สำเร็จ'));
+      if (res.data?.success) {
+        setDone({ emailed: !!res.data.emailed });
+        onAttached?.();
+      } else setError(res.data?.message || (lang === 'en' ? 'Upload failed.' : 'แนบสลิปไม่สำเร็จ'));
     } catch (err: any) {
+      // 403 wrong/expired token, 404 no such submission, 409 already
+      // verified — in all three nothing further can be attached here, so a
+      // retry button would only fail again.
+      const status = err.response?.status;
+      if (status === 403 || status === 404 || status === 409) onTokenDead?.();
       setError(err.response?.data?.message || (lang === 'en' ? 'Upload failed.' : 'แนบสลิปไม่สำเร็จ'));
     } finally {
       setUploading(false);
@@ -129,13 +162,27 @@ const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => 
 
   return (
     <div className="py-2">
-      <div className="text-center mb-5">
+      <div className="text-center mb-4">
         <Receipt size={34} className="text-mellow-purple mx-auto mb-2" />
         <p className="font-black text-slate-800">
-          {lang === 'en' ? 'Answers received — one step left' : 'รับคำตอบแล้ว เหลืออีกขั้นเดียว'}
+          {resumed
+            ? (lang === 'en' ? 'You still owe a slip' : 'ยังค้างการแนบสลิป')
+            : (lang === 'en' ? 'Answers received — one step left' : 'รับคำตอบแล้ว เหลืออีกขั้นเดียว')}
         </p>
         <p className="text-xs font-bold text-slate-400 mt-0.5">
           {lang === 'en' ? 'Transfer and attach the slip' : 'โอนเงินแล้วแนบสลิป'}
+        </p>
+      </div>
+
+      {/* Said before the bill, not after it. Somebody who reads only the
+          amount and leaves to make the transfer should already know that
+          coming back is part of the task. */}
+      <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 mb-4 flex gap-2.5">
+        <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+        <p className="text-xs font-bold text-amber-900 leading-relaxed">
+          {lang === 'en'
+            ? 'The registration is not complete until the slip is attached. Your answers are saved — transfer, come back to this page and attach it.'
+            : 'การลงทะเบียนจะยังไม่สมบูรณ์จนกว่าจะแนบสลิป คำตอบถูกบันทึกไว้แล้ว โอนเงินแล้วกลับมาแนบที่หน้านี้ได้เลย'}
         </p>
       </div>
 
@@ -230,21 +277,21 @@ const SurveyPaymentStep: React.FC<Props> = ({ submissionId, payment, lang }) => 
 
       <button
         type="button"
-        disabled={!file || uploading}
+        disabled={uploading}
         onClick={upload}
-        className="w-full h-[52px] bg-mellow-purple text-white rounded-2xl font-black text-[15px] flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.98] transition-all"
+        className={`w-full h-[52px] rounded-2xl font-black text-[15px] flex items-center justify-center gap-2 active:scale-[0.98] transition-all ${
+          file ? 'bg-mellow-purple text-white' : 'bg-slate-200 text-slate-500'
+        } disabled:opacity-40`}
       >
         {uploading
           ? <><Loader2 size={18} className="animate-spin" />{lang === 'en' ? 'Sending…' : 'กำลังส่ง…'}</>
           : (lang === 'en' ? 'Send slip' : 'ส่งสลิป')}
       </button>
 
-      {/* Their answers are already saved. Said here so nobody re-fills the
-          whole form because they had to go and make the transfer first. */}
       <p className="text-[11px] font-bold text-slate-400 text-center leading-relaxed mt-3">
         {lang === 'en'
-          ? `Your answers are saved as #${submissionId}. You can transfer first and come back to this page to attach the slip.`
-          : `คำตอบของคุณถูกบันทึกไว้แล้ว (เลขที่ #${submissionId}) โอนเงินก่อนแล้วกลับมาแนบสลิปที่หน้านี้ได้`}
+          ? `Reference #${submissionId}. This page reopens where you left it until the slip is in.`
+          : `เลขที่รายการ #${submissionId} · หน้านี้จะเปิดค้างไว้ให้จนกว่าจะแนบสลิปเสร็จ`}
       </p>
     </div>
   );
