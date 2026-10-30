@@ -6,7 +6,8 @@
   "description": "Watches local New/ folders and uploads their photos into Mellow Play event albums automatically.",
   "scripts": {
     "start": "node src/index.js",
-    "login-check": "node src/index.js --check-login"
+    "login-check": "node src/index.js --check-login",
+    "lumabooth": "node src/lumaboothRelay.js"
   },
   "dependencies": {
     "chokidar": "^3.6.0",

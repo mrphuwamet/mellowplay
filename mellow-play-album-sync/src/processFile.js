@@ -8,8 +8,7 @@ import { makeRenditions } from './imagePipeline.js';
 import { alreadyUploaded, recordUpload } from './state.js';
 import { log } from './log.js';
 import { config } from './config.js';
-
-const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.heic', '.heif']);
+import { IMAGE_EXT } from './imageExt.js';
 
 /** A file already being handled is skipped on a second event for the same
  *  path — chokidar can fire more than once for one write under some

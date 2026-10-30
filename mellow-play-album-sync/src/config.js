@@ -33,4 +33,12 @@ export const config = {
   root: path.resolve(process.cwd(), process.env.ALBUM_SYNC_ROOT || './photos'),
   usePolling: String(process.env.WATCH_USE_POLLING || '').toLowerCase() === 'true',
   retryDelaysMs,
+
+  // Optional — only the LumaBooth relay (src/lumabooth-relay.js) needs
+  // these, and it checks them itself at startup. Left optional here so
+  // someone who never touches a photo booth isn't told to configure one.
+  lumaboothExportRoot: process.env.LUMABOOTH_EXPORT_ROOT
+    ? path.resolve(process.cwd(), process.env.LUMABOOTH_EXPORT_ROOT) : null,
+  lumaboothTargetAlbum: process.env.LUMABOOTH_TARGET_ALBUM
+    ? String(process.env.LUMABOOTH_TARGET_ALBUM).trim() : null,
 };
