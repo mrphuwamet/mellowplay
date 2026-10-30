@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Check, CheckSquare, ChevronLeft, Download, Loader2, ScanFace, X, Images, ArrowUpDown } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import SkeletonImage from '../components/SkeletonImage';
-import { downloadBlobUrl, saveMany, saveViaShare } from '../utils/mediaSave';
+import { saveMany, savePhoto as saveOnePhoto } from '../utils/mediaSave';
 import { useTranslation } from '../LanguageContext';
 import { formatCustomDate } from '../utils/dateFormat';
 
@@ -120,26 +120,41 @@ const EventAlbumDetail: React.FC = () => {
     longPress.current = null;
   };
 
+  // A silent background download looks exactly like nothing happened,
+  // which is the whole reason this screen needed fixing — so every save,
+  // single or bulk, ends in one of these, shown on screen rather than only
+  // inferred from a browser download bar nobody was looking at.
+  const [saveToast, setSaveToast] = useState<{ ok: boolean; message: string } | null>(null);
+  const showSaveToast = (ok: boolean, message: string) => {
+    setSaveToast({ ok, message });
+    setTimeout(() => setSaveToast(t => (t?.message === message ? null : t)), 3200);
+  };
+
   const saveSelected = async () => {
     const urls = shown.filter(p => selectedIds.has(p.id)).map(p => p.image_url);
     if (urls.length === 0) return;
     setSaveProgress({ done: 0, total: urls.length });
     try {
-      await saveMany(urls, (done, total) => setSaveProgress({ done, total }));
+      const savedCount = await saveMany(urls, (done, total) => setSaveProgress({ done, total }));
+      showSaveToast(
+        savedCount === urls.length,
+        savedCount === urls.length
+          ? t(`บันทึกแล้ว ${savedCount} รูป`, `Saved ${savedCount} photos`)
+          : t(`บันทึกได้ ${savedCount}/${urls.length} รูป — ลองใหม่อีกครั้ง`, `Saved ${savedCount}/${urls.length} — try again`),
+      );
     } finally {
       setSaveProgress(null);
       exitSelectMode();
     }
   };
 
-  /**
-   * One photo, to the device. iOS has no download UX — the share sheet's
-   * "Save Image" IS saving there, so that path goes first; desktop falls
-   * back to the cross-origin-safe blob download.
-   */
+  /** One photo, to the device — see utils/mediaSave for which platform gets
+   *  the share sheet and which gets a direct download, and why. */
   const savePhoto = async (p: Photo) => {
-    if (await saveViaShare([p.image_url])) return;
-    await downloadBlobUrl(p.image_url, `photo-${p.id}.jpg`);
+    const ok = await saveOnePhoto(p.image_url, `photo-${p.id}.jpg`);
+    showSaveToast(ok,
+      ok ? t('บันทึกรูปแล้ว', 'Photo saved')
+         : t('บันทึกไม่สำเร็จ ลองกดค้างที่รูปแล้วเลือก "บันทึกรูปภาพ" แทน', 'Save failed — try pressing and holding the photo and choosing "Save Image" instead'));
   };
 
   // face search state
@@ -274,6 +289,16 @@ const EventAlbumDetail: React.FC = () => {
 
   return (
     <div className="pb-24 min-h-screen bg-[#fbfaf7]">
+      {/* z-[60]: above the lightbox (z-50) too — saving from inside it is
+          the single-photo path, and that is exactly where this needs to be
+          seen. */}
+      {saveToast && (
+        <div className="fixed top-4 inset-x-4 z-[60] flex justify-center pointer-events-none">
+          <div className={`px-4 py-2.5 rounded-2xl shadow-lg text-xs font-bold text-white max-w-[320px] text-center ${saveToast.ok ? 'bg-slate-900/90' : 'bg-mellow-red/95'}`}>
+            {saveToast.message}
+          </div>
+        </div>
+      )}
       <header className="h-[64px] px-5 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-black/5 flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center active:scale-90 transition-transform shrink-0">
           <ChevronLeft size={24} className="mr-0.5" />
