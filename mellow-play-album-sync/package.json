@@ -1,0 +1,19 @@
+{
+  "name": "mellow-play-album-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Watches local New/ folders and uploads their photos into Mellow Play event albums automatically.",
+  "scripts": {
+    "start": "node src/index.js",
+    "login-check": "node src/index.js --check-login"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "sharp": "^0.35.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

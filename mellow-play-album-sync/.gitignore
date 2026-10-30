@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.log
+.mellow-sync-state.json
+photos/
