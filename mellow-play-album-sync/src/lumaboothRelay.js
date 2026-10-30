@@ -23,11 +23,16 @@ import { log } from './log.js';
  * touches nothing about how the booth itself runs. Point it at the folder
  * named below (see README) and this relay does the rest.
  *
- * LumaBooth's real-time export has nested its output under an event-name
- * (and sometimes an Originals/) subfolder in every version documented, and
- * that nesting has changed shape across versions — so this watches
- * recursively rather than assuming any particular depth, and reacts to a
- * photo appearing ANYWHERE under the configured export root.
+ * LumaBooth's real-time export nests its output as
+ * <export root>/<session name>/Originals/<file> and
+ * <export root>/<session name>/Prints/<file> side by side — confirmed
+ * directly against a real export folder — and that nesting has changed
+ * shape across versions in its own release notes, so this watches
+ * recursively rather than assuming any particular depth. Prints is the
+ * same shot composited onto the event's print layout (frame, branding),
+ * not a second photo, so only the Originals/ (configurably,
+ * LUMABOOTH_SUBFOLDER) branch is relayed — see isInWantedSubfolder below.
+ * Relaying both would put every shot in the album twice.
  *
  * One LumaBooth event -> one album: LumaBooth has no idea what a "Mellow
  * Play album" is, so this relay is told, once, which album every photo it
@@ -52,9 +57,20 @@ fs.mkdirSync(config.lumaboothExportRoot, { recursive: true });
 console.log('');
 console.log('  Mellow Play — รับรูปจาก LumaBooth');
 console.log(`  เฝ้าดู: ${config.lumaboothExportRoot}`);
+console.log(`  รับเฉพาะโฟลเดอร์ย่อยชื่อ "${config.lumaboothSubfolder}" (ข้ามโฟลเดอร์อื่น เช่น Prints)`);
 console.log(`  ส่งต่อไปที่: ${newDir}`);
 console.log('  (ไฟล์ที่นี่จะถูกอัปโหลดจริงโดย npm start ของเครื่องมือหลัก — ต้องรันคู่กันทั้งสองตัว)');
 console.log('');
+
+/** Only a file somewhere under a path segment matching LUMABOOTH_SUBFOLDER
+ *  (default "Originals") counts — everything else the recursive watch
+ *  reaches (Prints, GIFs, Videos, a stray file at the session's top level)
+ *  is walked past, not relayed. */
+function isInWantedSubfolder(filePath) {
+  const rel = path.relative(config.lumaboothExportRoot, filePath);
+  const segments = rel.split(path.sep);
+  return segments.some((s) => s.toLowerCase() === config.lumaboothSubfolder.toLowerCase());
+}
 
 /** `base.jpg` → `New/base.jpg`, or `New/base-<ts>.jpg` on a name collision —
  *  LumaBooth's own filenames repeat across events (IMG_0001.jpg, session
@@ -87,6 +103,7 @@ const watcher = chokidar.watch(config.lumaboothExportRoot, {
 watcher
   .on('add', (filePath) => {
     if (!IMAGE_EXT.has(path.extname(filePath).toLowerCase())) return;
+    if (!isInWantedSubfolder(filePath)) return;
     relayOne(filePath);
   })
   .on('error', (err) => log.error(`ตัวเฝ้าดูโฟลเดอร์ LumaBooth มีปัญหา: ${err.message}`))

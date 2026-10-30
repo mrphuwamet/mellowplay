@@ -41,4 +41,13 @@ export const config = {
     ? path.resolve(process.cwd(), process.env.LUMABOOTH_EXPORT_ROOT) : null,
   lumaboothTargetAlbum: process.env.LUMABOOTH_TARGET_ALBUM
     ? String(process.env.LUMABOOTH_TARGET_ALBUM).trim() : null,
+  // LumaBooth's real-time export creates an Originals/ AND a Prints/
+  // subfolder side by side under each session, regardless of which media
+  // type was ticked — Prints is the same shot composited onto the event's
+  // print layout (frame, branding), not a second, different photo. Relaying
+  // both would put every shot in the album twice. Only the folder matching
+  // this name (case-insensitive) is relayed; the rest of the tree is walked
+  // but not acted on. Configurable in case someone genuinely wants the
+  // printed version in the album instead.
+  lumaboothSubfolder: (process.env.LUMABOOTH_SUBFOLDER || 'Originals').trim(),
 };
