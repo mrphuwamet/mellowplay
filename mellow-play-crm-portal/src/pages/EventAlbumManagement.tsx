@@ -9,7 +9,7 @@ import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Sync as SyncIcon,
   CloudUpload as UploadIcon, Collections as AlbumIcon, Star as CoverIcon,
   Public as PublishIcon, PublicOff as UnpublishIcon, Face as FaceIcon,
-  Link as LinkIcon,
+  Link as LinkIcon, SelectAll as SelectAllIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_URL, CONSUMER_APP_URL } from '../config';
@@ -227,6 +227,19 @@ const EventAlbumManagement: React.FC = () => {
   // rather than a second round trip.
   const [photoSort, setPhotoSort] = useState<'newest' | 'oldest'>('newest');
   const sortedPhotos = photoSort === 'newest' ? [...photos].reverse() : photos;
+  // Multi-select delete: off by default so clicking a tile keeps doing
+  // whatever it already did (nothing — the per-tile star/delete icons are
+  // the only actions). Turning it on is what repurposes a tile-click into
+  // toggling a checkbox instead.
+  const [photoSelectMode, setPhotoSelectMode] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const exitPhotoSelectMode = () => { setPhotoSelectMode(false); setSelectedPhotoIds(new Set()); };
+  const togglePhotoSelected = (id: number) => setSelectedPhotoIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const [sync, setSync] = useState<SyncProgress | null>(null);
   const [indexFaces, setIndexFaces] = useState(true);
   const [reindexing, setReindexing] = useState(false);
@@ -346,6 +359,7 @@ const EventAlbumManagement: React.FC = () => {
     setOpenAlbum(a);
     setSync(null);
     setPhotos([]);
+    exitPhotoSelectMode(); // a selection from the last album opened must not carry into this one
     loadPhotos(a.id);
   };
 
@@ -603,7 +617,56 @@ const EventAlbumManagement: React.FC = () => {
     try {
       await axios.delete(`${API_BASE}/event-albums/photos/${p.id}`);
       setPhotos(prev => prev.filter(x => x.id !== p.id));
+      fetchAll(); // the album card's photo count is now stale otherwise
     } catch (e: any) { setError(e?.response?.data?.message || 'ลบรูปไม่สำเร็จ'); }
+  };
+
+  /**
+   * One DELETE per photo — there is no bulk-delete endpoint, and adding one
+   * for what is an occasional admin cleanup isn't worth the extra surface.
+   * A small concurrency pool rather than one at a time (slow for a hundred
+   * photos) or all at once ("เลือกทั้งหมด" on a few hundred would otherwise
+   * open a few hundred connections simultaneously).
+   *
+   * A photo whose delete fails stays in the grid and stays selected, so
+   * trying again only retries the ones that didn't go through rather than
+   * the whole batch — and the error names a real count instead of just
+   * "ลบไม่สำเร็จ" for something that mostly worked.
+   */
+  const deleteSelectedPhotos = async () => {
+    const ids = [...selectedPhotoIds];
+    if (ids.length === 0) return;
+    if (!window.confirm(`ลบ ${ids.length} รูปที่เลือกออกจากอัลบั้ม? กู้คืนไม่ได้`)) return;
+    setBulkDeleting(true);
+    setError('');
+    const failed = new Set<number>();
+    const CONCURRENCY = 5;
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const id = ids[next++];
+        // Checked explicitly rather than trusting axios to throw: every
+        // handler on this endpoint today pairs success:false with a 404/500,
+        // but that is an implicit contract this loop should not assume holds
+        // forever — a 200 carrying success:false must still count as failed.
+        try {
+          const res = await axios.delete(`${API_BASE}/event-albums/photos/${id}`);
+          if (!res.data?.success) failed.add(id);
+        } catch { failed.add(id); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
+
+    const removed = new Set(ids.filter(id => !failed.has(id)));
+    setPhotos(prev => prev.filter(p => !removed.has(p.id)));
+    if (failed.size > 0) {
+      setSelectedPhotoIds(failed);
+      setError(`ลบไม่สำเร็จ ${failed.size} รูป (รูปอื่นที่เลือกลบแล้ว) — ลองกดลบอีกครั้งสำหรับที่เหลือ`);
+    } else {
+      exitPhotoSelectMode();
+    }
+    setBulkDeleting(false);
+    fetchAll();
   };
 
   const setCover = async (p: Photo) => {
@@ -1007,7 +1070,34 @@ const EventAlbumManagement: React.FC = () => {
                 </Typography>
               ) : (
                 <>
-                <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    {photoSelectMode ? (
+                      <>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          เลือกแล้ว {selectedPhotoIds.size} รูป
+                        </Typography>
+                        <Button size="small" onClick={() => setSelectedPhotoIds(new Set(sortedPhotos.map(p => p.id)))} sx={{ fontWeight: 700 }}>
+                          เลือกทั้งหมด ({sortedPhotos.length})
+                        </Button>
+                        <Button
+                          size="small" color="error" variant="contained" startIcon={<DeleteIcon />}
+                          disabled={selectedPhotoIds.size === 0 || bulkDeleting}
+                          onClick={() => void deleteSelectedPhotos()}
+                          sx={{ fontWeight: 700 }}
+                        >
+                          {bulkDeleting ? 'กำลังลบ...' : `ลบที่เลือก (${selectedPhotoIds.size})`}
+                        </Button>
+                        <Button size="small" onClick={exitPhotoSelectMode} disabled={bulkDeleting} sx={{ fontWeight: 700 }}>
+                          ยกเลิก
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="small" startIcon={<SelectAllIcon />} onClick={() => setPhotoSelectMode(true)} sx={{ fontWeight: 700 }}>
+                        เลือกหลายรูป
+                      </Button>
+                    )}
+                  </Stack>
                   <ToggleButtonGroup
                     size="small" exclusive value={photoSort}
                     onChange={(_, v) => v && setPhotoSort(v)}
@@ -1017,30 +1107,50 @@ const EventAlbumManagement: React.FC = () => {
                   </ToggleButtonGroup>
                 </Stack>
                 <Grid container spacing={1}>
-                  {sortedPhotos.map(p => (
+                  {sortedPhotos.map(p => {
+                    const selected = selectedPhotoIds.has(p.id);
+                    return (
                     <Grid item xs={4} sm={3} md={2} key={p.id}>
-                      <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', aspectRatio: '1', bgcolor: 'grey.100',
-                        '&:hover .photo-actions': { opacity: 1 } }}>
+                      <Box
+                        onClick={photoSelectMode ? () => togglePhotoSelected(p.id) : undefined}
+                        sx={{
+                          position: 'relative', borderRadius: 2, overflow: 'hidden', aspectRatio: '1', bgcolor: 'grey.100',
+                          cursor: photoSelectMode ? 'pointer' : 'default',
+                          outline: selected ? '3px solid' : 'none', outlineColor: 'primary.main', outlineOffset: '-3px',
+                          '&:hover .photo-actions': { opacity: 1 },
+                        }}
+                      >
                         <img src={p.thumb_url || p.image_url} alt="" loading="lazy"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: photoSelectMode && selected ? 0.6 : 1 }} />
                         {p.face_count > 0 && (
                           <Chip size="small" icon={<FaceIcon />} label={p.face_count}
                             sx={{ position: 'absolute', bottom: 4, left: 4, height: 20, fontWeight: 700, bgcolor: 'rgba(255,255,255,0.85)' }} />
                         )}
-                        <Stack direction="row" className="photo-actions" spacing={0.5}
-                          sx={{ position: 'absolute', top: 4, right: 4, opacity: 0, transition: 'opacity .15s' }}>
-                          <Tooltip title="ตั้งเป็นรูปปก">
-                            <IconButton size="small" onClick={() => setCover(p)} sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}>
-                              <CoverIcon fontSize="small" color={(openAlbum.cover_photo_url === (p.thumb_url || p.image_url)) ? 'warning' : 'inherit'} />
+                        {photoSelectMode ? (
+                          <Checkbox
+                            checked={selected}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => togglePhotoSelected(p.id)}
+                            sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'rgba(255,255,255,0.85)', borderRadius: '50%', p: 0.4,
+                              '&:hover': { bgcolor: 'rgba(255,255,255,0.95)' } }}
+                          />
+                        ) : (
+                          <Stack direction="row" className="photo-actions" spacing={0.5}
+                            sx={{ position: 'absolute', top: 4, right: 4, opacity: 0, transition: 'opacity .15s' }}>
+                            <Tooltip title="ตั้งเป็นรูปปก">
+                              <IconButton size="small" onClick={() => setCover(p)} sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}>
+                                <CoverIcon fontSize="small" color={(openAlbum.cover_photo_url === (p.thumb_url || p.image_url)) ? 'warning' : 'inherit'} />
+                              </IconButton>
+                            </Tooltip>
+                            <IconButton size="small" onClick={() => deletePhoto(p)} sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}>
+                              <DeleteIcon fontSize="small" color="error" />
                             </IconButton>
-                          </Tooltip>
-                          <IconButton size="small" onClick={() => deletePhoto(p)} sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}>
-                            <DeleteIcon fontSize="small" color="error" />
-                          </IconButton>
-                        </Stack>
+                          </Stack>
+                        )}
                       </Box>
                     </Grid>
-                  ))}
+                    );
+                  })}
                 </Grid>
                 </>
               )}
