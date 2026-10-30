@@ -814,6 +814,18 @@ const EventAlbumManagement: React.FC = () => {
               <MenuItem value="booked">เฉพาะครอบครัวที่จองกิจกรรม</MenuItem>
               <MenuItem value="public">สาธารณะ (ไม่ต้องล็อกอิน)</MenuItem>
             </TextField>
+            {/* "การมองเห็น" above only decides who sees the album once it's
+                PUBLISHED — it has no opinion on a third, separate case: an
+                album that's never published at all but still handed out by
+                link (a coach, a grandparent, a school that sent a group).
+                That path already exists ("สร้างลิงก์แชร์", once the album has
+                photos) but nothing on this screen said so, which is enough
+                to make someone miss it entirely. */}
+            <Alert severity="info" sx={{ borderRadius: 2 }}>
+              ถ้าไม่อยากให้อัลบั้มนี้ขึ้นหน้าฟีดหรือรายการของใครเลย — ไม่ต้องกด "เผยแพร่อัลบั้ม" ทีหลัง
+              หลังอัปโหลดรูปแล้วใช้ปุ่ม "สร้างลิงก์แชร์" แทนได้เลย จะได้ลิงก์ที่เปิดได้เฉพาะคนมีลิงก์
+              โดยไม่ไปโผล่ที่ไหนทั้งนั้น ไม่ว่าจะตั้ง "การมองเห็น" เป็นแบบไหนก็ตาม
+            </Alert>
             {/* Several folders, one box each. One shoot rarely lands in one
                 folder — two photographers, or a folder per round — and the
                 sync walks subfolders too, so the top folder alone is enough.
