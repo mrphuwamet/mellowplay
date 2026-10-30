@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Mellow Play — ซิงค์รูปอัลบั้ม</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Tahoma, sans-serif; margin: 0; padding: 18px 22px 26px;
+    background: #fbfaf7; color: #2a2a2a; font-size: 13.5px;
+  }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: #767676; font-size: 12px; margin: 0 0 16px; }
+  section {
+    background: #fff; border: 1px solid #e7e3da; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  section h2 { font-size: 13px; margin: 0 0 10px; color: #7452d6; }
+  label { display: block; font-weight: 600; margin-bottom: 3px; color: #444; }
+  .row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 10px; }
+  .row > div.field { flex: 1; display: flex; flex-direction: column; }
+  input[type="text"], input[type="password"], input[type="url"], select {
+    padding: 7px 9px; border: 1px solid #d7d2c6; border-radius: 6px; font-size: 13px;
+    background: #fdfcfa; width: 100%;
+  }
+  input:read-only { background: #f3f1ec; color: #555; }
+  button {
+    padding: 7px 14px; border-radius: 6px; border: 1px solid #d7d2c6; background: #fff;
+    cursor: pointer; font-weight: 600; font-size: 12.5px;
+  }
+  button:hover { background: #f4f2ec; }
+  button.primary { background: #7452d6; border-color: #7452d6; color: #fff; }
+  button.primary:hover { background: #6440c4; }
+  button.danger { background: #ef4f55; border-color: #ef4f55; color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .checkline { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .checkline label { margin: 0; font-weight: 600; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; display: inline-block; }
+  .dot.on { background: #21a45b; }
+  .dot.off { background: #bbb; }
+  .msg { font-size: 12px; margin-top: 6px; }
+  .msg.ok { color: #1a7a3f; } .msg.err { color: #c0392b; }
+  pre.log {
+    background: #16151a; color: #d8d6e0; font-family: Consolas, monospace; font-size: 11.5px;
+    border-radius: 8px; padding: 10px; height: 150px; overflow-y: auto; margin: 10px 0 0;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .hidden { display: none !important; }
+  .hint { color: #8a8a8a; font-size: 11.5px; margin-top: 3px; }
+</style>
+</head>
+<body>
+  <h1>Mellow Play — ซิงค์รูปอัลบั้ม</h1>
+  <p class="sub">วางรูปในโฟลเดอร์ New/ แล้วขึ้นอัลบั้มเอง — วางเมาส์ค้างไว้ที่หัวข้อถ้าอยากรู้ว่าช่องไหนทำอะไร</p>
+
+  <section>
+    <h2>การเชื่อมต่อ</h2>
+    <div class="row">
+      <div class="field">
+        <label title="ปกติไม่ต้องแก้ — ใช้ API ตัวเดียวกับที่ CRM ใช้">ที่อยู่ API</label>
+        <input type="url" id="apiUrl" placeholder="https://api.mellowplay.co">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label title="บัญชีแอดมิน CRM จริง — ต้องล็อกอินได้จึงจะอัปโหลดรูปได้">อีเมลแอดมิน</label>
+        <input type="text" id="adminEmail" autocomplete="username">
+      </div>
+      <div class="field">
+        <label title="เก็บแบบเข้ารหัสในเครื่องนี้ (ถ้าเครื่องรองรับ) ไม่ใช่ข้อความธรรมดา">รหัสผ่าน</label>
+        <input type="password" id="adminPassword" autocomplete="current-password">
+      </div>
+    </div>
+    <button id="btnCheckLogin" title="ลองล็อกอินจริงด้วยค่าที่กรอกไว้ ไม่เริ่มเฝ้าดูโฟลเดอร์">ทดสอบล็อกอิน</button>
+    <div id="loginMsg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>โฟลเดอร์ที่จะซิงค์</h2>
+    <div class="row">
+      <div class="field">
+        <label title="สร้างโฟลเดอร์ย่อยชื่อตรงกับอัลบั้มใน CRM ข้างใน แต่ละอันมี New/ ไว้วางรูป">โฟลเดอร์หลัก (ALBUM_SYNC_ROOT)</label>
+        <input type="text" id="syncRoot" readonly>
+      </div>
+      <button id="btnBrowseRoot" title="เลือกโฟลเดอร์จากเครื่อง">เลือกโฟลเดอร์...</button>
+    </div>
+    <p class="hint">ตัวอย่าง: <code>&lt;โฟลเดอร์นี้&gt;/งานกีฬาสี 2569/New/</code> — ชื่อโฟลเดอร์ย่อยต้องตรงกับชื่ออัลบั้มใน CRM เป๊ะ</p>
+    <div class="row" style="align-items:center; margin-top:6px;">
+      <span class="status"><span id="syncDot" class="dot off"></span><span id="syncStatusText">ยังไม่ได้เริ่ม</span></span>
+      <div style="flex:1"></div>
+      <button class="primary" id="btnStartSync" title="เริ่มเฝ้าดูโฟลเดอร์และอัปโหลดรูปใหม่อัตโนมัติ">เริ่มซิงค์</button>
+      <button class="danger hidden" id="btnStopSync" title="หยุดเฝ้าดู — รูปที่ยังไม่อัปโหลดจะรออยู่ใน New/">หยุด</button>
+    </div>
+    <pre class="log" id="syncLog"></pre>
+  </section>
+
+  <section>
+    <div class="checkline">
+      <input type="checkbox" id="lumaboothEnabled">
+      <label for="lumaboothEnabled" title="เปิดถ้าใช้ตู้ถ่ายรูป LumaBooth และอยากให้รูปไหลเข้าอัลบั้มเอง">เชื่อมกับ LumaBooth</label>
+    </div>
+    <div id="lumaboothFields" class="hidden">
+      <div class="row">
+        <div class="field">
+          <label title="โฟลเดอร์เดียวกับที่ตั้งไว้ใน LumaBooth: Settings → General → Real-time export → Originals">โฟลเดอร์ export ของ LumaBooth</label>
+          <input type="text" id="lumaboothExportRoot" readonly>
+        </div>
+        <button id="btnBrowseLuma" title="เลือกโฟลเดอร์จากเครื่อง">เลือกโฟลเดอร์...</button>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label title="รูปทุกใบจากบูธนี้จะเข้าอัลบั้มนี้ — กดโหลดรายชื่อก่อนถ้ายังไม่เห็นในรายการ">อัลบั้มปลายทาง</label>
+          <select id="lumaboothTargetAlbum"><option value="">— กดโหลดรายชื่ออัลบั้มก่อน —</option></select>
+        </div>
+        <button id="btnLoadAlbums" title="ล็อกอินแล้วดึงรายชื่ออัลบั้มจาก CRM มาให้เลือก">โหลดรายชื่ออัลบั้ม</button>
+      </div>
+      <div class="row" style="align-items:center;">
+        <span class="status"><span id="lumaDot" class="dot off"></span><span id="lumaStatusText">ยังไม่ได้เริ่ม</span></span>
+        <div style="flex:1"></div>
+        <button class="primary" id="btnStartLuma" title="เริ่มรับรูปจาก LumaBooth">เริ่มรับรูปจาก LumaBooth</button>
+        <button class="danger hidden" id="btnStopLuma" title="หยุดรับรูปจาก LumaBooth">หยุด</button>
+      </div>
+      <pre class="log" id="lumaLog"></pre>
+    </div>
+  </section>
+
+  <button id="btnSave" title="จำค่าทั้งหมดไว้ ครั้งหน้าเปิดโปรแกรมไม่ต้องกรอกใหม่">บันทึกค่าไว้ใช้ครั้งหน้า</button>
+  <span id="saveMsg" class="msg"></span>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

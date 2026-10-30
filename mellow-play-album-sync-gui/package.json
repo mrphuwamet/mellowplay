@@ -1,0 +1,49 @@
+{
+  "name": "mellow-play-album-sync-gui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A simple window for mellow-play-album-sync — Browse buttons instead of editing .env, Start/Stop buttons instead of a terminal.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "co.mellowplay.albumsyncgui",
+    "productName": "Mellow Play Album Sync",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "../mellow-play-album-sync/src",
+        "to": "mellow-play-album-sync/src"
+      },
+      {
+        "from": "../mellow-play-album-sync/node_modules",
+        "to": "mellow-play-album-sync/node_modules"
+      },
+      {
+        "from": "../mellow-play-album-sync/package.json",
+        "to": "mellow-play-album-sync/package.json"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron-winstaller@5.4.0": true
+  }
+}

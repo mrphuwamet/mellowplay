@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { config } from './config.js';
-import { session } from './api.js';
+import { session, listAlbums } from './api.js';
 import { startWatching } from './watcher.js';
 import { log } from './log.js';
 
@@ -28,6 +28,22 @@ try {
 if (process.argv.includes('--check-login')) {
   console.log('  เข้าสู่ระบบได้ปกติ — พร้อมใช้งานจริงด้วย npm start');
   process.exit(0);
+}
+
+// For the GUI (mellow-play-album-sync-gui): a real list of album names to
+// put in a dropdown, rather than asking someone to type one in exactly —
+// one line of recognisable JSON on stdout, printed after everything else
+// that logs in this file so a caller reading stdout knows exactly which
+// line is the data and which lines are just status chatter.
+if (process.argv.includes('--list-albums')) {
+  try {
+    const albums = await listAlbums();
+    console.log('ALBUMS_JSON:' + JSON.stringify(albums));
+    process.exit(0);
+  } catch (err) {
+    console.error(`  โหลดรายชื่ออัลบั้มไม่สำเร็จ: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 // Refreshed well inside the 30-day token lifetime (see api.js) so a
