@@ -194,6 +194,51 @@ const EventAlbumDetail: React.FC = () => {
       .finally(() => setPageLoading(false));
   }, [id, loadPage]);
 
+  // ── live-ish refresh: new shots show up without a manual reload ──
+  // Polling, not a socket — the backend is a stateless Worker with no
+  // persistent-connection infrastructure, and "an album slowly gains photos
+  // during a live event" does not need one: someone with the link open
+  // while the booth is still running just wants new shots to appear.
+  //
+  // Only while sorted newest-first: a new photo's id is always the highest
+  // seen, so it always belongs at the very top of that order and can be
+  // prepended safely. In oldest-first it would belong at the very bottom,
+  // past however many pages are already loaded, which cannot be inserted
+  // without re-fetching the whole list — so live refresh simply sits out
+  // that order rather than guess.
+  const [newCount, setNewCount] = useState(0);
+  const photosRef = useRef<Photo[]>([]);
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  useEffect(() => {
+    if (sort !== 'newest' || matches !== null) return;
+    const POLL_MS = 15000;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await loadPage(0);
+        if (cancelled) return;
+        const knownIds = new Set(photosRef.current.map(p => p.id));
+        const fresh = data.photos.filter(p => !knownIds.has(p.id));
+        if (fresh.length === 0) return;
+        setPhotos(prev => [...fresh, ...prev]);
+        setAlbum(a => (a ? { ...a, photo_count: data.album.photo_count } : a));
+        setNewCount(n => n + fresh.length);
+      } catch {
+        // A missed poll just waits for the next one — no point surfacing a
+        // transient network blip as an error on a page nobody is actively
+        // watching for failures.
+      }
+    };
+    const interval = setInterval(tick, POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [sort, matches, loadPage]);
+
+  useEffect(() => {
+    if (newCount === 0) return;
+    const timer = setTimeout(() => setNewCount(0), 4000);
+    return () => clearTimeout(timer);
+  }, [newCount]);
+
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!hasMore || matches !== null) return;
@@ -346,7 +391,19 @@ const EventAlbumDetail: React.FC = () => {
         )}
 
         {matches === null && !selectMode && photos.length > 0 && (
-          <div className="flex justify-end mb-2 px-1">
+          <div className="flex justify-between items-center mb-2 px-1 gap-2">
+            {/* Only ever appears in newest-first order, same as the poll
+                that fills it — a banner promising "new photos" in an order
+                where they wouldn't even land at the top would be pointing
+                at nothing. */}
+            {newCount > 0 ? (
+              <button
+                onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setNewCount(0); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-mellow-purple text-white rounded-full text-xs font-black shadow-sm active:scale-95 transition-transform"
+              >
+                {t(`มีรูปใหม่ ${newCount} รูป`, `${newCount} new photo${newCount > 1 ? 's' : ''}`)}
+              </button>
+            ) : <span />}
             <button
               onClick={() => setSort(s => s === 'newest' ? 'oldest' : 'newest')}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full text-xs font-black text-slate-500 shadow-sm active:scale-95 transition-transform"
