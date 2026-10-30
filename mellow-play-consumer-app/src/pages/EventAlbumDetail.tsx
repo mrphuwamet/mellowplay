@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, CheckSquare, ChevronLeft, Download, Loader2, ScanFace, X, Images } from 'lucide-react';
+import { Check, CheckSquare, ChevronLeft, Download, Loader2, ScanFace, X, Images, ArrowUpDown } from 'lucide-react';
 import apiClient from '../utils/apiClient';
 import SkeletonImage from '../components/SkeletonImage';
 import { downloadBlobUrl, saveMany, saveViaShare } from '../utils/mediaSave';
@@ -64,6 +64,12 @@ const EventAlbumDetail: React.FC = () => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // True while page one of a (re)fetch is in flight — the first load, and
+  // every time the sort order resets the list back to empty. Without it the
+  // brief empty array between "cleared for the new order" and "the new
+  // order arrived" read as "ยังไม่มีรูปในอัลบั้ม", which is a flash-lie about an
+  // album that plainly has photos.
+  const [pageLoading, setPageLoading] = useState(true);
   const [lightbox, setLightbox] = useState<Photo | null>(null);
   // Whether the full-size copy has decoded; until then the lightbox shows the
   // (already cached) thumbnail blurred up, so opening a photo is never a
@@ -142,21 +148,35 @@ const EventAlbumDetail: React.FC = () => {
   const [searchError, setSearchError] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Newest-added first by default — the thing someone just lived through is
+  // what they open the album to see, especially right after an event when
+  // the latest sync is what everyone is waiting for.
+  const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
+
   const loadPage = useCallback(async (after: number) => {
-    const res = await apiClient.get(base, { params: { after, limit: PAGE } });
+    const res = await apiClient.get(base, { params: { after, limit: PAGE, sort } });
     if (!res.data.success) throw new Error(res.data.message);
     return res.data as { album: AlbumMeta; photos: Photo[] };
-  }, [base]);
+  }, [base, sort]);
 
   useEffect(() => {
     if (!key) return;
+    // Also fires when `sort` changes (loadPage's identity depends on it),
+    // which is exactly the reset a flipped order needs: a page built by
+    // walking one direction's cursor cannot be patched into the other
+    // direction's order, so this re-fetches page one in the new order
+    // rather than trying to reshuffle what is already on screen.
+    setPhotos([]);
+    setHasMore(true);
+    setPageLoading(true);
     loadPage(0)
       .then(data => {
         setAlbum(data.album);
         setPhotos(data.photos);
         setHasMore(data.photos.length === PAGE);
       })
-      .catch(() => setAlbum(null));
+      .catch(() => setAlbum(null))
+      .finally(() => setPageLoading(false));
   }, [id, loadPage]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -300,6 +320,18 @@ const EventAlbumDetail: React.FC = () => {
           <p className="text-sm font-medium text-slate-500 leading-relaxed mb-3 px-1">{album.description}</p>
         )}
 
+        {matches === null && !selectMode && photos.length > 0 && (
+          <div className="flex justify-end mb-2 px-1">
+            <button
+              onClick={() => setSort(s => s === 'newest' ? 'oldest' : 'newest')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full text-xs font-black text-slate-500 shadow-sm active:scale-95 transition-transform"
+            >
+              <ArrowUpDown size={13} />
+              {sort === 'newest' ? t('ใหม่ล่าสุดก่อน', 'Newest first') : t('เก่าสุดก่อน', 'Oldest first')}
+            </button>
+          </div>
+        )}
+
         {searching && (
           <div className="mb-3 px-4 py-3 bg-white rounded-2xl shadow-sm flex items-center gap-3">
             <Loader2 size={18} className="animate-spin text-mellow-purple shrink-0" />
@@ -377,14 +409,15 @@ const EventAlbumDetail: React.FC = () => {
             );
           })}
           {/* Loading more looks like more photos arriving, not a spinner
-              interrupting the grid. */}
-          {loadingMore && Array.from({ length: 6 }).map((_, i) => (
+              interrupting the grid. Same treatment while a sort change's
+              first page is in flight. */}
+          {(loadingMore || (pageLoading && matches === null)) && Array.from({ length: 6 }).map((_, i) => (
             <div key={`sk-${i}`} className="aspect-square rounded-xl bg-slate-200 animate-pulse" />
           ))}
         </div>
 
         {matches === null && hasMore && <div ref={sentinelRef} className="h-8" />}
-        {shown.length === 0 && matches === null && (
+        {shown.length === 0 && matches === null && !pageLoading && (
           <p className="text-center text-sm font-bold text-slate-400 py-12">{t('ยังไม่มีรูปในอัลบั้ม', 'No photos yet')}</p>
         )}
 

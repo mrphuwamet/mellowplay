@@ -8,6 +8,13 @@ import { AuthService } from '../services/authService';
 
 type C = Context<{ Bindings: Bindings; Variables: Variables }>;
 
+/** Anything that isn't literally "oldest" means "newest" — the safe default
+ *  a stray or missing query param should land on, since it is also what a
+ *  freshly-synced batch of photos should surface as. */
+function sortOf(c: C): 'newest' | 'oldest' {
+  return c.req.query('sort') === 'oldest' ? 'oldest' : 'newest';
+}
+
 /**
  * Event photo albums (อัลบั้มรูปกิจกรรม).
  *
@@ -159,7 +166,7 @@ export class EventAlbumController {
 
       const after = parseInt(c.req.query('after') || '0') || 0;
       const limit = Math.min(parseInt(c.req.query('limit') || '60') || 60, 200);
-      const photos = await repo.listPhotos(album.id, after, limit);
+      const photos = await repo.listPhotos(album.id, after, limit, sortOf(c));
       return c.json({ success: true, album, photos });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
@@ -262,7 +269,7 @@ export class EventAlbumController {
       const id = parseInt(c.req.param('id'));
       const after = parseInt(c.req.query('after') || '0') || 0;
       const limit = parseInt(c.req.query('limit') || '200') || 200;
-      return c.json({ success: true, photos: await this.repo(c).listPhotos(id, after, limit) });
+      return c.json({ success: true, photos: await this.repo(c).listPhotos(id, after, limit, sortOf(c)) });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }
 
@@ -389,7 +396,7 @@ export class EventAlbumController {
 
       const after = parseInt(c.req.query('after') || '0') || 0;
       const limit = Math.min(parseInt(c.req.query('limit') || '60') || 60, 200);
-      const photos = await repo.listPhotos(id, after, limit);
+      const photos = await repo.listPhotos(id, after, limit, sortOf(c));
       return c.json({ success: true, album, photos });
     } catch (e: any) { return c.json({ success: false, message: e.message }, 500); }
   }

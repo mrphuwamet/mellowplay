@@ -336,16 +336,31 @@ export class EventAlbumRepository {
     ]);
   }
 
-  /** Keyset pagination — an album can hold thousands of photos. */
-  async listPhotos(albumId: number, after = 0, limit = 200): Promise<any[]> {
+  /**
+   * Keyset pagination — an album can hold thousands of photos.
+   *
+   * `sort` picks the direction, and the cursor comparison flips with it: for
+   * 'newest' (the default everywhere a caller doesn't say otherwise) `after`
+   * is the smallest id seen so far and the next page wants smaller still;
+   * for 'oldest' it is the largest seen so far, as it always was. Either way
+   * `after = 0` means "from the top of that ordering" — ids are positive, so
+   * 0 never excludes a real row in either direction. Callers that simply pass
+   * back the last id in whatever list they were given need not know which
+   * direction they are paging.
+   */
+  async listPhotos(albumId: number, after = 0, limit = 200, sort: 'newest' | 'oldest' = 'newest'): Promise<any[]> {
+    const desc = sort !== 'oldest';
+    // `after` bound twice (plain `?`, not `?N`) rather than relying on
+    // SQLite's numbered-placeholder renumbering rules alongside unnumbered
+    // ones in the same statement, which is easy to get subtly wrong.
     const { results } = await this.db.prepare(`
       SELECT id, image_url, thumb_url, width, height, size_bytes,
              drive_file_id, drive_file_name, face_count, created_at
         FROM Event_Album_Photos
-       WHERE album_id = ? AND id > ?
-       ORDER BY id ASC
+       WHERE album_id = ? AND (? = 0 OR id ${desc ? '<' : '>'} ?)
+       ORDER BY id ${desc ? 'DESC' : 'ASC'}
        LIMIT ?
-    `).bind(albumId, after, Math.min(Math.max(limit, 1), 500)).all();
+    `).bind(albumId, after, after, Math.min(Math.max(limit, 1), 500)).all();
     return results;
   }
 

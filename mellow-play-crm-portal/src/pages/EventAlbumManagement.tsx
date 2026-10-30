@@ -3,6 +3,7 @@ import {
   Box, Paper, Typography, Button, Stack, Grid, Card, CardMedia, CardContent, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, IconButton,
   LinearProgress, Checkbox, FormControlLabel, Alert, CircularProgress, Tooltip,
+  ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Sync as SyncIcon,
@@ -221,6 +222,11 @@ const EventAlbumManagement: React.FC = () => {
   const [openAlbum, setOpenAlbum] = useState<Album | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
+  // Display order only — loadPhotos below always fetches 'oldest' so its
+  // id-walking cursor works, and this is a plain reverse of that one array
+  // rather than a second round trip.
+  const [photoSort, setPhotoSort] = useState<'newest' | 'oldest'>('newest');
+  const sortedPhotos = photoSort === 'newest' ? [...photos].reverse() : photos;
   const [sync, setSync] = useState<SyncProgress | null>(null);
   const [indexFaces, setIndexFaces] = useState(true);
   const [reindexing, setReindexing] = useState(false);
@@ -318,9 +324,13 @@ const EventAlbumManagement: React.FC = () => {
       const all: Photo[] = [];
       let after = 0;
       // Page through everything: the grid renders thumbs, and staff need the
-      // full drive_file_id set anyway for sync dedupe.
+      // full drive_file_id set anyway for sync dedupe. sort: 'oldest' is said
+      // explicitly — this loop's cursor only walks forward (ascending ids),
+      // and the server's default direction is newest-first for the galleries
+      // people actually browse, so staying correct here cannot depend on that
+      // default never changing again.
       for (;;) {
-        const res = await axios.get(`${API_BASE}/event-albums/${albumId}/photos`, { params: { after, limit: 500 } });
+        const res = await axios.get(`${API_BASE}/event-albums/${albumId}/photos`, { params: { after, limit: 500, sort: 'oldest' } });
         const batch: Photo[] = res.data.photos || [];
         all.push(...batch);
         if (batch.length < 500) break;
@@ -984,8 +994,18 @@ const EventAlbumManagement: React.FC = () => {
                   ยังไม่มีรูปในอัลบั้ม — ซิงค์จาก Drive หรืออัปโหลดรูปเอง
                 </Typography>
               ) : (
+                <>
+                <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+                  <ToggleButtonGroup
+                    size="small" exclusive value={photoSort}
+                    onChange={(_, v) => v && setPhotoSort(v)}
+                  >
+                    <ToggleButton value="newest" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>ใหม่ → เก่า</ToggleButton>
+                    <ToggleButton value="oldest" sx={{ px: 1.5, py: 0.25, fontSize: 12, fontWeight: 700, textTransform: 'none' }}>เก่า → ใหม่</ToggleButton>
+                  </ToggleButtonGroup>
+                </Stack>
                 <Grid container spacing={1}>
-                  {photos.map(p => (
+                  {sortedPhotos.map(p => (
                     <Grid item xs={4} sm={3} md={2} key={p.id}>
                       <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', aspectRatio: '1', bgcolor: 'grey.100',
                         '&:hover .photo-actions': { opacity: 1 } }}>
@@ -1010,6 +1030,7 @@ const EventAlbumManagement: React.FC = () => {
                     </Grid>
                   ))}
                 </Grid>
+                </>
               )}
             </DialogContent>
             <DialogActions>
