@@ -40,6 +40,7 @@ import {
   Groups as ParticipantListIcon,
   AlternateEmail as EmailFieldIcon,
   LocalPhone as PhoneFieldIcon,
+  Gavel as ConsentFieldIcon,
   HelpOutline as UnknownFieldIcon,
   CloudUpload as UploadIcon,
   Close as CloseIcon,
@@ -53,7 +54,17 @@ import ParticipantPricingEditor from '../components/ParticipantPricingEditor';
 const API_BASE = `${API_URL}/api/v1/admin`;
 const CONSUMER_APP_URL = (import.meta.env.VITE_CONSUMER_APP_URL as string) || 'https://mellowplay.co';
 
-type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'email' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'image' | 'participant_list';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'email' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'identity' | 'consent' | 'image' | 'participant_list';
+
+/** A consent document this form can attach — see ConsentDocumentManagement. */
+interface ConsentDocOption {
+  id: number;
+  doc_key: string;
+  title: string;
+  summary: string;
+  version: number;
+  is_required_default: number;
+}
 
 interface ScoredOption {
   label: string;
@@ -100,6 +111,12 @@ interface FieldDraft {
    * called back about does, and asking politely gets it left blank.
    */
   phoneRequired?: boolean;
+  /**
+   * consent — which document is being agreed to, by its stable slug rather
+   * than its row id, so the reference survives a document being re-keyed and
+   * reads plainly in the stored config. See ConsentDocumentManagement.
+   */
+  consentDocKey?: string;
   /**
    * radio only — lay the options out as one horizontal rung row instead of a
    * stacked list. Stored as config, not as its own field type, so scoring, CSV
@@ -169,7 +186,7 @@ const metaFor = (type: string): { label: string; icon: React.ReactNode } =>
 /** What the "add field" buttons and the type dropdown offer. */
 const ADDABLE_FIELD_TYPES: FieldType[] = [
   'heading', 'paragraph', 'text', 'textarea', 'email', 'phone', 'number', 'date',
-  'select', 'radio', 'checkbox', 'identity', 'image',
+  'select', 'radio', 'checkbox', 'identity', 'consent', 'image',
 ];
 
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
@@ -188,6 +205,11 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   radio: { label: 'ตัวเลือก (Radio)', icon: <RadioIcon fontSize="small" /> },
   checkbox: { label: 'ช่องติ๊ก (หลายตัวเลือก)', icon: <CheckboxIcon fontSize="small" /> },
   identity: { label: 'ผู้ตอบแบบสอบถาม (ใครเป็นคนตอบ)', icon: <IdentityIcon fontSize="small" /> },
+  // Not a checkbox with legal wording typed into its label: this one is tied
+  // to a managed document, shows its full text on demand, and records which
+  // version of that text the respondent actually saw — same system the
+  // registration-form builder's consent field uses.
+  consent: { label: 'ยินยอม (PDPA)', icon: <ConsentFieldIcon fontSize="small" /> },
   image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
   // Rendered here so a form that has one can be opened and edited. Left out
   // of ADDABLE_FIELD_TYPES below until this screen can edit its options and
@@ -266,6 +288,7 @@ const isChoiceType = (type: FieldType) => type === 'select' || type === 'radio' 
 /** The config keys this screen owns and therefore rebuilds on every save. */
 const BUILDER_CONFIG_KEYS = [
   'scored', 'imageUrl', 'phoneRequired', 'display', 'scaleLowLabel', 'scaleHighLabel', 'labelHtml',
+  'consentDocKey',
   // Written by an earlier build that had no email field type. Listed so a
   // save strips it rather than carrying a setting nothing reads any more.
   'receiptEmail',
@@ -305,6 +328,15 @@ const SurveyManagement = () => {
   // Which option is mid-drag, scoped to the field it belongs to so an option
   // can never be dropped into a different question.
   const [dragOption, setDragOption] = useState<{ field: number; opt: number } | null>(null);
+  // Only documents still in use — same list the registration form builder
+  // offers. A retired one stays readable for the consents already given
+  // against it, but must not be attachable to anything new.
+  const [consentDocs, setConsentDocs] = useState<ConsentDocOption[]>([]);
+  useEffect(() => {
+    axios.get(`${API_BASE}/consent-documents/active`)
+      .then(res => setConsentDocs(res.data.documents || []))
+      .catch(() => setConsentDocs([]));
+  }, []);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -403,6 +435,7 @@ const SurveyManagement = () => {
             imageUrl: config.imageUrl,
             labelHtml: config.labelHtml,
             phoneRequired: !!config.phoneRequired,
+            consentDocKey: config.consentDocKey,
             display: config.display === 'scale' ? 'scale' : undefined,
             scaleLowLabel: config.scaleLowLabel,
             scaleHighLabel: config.scaleHighLabel,
@@ -444,6 +477,7 @@ const SurveyManagement = () => {
           ...(isChoiceType(f.type) ? { scored: !!f.scored } : {}),
           ...(f.type === 'image' ? { imageUrl: f.imageUrl } : {}),
           ...(f.type === 'identity' ? { phoneRequired: !!f.phoneRequired } : {}),
+          ...(f.type === 'consent' && f.consentDocKey ? { consentDocKey: f.consentDocKey } : {}),
           ...(f.type === 'radio' && f.display === 'scale' ? {
             display: 'scale',
             scaleLowLabel: f.scaleLowLabel?.trim() || undefined,
@@ -579,6 +613,50 @@ const SurveyManagement = () => {
     setActivePage(targetPage);
     setMovePageMenu(null);
   };
+
+  /**
+   * Moves a field to a position, for the drag — same tool the registration
+   * form builder offers. Separate from moveField's neighbour swap because a
+   * drag is not a series of swaps: dropping item 1 onto item 5 has to take
+   * the four in between along with it.
+   */
+  const reorderField = (fromIdx: number, toIdx: number) => {
+    const page = pages[activePage];
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= page.length || toIdx >= page.length) return;
+    const reordered = [...page];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setPages(pages.map((p, i) => (i === activePage ? reordered : p)));
+  };
+
+  /**
+   * Moves a page by dragging its tab, and keeps whichever page was open
+   * still open — same reasoning as the registration form builder's
+   * reorderPage, plus keeping pinnedPages lined up with the pages it
+   * describes.
+   */
+  const reorderPage = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= pages.length || toIdx >= pages.length) return;
+    const nextPages = [...pages];
+    const [movedPage] = nextPages.splice(fromIdx, 1);
+    nextPages.splice(toIdx, 0, movedPage);
+    setPages(nextPages);
+    const nextPinned = [...pinnedPages];
+    const [movedPinned] = nextPinned.splice(fromIdx, 1);
+    nextPinned.splice(toIdx, 0, movedPinned);
+    setPinnedPages(nextPinned);
+    setActivePage(prev => {
+      if (prev === fromIdx) return toIdx;
+      if (fromIdx < prev && prev <= toIdx) return prev - 1;
+      if (toIdx <= prev && prev < fromIdx) return prev + 1;
+      return prev;
+    });
+  };
+
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const [pageDragFrom, setPageDragFrom] = useState<number | null>(null);
+  const [pageDragOver, setPageDragOver] = useState<number | null>(null);
 
   const moveField = (fieldIdx: number, dir: -1 | 1) => {
     const page = pages[activePage];
@@ -803,11 +881,43 @@ const SurveyManagement = () => {
                 scrollButtons="auto"
                 sx={{ mb: 2, borderBottom: '1px solid #eee' }}
               >
-                {pages.map((_, i) => <Tab key={i} label={`หน้า ${i + 1}`} sx={{ fontWeight: 700, textTransform: 'none' }} />)}
+                {pages.map((_, i) => (
+                  <Tab
+                    key={i}
+                    label={`หน้า ${i + 1}`}
+                    draggable
+                    onDragStart={e => {
+                      setPageDragFrom(i);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', String(i)); // Firefox needs a payload
+                    }}
+                    onDragEnd={() => { setPageDragFrom(null); setPageDragOver(null); }}
+                    onDragOver={e => { if (pageDragFrom !== null) { e.preventDefault(); setPageDragOver(i); } }}
+                    onDragLeave={() => setPageDragOver(prev => (prev === i ? null : prev))}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (pageDragFrom !== null) reorderPage(pageDragFrom, i);
+                      setPageDragFrom(null);
+                      setPageDragOver(null);
+                    }}
+                    sx={{
+                      fontWeight: 700, textTransform: 'none', cursor: 'grab',
+                      '&:active': { cursor: 'grabbing' },
+                      opacity: pageDragFrom === i ? 0.4 : 1,
+                      borderLeft: pageDragOver === i && pageDragFrom !== null && pageDragFrom > i ? '3px solid' : undefined,
+                      borderRight: pageDragOver === i && pageDragFrom !== null && pageDragFrom < i ? '3px solid' : undefined,
+                      borderLeftColor: 'primary.main',
+                      borderRightColor: 'primary.main',
+                    }}
+                  />
+                ))}
               </Tabs>
 
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
                 <Button size="small" startIcon={<AddIcon />} onClick={addPage}>เพิ่มหน้า</Button>
+                {pages.length > 1 && (
+                  <Typography variant="caption" color="text.secondary">ลากแท็บหน้าเพื่อสลับลำดับได้</Typography>
+                )}
                 {/* Only offered for the mode it affects — on any other mode a
                     pinned page would be a switch that quietly does nothing. */}
                 {shuffleMode === 'pages' && (
@@ -828,8 +938,49 @@ const SurveyManagement = () => {
                   </Typography>
                 )}
                 {currentPageFields.map((field, idx) => (
-                  <Paper key={field.fieldKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Paper
+                    key={field.fieldKey}
+                    variant="outlined"
+                    onDragOver={e => { if (dragFrom !== null) { e.preventDefault(); setDragOver(idx); } }}
+                    onDragLeave={() => setDragOver(prev => (prev === idx ? null : prev))}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (dragFrom !== null) reorderField(dragFrom, idx);
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    sx={{
+                      p: 2, borderRadius: 2,
+                      opacity: dragFrom === idx ? 0.4 : 1,
+                      borderTop: dragOver === idx && dragFrom !== null && dragFrom > idx ? '3px solid' : undefined,
+                      borderBottom: dragOver === idx && dragFrom !== null && dragFrom < idx ? '3px solid' : undefined,
+                      borderTopColor: 'primary.main',
+                      borderBottomColor: 'primary.main',
+                      transition: 'opacity .15s',
+                    }}
+                  >
                     <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                      {/* Only the handle is draggable, not the card — making the
+                          card itself draggable would turn selecting text in any
+                          field inside it into a drag instead. */}
+                      <Tooltip title="ลากเพื่อจัดลำดับ">
+                        <Box
+                          draggable
+                          onDragStart={e => {
+                            setDragFrom(idx);
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', String(idx));
+                          }}
+                          onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                          sx={{
+                            mt: 1.25, color: 'text.disabled', cursor: 'grab',
+                            '&:active': { cursor: 'grabbing' },
+                            display: 'flex', touchAction: 'none',
+                          }}
+                        >
+                          <DragIcon fontSize="small" />
+                        </Box>
+                      </Tooltip>
                       <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{metaFor(field.type).icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
@@ -938,6 +1089,43 @@ const SurveyManagement = () => {
                         {field.type === 'image' && (
                           <ImageUploadField label="รูป" url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
                         )}
+                        {field.type === 'consent' && (() => {
+                          const picked = consentDocs.find(d => d.doc_key === field.consentDocKey);
+                          return (
+                            <Box sx={{ width: '100%' }}>
+                              <FormControl size="small" fullWidth>
+                                <InputLabel>เอกสารที่ให้ยินยอม</InputLabel>
+                                <Select
+                                  value={consentDocs.some(d => d.doc_key === field.consentDocKey) ? field.consentDocKey : ''}
+                                  label="เอกสารที่ให้ยินยอม"
+                                  onChange={e => {
+                                    const doc = consentDocs.find(d => d.doc_key === e.target.value);
+                                    updateField(idx, {
+                                      consentDocKey: e.target.value as string,
+                                      // The document already says whether it is
+                                      // refusable; carrying that over means the
+                                      // rule lives in one place rather than
+                                      // being re-decided per form.
+                                      ...(doc ? { label: doc.title, required: doc.is_required_default !== 0 } : {}),
+                                    });
+                                  }}
+                                >
+                                  {consentDocs.length === 0 && <MenuItem value=""><em>ยังไม่มีเอกสาร — สร้างที่เมนู "เอกสารความยินยอม (PDPA)"</em></MenuItem>}
+                                  {consentDocs.map(d => (
+                                    <MenuItem key={d.doc_key} value={d.doc_key}>
+                                      {d.title} (ฉบับที่ {d.version})
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              {picked && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  ข้อความข้างช่องติ๊ก: "{picked.summary}" — ผู้ตอบเปิดอ่านฉบับเต็มได้ และระบบจะบันทึกว่ายินยอมกับฉบับที่ {picked.version}
+                                </Typography>
+                              )}
+                            </Box>
+                          );
+                        })()}
                         {field.type === 'radio' && field.display === 'scale' && (
                           <Stack spacing={1.5} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#faf9ff', border: '1px solid #ece8fa' }}>
                             <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
