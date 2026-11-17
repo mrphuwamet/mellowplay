@@ -900,7 +900,12 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onE
   let options: string[] = [];
   let teamOptions: { label: string; capacity: number }[] = [];
   try {
-    if (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') options = field.optionsJson ? JSON.parse(field.optionsJson) : [];
+    // Older rows stored options as plain strings; the builder now saves them
+    // as { label, color?, allowText? } objects.
+    if (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') {
+      options = (field.optionsJson ? JSON.parse(field.optionsJson) : [])
+        .map((o: any) => (typeof o === 'string' ? o : o.label));
+    }
     if (field.type === 'team_select') teamOptions = field.optionsJson ? JSON.parse(field.optionsJson) : [];
   } catch { /* malformed options shouldn't block editing the rest of the fields */ }
 
@@ -941,6 +946,9 @@ const FormAnswerFieldEditor = ({ field, value, onChange, roster, teamCounts, onE
       value={String(value ?? '').replace(/\D/g, '').slice(0, 10)}
       onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
       inputProps={{ inputMode: 'numeric', maxLength: 10 }} placeholder="08XXXXXXXX" />;
+  }
+  if (field.type === 'email') {
+    return <TextField fullWidth size="small" type="email" label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;
   }
   if (field.type === 'textarea') {
     return <TextField fullWidth size="small" multiline minRows={2} label={field.label} value={value || ''} onChange={e => onChange(e.target.value)} />;

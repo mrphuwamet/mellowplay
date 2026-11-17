@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL, CONSUMER_APP_URL } from '../config';
 import RichTextEditor from '../components/RichTextEditor';
+import OptionColorPicker from '../components/OptionColorPicker';
 import axios from 'axios';
 import {
   Typography, Box, CircularProgress, Grid, Button, Chip,
@@ -36,11 +37,13 @@ import {
   Image as ImageFieldIcon,
   CloudUpload as UploadIcon,
   Close as CloseIcon,
+  AlternateEmail as EmailFieldIcon,
+  HelpOutline as UnknownFieldIcon,
 } from '@mui/icons-material';
 
 const API_BASE = `${API_URL}/api/v1/admin`;
 
-type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'consent' | 'family_member_picker' | 'team_select' | 'image';
+type FieldType = 'heading' | 'paragraph' | 'text' | 'textarea' | 'email' | 'phone' | 'number' | 'date' | 'select' | 'radio' | 'checkbox' | 'consent' | 'family_member_picker' | 'team_select' | 'image';
 
 /** A consent document this form can attach — see ConsentDocumentManagement. */
 interface ConsentDocOption {
@@ -54,21 +57,41 @@ interface ConsentDocOption {
 
 interface TeamOption { label: string; capacity: number; }
 
+/** select/radio/checkbox — same shape the survey/test builder uses for its options. */
+interface FormOption {
+  label: string;
+  /** Purely presentational — duplicate checks and CSV export still key on the label text. */
+  color?: string;
+  /**
+   * Gives this option its own text box, for the "อื่น ๆ ระบุ ......" line every
+   * paper form ends a list with. The typed text is stored beside the answer as
+   * `${field_key}__other`.
+   */
+  allowText?: boolean;
+}
+
 interface FieldDraft {
+  /**
+   * config_json exactly as it was loaded. Anything in it that this screen has
+   * no editor for is written back untouched on save — see carriedConfig.
+   */
+  rawConfig?: Record<string, any>;
   fieldKey: string;
   type: FieldType;
   label: string;
   required: boolean;
-  options?: string[];         // select/radio/checkbox
+  options?: FormOption[];     // select/radio/checkbox
   teamOptions?: TeamOption[]; // team_select — each team's name + how many it can take
   role?: 'adult' | 'child';   // family_member_picker
   duplicateCheckScope?: 'none' | 'course' | 'round' | 'calendar';
   imageUrl?: string;          // image
   /**
-   * paragraph — the formatted copy, as HTML. `label` keeps a plain-text copy
-   * of the same words so anything reading a field by its label (the check-in
-   * card, a CSV header, this list) still has something readable rather than
-   * markup.
+   * The formatted copy of the label/question, as HTML. `label` keeps a
+   * plain-text copy of the same words so anything reading a field by its
+   * label (the check-in card, a CSV header, this list) still has something
+   * readable rather than markup. Any field type can turn this on, not just
+   * paragraph — a toggle switch in the editor, matching the survey/test
+   * builder's "จัดรูปแบบข้อความ".
    */
   labelHtml?: string;
   /**
@@ -81,6 +104,8 @@ interface FieldDraft {
   showAtCheckin?: boolean;
 }
 
+const isChoiceType = (type: FieldType) => type === 'select' || type === 'radio' || type === 'checkbox';
+
 const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode }> = {
   heading: { label: 'หัวข้อ/คำอธิบาย', icon: <HeadingIcon fontSize="small" /> },
   // Not a heading and not a question: a block of copy for the reader, laid
@@ -89,6 +114,7 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   paragraph: { label: 'เนื้อหาให้อ่าน (จัดรูปแบบได้)', icon: <ParagraphIcon fontSize="small" /> },
   text: { label: 'ข้อความสั้น', icon: <TextFieldIcon fontSize="small" /> },
   textarea: { label: 'ข้อความยาว', icon: <TextareaIcon fontSize="small" /> },
+  email: { label: 'อีเมล', icon: <EmailFieldIcon fontSize="small" /> },
   // Not a plain text field with a different name: it keeps to digits, offers
   // the account holder's own number in one tap, and refuses a number that is
   // too short to call back — which is the whole reason the field is asked for.
@@ -105,6 +131,30 @@ const FIELD_TYPE_META: Record<FieldType, { label: string; icon: React.ReactNode 
   family_member_picker: { label: 'เลือกสมาชิกในครอบครัว', icon: <FamilyPickerIcon fontSize="small" /> },
   team_select: { label: 'เลือกทีม (จำกัดจำนวนต่อทีม)', icon: <TeamSelectIcon fontSize="small" /> },
   image: { label: 'รูปภาพ', icon: <ImageFieldIcon fontSize="small" /> },
+};
+
+/** What the type-change dropdown offers — every type this builder knows. */
+const ALL_FIELD_TYPES: FieldType[] = Object.keys(FIELD_TYPE_META) as FieldType[];
+
+/**
+ * A field type this screen has never heard of still has to render, rather
+ * than crashing the whole editor with "Cannot read properties of undefined
+ * (reading 'icon')" — same reasoning as the survey/test builder's metaFor.
+ */
+const metaFor = (type: string): { label: string; icon: React.ReactNode } =>
+  (FIELD_TYPE_META as Record<string, { label: string; icon: React.ReactNode }>)[type]
+  ?? { label: type, icon: <UnknownFieldIcon fontSize="small" /> };
+
+/** The config keys this screen owns and therefore rebuilds on every save. */
+const BUILDER_CONFIG_KEYS = ['role', 'imageUrl', 'consentDocKey', 'labelHtml', 'showAtCheckin'];
+
+/** Whatever else was in config_json, kept exactly as it was found. */
+const carriedConfig = (field: FieldDraft): Record<string, any> => {
+  const out: Record<string, any> = {};
+  for (const [key, value] of Object.entries(field.rawConfig || {})) {
+    if (!BUILDER_CONFIG_KEYS.includes(key)) out[key] = value;
+  }
+  return out;
 };
 
 /**
@@ -138,9 +188,12 @@ const emptyField = (type: FieldType): FieldDraft => ({
   type,
   label: FIELD_TYPE_META[type].label,
   required: false,
-  options: (type === 'select' || type === 'radio' || type === 'checkbox') ? ['ตัวเลือก 1'] : undefined,
+  options: isChoiceType(type) ? [{ label: 'ตัวเลือก 1' }] : undefined,
   teamOptions: type === 'team_select' ? [{ label: 'ทีม 1', capacity: 10 }] : undefined,
   role: type === 'family_member_picker' ? 'child' : undefined,
+  // Starts already in rich-text mode, matching the old always-on behaviour —
+  // every other type starts plain and can switch on with the toggle below.
+  labelHtml: type === 'paragraph' ? '' : undefined,
 });
 
 // Same /admin/upload endpoint the rich-text editors and the Survey builder
@@ -252,11 +305,16 @@ const RegistrationFormManagement = () => {
           let config: any = {};
           try { config = f.config_json ? JSON.parse(f.config_json) : {}; } catch { /* malformed config shouldn't block loading the rest of the field */ }
           grouped[pIdx][f.field_index] = {
+            rawConfig: config,
             fieldKey: f.field_key,
             type: f.type,
             label: f.label,
             required: !!f.required,
-            options: (f.options_json && f.type !== 'team_select') ? JSON.parse(f.options_json) : undefined,
+            // Older rows stored options as plain strings; normalize to the
+            // object shape so an un-re-saved form still opens and edits fine.
+            options: (f.options_json && f.type !== 'team_select')
+              ? JSON.parse(f.options_json).map((o: any) => (typeof o === 'string' ? { label: o } : o))
+              : undefined,
             teamOptions: (f.options_json && f.type === 'team_select') ? JSON.parse(f.options_json) : undefined,
             role: config.role,
             imageUrl: config.imageUrl,
@@ -290,11 +348,13 @@ const RegistrationFormManagement = () => {
           ? (f.teamOptions ? JSON.stringify(f.teamOptions) : undefined)
           : (f.options ? JSON.stringify(f.options) : undefined),
         configJson: (() => {
-          const cfg: Record<string, any> = {};
+          // Only the keys this screen owns (BUILDER_CONFIG_KEYS) are rebuilt;
+          // anything else already in config_json rides through untouched.
+          const cfg: Record<string, any> = { ...carriedConfig(f) };
           if (f.role) cfg.role = f.role;
           if (f.type === 'image' && f.imageUrl) cfg.imageUrl = f.imageUrl;
           if (f.type === 'consent' && f.consentDocKey) cfg.consentDocKey = f.consentDocKey;
-          if (f.type === 'paragraph' && f.labelHtml) cfg.labelHtml = f.labelHtml;
+          if (f.labelHtml !== undefined && stripHtml(f.labelHtml).trim()) cfg.labelHtml = f.labelHtml;
           if (f.showAtCheckin) cfg.showAtCheckin = true;
           return Object.keys(cfg).length > 0 ? JSON.stringify(cfg) : undefined;
         })(),
@@ -358,6 +418,28 @@ const RegistrationFormManagement = () => {
     const next = pages.map((page, i) => i === activePage ? [...page, emptyField(type)] : page);
     setPages(next);
   };
+  /**
+   * Change an existing field's type in place, instead of deleting it and
+   * retyping everything — same tool the survey/test builder offers. Options
+   * carry across untouched between the three choice types; the label follows
+   * only while it is still the untouched default for the old type.
+   */
+  const changeFieldType = (fieldIdx: number, nextType: FieldType) => {
+    const field = pages[activePage]?.[fieldIdx];
+    if (!field || field.type === nextType) return;
+    const patch: Partial<FieldDraft> = { type: nextType };
+    if (field.label === metaFor(field.type).label) patch.label = metaFor(nextType).label;
+    if (isChoiceType(nextType) && (!field.options || field.options.length === 0)) {
+      patch.options = [{ label: 'ตัวเลือก 1' }];
+    }
+    if (nextType === 'team_select' && (!field.teamOptions || field.teamOptions.length === 0)) {
+      patch.teamOptions = [{ label: 'ทีม 1', capacity: 10 }];
+    }
+    if (nextType === 'family_member_picker' && !field.role) {
+      patch.role = 'child';
+    }
+    updateField(fieldIdx, patch);
+  };
   const updateField = (fieldIdx: number, patch: Partial<FieldDraft>) => {
     const next = pages.map((page, i) => i === activePage
       ? page.map((f, j) => j === fieldIdx ? { ...f, ...patch } : f)
@@ -389,6 +471,9 @@ const RegistrationFormManagement = () => {
   // access to the payload, so the source index has to be remembered.
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  // Which option (within which field) is being dragged, for reordering a
+  // choice field's own options — separate from the field-level drag above.
+  const [dragOption, setDragOption] = useState<{ field: number; opt: number } | null>(null);
 
   const moveField = (fieldIdx: number, dir: -1 | 1) => {
     const page = pages[activePage];
@@ -552,10 +637,26 @@ const RegistrationFormManagement = () => {
                           <DragIcon fontSize="small" />
                         </Box>
                       </Tooltip>
-                      <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{FIELD_TYPE_META[field.type].icon}</Box>
+                      <Box sx={{ mt: 1.5, color: 'text.secondary' }}>{metaFor(field.type).icon}</Box>
                       <Stack spacing={1.5} sx={{ flex: 1 }}>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          <Chip label={FIELD_TYPE_META[field.type].label} size="small" sx={{ fontWeight: 700 }} />
+                        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                          <FormControl size="small" sx={{ minWidth: 220 }}>
+                            <InputLabel>ชนิดฟิลด์</InputLabel>
+                            <Select
+                              label="ชนิดฟิลด์"
+                              value={field.type}
+                              onChange={e => changeFieldType(idx, e.target.value as FieldType)}
+                            >
+                              {(ALL_FIELD_TYPES.includes(field.type) ? ALL_FIELD_TYPES : [field.type, ...ALL_FIELD_TYPES]).map(t => (
+                                <MenuItem key={t} value={t}>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    {metaFor(t).icon}
+                                    <span>{metaFor(t).label}</span>
+                                  </Stack>
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                           {field.type !== 'heading' && field.type !== 'paragraph' && field.type !== 'image' && (
                             <FormControlLabel
                               control={<Switch size="small" checked={field.required} onChange={e => updateField(idx, { required: e.target.checked })} />}
@@ -576,38 +677,152 @@ const RegistrationFormManagement = () => {
                             </Tooltip>
                           )}
                         </Stack>
-                        {field.type === 'paragraph' ? (
+                        {field.labelHtml === undefined ? (
+                          <TextField
+                            fullWidth size="small"
+                            label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : field.type === 'paragraph' ? 'เนื้อหา (ขึ้นบรรทัดใหม่ได้)' : 'ข้อความ/คำถาม'}
+                            value={field.label}
+                            onChange={e => updateField(idx, { label: e.target.value })}
+                            multiline={field.type === 'paragraph'}
+                            minRows={field.type === 'paragraph' ? 6 : undefined}
+                          />
+                        ) : (
                           <Box>
                             <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                              เนื้อหา (จัดรูปแบบได้ — ตัวหนา สี หัวข้อย่อย ลิงก์)
+                              {field.type === 'paragraph' ? 'เนื้อหา (จัดรูปแบบได้ — ตัวหนา สี หัวข้อย่อย ลิงก์)' : 'ข้อความ/คำถาม (จัดรูปแบบได้)'}
                             </Typography>
                             {/* label is kept in step with the text, stripped of
                                 markup: the check-in card and the CSV export read
                                 a field by its label and would otherwise show
                                 raw HTML. */}
                             <RichTextEditor
-                              value={field.labelHtml ?? (field.label ? `<p>${field.label}</p>` : '')}
+                              value={field.labelHtml}
                               onChange={html => updateField(idx, { labelHtml: html, label: stripHtml(html) })}
                               uploadFolder="registration-forms"
-                              placeholder="พิมพ์เนื้อหาที่อยากให้ผู้กรอกอ่าน"
+                              placeholder={field.type === 'paragraph' ? 'พิมพ์เนื้อหาที่อยากให้ผู้กรอกอ่าน' : undefined}
                             />
                           </Box>
-                        ) : (
-                          <TextField
-                            fullWidth size="small" label={field.type === 'image' ? 'คำอธิบายรูป (ไม่บังคับ)' : 'ข้อความ/คำถาม'}
-                            value={field.label}
-                            onChange={e => updateField(idx, { label: e.target.value })}
-                          />
                         )}
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={field.labelHtml !== undefined}
+                              onChange={e => updateField(idx, e.target.checked
+                                // Seeded from whatever plain text is already
+                                // there, so turning this on never blanks the
+                                // question someone just typed.
+                                ? { labelHtml: field.label ? `<p>${field.label}</p>` : '' }
+                                : { labelHtml: undefined })}
+                            />
+                          }
+                          label={<Typography variant="caption">จัดรูปแบบข้อความ (สี / ตัวหนา)</Typography>}
+                        />
                         {field.type === 'image' && (
                           <ImageUploadField url={field.imageUrl} onChange={imageUrl => updateField(idx, { imageUrl })} />
                         )}
-                        {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') && (
-                          <TextField
-                            fullWidth size="small" label="ตัวเลือก (คั่นด้วย ,)"
-                            value={(field.options || []).join(', ')}
-                            onChange={e => updateField(idx, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                          />
+                        {isChoiceType(field.type) && (
+                          <Stack spacing={1}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                              ลากไอคอนจุดด้านซ้ายเพื่อจัดลำดับตัวเลือก · เปิด "มีช่องให้กรอก" ที่ตัวเลือกไหน
+                              ผู้กรอกที่เลือกข้อนั้นจะได้ช่องพิมพ์เปิดขึ้นในตัวเลือกนั้นเลย
+                            </Typography>
+                            {(field.options || []).map((opt, oIdx) => (
+                              <Stack
+                                key={oIdx} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={e => {
+                                  e.preventDefault();
+                                  if (dragOption && dragOption.field === idx && dragOption.opt !== oIdx) {
+                                    const next = [...(field.options || [])];
+                                    const [moved] = next.splice(dragOption.opt, 1);
+                                    next.splice(oIdx, 0, moved);
+                                    updateField(idx, { options: next });
+                                  }
+                                  setDragOption(null);
+                                }}
+                                sx={{
+                                  transition: 'opacity 0.15s',
+                                  opacity: dragOption?.field === idx && dragOption?.opt === oIdx ? 0.35 : 1,
+                                  ...(opt.allowText
+                                    ? { bgcolor: '#f6f3ff', borderRadius: 1.5, px: 0.75, mx: -0.75, py: 0.5 }
+                                    : {}),
+                                }}
+                              >
+                                <Box
+                                  draggable
+                                  onDragStart={() => setDragOption({ field: idx, opt: oIdx })}
+                                  onDragEnd={() => setDragOption(null)}
+                                  sx={{
+                                    display: 'flex', alignItems: 'center', color: 'text.disabled',
+                                    cursor: 'grab', '&:active': { cursor: 'grabbing' },
+                                  }}
+                                >
+                                  <DragIcon fontSize="small" />
+                                </Box>
+                                <TextField
+                                  size="small" label="ตัวเลือก" sx={{ flex: 1 }}
+                                  value={opt.label}
+                                  onChange={e => updateField(idx, {
+                                    options: (field.options || []).map((o, i) => i === oIdx ? { ...o, label: e.target.value } : o),
+                                  })}
+                                />
+                                <OptionColorPicker
+                                  value={opt.color}
+                                  onChange={color => updateField(idx, {
+                                    options: (field.options || []).map((o, i) => i === oIdx ? { ...o, color } : o),
+                                  })}
+                                />
+                                {field.type !== 'select' && (
+                                  <Tooltip title='ผู้กรอกที่เลือกตัวเลือกนี้จะได้ช่องพิมพ์ข้อความเปิดขึ้นในตัวเลือกนี้ — ใช้กับ "อื่น ๆ ระบุ ......"'>
+                                    <FormControlLabel
+                                      sx={{ mr: 0 }}
+                                      control={
+                                        <Switch
+                                          size="small"
+                                          checked={!!opt.allowText}
+                                          onChange={e => updateField(idx, {
+                                            options: (field.options || []).map((o, i) => i === oIdx ? { ...o, allowText: e.target.checked || undefined } : o),
+                                          })}
+                                        />
+                                      }
+                                      label={
+                                        <Typography variant="caption" sx={{ fontWeight: opt.allowText ? 700 : 400 }}>
+                                          มีช่องให้กรอก
+                                        </Typography>
+                                      }
+                                    />
+                                  </Tooltip>
+                                )}
+                                <IconButton
+                                  size="small" color="error"
+                                  onClick={() => updateField(idx, { options: (field.options || []).filter((_, i) => i !== oIdx) })}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                            ))}
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ alignSelf: 'flex-start' }}>
+                              <Button
+                                size="small" startIcon={<AddIcon />}
+                                onClick={() => updateField(idx, {
+                                  options: [...(field.options || []), { label: `ตัวเลือก ${(field.options?.length || 0) + 1}` }],
+                                })}
+                              >
+                                เพิ่มตัวเลือก
+                              </Button>
+                              {field.type !== 'select' && !(field.options || []).some(o => o.allowText) && (
+                                <Button
+                                  size="small" startIcon={<AddIcon />} color="secondary"
+                                  onClick={() => updateField(idx, {
+                                    options: [...(field.options || []), { label: 'อื่น ๆ', allowText: true }],
+                                  })}
+                                >
+                                  เพิ่ม "อื่น ๆ" พร้อมช่องให้กรอก
+                                </Button>
+                              )}
+                            </Stack>
+                          </Stack>
                         )}
                         {field.type === 'team_select' && (
                           <Stack spacing={1}>

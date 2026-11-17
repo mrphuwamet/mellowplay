@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ParticipantListField, { ParticipantAnswer, personFieldsOf } from './ParticipantListField';
 import { scrollToTop } from '../utils/scrollToTop';
 import { RespondentIdentity, identityIsComplete, fullNameOf } from '../utils/respondentName';
+import { digitsOnly, isCallablePhone } from '../utils/phone';
 
 interface SurveyField {
   id: number;
@@ -156,6 +157,10 @@ const SurveyFillForm: React.FC<Props> = ({
     // A required email box holds an address or it holds nothing: letting
     // "somchai" through means a receipt that silently never arrives.
     if (f.type === 'email') return typeof v === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
+    // Half a phone number is worse than none — same rule the registration
+    // form's phone field uses, so a callback number collected here is just as
+    // reliable.
+    if (f.type === 'phone') return isCallablePhone(v);
     // Every row has to be complete, not just present: a half-filled person is
     // the thing this check exists to catch. The server checks the same rules
     // again, including which option the first person may take.
@@ -379,6 +384,30 @@ const SurveyFillForm: React.FC<Props> = ({
                   value={value || ''} onChange={e => onChange(field.field_key, e.target.value)}
                   className={inputClass}
                 />
+              </div>
+            );
+          }
+          if (field.type === 'phone') {
+            const current = digitsOnly(value);
+            const callableAccountPhone = isCallablePhone(accountPhone) ? digitsOnly(accountPhone) : '';
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }} className={wrapClass}>
+                {labelEl}
+                <input
+                  type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} placeholder="08XXXXXXXX"
+                  value={current}
+                  onChange={e => onChange(field.field_key, digitsOnly(e.target.value))}
+                  className={inputClass}
+                />
+                {!!callableAccountPhone && current !== callableAccountPhone && (
+                  <button
+                    type="button"
+                    onClick={() => onChange(field.field_key, callableAccountPhone)}
+                    className="mt-2 px-3 py-1.5 rounded-full bg-mellow-purple/10 text-mellow-purple text-[12px] font-bold active:scale-95 transition-transform"
+                  >
+                    {lang === 'en' ? `Use my number (${callableAccountPhone})` : `ใช้เบอร์ของฉัน (${callableAccountPhone})`}
+                  </button>
+                )}
               </div>
             );
           }

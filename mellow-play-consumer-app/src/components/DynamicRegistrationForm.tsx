@@ -175,19 +175,39 @@ const DynamicRegistrationForm: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChildIds, roster, form.id]);
 
+  // An option can carry its own text box (the "อื่น ๆ ระบุ ......" line on a
+  // paper form). Picking it and leaving the box empty is not an answer — same
+  // rule the survey/test builder's options use.
+  const otherBoxSatisfied = (f: RegFormField) => {
+    let opts: { label: string; allowText?: boolean }[] = [];
+    try {
+      opts = (f.options_json ? JSON.parse(f.options_json) : [])
+        .map((o: any) => (typeof o === 'string' ? { label: o } : o));
+    } catch { return true; }
+    const withBox = opts.filter(o => o.allowText);
+    if (withBox.length === 0) return true;
+    const v = answers[f.field_key];
+    const picked = Array.isArray(v) ? v.map(String) : (v == null ? [] : [String(v)]);
+    if (!withBox.some(o => picked.includes(o.label))) return true;
+    return String(answers[`${f.field_key}__other`] ?? '').trim() !== '';
+  };
+
   const isFieldFilled = (f: RegFormField) => {
     // A child-picker field replaces the wizard's own mandatory child step —
     // it must always have at least one selection to proceed, regardless of
     // whatever the CRM builder's "required" toggle says for this field.
     if (isChildPickerField(f)) return (selectedChildIds || []).length > 0;
     const v = answers[f.field_key];
-    if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0;
+    if (f.type === 'checkbox') return Array.isArray(v) && v.length > 0 && otherBoxSatisfied(f);
     // Half a phone number is worse than none: it passes the form and fails
     // when someone actually needs to ring the parent.
     if (f.type === 'phone') return isCallablePhone(v);
+    // A required email box holds an address or it holds nothing — same rule
+    // the survey builder's email field uses.
+    if (f.type === 'email') return typeof v === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
     // Consent is the one field where "filled" and "agreed" are the same thing.
     if (f.type === 'consent') return v != null && String(v).trim() !== '';
-    return v != null && String(v).trim() !== '';
+    return v != null && String(v).trim() !== '' && otherBoxSatisfied(f);
   };
   // A paragraph is copy to read, exactly like a heading — there is nothing in
   // it to answer, so it can never be what blocks the Next button.
@@ -280,7 +300,11 @@ const DynamicRegistrationForm: React.FC<Props> = ({
             );
           }
 
-          const options: string[] = field.options_json ? JSON.parse(field.options_json) : [];
+          // Older rows stored options as plain strings; normalize to the
+          // object shape so an un-re-saved form still renders fine.
+          const options: { label: string; color?: string; allowText?: boolean }[] =
+            (field.options_json ? JSON.parse(field.options_json) : [])
+              .map((o: any) => (typeof o === 'string' ? { label: o } : o));
           const config = field.config_json ? JSON.parse(field.config_json) : {};
           const value = answers[field.field_key];
 
@@ -317,6 +341,41 @@ const DynamicRegistrationForm: React.FC<Props> = ({
 
           const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-mellow-purple/20 focus:border-mellow-purple transition-all";
 
+          // An option with its own colour: outlined when idle so the colour
+          // reads as a label, filled when chosen so the choice is unmistakable.
+          const optionStyle = (color: string | undefined, active: boolean): React.CSSProperties | undefined => {
+            if (!color) return undefined;
+            return active
+              ? { backgroundColor: color, color: '#ffffff', border: `2px solid ${color}` }
+              : { backgroundColor: '#ffffff', color, border: `2px solid ${color}` };
+          };
+
+          // Stored beside the answer as `${field_key}__other`, the same
+          // companion-key convention the family-member picker uses for
+          // __realname/__nickname.
+          const otherBox = (
+            <input
+              type="text"
+              value={answers[`${field.field_key}__other`] || ''}
+              onChange={e => onChange(`${field.field_key}__other`, e.target.value)}
+              placeholder={lang === 'en' ? 'Please specify' : 'โปรดระบุ'}
+              className="w-full px-3.5 py-2.5 bg-white border-2 border-mellow-purple/25 rounded-xl text-sm font-bold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-mellow-purple transition-all"
+            />
+          );
+
+          if (field.type === 'email') {
+            return (
+              <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
+                className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
+                {labelEl}
+                <input
+                  type="email" inputMode="email" autoComplete="email" autoCapitalize="off" spellCheck={false}
+                  value={value || ''} onChange={e => onChange(field.field_key, e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            );
+          }
           if (field.type === 'text') {
             return (
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
@@ -422,7 +481,7 @@ const DynamicRegistrationForm: React.FC<Props> = ({
                 {labelEl}
                 <select value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} className={inputClass}>
                   <option value="">{lang === 'en' ? 'Select...' : 'เลือก...'}</option>
-                  {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  {options.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}
                 </select>
               </div>
             );
@@ -432,13 +491,26 @@ const DynamicRegistrationForm: React.FC<Props> = ({
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
                 className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
-                <div className="flex flex-wrap gap-2">
-                  {options.map(opt => (
-                    <button key={opt} type="button" onClick={() => onChange(field.field_key, opt)}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${value === opt ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      {opt}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-2">
+                  {options.map(opt => {
+                    const chosen = value === opt.label;
+                    const withBox = !!opt.allowText && chosen;
+                    return (
+                      <div key={opt.label} className={withBox ? 'flex flex-col gap-1.5 p-1.5 rounded-2xl bg-mellow-purple/10' : ''}>
+                        <button type="button"
+                          onClick={() => {
+                            onChange(field.field_key, opt.label);
+                            if (!opt.allowText) onChange(`${field.field_key}__other`, '');
+                          }}
+                          style={optionStyle(opt.color, chosen)}
+                          className={`w-full text-left px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                            opt.color ? '' : chosen ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          {opt.label}
+                        </button>
+                        {withBox && otherBox}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -449,15 +521,24 @@ const DynamicRegistrationForm: React.FC<Props> = ({
               <div key={field.field_key} ref={el => { fieldRefs.current[field.field_key] = el; }}
                 className={isInvalid ? 'rounded-2xl ring-2 ring-mellow-red/60 -m-1.5 p-1.5' : ''}>
                 {labelEl}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2">
                   {options.map(opt => {
-                    const checked = arr.includes(opt);
+                    const checked = arr.includes(opt.label);
+                    const withBox = !!opt.allowText && checked;
                     return (
-                      <button key={opt} type="button"
-                        onClick={() => onChange(field.field_key, checked ? arr.filter(o => o !== opt) : [...arr, opt])}
-                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
-                        {opt}
-                      </button>
+                      <div key={opt.label} className={withBox ? 'flex flex-col gap-1.5 p-1.5 rounded-2xl bg-mellow-purple/10' : ''}>
+                        <button type="button"
+                          onClick={() => {
+                            onChange(field.field_key, checked ? arr.filter(o => o !== opt.label) : [...arr, opt.label]);
+                            if (opt.allowText && checked) onChange(`${field.field_key}__other`, '');
+                          }}
+                          style={optionStyle(opt.color, checked)}
+                          className={`w-full text-left px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                            opt.color ? '' : checked ? 'bg-mellow-purple text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          {opt.label}
+                        </button>
+                        {withBox && otherBox}
+                      </div>
                     );
                   })}
                 </div>

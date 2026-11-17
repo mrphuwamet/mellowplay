@@ -263,7 +263,10 @@ const RegistrationFormFields = ({
           return wrap(<TextField fullWidth size="small" type="date" label={requiredLabel} value={value || ''} onChange={e => onChange(field.field_key, e.target.value)} InputLabelProps={{ shrink: true }} />);
         }
         if (field.type === 'select' || field.type === 'radio') {
-          const options: string[] = field.options_json ? JSON.parse(field.options_json) : [];
+          // Older rows stored options as plain strings; the builder now saves
+          // them as { label, color?, allowText? } objects.
+          const options: string[] = (field.options_json ? JSON.parse(field.options_json) : [])
+            .map((o: any) => (typeof o === 'string' ? o : o.label));
           return wrap(
             <FormControl fullWidth size="small">
               <InputLabel>{requiredLabel}</InputLabel>
@@ -275,7 +278,8 @@ const RegistrationFormFields = ({
           );
         }
         if (field.type === 'checkbox') {
-          const options: string[] = field.options_json ? JSON.parse(field.options_json) : [];
+          const options: string[] = (field.options_json ? JSON.parse(field.options_json) : [])
+            .map((o: any) => (typeof o === 'string' ? o : o.label));
           const arr: string[] = Array.isArray(value) ? value : [];
           return wrap(
             <Box>
