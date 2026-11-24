@@ -42,6 +42,7 @@ export async function sendBookingSuccessNotifications(
     const { results: rows } = await db.prepare(`
       SELECT
         b.id as booking_id, b.course_id, b.scheduled_at, b.form_submission_id, b.qr_token,
+        b.price as booking_price, b.extras_price as booking_extras_price,
         COALESCE(hp.nickname, hp.name) as child_name,
         hp.name as child_real_name, hp.nickname as child_nickname,
         (u.first_name || ' ' || u.last_name) as parent_name,
@@ -93,6 +94,11 @@ export async function sendBookingSuccessNotifications(
       branch_name: first.branch_name ?? '',
       ...buildLocationVariables(first),
       scheduled_at: formatThaiDateTime(first.scheduled_at),
+      // Sum across every booking in this sibling checkout — one message
+      // covers the whole group, so the amount it quotes is the whole bill.
+      amount: bookingRows
+        .reduce((sum, r) => sum + (Number(r.booking_price) || 0) + (Number(r.booking_extras_price) || 0), 0)
+        .toLocaleString('th-TH'),
     };
 
     const smsRepo = new SmsRepository(db);
